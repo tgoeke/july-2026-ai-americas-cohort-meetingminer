@@ -1,0 +1,134 @@
+# Project overrides for bmad-build-auto.
+#
+# Merge rules (see the skill's customize.toml): strings replace, lists append,
+# tables merge key by key, arrays of tables merge by `id`.
+
+[workflow]
+
+# Added 2026-08-18 after story 1.3 was planned and implemented on a local
+# branch that had silently diverged from origin/main at 3f0b52b. Both sides had
+# independently implemented story 1.10, so the run built on a story-1.10 variant
+# that no longer existed upstream, and the divergence only surfaced at push time
+# — after three commits were already sitting on the wrong base.
+#
+# Step 01's version-control sanity check requires a clean tree, a fitting
+# branch, and writable metadata. None of those detect divergence: the tree was
+# spotlessly clean the whole time. This gate closes that gap.
+
+activation_steps_append = [
+  """
+**Remote-sync gate.** Run this before step 01's version-control sanity check.
+
+Skip the gate entirely if version control is unavailable or the current branch
+has no upstream. Otherwise:
+
+1. Fetch the current branch's upstream (`git fetch <remote>`).
+2. Compare: `git rev-list --left-right --count HEAD...@{u}`.
+
+Act on the result:
+
+- **`0	0` (in sync)** — continue.
+- **`N	0` (ahead only)** — unpushed local commits. Continue, but carry
+  `unpushed-commits` forward and name it in the final report.
+- **`0	N` (behind only)** — fast-forward with `git merge --ff-only @{u}`, then
+  continue. Plan and implement against the updated tree, never the stale one; a
+  spec whose Code Map cites line numbers from a superseded revision is wrong
+  before it is written.
+- **`N	M` (diverged)** — HALT with status `blocked` and blocking condition
+  `local branch diverged from upstream`. In the blocking condition include: the
+  merge base, both commit lists, and the set of files changed on both sides
+  (`git diff --name-only <base> HEAD` intersected with
+  `git diff --name-only <base> @{u}`).
+
+Never merge, rebase, reset, or force-push to resolve divergence during an
+unattended run. Divergence means someone else's committed work is at stake and
+choosing which history survives is a human decision, not a workflow step.
+""",
+]
+
+# Added at the same time and for the same incident: story 1.3 finished
+# implementation and verification, then sat entirely in the working tree across
+# several subsequent turns. A completed story that exists only as uncommitted
+# files is indistinguishable from an abandoned one, and it blocks the next
+# story, whose step 01 requires a clean tree.
+
+on_complete = """
+Skip all of this if version control is unavailable, or if the run ended
+`blocked` — report the blocking condition and stop.
+
+Otherwise, when the run ends `in-review` or `done`, work through all four steps
+in order. The fourth is the run's final output.
+
+**1. Commit.** Stage only this story's change set — never `git add -A`. Anything
+in the tree you did not write belongs to someone else and stays unstaged. Split
+unrelated concerns (the story, fixes for a prior story's review findings,
+documentation) into separate commits, each with a message naming the story and
+saying what changed and why.
+
+**2. Push.** Push the current branch to its upstream. If the push is rejected as
+non-fast-forward, do not force and do not rebase unattended: leave the commits
+in place and report the rejection with the same divergence detail the
+remote-sync gate collects.
+
+**3. Announce and confirm.** State each of the following as a fact you have just
+verified by running the command. Never assert any of them from memory or from
+what a subagent reported:
+
+- Story id, title, and final status.
+- Verification: the exact commands from the spec's `## Verification` section,
+  and their real results — test counts, pass/fail, any skips. If a step was
+  skipped or could not run, say so explicitly rather than omitting it.
+- Every commit revision created, with its subject line.
+- The push result, plus `git rev-list --left-right --count HEAD...@{u}`
+  showing `0	0`.
+- `git status --porcelain` returning empty.
+
+If any of these cannot be confirmed, name which one and why. A story is not
+complete until all five hold; say plainly that it is incomplete rather than
+implying otherwise.
+
+**4. Generate the reviewer handoff prompt.** Write it to
+`_bmad-output/implementation-artifacts/review-prompt-story-<story-id>-<date>.md`. The
+user carries this file to the Codex `bmad-code-review` agent by hand, so it must
+stand alone — the reviewer has none of this run's context.
+
+**The prompt MUST OPEN with the required output, before anything else.** Six
+reviews in this repo produced their report only as terminal text because the
+file requirement sat at the tail of a long prompt, compacted out of context by
+wrap-up time. The first section of the generated prompt is therefore:
+
+- The report path
+  (`_bmad-output/implementation-artifacts/review-story-<story-id>-<date>.md`),
+  the finding structure (Location / Severity / Finding / Evidence / Suggested
+  direction), and report-findings-don't-fix.
+- The REPORT-FIRST instruction: create and commit the report file as a skeleton
+  (scope, range, empty findings section) BEFORE reading any code, then append
+  each finding as it is confirmed and commit incrementally. A crashed or closed
+  session must lose prose, never the artifact.
+- The closeout check: before reporting completion, run `make check-reviews`
+  (it fails while any dispatched review lacks a committed report — including
+  this one) and state the SHA carrying the report's final version. A review
+  reported in the terminal but not filed does not exist.
+
+Then include, after that opening section:
+
+- Repo path, branch, and the exact review range (`<base>..HEAD`), with the
+  commits in it listed by revision and subject.
+- The spec path, and which part of it is frozen intent versus planner work the
+  reviewer may critique.
+- The architecture authority files that govern the change, named specifically
+  (which decision records apply, not just the file path).
+- Scope: the in-scope file list; what is explicitly out of scope (later stories'
+  functionality, vendored trees, already-recorded deferred items); and any
+  commit in the range that belongs to a different story, called out separately.
+- The design decisions made during planning that the reviewer should attack,
+  each stated as the choice plus the assumption it rests on. This is the part
+  that earns its keep: the planner is not a neutral judge of its own calls, so
+  hand them over rather than hoping they are rediscovered.
+- Any history the reviewer needs to tell a regression from a pre-existing
+  condition (a rebase, a dropped variant, a superseded baseline).
+- The verification baseline — the commands and their current results — so that a
+  skip or failure during review reads as a finding rather than as noise.
+Then tell the user the file path and that it is ready to hand to the Codex
+`bmad-code-review` agent. That is the final thing the run says.
+"""

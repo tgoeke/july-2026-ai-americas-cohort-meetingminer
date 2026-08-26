@@ -1,0 +1,35 @@
+# The judge bake-off's candidates (eval-design §7): one per pool, all behind
+# the standard `LlmRoleBinding` shape `server/meetingminer/config.py` already
+# declares for `llm.roles.*`. This file is configuration, not code — swapping
+# a candidate is an edit here, never a code change (AD-8/AD-10).
+#
+# No literal API key or token appears anywhere below. Every model resolves
+# through `config.yaml`'s `providers` map exactly the way `llm.roles.*` does;
+# credentials stay in `.env` and are read by LiteLLM itself
+# (ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY).
+#
+# `evals/harness/bakeoff.py` forces `fallback: null` on every candidate at
+# call time regardless of what is written here — a bake-off exists to pin the
+# exact model that answered, and a silent substitution would attribute a
+# reply to the wrong one.
+
+- pool: frontier-api
+  label: claude-sonnet-5
+  model: claude-sonnet-5
+
+- pool: local-ollama
+  label: qwen3-30b
+  model: ollama/qwen3:30b
+  # This is the dev LAN's own Ollama box (the same endpoint config.yaml's
+  # `llm.roles.extraction.base_url` already points at) — not a portable
+  # address. Running the bake-off from a different machine means editing this
+  # to that machine's own Ollama endpoint (or `http://localhost:11434` if it
+  # serves the model locally); see config.yaml's own note on this value.
+  base_url: http://10.77.0.52:11434
+  num_ctx: 65536
+  timeout_seconds: 300
+
+- pool: hosted-open-weight
+  label: kimi-k2
+  model: openrouter/moonshotai/kimi-k2
+  timeout_seconds: 300

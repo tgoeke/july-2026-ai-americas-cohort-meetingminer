@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meetingminer.local/schemas/source-drop/3/metadata.json",
+  "title": "MeetingMiner source-drop metadata.json (schemaVersion 1-3)",
+  "description": "Contract for the metadata.json sidecar inside a source-drop directory (AD-1). This schema describes versions 1 through 3: every version 1 drop still validates unchanged, version 2 adds the optional `augments` declaration, and version 3 adds the optional `extractions` declaration. A drop is one write-once directory whose canonical filenames are: metadata.json (required, this schema), recording.mp4, transcript.vtt, transcript.txt, extraction-summary.md, extraction-action-items.md. At least one of recording.mp4 / transcript.vtt / transcript.txt must be present (a file-presence rule enforced at intake, not expressible here). All other files in the drop directory are ignored at intake. Drop contents are read-only after intake. A drop carrying `augments` does not open a new occurrence: it re-arms the declared occurrence's existing ingestion job so evidence the occurrence lacks - a recording recovered later, or the participant graph for a meeting whose drop was emitted without one - is processed against the meeting that already exists (AD-14), which is why it must declare `schemaVersion` 2 or higher - a consumer pinned to version 1 must fail on it rather than silently ignore the field and ingest the drop as a second meeting. A drop carrying `extractions` declares that the source side already produced the derivative extraction documents (extraction-summary.md, extraction-action-items.md) beside the transcript, so the pipeline parses them instead of asking a model to re-derive what was already derived; it must declare `schemaVersion: 3` for the same fail-closed reason.",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "description": "Version of this drop contract. 1 is the original shape; 2 adds the optional `augments` declaration and is the minimum whenever `augments` is present; 3 adds the optional `extractions` declaration and is required whenever `extractions` is present.",
+      "enum": [1, 2, 3]
+    },
+    "sourceId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The occurrence's stable identity from the source side (e.g. recording drive-item ID or Stream URL). One live (non-failed) ingestion job may exist per sourceId."
+    },
+    "corpus": {
+      "enum": ["scripted", "real"],
+      "description": "Eval-relevant tag carried onto the Meeting row: scripted meetings are future eval subjects; real meetings are demo corpus only."
+    },
+    "startedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|\\+00:00)$",
+      "description": "Meeting start wall-clock, full ISO 8601 UTC. Derived by the source side (never re-derived by the pipeline from media metadata)."
+    },
+    "startedAtPrecision": {
+      "enum": ["second", "day"],
+      "description": "second: startedAt carries a real time of day. day: only the date is known; the time part is 00:00:00 UTC."
+    },
+    "provenance": {
+      "type": "object",
+      "description": "The source side's provenance record embedded verbatim (e.g. the puller's _source.json content). Open object: fields vary per source.",
+      "additionalProperties": true
+    },
+    "participants": {
+      "type": "array",
+      "description": "Best-effort participant list from the source side. The Teams puller maps its per-occurrence participant graph (`<stem> org chart.json`) into this array, renaming the chart's `name` to `displayName` and passing every other field through verbatim; the array is omitted rather than emitted empty when no usable chart exists. When omitted, the pipeline derives participants from transcript speaker attribution. An empty array is not the same statement: it says the source looked and found nobody, and the pipeline does not fall back to transcript labels for it.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "aadObjectId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Legacy source-side field, retained so an existing drop still validates. The pipeline ignores it: Microsoft Graph and AAD object IDs are an explicit non-goal, no server component calls Graph. When the source supplies mail, the pipeline deduplicates participants by mail; otherwise it falls back to normalized display name."
+          }
+        },
+        "required": ["displayName"],
+        "additionalProperties": true
+      }
+    },
+    "augments": {
+      "type": "object",
+      "description": "Declares that this drop augments an occurrence already ingested, rather than opening a new one. The drop must bring evidence the occurrence lacks - a recording the meeting has not got, or a `participants` array its current drop has not got; intake refuses one that adds neither. Intake resolves the declared occurrence and re-arms its existing ingestion job against this drop (AD-14), so the meeting id - and therefore every moment id, citation, and published artifact naming it - survives; only the stages the new evidence invalidates are re-queued, so a drop that adds no recording never re-runs the video stages. The declaration, not the drop's own sourceId, is the link: a recording recovered from a different source location legitimately carries its own sourceId, so `sourceId` and `augments.sourceId` may differ.",
+      "properties": {
+        "sourceId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The sourceId of the already-ingested occurrence this drop augments."
+        }
+      },
+      "required": ["sourceId"],
+      "additionalProperties": false
+    },
+    "extractions": {
+      "type": "object",
+      "description": "Declares the derivative extraction documents this drop carries beside its evidence. The Teams puller runs its two summariser prompts over the transcript and copies the results in as `extraction-summary.md` (the architecture summary) and `extraction-action-items.md` (the owner-grouped action items). Each key names the canonical drop filename for that document; a key is present only when the file is. The object is omitted entirely - never emitted empty - when the drop carries neither, which is why `minProperties` is 1. These documents are derivative, not evidence: they never make a drop ingestible on their own, and a drop carrying only them is still refused. The `extract` stage parses a declared document rather than asking a model to re-derive it, and records the file's path, sha256 and byte size as arrived material (AD-17).",
+      "properties": {
+        "archSummary": {
+          "const": "extraction-summary.md",
+          "description": "The architecture-summary document, whose decision items become ADR artifacts."
+        },
+        "actionItems": {
+          "const": "extraction-action-items.md",
+          "description": "The owner-grouped action-items document, whose rows become action-item artifacts."
+        }
+      },
+      "minProperties": 1,
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "sourceId",
+    "corpus",
+    "startedAt",
+    "startedAtPrecision",
+    "provenance"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "required": ["augments"]
+      },
+      "then": {
+        "properties": {
+          "schemaVersion": {
+            "minimum": 2,
+            "description": "A drop carrying `augments` must declare version 2 or higher, so a consumer pinned to version 1 fails closed instead of ignoring the field. A minimum rather than a const: an augmenting drop that also carries `extractions` declares version 3, and pinning this to 2 would make that drop unsatisfiable."
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["extractions"]
+      },
+      "then": {
+        "properties": {
+          "schemaVersion": {
+            "minimum": 3,
+            "description": "A drop carrying `extractions` must declare version 3 or higher, so a consumer pinned to an older version fails closed instead of ignoring the declaration and asking a model to re-derive documents the drop already holds."
+          }
+        }
+      }
+    }
+  ],
+  "if": {
+    "properties": {
+      "startedAtPrecision": {
+        "const": "day"
+      }
+    },
+    "required": ["startedAtPrecision"]
+  },
+  "then": {
+    "properties": {
+      "startedAt": {
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}T00:00:00(\\.0+)?(Z|\\+00:00)$",
+        "description": "With day precision only the date is known, so the time part must be 00:00:00 UTC."
+      }
+    }
+  },
+  "additionalProperties": false
+}

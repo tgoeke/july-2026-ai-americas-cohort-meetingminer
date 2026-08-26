@@ -1,0 +1,1012 @@
+"""Shared typed loader for config.yaml + .env secrets (AD-10).
+
+Both the api and the worker load configuration through this module and only
+this module. Every adapter binding comes from the single versioned root
+``config.yaml``; environment variables (``.env``) carry secrets and
+``MM_CONTENT_ROOT`` only. Any load failure raises :class:`ConfigError` —
+callers exit non-zero; there is no silent default.
+
+File resolution never derives from ``__file__`` (the wheel ships this module
+far from the repo): ``config.yaml`` resolves from ``MM_CONFIG_PATH`` when
+set, else ``./config.yaml`` relative to the current working directory; the
+``.env`` file resolves from ``MM_ENV_PATH``, else ``./.env``. The ``docs/``
+tree (e.g. the source-drop schema) anchors off the resolved config file's
+parent directory — one anchor, no second mechanism.
+
+The ``.env`` dialect is python-dotenv's, which matches docker compose
+``--env-file`` semantics for the constructs we document in ``.env.example``
+(``export`` prefixes, quoting, inline comments). Comments are never stripped
+from quoted values.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+from typing import Annotated, Literal
+
+import yaml
+from dotenv import dotenv_values
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    ValidationError,
+    model_validator,
+)
+
+DEFAULT_CONFIG_FILENAME = "config.yaml"
+DEFAULT_ENV_FILENAME = ".env"
+SUPPORTED_CONFIG_VERSION = 1
+
+# Test/ops overrides for the default file locations (used by the fail-fast
+# tests to point a subprocess at a missing/broken config without touching
+# the repo's real files). Explicit load_config() arguments still win.
+CONFIG_PATH_ENV_VAR = "MM_CONFIG_PATH"
+ENV_PATH_ENV_VAR = "MM_ENV_PATH"
+
+
+class ConfigError(RuntimeError):
+    """Raised when config.yaml is missing, unparseable, or invalid."""
+
+
+def _resolve(
+    explicit: str | Path | None, env_var: str, filename: str
+) -> tuple[Path, str]:
+    """Resolve a config-owned file path plus a human description of how.
+
+    Order: explicit argument, then the ``env_var`` override, then
+    ``./filename`` relative to the current working directory.
+    """
+    if explicit is not None:
+        return Path(explicit), f"explicit path {explicit}"
+    override = os.environ.get(env_var)
+    if override:
+        return Path(override), f"{env_var}={override}"
+    return (
+        Path.cwd() / filename,
+        f"{env_var} (unset) and ./{filename} relative to {Path.cwd()}",
+    )
+
+
+def resolve_config_path(explicit: str | Path | None = None) -> Path:
+    """The config.yaml location load_config() would use."""
+    return _resolve(explicit, CONFIG_PATH_ENV_VAR, DEFAULT_CONFIG_FILENAME)[0]
+
+
+def resolve_env_path(explicit: str | Path | None = None) -> Path:
+    """The .env location load_config() would use."""
+    return _resolve(explicit, ENV_PATH_ENV_VAR, DEFAULT_ENV_FILENAME)[0]
+
+
+def docs_root(config_path: str | Path | None = None) -> Path:
+    """The repo ``docs/`` directory, anchored to the resolved config file.
+
+    ``docs/source-drop.schema.json`` and friends live beside ``config.yaml``
+    at the repo root, so the resolved config file's parent is the one anchor
+    for both (finding 17 — never ``__file__``).
+
+    Callers holding an :class:`AppConfig` should pass ``config.config_path``
+    rather than relying on re-resolution: an explicit path handed to
+    :func:`load_config` is not visible to ``MM_CONFIG_PATH``/cwd lookup, and
+    cwd can change between the two calls.
+    """
+    return resolve_config_path(config_path).resolve().parent / "docs"
+
+
+class _StrictModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+NonEmptyText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+OcrEngineName = Literal["apple-vision", "tesseract"]
+
+
+class OcrConfig(_StrictModel):
+    """The `Ocr` port binding (AD-8).
+
+    ``fallback`` mirrors the shape ``llm.roles.*.fallback`` already uses: the
+    story-1.4 acceptance criterion asks for Apple Vision as *primary* with
+    Tesseract as a *swappable fallback*, which one ``engine`` key cannot
+    express. The fallback engages only when the primary engine is unavailable
+    on this host, and the substitution is logged.
+    """
+
+    engine: OcrEngineName
+    fallback: OcrEngineName | None = None
+
+
+class SttConfig(_StrictModel):
+    """The `Stt` port binding (AD-8).
+
+    No ``fallback`` key, deliberately: the acceptance criterion asks for
+    mlx-whisper as the default with parakeet-mlx *swappable*, not for an
+    automatic substitute. ``model`` is part of the binding because the two
+    engines take different model identifiers, and because the model that
+    produced a verification lane is recorded on its `transcript_source` row.
+    """
+
+    engine: Literal["mlx-whisper", "parakeet-mlx"]
+    model: NonEmptyText
+
+
+class DiarizerConfig(_StrictModel):
+    engine: Literal["noop", "pyannote"]
+
+
+class LlmRoleBinding(_StrictModel):
+    """One role's model binding, plus the per-role call settings it needs.
+
+    The three optional fields exist because a role can need an endpoint and a
+    request shape the shared `providers` map cannot express:
+
+    * ``base_url`` overrides ``providers.<prefix>.base_url`` **for this role
+      only**, and for its *primary model only*. ``providers.ollama.base_url``
+      is a single value the *embedder* also resolves, so a role served by a
+      different Ollama host cannot be pointed at it without breaking
+      embeddings.
+    * ``fallback_base_url`` does the same for the fallback model, and is
+      normally absent. The primary's endpoint is not inherited: the fallback is
+      a *different* model, and assuming the primary's host serves it is how a
+      fallback becomes silently dead — leaving "both models failed" as the only
+      outcome the first time the primary is unreachable. Absent, the fallback
+      resolves through ``providers`` exactly as it did before the role gained
+      an endpoint at all.
+    * ``timeout_seconds`` replaces the adapter's default per call. A
+      whole-transcript extraction pass on a large local model runs for minutes;
+      the default is sized for a short prompt.
+    * ``num_ctx`` is a correctness setting for Ollama-served models, not
+      tuning: Ollama's default context silently truncates a long transcript,
+      and a truncated transcript yields fewer artifacts while reporting
+      success.
+    """
+
+    model: str
+    fallback: str | None = None
+    base_url: str | None = None
+    fallback_base_url: str | None = None
+    timeout_seconds: float | None = Field(default=None, gt=0)
+    num_ctx: int | None = Field(default=None, gt=0)
+
+
+class ExtractionRoleBinding(LlmRoleBinding):
+    """The extraction role's binding, plus its two visible prompt templates.
+
+    Story 4.2 (AD-8/AD-10, epics AC1/AC3): a prompt swap is a config edit,
+    never a code change, so the two whole-transcript prompt templates live
+    here rather than as Python string constants. Each is required and
+    non-empty — there is no code-level default the generate path falls back
+    to at runtime — and each is the *complete* text sent to the model (plus
+    the code-owned meeting header and transcript): no `{rules}` templating
+    indirection, so what a config reader sees is literally what gets sent.
+    """
+
+    arch_summary_prompt: NonEmptyText
+    action_items_prompt: NonEmptyText
+
+
+class LlmRoles(_StrictModel):
+    extraction: ExtractionRoleBinding
+    chat: LlmRoleBinding
+    judge: LlmRoleBinding
+
+
+class LlmConfig(_StrictModel):
+    roles: LlmRoles
+
+
+class EmbedderConfig(_StrictModel):
+    model: str
+    dimension: int = Field(gt=0)
+
+
+class ProviderEndpoint(_StrictModel):
+    base_url: str
+
+
+class PostgresStore(_StrictModel):
+    host: NonEmptyText
+    port: int = Field(ge=1, le=65535)
+    database: NonEmptyText
+    user: NonEmptyText
+
+
+class Neo4jStore(_StrictModel):
+    uri: NonEmptyText
+    user: NonEmptyText
+
+
+class MeilisearchStore(_StrictModel):
+    url: NonEmptyText
+
+
+class StoresConfig(_StrictModel):
+    postgres: PostgresStore
+    neo4j: Neo4jStore
+    meilisearch: MeilisearchStore
+
+
+class FramesConfig(_StrictModel):
+    """Frame-sampling knobs for the ``frames`` stage (story 1.3)."""
+
+    # Seconds between sampled frames; ffmpeg runs `fps=1/interval_seconds`.
+    # Offsets are persisted as integer milliseconds. Smaller values can round
+    # consecutive samples onto the same offset and violate frame's unique key.
+    interval_seconds: float = Field(ge=0.001)
+    # ffmpeg's -q:v for the sampled JPEGs: 2 is best quality, 31 is worst.
+    jpeg_quality: int = Field(ge=2, le=31)
+
+
+class ScreensConfig(_StrictModel):
+    """Segmentation, identity, and view-type knobs for the ``screens`` stage.
+
+    Every threshold the stage compares against lives here, never as a code
+    constant (AD-10): tuning capture density or the classifier is a config
+    edit. The Epic 5 harness scores the outputs, so the rules stay
+    deterministic — no model call reads these.
+    """
+
+    # --- pixel analysis (story 1.11) -------------------------------------
+    # Width every frame is decoded down to before it is measured or compared.
+    # Decode cost is a portability choice, never a feasibility one
+    # (capture-measurements.md §1), so this is only about staying cheap.
+    analysis_width: int = Field(ge=16, le=4096)
+    # Per-pixel 0-255 delta at or above which a pixel counts as "changed".
+    # At least 1: the comparison is `histogram[pixel_diff_threshold:]`, so 0
+    # counts every pixel and reports two identical frames as wholly changed.
+    pixel_diff_threshold: int = Field(ge=1, le=255)
+    # Brightness above which a pixel counts as "white" for the camera-vs-share
+    # test and the webcam-column survey (§4 measured the pair at > 200).
+    # At most 254: the comparison is `histogram[white_pixel_level + 1:]`, so
+    # 255 leaves nothing above it and every frame reads as pure black.
+    white_pixel_level: int = Field(ge=0, le=254)
+
+    # --- capture cue + settle (story 1.11) --------------------------------
+    # Cropped change between the last emitted shot and the frame in hand that
+    # starts a new capture (cue `region-change`). It is one bounded diff of
+    # two frames, not a sum of per-frame deltas: drift shows up because the
+    # frame keeps moving further from the emitted shot, not because anything
+    # accumulates. Deliberately below §2's cropped p50 of 0.19 for real screen
+    # changes: NFR8 biases toward an extra capture. Not capped at 1.0, so a
+    # value above 1.0 is a legitimate way to disable the cue outright.
+    change_threshold: float = Field(gt=0.0)
+    # The lower emit-gate floor for same-chrome screens (demo-001 fix). Two
+    # dense UI pages sharing browser and app chrome can sit under
+    # `change_threshold` at analysis scale (measured 0.047-0.081 at 320px on
+    # demo-001) — what separates them from a transient blip is that the
+    # change *stays*: the region goes pixel-quiet at a new sustained distance
+    # from the emitted shot. A settled frame at or above this floor counts
+    # toward a run; `settled_change_frames` consecutive ones cue a capture
+    # (`settled-change`). Like `change_threshold`, a value above 1.0 disables
+    # the cue outright.
+    settled_change_threshold: float = Field(gt=0.0)
+    # Consecutive settled frames at or above `settled_change_threshold`
+    # required before the settled-change cue fires. At the 2 s sampling
+    # interval, 3 frames is 6 seconds of a screen holding its new state —
+    # transients (menus, cursors, tooltips) measured on demo-001 spiked for
+    # one to two frames and returned to ~0.
+    settled_change_frames: int = Field(ge=1)
+    # Consecutive-frame change at or below this means the region has settled,
+    # and that first quiet frame is the one emitted (§3). Emitting at the
+    # moment of change captures spinners and blank mid-load pages instead.
+    settle_threshold: float = Field(ge=0.0, le=1.0)
+    # A page can be pixel-quiet and still be painting: a skeleton grid holds
+    # steady between two-second samples while its text has not arrived. So a
+    # frame counts as settled only if the next frame does not carry more than
+    # this multiple of its cropped text blocks. Measured on the 57-minute
+    # meeting: a loading spreadsheet went 32 -> 82 blocks (2.6x) across one
+    # sample while its pixels moved 0.009, under the settle threshold.
+    settle_text_growth_ratio: float = Field(ge=1.0)
+    # How long to wait for a settle before emitting anyway and tagging the
+    # capture `likely-transition` (§3 measured zero timeouts, max wait 2.0 s).
+    settle_timeout_seconds: float = Field(gt=0.0)
+
+    # --- share-region survey (story 1.11) ---------------------------------
+    # Frames sampled across the whole recording for the detect-once crop
+    # survey (§2 used 24, spanning the full hour).
+    crop_survey_frames: int = Field(ge=1)
+    # A column whose mean white fraction stays at or below this is webcam
+    # tiles, not shared screen (measured gap: column 0.00-0.13, share ~0.62).
+    crop_column_white_max: float = Field(ge=0.0, le=1.0)
+    # A detected share region narrower than this is refused as implausible and
+    # the full frame is used instead, with the crop recorded as undetected.
+    crop_min_region_width: float = Field(gt=0.0, le=1.0)
+    # A row whose brightness range across the survey stays at or below this is
+    # static chrome, i.e. the taskbar (measured gap: taskbar ~48, live ~200).
+    crop_row_static_range_max: float = Field(ge=0.0, le=255.0)
+    # Cap on how much of the frame the detected bottom strip may take.
+    crop_max_bottom_strip: float = Field(ge=0.0, lt=1.0)
+
+    # --- view classification from pixels (story 1.11) ---------------------
+    # Camera/gallery video is dark and saturated where screen share is bright
+    # and desaturated; §4 separated 8 camera shots from 55 share shots
+    # perfectly with both thresholds set mid-gap (white 0.046 vs 0.190,
+    # saturation 0.292 vs 0.132). Both must hold, and this pair is tested
+    # before any text-geometry rule.
+    #
+    # Second consumer (story demo-001-capture-recall): the opening title-
+    # slate fold in `segment_captures` treats a one-sample first frame as a
+    # recorder slate only when it is dark (white_fraction at or under
+    # `camera_max_white_fraction`) AND desaturated (mean_saturation under
+    # `camera_min_saturation`) — failing both of §4's classes at once. A
+    # camera retune therefore knowingly moves the fold boundary too.
+    camera_max_white_fraction: float = Field(ge=0.0, le=1.0)
+    camera_min_saturation: float = Field(ge=0.0, le=1.0)
+
+    # An existing screen whose signature scores at least this against a new
+    # capture's signature is reused, giving a Screen lineage across meetings.
+    lineage_threshold: float = Field(ge=0.0, le=1.0)
+    # Below this many tokens a signature carries no evidence, so the screen's
+    # identity is scoped to its meeting rather than collapsing every textless
+    # screen in the corpus onto one row. At least 1: zero would invert the
+    # guard, letting an empty signature hash to a corpus-wide key and collapse
+    # every textless screen onto the single row this exists to prevent.
+    min_signature_tokens: int = Field(ge=1)
+    # View-type classification from the representative frame's normalized
+    # (0-1) block geometry; first match wins, else `ui-screen`.
+    gallery_max_blocks: int = Field(ge=0)
+    gallery_max_text_density: float = Field(ge=0.0, le=1.0)
+    slide_min_block_height: float = Field(ge=0.0, le=1.0)
+    slide_max_blocks: int = Field(ge=0)
+
+
+class AlignConfig(_StrictModel):
+    """Reconciliation knobs for the ``align`` stage (story 1.5).
+
+    Both transcript lineages are second-precision, so the
+    anchor window is a couple of seconds rather than the minute a
+    minute-granularity assumption would imply. Every number the aligner
+    compares against lives here, never as a code constant (AD-10), and no
+    model call reads any of them — alignment is deterministic code output.
+    """
+
+    # Half-width of the window, in seconds, inside which a provided segment
+    # may be anchored to an STT segment. Widening it admits more matches and
+    # more wrong ones; a provided segment with no STT segment inside the
+    # window is left unmatched rather than snapped to the nearest one.
+    anchor_window_seconds: float = Field(gt=0.0, le=600.0)
+    # Token-overlap score (0-1) a candidate pair must reach to count as the
+    # same speech. Below it the pair is left unmatched — an unverified segment
+    # is honest, a wrongly anchored one is not.
+    min_match_score: float = Field(ge=0.0, le=1.0)
+    # A provided turn gives only a start, so its end defaults to the next
+    # turn's start; this caps that span for the last turn and for a long gap,
+    # keeping a trailing segment from claiming the rest of the meeting.
+    max_segment_ms: int = Field(gt=0)
+
+
+class MomentsConfig(_StrictModel):
+    """Boundary thresholds for the ``moments`` stage (story 1.6).
+
+    The two numbers the stage compares against, and the only two — moment
+    identification is deterministic code (AD-13) and no model call reads either
+    of them (AD-10). Both were measured over the 28 real transcripts; the
+    rationale lives beside the values in ``config.yaml``.
+    """
+
+    # Start-to-start distance between consecutive turns, above which the later
+    # turn opens a new moment. Start-to-start rather than end-to-start because
+    # `align` synthesizes a turn's end as the next turn's start, so end-to-start
+    # gaps are zero almost everywhere and carry no signal.
+    gap_seconds: float = Field(gt=0.0)
+    # Backstop, not a working knob: a block of continuous talk is cut here so a
+    # single unbroken stretch cannot become one unciteable hour-long moment.
+    max_duration_ms: int = Field(gt=0)
+
+
+class PipelineConfig(_StrictModel):
+    frames: FramesConfig
+    screens: ScreensConfig
+    align: AlignConfig
+    moments: MomentsConfig
+
+
+class ChunkingConfig(_StrictModel):
+    """Transcript chunking for the retrieval index (story 1.7).
+
+    A recorded tuning lever, never a code constant. The upstream bake-off held
+    chunk size and overlap fixed across all nine model configurations and its
+    own limitations section attributes a meaningful share of misses to the
+    answer sitting one chunk over — so boundaries are the larger lever, and
+    they interact directly with how precisely a screenshot ties to what was
+    said (`retrieval-prior-art.md` §6-§7).
+    """
+
+    # Characters a chunk is packed to. Whole speaker turns only — a turn that
+    # alone exceeds this becomes its own oversized chunk rather than being
+    # split, because speaker attribution is what the graph edges and the
+    # citation timestamps hang off.
+    chunk_max_chars: int = Field(gt=0)
+    # Whole turns repeated from the end of the previous chunk. Zero is a
+    # legitimate choice; the measured configuration is one.
+    chunk_overlap_turns: int = Field(ge=0)
+
+
+class SearchIndexConfig(_StrictModel):
+    """Deliberate Meilisearch settings for one index (AD-4, SPEC Constraints).
+
+    Full-text is a first-class half of retrieval, not a fallback behind
+    vectors: measured on this corpus, 0 of 9 embedding models beat BM25 alone
+    on transcript-worded queries (`retrieval-prior-art.md` §7 finding 1). That
+    is why these are declared rather than left at store defaults.
+
+    ``searchable_attributes`` is **ordered**, and the order *is* the field
+    boost: Meilisearch 1.53 has no per-field weight, so an earlier attribute
+    outranks a later one through the ``attribute`` ranking rule. Both lists are
+    therefore load-bearing, and both are read back and asserted by the tests.
+    """
+
+    searchable_attributes: list[NonEmptyText] = Field(min_length=1)
+    filterable_attributes: list[NonEmptyText] = Field(min_length=1)
+    sortable_attributes: list[NonEmptyText] = Field(default_factory=list)
+    ranking_rules: list[NonEmptyText] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _require_attributes_the_module_depends_on(self) -> "SearchIndexConfig":
+        """Refuse a config that would break the module at runtime, at load.
+
+        These are not tuning opinions — they are the attributes the projection
+        code names directly, so omitting one turns every re-projection into a
+        Meilisearch error hours into an ingest instead of a refusal at startup:
+
+        * ``meetingId`` filterable — ``search.delete_meeting`` filters on it,
+          and that delete runs on *every* re-projection (and is story 1.12's
+          path). A non-filterable attribute is not a valid filter.
+        * ``corpus`` filterable — an eval run scopes to ``scripted`` meetings
+          through it, which is what keeps the ``real`` demo corpus out of a
+          measured result set.
+        * ``text`` searchable — both document builders write the passage body
+          there, so an index without it is silently unsearchable.
+
+        Order within ``searchable_attributes`` stays entirely free: that order
+        is the field boost, and boosting is exactly what should be retunable.
+        """
+        missing_filters = [
+            name
+            for name in ("meetingId", "corpus")
+            if name not in self.filterable_attributes
+        ]
+        if missing_filters:
+            raise ValueError(
+                "filterable_attributes must include "
+                + ", ".join(repr(name) for name in missing_filters)
+                + " — the projections module filters on them directly"
+            )
+        if "text" not in self.searchable_attributes:
+            raise ValueError(
+                "searchable_attributes must include 'text' — it is the"
+                " attribute both projected document shapes carry the passage"
+                " body in, so an index without it matches nothing"
+            )
+        return self
+
+
+class SearchConfig(_StrictModel):
+    """Both Meilisearch indexes plus the domain synonyms they share.
+
+    Two indexes rather than one, deliberately: ``moments`` is citation-shaped
+    (one document per moment, so a citation resolves to a Postgres-minted
+    moment id, AD-6) and ``chunks`` is retrieval-shaped, at the turn-packed
+    granularity the bake-off actually measured.
+    """
+
+    moments: SearchIndexConfig
+    chunks: SearchIndexConfig
+    # The published-artifacts index (story 4.4). Keyword-only: the projection
+    # never declares an embedder on it, so unlike the two above its settings
+    # carry no vector implications and an embedder swap never invalidates it.
+    artifacts: SearchIndexConfig
+    # Domain synonyms, applied to both indexes. Meilisearch treats each entry
+    # one-way, so a symmetric pair needs both directions written out.
+    synonyms: dict[NonEmptyText, list[NonEmptyText]] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _moments_search_surface_matches_query(self) -> "SearchConfig":
+        """Keep both query-side contracts valid at configuration load."""
+        required = ("text", "screenText", "speakers", "title")
+        missing = [
+            attribute
+            for attribute in required
+            if attribute not in self.moments.searchable_attributes
+        ]
+        if missing:
+            raise ValueError(
+                "projections.search.moments.searchable_attributes must include "
+                + ", ".join(repr(attribute) for attribute in missing)
+                + " — GET /search requests highlighted snippets from them"
+            )
+        artifact_missing_search = [
+            attribute
+            for attribute in ("title", "text")
+            if attribute not in self.artifacts.searchable_attributes
+        ]
+        if artifact_missing_search:
+            raise ValueError(
+                "projections.search.artifacts.searchable_attributes must include "
+                + ", ".join(repr(attribute) for attribute in artifact_missing_search)
+                + " — artifact search matches and highlights title/body"
+            )
+        if "state" not in self.artifacts.filterable_attributes:
+            raise ValueError(
+                "projections.search.artifacts.filterable_attributes must include"
+                " 'state' — every artifact query filters to published state"
+            )
+        return self
+
+
+class ProjectionsConfig(_StrictModel):
+    """Everything the projections module reads that is not an adapter binding.
+
+    Lives in config.yaml rather than in code because `rebuild` must regenerate
+    both stores from Postgres + this file alone (AD-4): a retrieval knob that
+    only exists as a Python constant is not part of that contract.
+    """
+
+    chunking: ChunkingConfig
+    search: SearchConfig
+    # How many passages are handed to the `Embedder` in one call. A throughput
+    # knob only — it changes no vector and no document.
+    embed_batch_size: int = Field(gt=0)
+
+
+# FastAPI 0.141 inserts its own SSE keepalive comment after this many seconds
+# of silence on a streamed response (``fastapi.sse._PING_INTERVAL``, private).
+# Mirrored here as the upper bound on our own heartbeat so the configured value
+# is the one a client actually sees. If a future FastAPI lowers its interval,
+# its ping simply becomes the more frequent of the two and this value turns
+# into an upper bound rather than the governing one — harmless either way,
+# because both are SSE comments that every client ignores.
+FASTAPI_SSE_KEEPALIVE_SECONDS = 15.0
+
+
+class SearchQueryConfig(_StrictModel):
+    """Query-time retrieval knobs for ``GET /search`` (story 3.1, AD-10).
+
+    Deliberately **not** part of :class:`SearchIndexConfig`. Those are index
+    settings: the projections module writes them into Meilisearch, and
+    changing one means re-applying the index settings. These are read per
+    request by the api and change nothing that is stored, so keeping them in
+    one block would make "did this edit need a re-projection?" unanswerable
+    from the file.
+
+    They live in config.yaml rather than as Python constants for the same
+    reason the index settings do — a retrieval knob that exists only in code
+    is not a knob Epic 5's retrieval eval can turn (AD-10).
+    """
+
+    # Hits returned when the caller names no `limit`.
+    default_limit: int = Field(gt=0, le=200)
+    # The largest `limit` the route accepts. A request above it is refused
+    # rather than silently clamped: a caller that asked for 5000 hits and
+    # received 20 has been answered a question it did not ask.
+    max_limit: int = Field(gt=0, le=1000)
+    # Meilisearch's hybrid blend: 0.0 is pure keyword, 1.0 pure vector.
+    # `retrieval-prior-art.md` §7 finding 1 measured BM25 alone as unbeaten on
+    # transcript-worded queries, so the shipped value is keyword-heavy — and
+    # this is a knob precisely because that finding was measured over chunks,
+    # not over the moment documents `/search` reads.
+    semantic_ratio: float = Field(ge=0.0, le=1.0)
+    # Words of context Meilisearch crops a snippet to around the match.
+    crop_length: int = Field(gt=0, le=1000)
+    # The similarity a *semantic* hit must reach to be returned at all.
+    #
+    # Meilisearch has no per-lane score threshold, and its single
+    # `rankingScoreThreshold` cannot serve both lanes here: measured against
+    # this index, a legitimate typo-tolerant keyword hit scores as low as
+    # 0.15, while a semantic hit on unrelated text scores around 0.65. One
+    # number cannot keep the first and drop the second, so the floor is
+    # applied to the semantic lane only, in
+    # `projections.query.search_moments`.
+    #
+    # Without it every query returns the corpus: the vector lane ranks by
+    # similarity and has no notion of "no match", so a nonsense query comes
+    # back with the k nearest moments and an empty result set is unreachable.
+    semantic_score_floor: float = Field(ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _default_within_max(self) -> "SearchQueryConfig":
+        if self.default_limit > self.max_limit:
+            raise ValueError(
+                f"api.search.default_limit ({self.default_limit}) exceeds"
+                f" api.search.max_limit ({self.max_limit}) — every request"
+                " that named no limit would be refused by the bound that"
+                " exists to protect it"
+            )
+        return self
+
+
+class ChatQueryConfig(_StrictModel):
+    """Retrieval breadth for ``POST /chat`` (story 3.3, AD-10).
+
+    How much evidence the orchestrator puts in front of the chat model is a
+    tuning knob, and a tuning knob that exists only as a Python constant is not
+    one Epic 5's retrieval eval can turn. Same reasoning as
+    :class:`SearchQueryConfig`, and the same placement: query time, read per
+    request, changing nothing that is stored.
+
+    Neither value is a *citation* bound. Every moment that reaches the prompt is
+    re-read from Postgres by the citation gate before anything is emitted
+    (AD-6); these two only decide how much the model is allowed to see.
+
+    **These two are not the whole of chat's retrieval tuning.** The chat search
+    leg runs through ``projections.query.search_moments``, which reads
+    :class:`SearchQueryConfig` — ``semantic_ratio`` (which also decides whether
+    ``POST /chat`` embeds the query at all), ``semantic_score_floor`` and
+    ``crop_length``. Lowering a knob under ``api.search`` to tune the search
+    *page* therefore also changes what the chat model is shown. Retuning one
+    means re-checking the other.
+    """
+
+    # Search-leg hits the orchestrator retrieves for one question. Wider than
+    # `api.search.default_limit`: a search *page* is something a person reads,
+    # while this is context a model reads, and recall matters more than
+    # precision when the gate rejects anything the model cannot cite.
+    retrieval_limit: int = Field(gt=0, le=200)
+    # The most traversal rows kept from one template run. `run_template` has no
+    # LIMIT by design (`projections/traversals.py`: the retrieval eval compares
+    # exact sets), so a screen that appeared in fifty meetings would otherwise
+    # put fifty moments in one prompt. Rows are kept in the template's own time
+    # order, so the cap retains the newest window rather than an arbitrary
+    # subset.
+    traversal_row_limit: int = Field(gt=0, le=200)
+
+
+class ApiConfig(_StrictModel):
+    """Settings the api process owns (story 1.9).
+
+    The job-event stream serves progress by *reading* job rows (AD-11), so how
+    often it looks and how often it proves the connection is still alive are
+    the two numbers that decide perceived responsiveness. Both are
+    configuration rather than code constants (AD-10): retuning the stream must
+    never require a code change.
+    """
+
+    # How often the stream re-reads job/job_stage and diffs the result. Small
+    # enough that a stage transition shows up as "immediately" to a human,
+    # large enough that an idle browser tab is not a database load. Bounded
+    # above by a minute: beyond that the stream stops being live progress.
+    job_events_poll_seconds: float = Field(gt=0.0, le=60.0)
+    # How long the stream may stay silent before it emits a comment
+    # heartbeat. Idle here means "no stage moved", which is the normal state
+    # while a stage runs for minutes; the heartbeat is what tells a reader
+    # (the browser, or a `curl -N`) that a quiet stream is still alive rather
+    # than dead. Bounded at FASTAPI_SSE_KEEPALIVE_SECONDS so the invariant the
+    # comment above states is one the loader actually enforces.
+    job_events_heartbeat_seconds: float = Field(
+        gt=0.0, le=FASTAPI_SSE_KEEPALIVE_SECONDS
+    )
+    # `GET /search` query knobs (story 3.1). Query time, not index time — see
+    # SearchQueryConfig for why they are not under `projections.search`.
+    search: SearchQueryConfig
+    # `POST /chat` retrieval breadth (story 3.3). Same query-time reasoning.
+    chat: ChatQueryConfig
+
+
+class Settings(_StrictModel):
+    """The validated shape of config.yaml."""
+
+    config_version: int
+    service: NonEmptyText
+    ocr: OcrConfig
+    stt: SttConfig
+    diarizer: DiarizerConfig
+    llm: LlmConfig
+    embedder: EmbedderConfig
+    providers: dict[str, ProviderEndpoint]
+    stores: StoresConfig
+    pipeline: PipelineConfig
+    projections: ProjectionsConfig
+    api: ApiConfig
+
+
+class Secrets(BaseModel):
+    """Values sourced from the environment / .env only — never from config.yaml."""
+
+    mm_content_root: Path | None = None
+    # Where the write-once source drops live (story 2.1a, `storage-layout.md`).
+    # The second of the two path anchors: `mm_content_root` anchors material
+    # this pipeline *produced*, this one anchors material that *arrived*.
+    mm_drops_root: Path | None = None
+    # The publish folder (story 4.3, `storage-layout.md` §1): a third
+    # configured location, deliberately not a third path anchor. The api
+    # both creates and writes into it (`require_publish_root`), unlike the
+    # two read-only-by-the-api roots above.
+    mm_publish_root: Path | None = None
+    anthropic_api_key: str | None = None
+    openai_api_key: str | None = None
+    openrouter_api_key: str | None = None
+    postgres_password: str | None = None
+    neo4j_password: str | None = None
+    meili_master_key: str | None = None
+
+
+class AppConfig(BaseModel):
+    settings: Settings
+    secrets: Secrets
+    # The config.yaml this instance was actually loaded from. Everything that
+    # needs a repo-relative file (docs/, the source-drop schema) anchors on
+    # this, so an explicitly-passed config path and its sibling trees can
+    # never disagree, and no later cwd change can move the anchor.
+    config_path: Path
+
+
+def _read_env_file(path: Path) -> dict[str, str]:
+    """Parse a .env file with python-dotenv (the one documented dialect).
+
+    docker compose ``--env-file`` and this loader must agree on every value;
+    python-dotenv's semantics (``export`` prefixes, quoting, inline comments
+    only outside quotes) match compose for the constructs ``.env.example``
+    documents. Keys without a value (bare ``KEY`` lines) are skipped.
+    """
+    try:
+        with path.open("r", encoding="utf-8") as stream:
+            raw = dotenv_values(stream=stream)
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ConfigError(f"env file unreadable: {path}: {exc}") from exc
+    return {key: value for key, value in raw.items() if value is not None}
+
+
+def _load_secrets(env_path: Path, anchor: Path) -> Secrets:
+    merged: dict[str, str] = {}
+    if env_path.is_file():
+        merged.update(_read_env_file(env_path))
+    # Process environment wins over the .env file — except that a blank
+    # process-env value never masks a real .env value (finding 15: a stray
+    # `export VAR=` in a shell profile must not blank out a secret).
+    for key, value in os.environ.items():
+        if value.strip() or key not in merged:
+            merged[key] = value
+
+    def get(key: str) -> str | None:
+        value = merged.get(key, "").strip()
+        return value or None
+
+    def root(name: str) -> Path | None:
+        """Read one configured root: absolute, ``~`` expanded here and nowhere else.
+
+        Both roots (`MM_CONTENT_ROOT`, `MM_DROPS_ROOT`) go through this one
+        function so the two anchors of `storage-layout.md` §1 can never
+        disagree about what a configured root value means.
+        """
+        raw = get(name)
+        if raw is None:
+            return None
+        try:
+            # expanduser() raises RuntimeError for an unresolvable ~user.
+            expanded = Path(raw).expanduser()
+        except RuntimeError as exc:
+            raise ConfigError(f"{name} could not be expanded: {raw!r}: {exc}") from exc
+        if not expanded.is_absolute():
+            raise ConfigError(f"{name} must be an absolute path: {raw!r}")
+        return expanded.resolve()
+
+    return Secrets(
+        mm_content_root=root("MM_CONTENT_ROOT"),
+        mm_drops_root=root("MM_DROPS_ROOT"),
+        mm_publish_root=root("MM_PUBLISH_ROOT"),
+        anthropic_api_key=get("ANTHROPIC_API_KEY"),
+        openai_api_key=get("OPENAI_API_KEY"),
+        openrouter_api_key=get("OPENROUTER_API_KEY"),
+        postgres_password=get("POSTGRES_PASSWORD"),
+        neo4j_password=get("NEO4J_PASSWORD"),
+        meili_master_key=get("MEILI_MASTER_KEY"),
+    )
+
+
+def _warn_content_root(secrets: Secrets) -> None:
+    """Startup warning (finding 18): unset/broken MM_CONTENT_ROOT is loud.
+
+    Not fatal yet — full validation lands with the first stage that writes
+    media (story 1.3) — but never silent.
+
+    `MM_DROPS_ROOT` is warned about here too, for the same reason and in the
+    same shape. The processes that actually need a root gate on
+    :func:`require_content_root` / :func:`require_drops_root`; this only makes
+    sure a process that merely loads the config still says so.
+    """
+    if secrets.mm_content_root is None:
+        print(
+            "warning: MM_CONTENT_ROOT is unset — media storage has nowhere to go;"
+            " set it in .env",
+            file=sys.stderr,
+        )
+    elif not secrets.mm_content_root.is_dir():
+        print(
+            f"warning: MM_CONTENT_ROOT is not a directory: {secrets.mm_content_root}",
+            file=sys.stderr,
+        )
+    if secrets.mm_drops_root is None:
+        print(
+            "warning: MM_DROPS_ROOT is unset — source drops have no anchor, so"
+            " nothing can be ingested, re-parsed or replayed; set it in .env",
+            file=sys.stderr,
+        )
+    elif not secrets.mm_drops_root.is_dir():
+        print(
+            f"warning: MM_DROPS_ROOT is not a directory: {secrets.mm_drops_root}",
+            file=sys.stderr,
+        )
+
+
+CONTENT_ROOT_PROBE_NAME = ".mm-content-root-write-probe"
+
+
+def require_content_root(config: AppConfig) -> Path:
+    """Return a usable ``MM_CONTENT_ROOT``, or raise :class:`ConfigError`.
+
+    The worker calls this at startup (story 1.3), before it claims anything:
+    ``frames`` writes JPEGs under this root and AD-3 stores only paths
+    relative to it, so a root that is unset, unusable, or read-only is a fatal
+    misconfiguration rather than a per-job failure.
+
+    Checked in order: set, absolute, creatable (the directory is created when
+    missing, parents included), a directory, and actually writable — verified
+    by creating and removing a probe file, because ``os.access`` reports the
+    permission bits rather than what the filesystem will allow (a read-only
+    mount passes the bits and fails the write).
+    """
+    root = config.secrets.mm_content_root
+    if root is None:
+        raise ConfigError(
+            "MM_CONTENT_ROOT is not set — the frames stage writes media there;"
+            " set it to an absolute path in .env"
+        )
+    if not root.is_absolute():  # pragma: no cover - _load_secrets resolves it
+        raise ConfigError(f"MM_CONTENT_ROOT must be an absolute path: {root}")
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise ConfigError(
+            f"MM_CONTENT_ROOT could not be created: {root}: {exc}"
+        ) from exc
+    if not root.is_dir():
+        raise ConfigError(f"MM_CONTENT_ROOT is not a directory: {root}")
+    probe = root / CONTENT_ROOT_PROBE_NAME
+    try:
+        probe.touch()
+        probe.unlink()
+    except OSError as exc:
+        raise ConfigError(f"MM_CONTENT_ROOT is not writable: {root}: {exc}") from exc
+    return root
+
+
+PUBLISH_ROOT_PROBE_NAME = ".mm-publish-root-write-probe"
+
+
+def require_publish_root(config: AppConfig) -> Path:
+    """Return a usable ``MM_PUBLISH_ROOT``, or raise :class:`ConfigError`.
+
+    The api calls this at startup (story 4.3), before it serves the approve
+    route: publishing exports a file into this folder and, for ADRs, commits
+    it to a git repository rooted there, so a root that is unset, unusable, or
+    read-only must be a fatal misconfiguration named at startup rather than
+    discovered on the first publish. Same shape as :func:`require_content_root`
+    — set, absolute, creatable, a directory, write-probed — because the api
+    both creates and writes into this location, unlike the read-only drops
+    root.
+    """
+    root = config.secrets.mm_publish_root
+    if root is None:
+        raise ConfigError(
+            "MM_PUBLISH_ROOT is not set — publishing an artifact writes there;"
+            " set it to an absolute path in .env"
+        )
+    if not root.is_absolute():  # pragma: no cover - _load_secrets resolves it
+        raise ConfigError(f"MM_PUBLISH_ROOT must be an absolute path: {root}")
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise ConfigError(
+            f"MM_PUBLISH_ROOT could not be created: {root}: {exc}"
+        ) from exc
+    if not root.is_dir():
+        raise ConfigError(f"MM_PUBLISH_ROOT is not a directory: {root}")
+    probe = root / PUBLISH_ROOT_PROBE_NAME
+    try:
+        probe.touch()
+        probe.unlink()
+    except OSError as exc:
+        raise ConfigError(f"MM_PUBLISH_ROOT is not writable: {root}: {exc}") from exc
+    return root
+
+
+def validate_drops_root(root: Path | None) -> Path:
+    """Return a usable drops root without writing to it.
+
+    Kept separate from configuration loading so request-time API guards can
+    rerun precisely the startup check if a mount disappears underneath a
+    running process.  The check deliberately lists rather than write-probes
+    the root: source drops are read-only evidence.
+    """
+    if root is None:
+        raise ConfigError(
+            "MM_DROPS_ROOT is not set — every source drop's stored path is"
+            " relative to it; set it to an absolute path in .env"
+        )
+    if not root.is_absolute():  # pragma: no cover - _load_secrets resolves it
+        raise ConfigError(f"MM_DROPS_ROOT must be an absolute path: {root}")
+    if not root.exists():
+        raise ConfigError(
+            f"MM_DROPS_ROOT does not exist: {root} — it is permanent,"
+            " backed-up storage this process reads, not a directory it creates"
+        )
+    if not root.is_dir():
+        raise ConfigError(f"MM_DROPS_ROOT is not a directory: {root}")
+    try:
+        with os.scandir(root):
+            pass
+    except OSError as exc:
+        raise ConfigError(
+            f"MM_DROPS_ROOT is not readable and traversable: {root}: {exc}"
+        ) from exc
+    return root
+
+
+def require_drops_root(config: AppConfig) -> Path:
+    """Return a usable ``MM_DROPS_ROOT``, or raise :class:`ConfigError`.
+
+    The second configured root (`storage-layout.md` §1). The api calls this at
+    startup — intake, the augmentation door and replay all resolve through it
+    — and so does the worker, whose stages re-read the drop on every run. A
+    root that is unset or absent is a fatal misconfiguration, named at startup
+    rather than discovered on the first ingest.
+
+    Checked in order: set, absolute, present, and a directory. Deliberately
+    *three* checks short of :func:`require_content_root`: the drops root is
+    never created, never written to and never write-probed, because nothing in
+    MeetingMiner writes inside a drop (AD-13) and a root conjured out of thin
+    air would turn "the drops volume is not mounted" into "no meetings have
+    ingested yet".
+    """
+    return validate_drops_root(config.secrets.mm_drops_root)
+
+
+def load_config(
+    config_path: str | Path | None = None,
+    env_path: str | Path | None = None,
+) -> AppConfig:
+    """Load and validate config.yaml plus env secrets.
+
+    Raises :class:`ConfigError` naming the problem on any failure —
+    missing file, unparseable YAML, or a shape that fails validation.
+    """
+    path, path_source = _resolve(
+        config_path, CONFIG_PATH_ENV_VAR, DEFAULT_CONFIG_FILENAME
+    )
+    envfile = resolve_env_path(env_path)
+
+    if not path.is_file():
+        raise ConfigError(f"config file not found: {path} (resolved via {path_source})")
+
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ConfigError(f"config file unreadable: {path}: {exc}") from exc
+
+    try:
+        raw = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"config file is not valid YAML: {path}: {exc}") from exc
+
+    if not isinstance(raw, dict):
+        raise ConfigError(f"config file must be a YAML mapping: {path}")
+
+    try:
+        settings = Settings.model_validate(raw)
+    except ValidationError as exc:
+        raise ConfigError(f"config file failed validation: {path}\n{exc}") from exc
+
+    if settings.config_version != SUPPORTED_CONFIG_VERSION:
+        raise ConfigError(
+            f"unsupported config_version {settings.config_version} in {path}: "
+            f"this build supports config_version {SUPPORTED_CONFIG_VERSION}"
+        )
+
+    resolved_config = path.resolve()
+    secrets = _load_secrets(envfile, resolved_config.parent)
+    _warn_content_root(secrets)
+    return AppConfig(settings=settings, secrets=secrets, config_path=resolved_config)

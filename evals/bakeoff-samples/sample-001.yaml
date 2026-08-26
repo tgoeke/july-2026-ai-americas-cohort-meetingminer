@@ -1,0 +1,92 @@
+# A committed bake-off sample (eval-design §7): mixed qa/artifact items with
+# authored human gold verdicts. Every candidate scores this file blind; the
+# human verdicts below are gold. Content is drawn from
+# `evals/ground-truth/demo-001-orders-ui-demo.yaml`'s planted decision (D1)
+# and action item (AI1), written by hand rather than pulled from a real run —
+# the scripted corpus has no recorded meeting yet (both manifests still carry
+# placeholder source_ids), and a bake-off sample does not need one: it exists
+# to compare judge models against each other and against a human, not to
+# audit a real extraction.
+#
+# Shape: each item is a `evals.harness.judge.JudgeItem` in YAML, plus the one
+# field a `JudgeItem` does not carry — `gold_passed`, the human verdict every
+# candidate's own `passed` is graded against (`bakeoff.agreement`).
+
+items:
+  # A faithful, cited, on-terms decision extraction. Gold: pass.
+  - id: item-1-decision-faithful
+    kind: artifact
+    manifest: demo-001
+    candidate_text: |
+      Decision: Orders module keeps optimistic locking.
+
+      The team reviewed the concurrency approach for the Orders module and
+      decided to keep optimistic locking rather than moving to pessimistic
+      locks, given the low contention observed in production.
+    transcript: |
+      [Tim Goeke] Let's settle the locking question for Orders. We looked at
+      the contention numbers again this week and they're still low, so I
+      don't think pessimistic locking buys us anything here.
+      [Tiffany Goeke] Agreed, the conflict rate has been under half a percent
+      for months.
+      [Tim Goeke] Orders module keeps optimistic locking, then. Let's move on.
+    citation_present: true
+    gold_passed: true
+
+  # An artifact that invents a due date the transcript never states. Gold:
+  # fail on no_unsupported_claims, even though it is cited.
+  - id: item-2-action-item-invented-date
+    kind: artifact
+    manifest: demo-001
+    candidate_text: |
+      Action item: Update the tax table mapping by next Monday.
+
+      Tim will update the tax table mapping and confirm with finance before
+      the change goes out.
+    transcript: |
+      [Tim Goeke] I'll get the tax table mapping updated by Friday — that
+      should give us the weekend buffer before the finance close.
+    citation_present: true
+    gold_passed: false
+
+  # A cited Q&A answer that is faithful and contains the required terms.
+  # Gold: pass.
+  - id: item-3-qa-optimistic-locking
+    kind: qa
+    manifest: demo-001
+    candidate_text: >
+      Tim decided the Orders module keeps optimistic locking, because
+      contention has stayed low.
+    transcript: |
+      [Tim Goeke] Orders module keeps optimistic locking. Contention's been
+      low enough that pessimistic locks aren't worth the complexity.
+    citation_present: true
+    required_terms: ["optimistic locking"]
+    gold_passed: true
+
+  # A cited Q&A answer that never mentions "Friday", one of the two required
+  # terms — should fail on contains_required_terms regardless of what a judge
+  # says about faithfulness. Gold: fail.
+  - id: item-4-qa-missing-required-term
+    kind: qa
+    manifest: demo-001
+    candidate_text: >
+      Tim owns the tax table mapping change and is working on it this week.
+    transcript: |
+      [Tim Goeke] I'll own the tax table mapping change — I'll have it done
+      by Friday.
+    citation_present: true
+    required_terms: ["tax table", "Friday"]
+    gold_passed: false
+
+  # An uncited answer — automatic fail per the SPEC's core constraint,
+  # regardless of how faithful the prose reads. Gold: fail.
+  - id: item-5-qa-uncited
+    kind: qa
+    manifest: demo-001
+    candidate_text: >
+      Tim decided to keep optimistic locking for the Orders module.
+    transcript: ""
+    citation_present: false
+    required_terms: ["optimistic locking"]
+    gold_passed: false

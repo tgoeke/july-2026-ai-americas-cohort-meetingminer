@@ -1,0 +1,68 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>demo-002 deck</title>
+<style>
+  body{margin:0;font-family:Georgia,'Times New Roman',serif;background:#111;color:#eee}
+  .slide{display:none;min-height:100vh;box-sizing:border-box;padding:8vh 10vw;background:#1c2733}
+  .slide.active{display:flex;flex-direction:column;justify-content:center}
+  h1{font-size:56px;margin:0 0 .4em;color:#fff;line-height:1.15}
+  h2{font-size:26px;color:#8fb4d9;font-weight:normal;margin:0 0 1.2em}
+  ul{font-size:26px;line-height:1.7;max-width:60ch}
+  .foot{position:fixed;bottom:16px;left:10vw;color:#5d6f83;font-size:14px}
+  .hint{position:fixed;bottom:16px;right:20px;color:#5d6f83;font-size:13px}
+  .big{font-size:44px;color:#ffd479}
+</style></head><body>
+
+<section class="slide active">
+  <h1>Q3 Architecture Review</h1>
+  <h2>MeetingMiner evidence platform · Q3 2026</h2>
+  <ul><li>Where the pipeline stands</li><li>The retrieval split</li><li>The publish gate</li><li>Q4 proposal</li></ul>
+</section>
+
+<section class="slide">
+  <h1>Evidence Pipeline Today</h1>
+  <ul>
+    <li>Drop → probe → frames → OCR → screens → transcribe → align → moments → extract</li>
+    <li>Every stage checkpointed and idempotent; jobs resume, never rebuild</li>
+    <li>Deterministic components own capture, alignment, provenance, replay</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <h1>Retrieval Split Graph and Document Index</h1>
+  <ul>
+    <li>Graph answers structural questions — screen history, who-heard-what</li>
+    <li>Document index answers wording — BM25 first, vectors for paraphrase</li>
+    <li>Both are rebuildable projections of the database of record</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <h1 class="big">Nothing Enters a Store Before Approval</h1>
+  <h2>The publish gate</h2>
+  <ul>
+    <li>Extracted artifacts start unpublished — visible only in the moment view</li>
+    <li>A human gesture publishes; publishing re-indexes into both stores</li>
+    <li>Search can never surface unapproved AI output</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <h1>Q4 Proposal and Open Risks</h1>
+  <ul>
+    <li>Retrieval eval with graded relevance, not spot checks</li>
+    <li>Augmentation intake for late-arriving recordings at scale</li>
+    <li>Risk: OCR anchors on low-bitrate screen shares</li>
+  </ul>
+</section>
+
+<div class="hint">← → to advance (1–5)</div>
+<script>
+  const slides=[...document.querySelectorAll('.slide')];let i=0;
+  addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight'||e.key===' ')i=Math.min(i+1,slides.length-1);
+    else if(e.key==='ArrowLeft')i=Math.max(i-1,0);
+    else if(/^[1-5]$/.test(e.key))i=+e.key-1;else return;
+    slides.forEach((s,n)=>s.classList.toggle('active',n===i));
+  });
+</script>
+</body></html>

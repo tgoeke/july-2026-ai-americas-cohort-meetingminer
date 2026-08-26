@@ -1,0 +1,71 @@
+# Project overrides for bmad-build.
+#
+# Merge rules (see the skill's customize.toml): strings replace, lists append,
+# tables merge key by key, arrays of tables merge by `id`.
+
+[workflow]
+
+# Added 2026-08-18 after story 1.3 was planned and implemented on a local
+# branch that had silently diverged from origin/main at 3f0b52b. Both sides had
+# independently implemented story 1.10, so the run built on a story-1.10 variant
+# that no longer existed upstream, and the divergence only surfaced at push time
+# — after three commits were already sitting on the wrong base.
+#
+# Step 01's version-control sanity check requires a clean tree, a fitting
+# branch, and writable metadata. None of those detect divergence: the tree was
+# spotlessly clean the whole time. This gate closes that gap.
+
+activation_steps_append = [
+  """
+**Remote-sync gate.** Run this before step 01's version-control sanity check.
+
+Skip the gate entirely if version control is unavailable or the current branch
+has no upstream. Otherwise:
+
+1. Fetch the current branch's upstream (`git fetch <remote>`).
+2. Compare: `git rev-list --left-right --count HEAD...@{u}`.
+
+Act on the result:
+
+- **`0	0` (in sync)** — continue.
+- **`N	0` (ahead only)** — unpushed local commits. Continue, but carry
+  `unpushed-commits` forward and name it in the final report.
+- **`0	N` (behind only)** — fast-forward with `git merge --ff-only @{u}`, then
+  continue. Plan and implement against the updated tree, never the stale one; a
+  spec whose Code Map cites line numbers from a superseded revision is wrong
+  before it is written.
+- **`N	M` (diverged)** — stop and ask the user which history is authoritative
+  before doing any planning. Present: the merge base, both commit lists, and the
+  set of files changed on both sides (`git diff --name-only <base> HEAD`
+  intersected with `git diff --name-only <base> @{u}`). Say plainly whether the
+  overlapping files are content-identical or genuinely conflicting — that is
+  usually what decides whether reconciliation is mechanical or expensive.
+
+Never merge, rebase, reset, or force-push to resolve divergence on your own
+initiative. Divergence means someone else's committed work is at stake and
+choosing which history survives is the user's decision.
+""",
+]
+
+# Added at the same time and for the same incident: story 1.3 finished
+# implementation and verification, then sat entirely in the working tree across
+# several subsequent turns. A completed story that exists only as uncommitted
+# files is indistinguishable from an abandoned one, and it blocks the next
+# story, whose step 01 requires a clean tree.
+
+on_complete = """
+If version control is available and the run ended with status `in-review` or
+`done`, commit before exiting:
+
+1. Stage only this story's change set — never `git add -A`. Anything in the tree
+   you did not write belongs to someone else and stays unstaged.
+2. Commit with a message naming the story and stating what changed and why.
+   Split unrelated concerns (the story itself, fixes for a prior story's review
+   findings, documentation) into separate commits.
+3. Report the resulting revision in the final result.
+
+Do not push unless the run was explicitly asked to. If a push is attempted and
+rejected as non-fast-forward, leave the commits in place, do not force, and
+report the rejection with the same divergence detail the remote-sync gate
+collects.
+"""

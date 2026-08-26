@@ -1,0 +1,22 @@
+# Allowlist: only the tool itself is tracked.
+# Meeting corpus, browser session, deps, ledgers, and logs stay local-only.
+*
+!.gitignore
+!grab-teams-transcript.js
+!emit-drop.js
+!migrate-layout.js
+!seed-pull-log.js
+!index-archives.sh
+!.probe-item.js
+!package.json
+!package-lock.json
+!README.md
+!CLAUDE.md
+!action_items_prompt.md
+!arch_summary_prompt.md
+!arch_summary_prompt.orig.md
+!test/
+# The directory's whole contents, not just *.js: a future fixture
+# (test/fixtures/*.json, a nested helper) would otherwise be silently
+# untracked and the suite would pass here and fail on a fresh clone.
+!test/**

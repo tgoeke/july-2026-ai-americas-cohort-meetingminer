@@ -1,0 +1,517 @@
+# MeetingMiner adapter bindings (AD-10).
+# Every adapter binding lives here; secrets live in .env only (see .env.example).
+# Swapping an engine or model is an edit to this file, never a code change (AD-8).
+
+config_version: 1
+service: meetingminer
+
+ocr:
+  engine: apple-vision # apple-vision | tesseract
+  # Engaged only when `engine` is unavailable on this host (no macOS Vision
+  # framework, for instance); the substitution is logged once per stage run.
+  fallback: tesseract # apple-vision | tesseract | omit for none
+
+stt:
+  engine: mlx-whisper # mlx-whisper | parakeet-mlx
+  # Engine-specific model id: an MLX Whisper repo for mlx-whisper, a Parakeet
+  # repo for parakeet-mlx. Swapping `engine` means swapping this with it.
+  model: mlx-community/whisper-large-v3-turbo
+
+diarizer:
+  engine: noop # noop | pyannote (documented, not bundled)
+
+llm:
+  roles:
+    # Extraction runs over the WHOLE meeting transcript, twice per meeting
+    # (story 4.1a) — one pass for the architecture summary, one for the action
+    # items. That is a local-model job by default: no paid provider is
+    # reachable from this file as committed.
+    extraction:
+      model: ollama/gpt-oss:120b
+      fallback: ollama/qwen3:30b
+      # This role's own endpoint for its PRIMARY model, overriding
+      # `providers.ollama.base_url` below. The provider entry is a single
+      # value the *embedder* also resolves (`adapters/embed/__init__.py`),
+      # and its `qwen3-embedding:0.6b` is served on this machine while
+      # `gpt-oss:120b` is served on the big box next door — so pointing the
+      # shared provider at that box would break embeddings. (On 2026-08-20 both
+      # endpoints returned identical `/api/tags`, so nothing breaks today if
+      # they are collapsed; keep them separate anyway — the lists diverge again
+      # the moment either box pulls or drops a model.)
+      #
+      # The fallback deliberately does NOT inherit this: pointing it at a host
+      # that does not serve it would make the fallback dead on the first call
+      # the primary misses, leaving "both models failed" as the only outcome.
+      # It resolves through `providers.ollama` instead; set `fallback_base_url`
+      # here if that ever stops being true.
+      #
+      # The tag must name a model the resolved endpoint actually serves. This
+      # read `qwen3:32b` until 2026-08-20, which `/api/tags` showed on neither
+      # `providers.ollama.base_url` nor the role `base_url` above — exactly the
+      # dead fallback this comment warns about. `qwen3:30b` is served on both.
+      # Re-check with `curl -s $ENDPOINT/api/tags` before changing either tag.
+      base_url: http://10.77.0.52:11434
+      # The Ollama context window, in tokens. A correctness setting, not
+      # tuning: Ollama's default context silently truncates a 120-minute
+      # transcript, and a truncated transcript yields fewer artifacts while
+      # reporting success — the "no silent zero" failure through another door.
+      # 65536 is what the puller's own summariser has been running at.
+      num_ctx: 65536
+      # A whole-transcript pass on this model measured ~3 minutes; the
+      # adapter's 120s default is sized for a short prompt and would time out
+      # mid-meeting, engaging the fallback for no reason.
+      timeout_seconds: 900
+      # The two whole-transcript prompt templates (story 4.2, AD-8/AD-10).
+      # Each is the LITERAL, COMPLETE text sent to the model for that
+      # document — the meeting header (title, date, due-date grounding
+      # sentence) and the transcript are appended by code, but nothing else
+      # is: there is no shared `{rules}` fragment folded in at call time, so
+      # what is written here is exactly what the model reads. Editing either
+      # value is a live behavior change with NO code change required — the
+      # next `extract` run on a fresh worker process sends whatever is
+      # written here. `GET /extraction/prompts` serves this text verbatim to
+      # the moment view's "Active extraction prompts" section.
+      #
+      # The table header, the `D#`/`A#`/`R#`/`O#` item-ID prefixes, and the
+      # `[m:ss]` timestamp on every row are LOAD-BEARING: `parse_extraction_document`
+      # (`pipeline/extraction.py`) keys on the item ID plus timestamp presence,
+      # never on heading numbering, but it does require a recognized target
+      # section (a `## Decisions` / `## Action items` heading) and rows shaped
+      # like the examples below. Changing the shape of the output changes
+      # what the parser can read — a broken swap is the editor's problem, but
+      # keep the committed default parseable.
+      arch_summary_prompt: |
+        You are an enterprise-architecture analyst. Turn one Microsoft Teams meeting transcript into architecture-ready analysis.
+
+        The transcript is verbatim and auto-generated, in the form `[m:ss] Speaker Name: text`, and covers the whole meeting.
+
+        Ground rules, all of them binding:
+        - Do not invent facts. Report due dates, amounts, and counts only as stated; write "not stated" where absent and "~" for an approximation. If two statements conflict, report the conflict rather than silently reconciling it.
+        - Mark every finding Confirmed, Assumed, Open, or Risk.
+        - Where you go beyond what was said — a rule, default, or threshold the meeting implies but nobody stated — tag it [Proposed] so it cannot be mistaken for a meeting outcome.
+        - Anchor every item to the transcript with the [m:ss] timestamp where it was discussed. An item with no timestamp cannot be cited and must not be written.
+        - One item per row, even when it is restated later. Put every relevant timestamp in that one row; never open a second row for a restatement.
+        - Expect speech-to-text noise: mis-heard names and technical terms ("sequel" = SQL), dropped words, mid-sentence self-corrections. Normalize obvious mis-hears; keep an uncertain name or term and mark it "(sp?)".
+
+        Produce exactly these two sections, in this order, and nothing else:
+
+        ## Decisions
+
+        A markdown table with this header row and one row per decision:
+
+        | ID | Decision | Context and consequences | Mark | Timestamp |
+        |----|----------|--------------------------|------|-----------|
+        | D1 | Vendor feeds move to SFTP | Replaces the shared mailbox; ops owns the keys | Confirmed | [4:23] |
+
+        IDs run D1, D2, D3... A decision is a chosen approach, a selected tool, or an agreed constraint — something the meeting settled, not merely something it discussed. State the decision in the Decision cell, and the context, alternatives and consequences that were actually said in the next cell.
+
+        ## Risks and open questions
+
+        The same table shape, with IDs R1, R2... for risks and O1, O2... for open questions. These are recorded for the reader; they are not decisions.
+
+        Write nothing outside those two sections — no preamble, no closing commentary. If the meeting settled nothing, write the Decisions table header with no rows under it.
+      action_items_prompt: |
+        You are an expert meeting analyst. Extract every action item, commitment, and next step from one Microsoft Teams meeting transcript, with owners.
+
+        The transcript is verbatim and auto-generated, in the form `[m:ss] Speaker Name: text`, and covers the whole meeting.
+
+        Ground rules, all of them binding:
+        - Do not invent facts. Report due dates, amounts, and counts only as stated; write "not stated" where absent and "~" for an approximation. If two statements conflict, report the conflict rather than silently reconciling it.
+        - Mark every finding Confirmed, Assumed, Open, or Risk.
+        - Where you go beyond what was said — a rule, default, or threshold the meeting implies but nobody stated — tag it [Proposed] so it cannot be mistaken for a meeting outcome.
+        - Anchor every item to the transcript with the [m:ss] timestamp where it was discussed. An item with no timestamp cannot be cited and must not be written.
+        - One item per row, even when it is restated later. Put every relevant timestamp in that one row; never open a second row for a restatement.
+        - Expect speech-to-text noise: mis-heard names and technical terms ("sequel" = SQL), dropped words, mid-sentence self-corrections. Normalize obvious mis-hears; keep an uncertain name or term and mark it "(sp?)".
+
+        More rules for this document:
+        - Capture explicit commitments ("I'll send the file"), assigned requests ("Kendall, can you check..."), and agreed next steps — including soft ones ("we should probably..."), which you mark Tentative. A question someone plans to raise later with another team is an action item too.
+        - Work reported as ALREADY FINISHED ("I have updated the document") is not an action item. Leave it out.
+        - Sweep the transcript to its final second before writing. Commitments made in the wrap-up minutes are the most commonly missed.
+        - The owner is whoever accepted or was assigned the work. Where ownership is implied but never accepted, append "(inferred)" to the owner. Where nobody owns it, write "unowned".
+        - When one statement assigns different work to different people, split it into one row per owner.
+        - Report timing only as stated. Never convert "next week" or "after the demo" into a calendar date — quote the vague phrase, or write "not stated".
+
+        Produce exactly this one section and nothing else:
+
+        ## Action items
+
+        A markdown table with this header row and one row per action item:
+
+        | ID | Action | Details and dependency | Owner | Timing (as stated) | Status | Timestamp |
+        |----|--------|------------------------|-------|---------------------|--------|-----------|
+        | A1 | Set up the SFTP credentials | Needs the vendor key first | Whitmore, Ellis | this week | Committed | [5:12] |
+
+        IDs run A1, A2, A3... Status is Committed, Assigned, or Tentative.
+
+        Write nothing outside that section. If the meeting produced no action items, write the table header with no rows under it.
+    # OpenAI, not Anthropic, by owner decision 2026-08-21: the Anthropic key
+    # was deliberately invalidated after unauthorized paid use, and the
+    # spine's AD-10 default binding (claude-sonnet-5) is superseded — see
+    # docs/project-record.md. No fallback, also by
+    # owner decision: a failing primary must surface as an error the user
+    # sees, never engage a silent substitute model. The `openai/` prefix is
+    # required — the adapter's bare-name routing predates gpt-5 and would not
+    # resolve `providers.openai` for an unprefixed tag.
+    chat:
+      model: openai/gpt-5.2
+    # Judge defaults to the chat model until the Epic 5 bake-off
+    # (eval-design.md) replaces it with the bake-off winner.
+    judge:
+      model: openai/gpt-5.2
+
+embedder:
+  # The tag is part of the id: Ollama resolves an untagged name to `:latest`,
+  # and there is no `qwen3-embedding:latest` on this host — an untagged value
+  # fails every embedding pass with "model not found" (story 1.7).
+  model: qwen3-embedding:0.6b # served locally via Ollama
+  dimension: 1024 # part of projection state — changing model or dimension forces a full rebuild (AD-8)
+
+providers:
+  anthropic:
+    base_url: https://api.anthropic.com
+  openai:
+    base_url: https://api.openai.com/v1
+  openrouter:
+    base_url: https://openrouter.ai/api/v1
+  ollama:
+    base_url: http://localhost:11434
+
+# Ingest pipeline tuning (story 1.3). Sampling rates are configuration, not
+# code constants — changing capture density must never require a code change.
+pipeline:
+  frames:
+    # Seconds between sampled frames (ffmpeg `fps=1/interval_seconds`). Well
+    # under the 20-30s dwell cue the screens stage looks for, so a screen that
+    # is shown briefly still lands in several frames: bias toward over-capture
+    # of screens rather than evidence loss.
+    interval_seconds: 2
+    # ffmpeg -q:v for the sampled JPEGs: 2 = best quality, 31 = worst. OCR
+    # accuracy in the later stages depends on legible small text.
+    jpeg_quality: 3
+  # Screen segmentation, identity, and view-type classification (stories 1.4
+  # and 1.11). These are the only numbers the `screens` stage compares
+  # against: retuning capture density or the classifier is an edit here, never
+  # a code change. Where a value comes from a published measurement the
+  # comment names the section of
+  # `docs/project-record.md` it is in
+  # (§1-§4). The rest — the analysis scale, the two pixel thresholds, the
+  # settle knobs, and the four crop-survey knobs — were measured during story
+  # 1.11 on the 57-minute meeting `01a0170c-bb04-78c2-832a-4fc2bc555551` and
+  # are recorded in that story's spec, not in the measurements document.
+  screens:
+    # Width every frame is decoded down to before it is measured or compared.
+    # Full decode of an hour ran at 211x realtime (§1), so this is a
+    # portability and battery choice, not a feasibility one.
+    analysis_width: 320
+    # Per-pixel 0-255 delta at or above which a pixel counts as changed.
+    pixel_diff_threshold: 16
+    # Brightness above which a pixel counts as "white" (§4 measured > 200).
+    white_pixel_level: 200
+    # A new capture starts when the cropped region of the frame in hand
+    # differs from the last emitted shot by this much (cue `region-change`).
+    # It is one bounded diff of two frames — nothing is summed across frames.
+    # Below §2's cropped p50 of 0.19 for real screen changes, because NFR8
+    # wants an extra capture rather than a missed one. Comparing against the
+    # last *emitted* shot is what subsumes the old dwell rule: as a page is
+    # filled in it keeps moving further from the shot already taken of it,
+    # until it crosses this line — no second knob needed.
+    change_threshold: 0.10
+    # The lower emit gate for settled same-chrome screens (demo-001 fix,
+    # story demo-001-capture-recall). Same-chrome dense UI pages genuinely
+    # sit under change_threshold at 320px: replayed over demo-001's 124
+    # frames, the three missed screens held sustained distances of 0.047,
+    # 0.068 and 0.077 from the emitted shot while pixel-quiet, and same-
+    # screen quiet noise stayed at or under ~0.008; the one transient (a
+    # 0.040 blip at 76 s) was never pixel-quiet and returned to 0.0002 one
+    # sample later. A settled frame (consecutive change <= settle_threshold)
+    # at or above this floor, sustained for settled_change_frames samples,
+    # cues a capture (`settled-change`). 0.03 sits above the measured noise
+    # ceiling and well under the weakest real page change.
+    settled_change_threshold: 0.03
+    # Consecutive settled frames at or above the floor before the cue fires:
+    # 3 samples = 6 s at the 2 s interval. Demo-001's transients lasted 1-2
+    # samples; its real page changes held for 12+.
+    settled_change_frames: 3
+    # Consecutive-frame change at or below this means the region has settled.
+    # The cue decides *when* a capture happens; this decides *which* frame is
+    # kept (§3) — emitting at the moment of change keeps spinners and blank
+    # mid-load pages, which differ from a populated page more than two
+    # populated pages differ from each other.
+    settle_threshold: 0.02
+    # Pixels alone call a still-loading page settled. A skeleton grid holds
+    # steady between two-second samples, so a frame counts as settled only if
+    # the next one does not carry more than this multiple of its cropped text
+    # blocks. Measured on the 57-minute meeting: a loading spreadsheet went
+    # 32 -> 82 blocks across one sample while its pixels moved 0.009, well
+    # under settle_threshold — and was kept as the screen, in place of the
+    # populated view that followed it.
+    settle_text_growth_ratio: 1.5
+    # If it never settles, emit anyway after this long and tag the capture
+    # `likely-transition` — tagged, never dropped (§4, NFR8). §3 measured a
+    # median wait of 0.0 s, a max of 2.0 s, and zero timeouts over 53
+    # emissions, so this is a backstop rather than a working knob.
+    settle_timeout_seconds: 10
+    # The share region is surveyed once per recording, not per frame: §2 found
+    # the two-part layout held across all 24 survey frames of a full hour.
+    crop_survey_frames: 24
+    # A column whose mean white fraction stays at or below this is webcam
+    # tiles. Measured on the 57-minute meeting: the webcam column runs
+    # 0.00-0.13 and the share area ~0.62. Set nearer the column than the
+    # midpoint would be, so an unusually dim share area is not eaten.
+    crop_column_white_max: 0.25
+    # Refuse a detected region narrower than this — that is a dark screen, not
+    # a webcam column — and fall back to the full frame.
+    crop_min_region_width: 0.6
+    # A row whose brightness range across the survey stays at or below this is
+    # static chrome. Measured on the 57-minute meeting: the taskbar band ~48
+    # (JPEG noise only), live rows ~200. Set nearer the taskbar than the
+    # midpoint, so a quiet stretch of real content is not read as chrome.
+    crop_row_static_range_max: 80
+    # Cap on how much of the frame the detected bottom strip may take.
+    crop_max_bottom_strip: 0.12
+    # Camera and gallery *video* separate from screen share on two
+    # independent metrics with no model at all (§4, 63 hand-labelled shots):
+    # white fraction <= 0.046 vs >= 0.190, mean saturation >= 0.292 vs
+    # <= 0.132. Both thresholds sit mid-gap and both must hold. Avatar-tile
+    # gallery does not separate on this pair — it is classified
+    # participant-gallery and tagged `avatar-gallery-unresolved` instead.
+    camera_max_white_fraction: 0.118
+    camera_min_saturation: 0.212
+    # An existing Screen whose signature scores at least this against a new
+    # capture is reused — Screen lineage across meetings (AD-5).
+    lineage_threshold: 0.8
+    # Below this many tokens a signature carries no evidence, so the screen's
+    # identity is scoped to its meeting instead of collapsing every textless
+    # screen in the corpus onto one row.
+    min_signature_tokens: 3
+    # View type from the representative frame's normalized (0-1) block
+    # geometry, first match wins, otherwise `ui-screen`.
+    gallery_max_blocks: 6
+    gallery_max_text_density: 0.02
+    slide_min_block_height: 0.04
+    slide_max_blocks: 25
+  # Reconciling the provided transcript against the STT verification lane
+  # (story 1.5). Both corpus lineages are second-precision, so these are
+  # seconds-scale numbers, not the minute a coarser assumption would imply.
+  align:
+    # Half-width of the window a provided segment may be anchored inside.
+    # Raising it admits more matches and more wrong ones; a segment with no
+    # STT segment in the window stays unmatched rather than snapping to the
+    # nearest one, so `alignment_delta_ms` never carries invented timing.
+    anchor_window_seconds: 2.0
+    # Token overlap (0-1) a candidate pair must reach to count as the same
+    # speech. Lowering it verifies more segments at the cost of anchoring some
+    # to the wrong turn; raising it leaves more segments honestly unverified.
+    min_match_score: 0.35
+    # A provided turn carries only a start, so its end is the next turn's
+    # start; this caps that span for the last turn and across long silences,
+    # keeping a trailing segment from claiming the rest of the meeting.
+    max_segment_ms: 60000
+  # Where the meeting timeline is cut into moments (story 1.6). Both numbers
+  # were measured over all 28 finalized real-corpus drops (7,983 turns, median
+  # 268.5 per meeting): inter-turn start-to-start spacing runs p50 5s, p75 12s,
+  # p90 20s, p95 32s, p99 72s, max 406s. Story 1.6's spec records the full
+  # measurement and the corpus location it was taken from.
+  moments:
+    # A turn starting more than this long after the previous turn's *start*
+    # opens a new moment. Start-to-start, not end-to-start: `align` synthesizes
+    # a turn's end as the next turn's start, so end-to-start gaps are zero
+    # almost everywhere. 20s is the measured p90, which yields a median of 30.5
+    # moments per meeting over transcripts spanning a median ~50 minutes —
+    # roughly one moment per 1.7 minutes, the same order as the capture
+    # guardrail of under one screenshot per minute, so moments and screenshots
+    # stay comparable in density rather than one swamping the other. Tightening
+    # to 10s would produce ~80 blocks per meeting; loosening to 30s, ~16.
+    gap_seconds: 20
+    # Backstop for an unbroken block of talk, not a working knob: at a 20s gap
+    # only 4.6% of the 823 measured blocks run past three minutes (block span
+    # p90 is 127s), but without a cap the longest measured block runs 434s.
+    max_duration_ms: 180000
+
+# The api process (stories 1.9 and 3.1). The job-event stream serves live
+# ingestion progress by reading job rows (AD-11) — it starts no work and
+# pushes nothing from the worker.
+api:
+  # How often the stream re-reads job/job_stage and diffs the result. Stages
+  # run for minutes, so a second is already far finer than anything a human
+  # perceives as lag, and two small indexed reads per second per open tab is
+  # nothing on a single-user machine.
+  job_events_poll_seconds: 1.0
+  # Silence allowed before the stream emits a comment heartbeat. A stage that
+  # runs for ten minutes emits no events the whole time; the heartbeat is what
+  # tells a reader that a quiet stream is still alive. The loader caps this at
+  # 15s (FastAPI's own SSE keepalive interval), so the value set here is the
+  # one a client actually sees.
+  job_events_heartbeat_seconds: 10.0
+  # `GET /search` (story 3.1). These are *query-time* knobs, read per request
+  # by the api; they are not index settings, which is why they live here
+  # rather than under `projections.search` — an edit here needs no
+  # re-projection, and an edit there does.
+  search:
+    # Hits returned when the caller names no `limit`.
+    default_limit: 20
+    # The largest `limit` accepted. Above it the request is refused with a 422
+    # rather than clamped, so a caller never mistakes a truncated answer for a
+    # complete one.
+    max_limit: 100
+    # The hybrid blend: 0.0 pure keyword, 1.0 pure vector. Keyword-heavy on
+    # purpose — §7 finding 1 measured 0 of 9 embedding models beating BM25
+    # alone on transcript-worded queries (the dominant shape), and six of nine
+    # hybrid configurations scoring *below* the keyword baseline. Vectors earn
+    # their share on paraphrase (finding 2), which is what this 0.3 buys. The
+    # bake-off measured chunks, not moments, so this number is reasoned rather
+    # than measured on the index `/search` reads; Epic 5's retrieval eval
+    # settles it.
+    semantic_ratio: 0.3
+    # Words of context Meilisearch crops each snippet to around the match.
+    crop_length: 40
+    # The similarity a *semantic* hit must reach to be returned at all,
+    # applied to the vector lane alone (Meilisearch has no per-lane threshold,
+    # and its single `rankingScoreThreshold` would take typo-tolerant keyword
+    # hits with it). Without a floor the vector lane has no notion of "no
+    # match": every query, including a nonsense one, comes back with the k
+    # nearest moments.
+    #
+    # Measured on this corpus with `qwen3-embedding:0.6b`, scoring the seeded
+    # transcript moments: a paraphrase query ("how do we approve a PO") scored
+    # 0.783 against the moment that answers it, while nonsense queries topped
+    # out at 0.701 and an unrelated real query at 0.734. 0.75 sits in that
+    # gap. It is narrow, and it is measured on five moments — Epic 5's
+    # retrieval eval is what settles it.
+    semantic_score_floor: 0.75
+  # `POST /chat` (story 3.3). Retrieval breadth for the cited-answer path —
+  # query-time knobs like `search` above, read per request, changing nothing
+  # that is stored. Neither value bounds citations: every moment that reaches
+  # the synthesis prompt is re-read from Postgres by the citation gate before
+  # an answer is emitted (AD-6).
+  #
+  # These two are not the whole of chat's retrieval tuning. Chat's search leg
+  # runs the same query path `/search` does, so `semantic_ratio` (which also
+  # decides whether a chat question is embedded at all), `semantic_score_floor`
+  # and `crop_length` above govern it too: retuning the search *page* changes
+  # what the chat model is shown. Retune one, re-check the other.
+  chat:
+    # Search-leg hits retrieved for one question. Wider than the search page's
+    # 20: this is context a model reads rather than a list a person reads, and
+    # a moment that never reaches the prompt can never be cited — while one
+    # that reaches it unused costs only prompt tokens.
+    retrieval_limit: 30
+    # The most rows kept from one traversal template run. The templates carry
+    # no LIMIT by design (Epic 5's retrieval eval compares exact sets), so this
+    # is where the prompt gets its bound: a screen shown in fifty meetings must
+    # not become a fifty-moment prompt. Rows arrive in time order, so the cap
+    # keeps the most recent appearances — the questions commonly ask when an
+    # item was last seen.
+    traversal_row_limit: 20
+
+# How the evidence bundle is projected into the two retrieval stores (story
+# 1.7). Everything here is read by `server/meetingminer/projections/`, which
+# is the only writer either store has (AD-4). It lives in this file rather
+# than in code because `rebuild` must regenerate both stores from Postgres +
+# config.yaml alone: a retrieval knob that exists only as a Python constant is
+# not part of that contract. Section references below are to
+# `docs/architecture.md`.
+projections:
+  chunking:
+    # Whole speaker turns packed to this many characters — the configuration
+    # the upstream store was actually built and measured at (§6). Turn
+    # boundaries are preserved: a chunk never starts mid-turn, because speaker
+    # attribution is what the graph edges and the citation timestamps hang off.
+    # §7's limitations section makes this the *larger* lever than model choice
+    # (the bake-off held it fixed and still attributed a meaningful share of
+    # misses to the answer sitting one chunk over), and it bounds how precisely
+    # a screenshot ties to what was said via the SHOWN_DURING edge — so expect
+    # to retune it during Epic 3 and re-run `rebuild`.
+    chunk_max_chars: 1400
+    # Whole turns repeated from the tail of the previous chunk (§6 measured
+    # one). Raising it costs index size and buys tolerance for an answer that
+    # straddles a boundary.
+    chunk_overlap_turns: 1
+  # Passages handed to the `Embedder` per call. Throughput only — it changes
+  # no vector and no document, so it is safe to tune without a rebuild.
+  embed_batch_size: 16
+  search:
+    # §7 finding 1: on transcript-worded queries — the dominant query shape —
+    # 0 of 9 embedding models beat BM25 alone. Full-text is the half of
+    # retrieval carrying that traffic, so its settings are declared here
+    # rather than left at Meilisearch's defaults.
+    #
+    # `searchable_attributes` is ORDERED and the order *is* the field boost:
+    # Meilisearch 1.53 has no per-field weight, so an earlier attribute
+    # outranks a later one through the `attribute` ranking rule below. Moving
+    # a name up this list is how a field is boosted.
+    moments:
+      # The moment's own words first; the OCR text of the screen that was up
+      # while they were said next, so a term that appears only on the slide is
+      # still findable (FR12, story 3.1); who said them after that (so "what
+      # did Ellis say about X" still matches on the speaker); the meeting title
+      # last, because a title word matching is much weaker evidence than a
+      # transcript word matching.
+      #
+      # `screenText` ranks below `text` deliberately: OCR output is noisy, and
+      # a moment whose *transcript* names the term is the better citation than
+      # one where the term merely sat on screen.
+      #
+      # Adding it does not retro-index anything: documents written before this
+      # field existed do not carry it, so `make rebuild` is what makes OCR
+      # text searchable on already-ingested meetings.
+      searchable_attributes: [text, screenText, speakers, title]
+      # `meetingId` scopes a search to one meeting (the usual flow); `corpus`
+      # keeps an eval run over `scripted` meetings from being polluted by the
+      # `real` demo corpus; `hasScreenshot` separates replayable moments from
+      # transcript-only ones.
+      filterable_attributes: [meetingId, corpus, hasScreenshot, screenId, participantIds]
+      sortable_attributes: [startMs, startedAt]
+      # Meilisearch's defaults, stated explicitly rather than inherited: they
+      # are a deliberate choice here, and `attribute` is what makes the
+      # searchable-attribute order above act as a boost.
+      ranking_rules: [words, typo, proximity, attribute, sort, exactness]
+    chunks:
+      searchable_attributes: [text, speakers, title]
+      filterable_attributes: [meetingId, corpus, momentIds, participantIds]
+      sortable_attributes: [startMs]
+      ranking_rules: [words, typo, proximity, attribute, sort, exactness]
+    # Published artifacts (story 4.4). Keyword-only — the projection never
+    # declares an embedder on this index, so a publish never depends on the
+    # model host and the embed-only rebuild pass skips it entirely.
+    #
+    # `title` before `text`: an ADR's title is its distilled claim, so a
+    # title match is the stronger evidence here — the inverse of the
+    # transcript indexes above.
+    artifacts:
+      searchable_attributes: [title, text]
+      # `state` is filterable so the query side can pin `state = 'published'`
+      # in the request itself — belt and braces under the publish gate, which
+      # already keeps anything else out of the index.
+      filterable_attributes: [meetingId, corpus, state, kind]
+      sortable_attributes: []
+      ranking_rules: [words, typo, proximity, attribute, sort, exactness]
+    # Domain synonyms (§7, "fund full-text quality as a first-class half").
+    # Meilisearch treats every entry as one-way, so every pair below is
+    # written out in both directions — a one-way entry silently helps only
+    # half the queries that motivated it.
+    #
+    # `pos` is deliberately absent: in a supplier/procurement corpus it reads
+    # as "point of sale" at least as often as "purchase orders", and a synonym
+    # that fires on the wrong sense costs precision on the query shape §7
+    # measured as the dominant one.
+    synonyms:
+      sftp: [ftp, secure ftp, file transfer]
+      ftp: [sftp, secure ftp]
+      secure ftp: [sftp, ftp]
+      file transfer: [sftp]
+      po: [purchase order, purchase orders]
+      purchase order: [po, purchase orders]
+      purchase orders: [po, purchase order]
+
+stores:
+  postgres:
+    host: localhost
+    port: 5433 # host-mapped; 5432 is held by another project's postgres
+    database: meetingminer
+    user: meetingminer
+  neo4j:
+    uri: bolt://localhost:7687
+    user: neo4j
+  meilisearch:
+    url: http://localhost:7700

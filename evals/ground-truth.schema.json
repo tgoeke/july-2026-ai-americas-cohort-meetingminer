@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meetingminer.local/schemas/eval/ground-truth/1/manifest.json",
+  "title": "MeetingMiner eval ground-truth manifest (one scripted meeting)",
+  "description": "Contract for one YAML file under evals/ground-truth/, formalizing eval-design.md §1. The manifest declares what a scripted meeting should produce and is the recall denominator: expected screenshot count = slides (or screens) + participant_segments. Independence rule: the manifest is authored from the meeting script and never derived from pipeline output - a denominator built from what the extractor emitted cannot contain a screen it missed, so it would report 100% while measuring nothing. `meeting.archetype` selects the section: ui-demo declares `screens` and must not declare `slides`; slide-deck declares `slides` and must not declare `screens`. `meeting.source_id` is the ingested drop's sourceId (docs/source-drop.schema.json), and it is how a manifest is matched to a meeting; only meetings tagged `corpus: scripted` are ever eval subjects. This schema carries shape, enumerations and required-ness only. The rules it cannot express - anchor uniqueness after normalization, id uniqueness, `qa.expected_moment` resolving to a planted id, timestamps falling inside `duration_minutes`, and source_id uniqueness across manifests - are enforced by evals/harness/groundtruth.py and reported alongside these.",
+  "type": "object",
+  "properties": {
+    "meeting": {
+      "type": "object",
+      "description": "Identity and framing of the scripted meeting the manifest describes.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The manifest's own human-facing label (e.g. demo-001). Appears in eval reports. Unique across evals/ground-truth/ - a loader rule, not a schema rule."
+        },
+        "source_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The drop's sourceId, as it appears on GET /meetings. This is the join key between a manifest and an ingested meeting. It is not knowable until the scripted meeting is recorded and pulled, so shipped fixtures carry a placeholder value and the subject selector reports the manifest as unmatched until the real id replaces it."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Meeting title as scripted."
+        },
+        "archetype": {
+          "enum": ["ui-demo", "slide-deck"],
+          "description": "Which section carries the expected captures. ui-demo -> `screens`; slide-deck -> `slides` (a deck shows ALL its slides, so the slide list is a full manifest)."
+        },
+        "duration_minutes": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Scripted meeting length in minutes. Bounds every timestamp in the manifest (a loader rule) and is the over-capture guardrail's denominator in eval-design §2.2."
+        },
+        "participants": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Who is in the scripted meeting, by script - not by transcript attribution.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "role": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The participant's role in the script, e.g. presenter."
+              }
+            },
+            "required": ["name"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["id", "source_id", "title", "archetype", "duration_minutes", "participants"],
+      "additionalProperties": false
+    },
+    "slides": {
+      "type": "array",
+      "minItems": 1,
+      "description": "slide-deck archetype only: the full slide manifest. Every slide is an expected capture.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "title": {"type": "string", "minLength": 1},
+          "shown_at": {"$ref": "#/$defs/timestamp"},
+          "ocr_anchor": {"$ref": "#/$defs/ocr_anchor"}
+        },
+        "required": ["id", "title", "ocr_anchor"],
+        "additionalProperties": false
+      }
+    },
+    "screens": {
+      "type": "array",
+      "minItems": 1,
+      "description": "ui-demo archetype only: every distinct application screen the script demonstrates. Each is an expected capture. `shown_at` is required here and optional on `slides`, matching eval-design §1: a demo walks screens in an order only the script knows, and checks 2.3 (view classification) and 2.5 (citation timestamp window) both need the moment an entry was on screen. A deck is shown front to back, so a slide can be placed without one.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "name": {"type": "string", "minLength": 1},
+          "shown_at": {"$ref": "#/$defs/timestamp"},
+          "ocr_anchor": {"$ref": "#/$defs/ocr_anchor"}
+        },
+        "required": ["id", "name", "shown_at", "ocr_anchor"],
+        "additionalProperties": false
+      }
+    },
+    "participant_segments": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Expected captures beyond slides/screens: the moments where no content is shared and the gallery/participant view is what a capture should hold (meeting start, the moment sharing stops).",
+      "items": {
+        "type": "object",
+        "properties": {
+          "at": {"$ref": "#/$defs/timestamp"},
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Why this segment is expected, e.g. 'meeting start' or 'sharing stops'. Reporting only."
+          }
+        },
+        "required": ["at"],
+        "additionalProperties": false
+      }
+    },
+    "planted": {
+      "type": "object",
+      "description": "Items deliberately planted in the script so extraction and retrieval have a known answer. Ids are referenced by `qa.expected_moment` and must be unique across all three lists (a loader rule).",
+      "properties": {
+        "action_items": {
+          "type": "array",
+          "description": "Action items spoken in the script, verbatim.",
+          "items": {"$ref": "#/$defs/planted_item"}
+        },
+        "decisions": {
+          "type": "array",
+          "description": "Decisions spoken in the script, verbatim.",
+          "items": {"$ref": "#/$defs/planted_item"}
+        },
+        "phrases": {
+          "type": "array",
+          "description": "Verbatim phrases planted for transcript, timestamp and full-text index checks (eval-design §2.10).",
+          "items": {"$ref": "#/$defs/planted_item"}
+        }
+      },
+      "additionalProperties": false
+    },
+    "qa": {
+      "type": "array",
+      "description": "Questions the corpus must answer with citations. `expected_moment` names the planted item the top citation must resolve to (eval-design §2.8).",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "question": {"type": "string", "minLength": 1},
+          "expected_moment": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The id of a planted action item, decision or phrase. A reference no planted item declares is a validation error (a loader rule)."
+          },
+          "answer_must_contain": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Terms the answer must contain, checked by the judge rubric in eval-design §2.7(c).",
+            "items": {"type": "string", "minLength": 1}
+          }
+        },
+        "required": ["id", "question", "expected_moment", "answer_must_contain"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["meeting", "participant_segments"],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "meeting": {
+            "properties": {"archetype": {"const": "ui-demo"}},
+            "required": ["archetype"]
+          }
+        },
+        "required": ["meeting"]
+      },
+      "then": {
+        "description": "A ui-demo declares `screens`. Declaring `slides` here is an authoring mistake: the archetype and the section have to agree, or the recall denominator counts the wrong things. The forbidden section is expressed through `propertyNames` rather than `not: {required}` so that the validation message is the offending key itself instead of a dump of the whole manifest.",
+        "required": ["screens"],
+        "propertyNames": {"not": {"enum": ["slides"]}}
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "meeting": {
+            "properties": {"archetype": {"const": "slide-deck"}},
+            "required": ["archetype"]
+          }
+        },
+        "required": ["meeting"]
+      },
+      "then": {
+        "description": "A slide-deck declares `slides`. Declaring `screens` here is an authoring mistake: the archetype and the section have to agree, or the recall denominator counts the wrong things. The forbidden section is expressed through `propertyNames` rather than `not: {required}` so that the validation message is the offending key itself instead of a dump of the whole manifest.",
+        "required": ["slides"],
+        "propertyNames": {"not": {"enum": ["screens"]}}
+      }
+    }
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "timestamp": {
+      "type": "string",
+      "pattern": "^\\d{2}:\\d{2}:\\d{2}$",
+      "description": "Offset from meeting start as HH:MM:SS. The shape is checked here; that the clock time is real (minutes and seconds 00-59) and lands inside `meeting.duration_minutes` is a loader rule."
+    },
+    "ocr_anchor": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Distinctive on-screen text a capture of this slide/screen must contain - plant it on the slide if it does not occur naturally (eval-design §1 authoring rule). Required on every slide and screen, non-empty after normalization, and unique within the manifest after normalization (lowercase, punctuation stripped, whitespace collapsed - the same normalization capture-recall matching uses, so two anchors check 2.1 could not tell apart are rejected at authoring time). Uniqueness is a loader rule; JSON Schema cannot express it. KNOWN RESIDUAL RISK: uniqueness here is exact match after folding, while check 2.1 matches fuzzily at token-set similarity >= 0.8. Two anchors that differ by one word - \"Order Search Results\" and \"Order Search Filters\" - are accepted here and may still be conflated at run time. No distinctiveness threshold is invented to close that gap, because a wrong threshold would reject valid ground truth; the check that owns the threshold (5.2) inherits the condition, and a capture-recall failure whose matched entries look interchangeable should be triaged as a ground-truth script error before it is treated as a pipeline bug."
+    },
+    "planted_item": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What is said, verbatim as scripted."
+        },
+        "speaker": {"type": "string", "minLength": 1},
+        "at": {"$ref": "#/$defs/timestamp"}
+      },
+      "required": ["id", "text", "speaker", "at"],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,83 @@
+# Ground truth for scripted meeting demo-002 (eval-design.md §1).
+#
+# Authored from the meeting script BEFORE the recording is processed. A
+# slide-deck shows ALL of its slides, so `slides` below is the full deck, not
+# a sample — every entry is a capture the pipeline is required to produce.
+#
+# Timings below were corrected against the actual recording pulled to
+# /Volumes/nvmepool/mm_current/outbox/2026-08-20-q3-architecture-review-500cece7
+# (transcript.vtt + recording.mp4, 434s), not against pipeline output — the
+# take ran shorter than the planned 18 minutes, so every shown_at/at value
+# moved earlier.
+
+meeting:
+  id: demo-002
+  source_id: "https://contoso-my.sharepoint.com/personal/58231_contoso_com/_layouts/15/stream.aspx?id=%2Fpersonal%2F58231_contoso_com%2FDocuments%2FRecordings%2FQ3%20Architecture%20Review-20260820_191149-Meeting%20Recording.mp4"
+  title: "Q3 Architecture Review"
+  archetype: slide-deck
+  duration_minutes: 7
+  participants:
+    - name: Tim Goeke
+      role: presenter
+    - name: Tiffany Goeke
+      role: reviewer
+
+# Expected captures: 5 slides + 2 participant segments = 7.
+slides:
+  - id: S1
+    title: "Q3 Architecture Review"
+    shown_at: "00:00:27"
+    ocr_anchor: "Q3 Architecture Review"
+  - id: S2
+    title: "Evidence Pipeline Today"
+    shown_at: "00:01:16"
+    ocr_anchor: "Evidence Pipeline Today"
+  - id: S3
+    title: "Retrieval Split: Graph and Document Index"
+    shown_at: "00:02:58"
+    ocr_anchor: "Retrieval Split Graph and Document Index"
+  - id: S4
+    title: "Publish Gate"
+    shown_at: "00:04:48"
+    ocr_anchor: "Nothing Enters a Store Before Approval"
+  - id: S5
+    title: "Q4 Proposal"
+    shown_at: "00:05:54"
+    ocr_anchor: "Q4 Proposal and Open Risks"
+
+participant_segments:
+  - at: "00:00:00"
+    label: "meeting start, before the deck is shared"
+  - at: "00:06:38"
+    label: "deck closed for questions"
+
+planted:
+  action_items:
+    - id: AI1
+      text: "Tiffany will write the ADR for the retrieval split before the next review"
+      speaker: Tiffany Goeke
+      at: "00:04:29"
+  decisions:
+    - id: D1
+      text: "The document index stays a separate store from the graph"
+      speaker: Tim Goeke
+      at: "00:03:37"
+    - id: D2
+      text: "No artifact is projected into a retrieval store before it is approved"
+      speaker: Tim Goeke
+      at: "00:05:21"
+  phrases:
+    - id: P1
+      text: "tangerine scaffolding checkpoint"
+      speaker: Tiffany Goeke
+      at: "00:05:43"
+
+qa:
+  - id: Q1
+    question: "Why is the document index a separate store from the graph?"
+    expected_moment: D1
+    answer_must_contain: ["document index", "graph"]
+  - id: Q2
+    question: "When does a published artifact become searchable?"
+    expected_moment: D2
+    answer_must_contain: ["approved"]

@@ -1,0 +1,28 @@
+{
+  "name": "teams-transcript-grabber",
+  "version": "1.0.0",
+  "description": "Extract full Microsoft Teams/Stream meeting transcripts from the CLI via a logged-in headless browser.",
+  "type": "commonjs",
+  "bin": {
+    "grab-teams-transcript": "grab-teams-transcript.js",
+    "emit-drop": "emit-drop.js"
+  },
+  "scripts": {
+    "login": "node grab-teams-transcript.js --login",
+    "grab": "node grab-teams-transcript.js",
+    "test": "node --test test/*.test.js",
+    "emit-drop": "node emit-drop.js"
+  },
+  "dependencies": {
+    "playwright": "^1.47.0"
+  },
+  "license": "MIT",
+  "private": true,
+  "devDependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

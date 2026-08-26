@@ -1,0 +1,329 @@
+"""The Meilisearch projection: two indexes, first-class full-text (AD-4).
+
+Full-text is not a fallback behind the vector half. Measured on this corpus,
+**0 of 9 embedding models beat BM25 alone** on transcript-worded queries — the
+dominant query shape (`retrieval-prior-art.md` §7 finding 1). So the index
+settings are declared in ``config.yaml`` and applied deliberately
+(``stores.ensure_search_schema``), and a meeting with no vectors at all is
+fully functional here rather than degraded.
+
+**Two indexes, not one.**
+
+* ``moments`` is *citation-shaped*: one document per moment, keyed on the
+  Postgres-minted moment UUID, so a citation resolves to something replayable
+  (AD-6). It carries the moment's ``screenshotId`` when it has one and its
+  ``sourceDeepLink`` when it does not (UX-DR11).
+* ``chunks`` is *retrieval-shaped*, at the turn-packed granularity the bake-off
+  actually measured, keyed on the UUID of its first transcript segment.
+
+Both carry ``meetingId`` and ``corpus`` as filterable attributes — ``corpus``
+because an eval run must be able to scope to ``scripted`` meetings without the
+``real`` demo corpus polluting the result set.
+
+**Vectors are insert-only** (`retrieval-prior-art.md` §3 rule 2). Every write
+here is a delete-of-this-meeting followed by an add: a changed chunk is a new
+document, never a vector patched in place. That is also why the embedding pass
+rebuilds whole documents rather than pushing a partial update.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Mapping, Sequence
+from uuid import UUID
+
+import meilisearch
+
+from meetingminer.adapters.embed.port import Vector
+from meetingminer.projections.chunking import Chunk
+from meetingminer.projections.evidence import MeetingEvidence
+from meetingminer.projections.publish_gate import (
+    ARTIFACTS_INDEX,
+    Artifact,
+    artifact_document,
+)
+from meetingminer.projections.stores import (
+    CHUNKS_INDEX,
+    EMBEDDER_NAME,
+    MOMENTS_INDEX,
+    await_task,
+)
+
+# Documents per add_documents call. Meilisearch handles far larger batches;
+# this keeps one meeting's payload bounded and the task list readable.
+_BATCH = 500
+
+
+def _iso(value: Any) -> str | None:
+    return value.isoformat() if value is not None else None
+
+
+def moment_documents(evidence: MeetingEvidence) -> list[dict[str, Any]]:
+    """One document per moment — the citation-shaped index."""
+    screenshot_by_id = {s.id: s for s in evidence.screenshots}
+    screen_by_id = {s.id: s for s in evidence.screens}
+    documents: list[dict[str, Any]] = []
+    for moment in evidence.moments:
+        screenshot = (
+            screenshot_by_id.get(moment.screenshot_id) if moment.screenshot_id else None
+        )
+        screen = screen_by_id.get(screenshot.screen_id) if screenshot else None
+        documents.append(
+            {
+                # The Postgres UUID, verbatim (AD-6). Never an ordinal.
+                "id": str(moment.id),
+                "meetingId": str(evidence.meeting_id),
+                "corpus": evidence.corpus,
+                "title": evidence.title or "",
+                "sourceId": evidence.source_id,
+                "text": moment.text,
+                # The OCR text of the screen that was up while this was said,
+                # so a term appearing only on the slide is still findable
+                # (FR12). `None` on a transcript-only moment, and on a
+                # recording moment whose capture has no OCR row — neither is
+                # an error, and Meilisearch indexes the absent field as
+                # nothing rather than refusing the document.
+                "screenText": screenshot.ocr_text if screenshot else None,
+                "speakers": list(moment.speakers),
+                "participantIds": [str(p) for p in moment.participant_ids],
+                "startMs": moment.start_ms,
+                "endMs": moment.end_ms,
+                "startedAt": _iso(moment.started_at),
+                "startedAtPrecision": moment.started_at_precision,
+                "derivedFrom": moment.derived_from,
+                "segmentCount": moment.segment_count,
+                # Present on a recording meeting, absent on a transcript-only
+                # one — where `sourceDeepLink` is the replay affordance.
+                "screenshotId": str(moment.screenshot_id)
+                if moment.screenshot_id
+                else None,
+                "screenId": str(screenshot.screen_id) if screenshot else None,
+                "screenLabel": (screen.label if screen else None),
+                "screenshotPath": screenshot.path if screenshot else None,
+                "sourceDeepLink": moment.source_deep_link,
+                # Filterable, so "moments I can replay" is one filter rather
+                # than a null-check the caller has to remember.
+                "hasScreenshot": moment.screenshot_id is not None,
+            }
+        )
+    return documents
+
+
+def chunk_documents(
+    evidence: MeetingEvidence, chunks: Sequence[Chunk]
+) -> list[dict[str, Any]]:
+    """One document per packed chunk — the retrieval-shaped index."""
+    documents: list[dict[str, Any]] = []
+    for chunk in chunks:
+        moment_ids: list[str] = []
+        for segment_id in chunk.segment_ids:
+            moment_id = evidence.moment_by_segment.get(segment_id)
+            if moment_id is not None and str(moment_id) not in moment_ids:
+                moment_ids.append(str(moment_id))
+        documents.append(
+            {
+                # The first turn's Postgres segment UUID (see chunking.py).
+                "id": str(chunk.id),
+                "meetingId": str(evidence.meeting_id),
+                "corpus": evidence.corpus,
+                "title": evidence.title or "",
+                "text": chunk.text,
+                "speakers": list(chunk.speakers),
+                "participantIds": [str(p) for p in chunk.participant_ids],
+                # Do not collapse by label: the same raw label can appear
+                # with different resolution states in one passage.
+                "speakerTurns": [
+                    {
+                        "speakerLabel": turn.speaker_label,
+                        "speakerResolution": turn.speaker_resolution,
+                    }
+                    for turn in chunk.turns
+                ],
+                "startMs": chunk.start_ms,
+                "endMs": chunk.end_ms,
+                "segmentIds": [str(s) for s in chunk.segment_ids],
+                # A chunk can straddle a moment boundary, so this is a list:
+                # it is how a chunk hit is resolved to a citable moment (AD-6).
+                "momentIds": moment_ids,
+                "turnCount": len(chunk.turns),
+                "charCount": chunk.char_count,
+            }
+        )
+    return documents
+
+
+def artifact_documents(artifacts: Sequence[Artifact]) -> list[dict[str, Any]]:
+    """One document per *published* artifact — the citable-knowledge index.
+
+    The shape is ``publish_gate.artifact_document``'s, frozen by the eval
+    harness (AD-16): id = artifact UUID, source moments in ``momentIds``. The
+    gate runs inside that builder, so an unpublished artifact raises before
+    any document exists. No ``_vectors`` key, ever: the artifacts index
+    declares no embedder (story 4.4 Design Notes).
+    """
+    return [artifact_document(artifact) for artifact in artifacts]
+
+
+def _with_vectors(
+    documents: Sequence[Mapping[str, Any]], vectors: Sequence[Vector] | None
+) -> list[dict[str, Any]]:
+    """Attach user-provided vectors, or explicitly opt each document out.
+
+    ``None`` means the structural pass — no ``Embedder`` was called. It is
+    **not** the same as omitting ``_vectors``: with a ``userProvided`` embedder
+    declared, Meilisearch rejects a document that neither supplies a vector nor
+    opts out, so the structural pass writes ``_vectors.default: null``. That
+    explicit opt-out is what makes "structural indexing works with the model
+    host down" (`retrieval-prior-art.md` §3 rule 4) true against this store
+    rather than merely intended: the documents land, BM25 serves them, and the
+    embedding pass fills the vectors in later.
+    """
+    if vectors is None:
+        return [
+            {**document, "_vectors": {EMBEDDER_NAME: None}} for document in documents
+        ]
+    if len(vectors) != len(documents):
+        raise ValueError(
+            f"embedder returned {len(vectors)} vectors for {len(documents)} documents"
+        )
+    enriched: list[dict[str, Any]] = []
+    for document, vector in zip(documents, vectors):
+        body = dict(document)
+        # `userProvided` — the module computed this itself through the port;
+        # no store-native auto-embedder exists to compute it (AD-4).
+        body["_vectors"] = {
+            EMBEDDER_NAME: {"embeddings": list(vector), "regenerate": False}
+        }
+        enriched.append(body)
+    return enriched
+
+
+def delete_meeting(client: meilisearch.Client, meeting_id: UUID | str) -> None:
+    """Drop one meeting's documents from both indexes, and nothing else.
+
+    Filtered on ``meetingId``, which every document carries — that is what
+    makes re-projecting one occurrence a scoped delete-and-reinsert rather
+    than a full rebuild (`retrieval-prior-art.md` §3 rule 5), and it is the
+    path story 1.12 re-projects through.
+
+    The id is round-tripped through :class:`UUID` before it reaches the filter
+    string. Every caller in this module passes a real UUID, but this is the
+    delete that *every* re-projection runs, and a filter expression built by
+    interpolation is not a place to trust a ``str`` parameter's shape.
+    """
+    scope = UUID(str(meeting_id))
+    expression = f'meetingId = "{scope}"'
+    for index_uid in (MOMENTS_INDEX, CHUNKS_INDEX, ARTIFACTS_INDEX):
+        await_task(
+            client,
+            client.index(index_uid).delete_documents(filter=expression),
+            # An index that does not exist holds none of this meeting's
+            # documents, which is the state the delete wanted. Reached when a
+            # meeting is retired against a store that was never built.
+            tolerate=("index_not_found",),
+        )
+
+
+def delete_meeting_vectors(client: meilisearch.Client, meeting_id: UUID | str) -> None:
+    """Drop only this meeting's vector-bearing documents.
+
+    The embed-only pass owns the moments/chunks surfaces and must never even
+    address the keyword-only artifacts index.
+    """
+    scope = UUID(str(meeting_id))
+    expression = f'meetingId = "{scope}"'
+    for index_uid in (MOMENTS_INDEX, CHUNKS_INDEX):
+        await_task(
+            client,
+            client.index(index_uid).delete_documents(filter=expression),
+            tolerate=("index_not_found",),
+        )
+
+
+def _add(
+    client: meilisearch.Client, index_uid: str, documents: Sequence[Mapping[str, Any]]
+) -> None:
+    index = client.index(index_uid)
+    for start in range(0, len(documents), _BATCH):
+        batch = [dict(document) for document in documents[start : start + _BATCH]]
+        await_task(client, index.add_documents(batch))
+
+
+def project_meeting(
+    client: meilisearch.Client,
+    evidence: MeetingEvidence,
+    chunks: Sequence[Chunk],
+    *,
+    moment_vectors: Sequence[Vector] | None = None,
+    chunk_vectors: Sequence[Vector] | None = None,
+    artifacts: Sequence[Artifact] = (),
+) -> tuple[int, int, int]:
+    """Replace one meeting's documents in all three indexes; return the counts.
+
+    Delete-then-add, always — never an in-place update. A meeting with zero
+    moments writes zero moment documents and is not an error. Published
+    Published artifacts ride along on structural/full projection because its
+    meeting-scoped delete wipes theirs too. The separate embed-only pass below
+    addresses moments and chunks exclusively, so artifacts neither ride nor
+    get rewritten there. They never carry vectors: the artifacts index is
+    keyword-only.
+    """
+    moments = _with_vectors(moment_documents(evidence), moment_vectors)
+    passages = _with_vectors(chunk_documents(evidence, chunks), chunk_vectors)
+    published = artifact_documents(artifacts)
+    delete_meeting(client, evidence.meeting_id)
+    if moments:
+        _add(client, MOMENTS_INDEX, moments)
+    if passages:
+        _add(client, CHUNKS_INDEX, passages)
+    if published:
+        _add(client, ARTIFACTS_INDEX, published)
+    return len(moments), len(passages), len(published)
+
+
+def project_embeddings(
+    client: meilisearch.Client,
+    evidence: MeetingEvidence,
+    chunks: Sequence[Chunk],
+    *,
+    moment_vectors: Sequence[Vector],
+    chunk_vectors: Sequence[Vector],
+) -> tuple[int, int]:
+    """Replace only vector-bearing documents for one meeting."""
+    moments = _with_vectors(moment_documents(evidence), moment_vectors)
+    passages = _with_vectors(chunk_documents(evidence, chunks), chunk_vectors)
+    delete_meeting_vectors(client, evidence.meeting_id)
+    if moments:
+        _add(client, MOMENTS_INDEX, moments)
+    if passages:
+        _add(client, CHUNKS_INDEX, passages)
+    return len(moments), len(passages)
+
+
+def project_artifacts(client: meilisearch.Client, artifacts: Sequence[Artifact]) -> int:
+    """Upsert published artifacts without touching the meeting's documents.
+
+    The approve route's path (via ``projections.project_published_artifacts``):
+    add-only, keyed on the artifact UUID, so a re-publish of the same ids is
+    an idempotent overwrite rather than a duplicate.
+    """
+    documents = artifact_documents(artifacts)
+    if documents:
+        _add(client, ARTIFACTS_INDEX, documents)
+    return len(documents)
+
+
+def unproject_meeting(client: meilisearch.Client, meeting_id: UUID | str) -> None:
+    """Remove one meeting's documents from both indexes."""
+    delete_meeting(client, meeting_id)
+
+
+def counts(client: meilisearch.Client) -> dict[str, int]:
+    """Document counts per index, for the `rebuild` equivalence check."""
+    result: dict[str, int] = {}
+    for index_uid in (MOMENTS_INDEX, CHUNKS_INDEX, ARTIFACTS_INDEX):
+        stats = client.index(index_uid).get_stats()
+        total = getattr(stats, "number_of_documents", None)
+        if total is None and isinstance(stats, dict):
+            total = stats.get("numberOfDocuments")
+        result[index_uid] = int(total or 0)
+    return result

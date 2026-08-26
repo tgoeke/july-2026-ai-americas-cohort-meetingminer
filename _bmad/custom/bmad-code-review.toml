@@ -1,0 +1,109 @@
+# Project overrides for bmad-code-review.
+#
+# Merge rules (see the skill's customize.toml): scalars override, arrays append,
+# arrays-of-tables merge by `id`/`code`.
+
+[workflow]
+
+# Added 2026-08-19. `on_complete` is the right home for the landing steps, but
+# step-04-present.md HALTs for the user's next-step choice *before* the
+# On Complete hook runs — so a session whose user takes the findings and walks
+# away never reaches it. This fact is loaded at activation instead, so the rule
+# is in context for the whole run no matter where the run stops.
+
+persistent_facts = [
+  "A code review is not finished when the findings are written. It is finished when its own changes are committed and pushed, and when a story that passed review has been merged to `main`. Work left uncommitted in a worktree is invisible to every other agent, because no session can see another's. If the run is going to stop early — the user leaves, the context runs short, a step halts — land the work first and present the findings second.",
+]
+
+# Added 2026-08-18. This project runs a two-agent loop: Claude drives
+# bmad-build-auto to implement a story, Codex drives bmad-code-review to review
+# it, and the human user carries the prompt files between them by hand. Neither
+# agent can see the other's session, so each one's last act is to write the
+# next one's brief to a file.
+#
+# The builder side is the mirror of this, in _bmad/custom/bmad-build-auto.toml.
+
+on_complete = """
+After the findings are presented and sprint status is synced, write the builder
+handoff prompt to
+`_bmad-output/implementation-artifacts/build-prompt-story-<story-id>-<date>.md`.
+
+The user carries this file to the Claude `bmad-build-auto` agent by hand. That
+agent has none of this review's context and cannot see this session, so the
+prompt must stand alone. Include:
+
+- The review artifact's path, and the repo, branch, and exact commit range that
+  was reviewed. If the branch has moved since, say so.
+- Every finding you are asking the builder to act on, each with: the anchoring
+  `file.py:line`, what is wrong, the concrete failure it produces (inputs to
+  wrong outcome, or the mutation that would keep the suite green), and what the
+  fix must achieve. State the requirement, not the patch — the builder decides
+  the implementation.
+- Findings grouped by the action you want, and say which action each group
+  gets: fix now, defer to `deferred-work.md` with the source spec recorded, or
+  no action with the reason. A finding you are not asking anyone to act on still
+  belongs in the artifact, but keep it out of the fix list.
+- Any finding whose root cause is the specification rather than the code, called
+  out separately and explicitly. Those route to a spec amendment and a
+  re-derivation, not to a patch, and the builder must not silently code around
+  them.
+- Ordering and dependencies between fixes, where one changes the surface another
+  is anchored to.
+- The verification the builder must run before it reports done — the spec's
+  `## Verification` commands plus any regression test a finding demands, and for
+  each new test, the requirement that it be confirmed against the unfixed code
+  rather than assumed to work.
+- What is explicitly not in scope for this round, so the builder does not widen
+  it.
+
+State plainly whether the story passes review as it stands. If it does, say so
+and say that the builder's job is to mark it done, commit, and push — not to
+find more work.
+
+## Land this review's own work first
+
+Do this BEFORE writing the handoff prompt, and do not treat it as optional
+housekeeping. The failure it guards against has already happened more than once
+in this project: a session reports the review complete while its own artifact,
+its sprint-status edit and its deferred-work entries are still uncommitted in
+the worktree, and a story that passed review never reaches `main`. Work that is
+not pushed does not exist to the next agent, which cannot see this session.
+
+0. The review report file
+   (`_bmad-output/implementation-artifacts/review-story-<story-id>-<date>.md`)
+   is the review's primary deliverable and must be created REPORT-FIRST: commit
+   a skeleton before reading any code, append findings as they are confirmed.
+   If it does not exist by this point, the review is not written yet — write it
+   now from this session's findings before doing anything else. `make
+   check-reviews` must pass before this review may report completion; a report
+   that exists only as terminal text has already been lost six times in this
+   project.
+
+1. Run `git status --porcelain` and read the output. Do not assert that there is
+   nothing to commit — check. Stage only the paths this review changed (never
+   `git add -A`, per AGENTS.md), then commit and push. That includes the review
+   artifact, the story file's status change, the `sprint-status.yaml` sync, and
+   any `deferred-work.md` entries.
+
+2. If, and only if, the story passes review, merge its branch into `main` and
+   push:
+   - Merge only when this session actually ran the verification commands and saw
+     them pass, and no must-fix finding is outstanding. A story that still has
+     fixes routed to the builder does not merge — it goes back with the prompt.
+   - Never force-push, never rewrite history, never `reset`, `stash` or `clean` a
+     tree you do not exclusively own, and never merge a branch you did not just
+     verify.
+   - If the merge conflicts, stop and report it. Do not resolve it blind.
+   - After merging, update `sprint-status.yaml` to the story's real state and
+     commit that too — a merged story still reading `review` is how the tracking
+     file starts lying to the next session.
+
+3. Report what you actually did: the commit SHAs you created, the merge commit if
+   you made one, and the resulting `main` head. If you did not merge, say so in
+   one line with the reason. "Committed and pushed" with no SHAs is not a report,
+   and is exactly what a session says when it did neither.
+
+Then tell the user the handoff file path and that it is ready to hand to the
+Claude `bmad-build-auto` agent, alongside the SHAs from the step above. That is
+the final thing the review says.
+"""

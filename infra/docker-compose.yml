@@ -1,0 +1,124 @@
+# MeetingMiner infrastructure (AD-9): compose runs ONLY the stateful stores —
+# the three dev stores plus the two disposable test-store twins below.
+# api, worker, and the Vite dev server run as macOS host processes — see infra/Makefile.
+# Passwords come from the root .env (the Makefile passes --env-file).
+
+name: meetingminer
+
+services:
+  postgres:
+    # Digest-pinned (story 1.10, finding 21): a mutable tag like pg18 can
+    # silently move; the digest cannot. Bump deliberately, never implicitly.
+    image: pgvector/pgvector:pg18@sha256:2ba9ca5f2e7daa0f0e7723cba1ee9167bab54efd3640516a44ac1a928dd67e7a
+    container_name: meetingminer-postgres
+    environment:
+      POSTGRES_DB: meetingminer
+      POSTGRES_USER: meetingminer
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD missing — copy .env.example to .env}
+    ports:
+      # Host port 5433: 5432 is held by another project's postgres on this machine.
+      # 127.0.0.1 only (finding 20): nothing off-host needs the stores (AD-9),
+      # and the dev passwords are committed defaults.
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meetingminer -d meetingminer"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  neo4j:
+    image: neo4j:2026.07-community@sha256:dca31d0d938dd8bb199c8846abedd897c3a07ddb629eca46a8009ac9e87aece2
+    container_name: meetingminer-neo4j
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD missing — copy .env.example to .env}
+    ports:
+      - "127.0.0.1:7474:7474" # HTTP browser
+      - "127.0.0.1:7687:7687" # Bolt
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"]
+      interval: 5s
+      timeout: 10s
+      retries: 24
+      start_period: 30s
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.53@sha256:8d6643d86d71fad6ad3cba92cde7ccfce9e4d6c384bda67598eb553571c32431
+    container_name: meetingminer-meilisearch
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY missing — copy .env.example to .env}
+      MEILI_ENV: development
+      MEILI_NO_ANALYTICS: "true"
+    ports:
+      - "127.0.0.1:7700:7700"
+    volumes:
+      - meilisearch-data:/meili_data
+    healthcheck:
+      # curl is verified present in the digest-pinned image above; the digest
+      # pin guarantees it stays present until the pin is bumped deliberately.
+      test: ["CMD-SHELL", "curl -fsS http://localhost:7700/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # --- disposable test-store twins -----------------------------------------
+  # The projection test suites' `projection_stores` fixture runs `drop_all`
+  # against whatever endpoints the session AppConfig resolves. Before these
+  # twins existed that was the developer's live Neo4j + Meilisearch above, and
+  # every suite run silently emptied the searchable corpus. The test session
+  # (server/tests/conftest.py `app_config`) now points at these instead, so a
+  # wipe only ever hits data no one keeps. Same digest-pinned images, env keys
+  # and healthchecks as the dev stores; only the host ports, container names
+  # and volumes differ. Postgres needs no twin — those tests already isolate
+  # per run with their own named databases.
+
+  neo4j-test:
+    image: neo4j:2026.07-community@sha256:dca31d0d938dd8bb199c8846abedd897c3a07ddb629eca46a8009ac9e87aece2
+    container_name: meetingminer-neo4j-test
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD missing — copy .env.example to .env}
+    ports:
+      - "127.0.0.1:7475:7474" # HTTP browser
+      - "127.0.0.1:7688:7687" # Bolt
+    volumes:
+      - neo4j-test-data:/data
+      - neo4j-test-logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"]
+      interval: 5s
+      timeout: 10s
+      retries: 24
+      start_period: 30s
+
+  meilisearch-test:
+    image: getmeili/meilisearch:v1.53@sha256:8d6643d86d71fad6ad3cba92cde7ccfce9e4d6c384bda67598eb553571c32431
+    container_name: meetingminer-meilisearch-test
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY missing — copy .env.example to .env}
+      MEILI_ENV: development
+      MEILI_NO_ANALYTICS: "true"
+    ports:
+      - "127.0.0.1:7701:7700"
+    volumes:
+      - meilisearch-test-data:/meili_data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:7700/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  postgres-data:
+  neo4j-data:
+  neo4j-logs:
+  meilisearch-data:
+  neo4j-test-data:
+  neo4j-test-logs:
+  meilisearch-test-data:

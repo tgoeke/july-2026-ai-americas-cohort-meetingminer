@@ -1,0 +1,520 @@
+"""`extract` — propose ADRs and action items from the whole transcript (AD-5, AD-11, AD-17).
+
+The stage never names a model. It asks
+:func:`~meetingminer.adapters.llm.build_llm` for whatever ``config.yaml`` binds
+to ``llm.roles.extraction`` (AD-8, AD-10), reads the meeting's evidence bundle
+through :func:`meetingminer.projections.evidence.read_meeting` — the one
+assembly of "what the meeting says" (AD-4) — and works over the **whole
+meeting**, once per document kind, rather than once per moment.
+
+**Adopt when present, generate when absent.** Extraction's two documents are
+the architecture summary and the owner-grouped action items. The puller's
+summariser already produces both for every meeting it pulls, so when the drop
+carries a document this stage parses those bytes and makes **zero model calls**;
+only a document the drop lacks is generated through the `Llm` port. The decision
+is per document, so a drop carrying only the action items adopts that one and
+generates the other. Derivative documents are created only when necessary,
+never regenerated.
+
+**Anchoring.** Every parsed item carries an `[m:ss]` timestamp, and that anchor
+is resolved to the moment containing it — greatest ``start_ms <= t``, the same
+half-open tiling `plan_moments` assigns segments with. An anchor the timeline
+does not contain fails the stage by name rather than dropping the artifact:
+dropping would be a silent zero, and snapping to the nearest moment would
+manufacture a citation. That is what keeps extraction inside *no citation, no
+answer*.
+
+Ownership is split by column (AD-5): this stage inserts rows and owns the
+extraction-content columns; the lifecycle column ``state`` is written only as
+the insert default — no code path here ever updates it.
+
+Idempotence (AD-11) is delete-and-re-propose scoped to *drafts*: a rerun deletes
+only this meeting's ``state = 'extracted'`` rows on moments no human has acted
+on, and never proposes onto a moment already carrying an ``approved`` or
+``published`` artifact — such a moment's whole artifact set, sibling drafts
+included, stays exactly as the human last saw it.
+
+The whole stage runs inside the runner's open transaction (stage.py), so a
+mid-meeting failure rolls back every draft and a retry never sees half a
+meeting's proposals. NFR5: only `artifact` and `extraction_source` rows are
+written — no evidence table, no file, and nothing is projected here (NFR7:
+artifacts reach the stores only through the publish gate, in Story 4.4).
+
+AD-17 is why `extraction_source` exists at all: an adopted document is *arrived*
+material, so it gets a row naming its drops-root-relative path, ``sha256`` and
+``byte_size`` like every other evidence file the pipeline reads.
+"""
+
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path
+from uuid import UUID
+
+from psycopg.types.json import Jsonb
+
+from meetingminer.adapters.llm import Llm, LlmError, LlmOptions, LlmReply, build_llm
+from meetingminer.domain.drops import (
+    EXTRACTION_ACTIONS_FILENAME,
+    EXTRACTION_SUMMARY_FILENAME,
+    sha256_and_size,
+)
+from meetingminer.pipeline import extraction as core
+from meetingminer.pipeline.stage import StageContext, StageError
+from meetingminer.projections import evidence
+
+# Superseded moments keep their id so citations resolve (AD-6), but they are
+# ghosts a reader is not shown. They stay in the anchor lookup — removing them
+# would punch holes in a tiling that has none, and an anchor inside the hole
+# would fail a meeting for a reason that is not the model's fault — but an
+# artifact that lands on one is not inserted, and the summary says how many.
+_SELECT_SUPERSEDED = """
+SELECT id FROM moment
+WHERE meeting_id = %s AND provenance @> '{"superseded": true}'
+"""
+
+# Moments whose artifact set a human has already acted on. Their drafts were
+# deleted or promoted by the API; proposing onto them would sit machine output
+# beside approved judgment as if the approval had not happened.
+_SELECT_APPROVED_MOMENTS = """
+SELECT DISTINCT moment_id FROM artifact
+WHERE meeting_id = %s AND state IN ('approved', 'published')
+"""
+
+# The one artifact deletion this stage may perform (AD-11): its own drafts,
+# never an approved or published row, never another meeting's — and never a
+# draft on a moment a human has already acted on. Such a moment is skipped
+# below and so would not be re-proposed; deleting its sibling draft here would
+# destroy it permanently. The whole artifact set of an approved moment —
+# drafts included — is left exactly as the human last saw it.
+_DELETE_DRAFTS = """
+DELETE FROM artifact
+WHERE meeting_id = %s AND state = 'extracted'
+  AND moment_id NOT IN (
+    SELECT moment_id FROM artifact
+    WHERE meeting_id = %s AND state IN ('approved', 'published')
+  )
+"""
+
+# `state` is deliberately absent: it lands as the column default 'extracted',
+# which is the whole of this stage's contact with the lifecycle column (AD-5).
+_INSERT_ARTIFACT = """
+INSERT INTO artifact (moment_id, meeting_id, kind, title, body, provenance)
+VALUES (%(moment_id)s, %(meeting_id)s, %(kind)s, %(title)s, %(body)s, %(provenance)s)
+"""
+
+# Upserted rather than replaced, so the row describing a document keeps its id
+# across reruns — the same reason `align` upserts `transcript_source`.
+_UPSERT_EXTRACTION_SOURCE = """
+INSERT INTO extraction_source (
+    meeting_id, kind, origin, drop_relative_path, sha256, byte_size,
+    layout, item_count, artifact_count, model, prompt_version, prompt_hash
+) VALUES (
+    %(meeting_id)s, %(kind)s, %(origin)s, %(drop_relative_path)s, %(sha256)s,
+    %(byte_size)s, %(layout)s, %(item_count)s, %(artifact_count)s, %(model)s,
+    %(prompt_version)s, %(prompt_hash)s
+)
+ON CONFLICT (meeting_id, kind) DO UPDATE SET
+    origin = EXCLUDED.origin,
+    drop_relative_path = EXCLUDED.drop_relative_path,
+    sha256 = EXCLUDED.sha256,
+    byte_size = EXCLUDED.byte_size,
+    layout = EXCLUDED.layout,
+    item_count = EXCLUDED.item_count,
+    artifact_count = EXCLUDED.artifact_count,
+    model = EXCLUDED.model,
+    prompt_version = EXCLUDED.prompt_version,
+    prompt_hash = EXCLUDED.prompt_hash
+"""
+
+# A meeting that used to have extraction documents and now has nothing to read
+# must not keep the rows describing them — the same rule `align` applies to a
+# shed transcript form. Only the all-or-nothing case is reachable: every run
+# that reads a transcript writes both kinds, and migration 0010's CHECK admits
+# no third kind, so a "delete the kinds this run did not write" statement would
+# be a statement that can never match a row.
+_DELETE_ALL_SOURCES = "DELETE FROM extraction_source WHERE meeting_id = %s"
+
+ORIGIN_ADOPTED = "adopted"
+ORIGIN_GENERATED = "generated"
+
+
+# Which `metadata.extractions` key declares each document kind, and which
+# canonical filename it names. The drop schema pins the key's value to that
+# filename, so the two can only disagree about presence.
+_DECLARATION = {
+    core.DOC_ARCH_SUMMARY: ("archSummary", EXTRACTION_SUMMARY_FILENAME),
+    core.DOC_ACTION_ITEMS: ("actionItems", EXTRACTION_ACTIONS_FILENAME),
+}
+
+# Which `ExtractionRoleBinding` field carries each document's config-owned
+# prompt text (story 4.2). Copied straight onto `core.build_prompt`'s
+# `template=` — the stage never hard-codes prompt text of its own.
+_PROMPT_FIELD = {
+    core.DOC_ARCH_SUMMARY: "arch_summary_prompt",
+    core.DOC_ACTION_ITEMS: "action_items_prompt",
+}
+
+
+def _drop_document(ctx: StageContext, document_kind: str) -> Path | None:
+    """The drop file carrying this document, when the drop carries one.
+
+    The drop's own `metadata.extractions` declaration is cross-checked against
+    what is on disk. Deciding adoption on file presence alone made the schema's
+    fail-closed `schemaVersion: 3` gate buy nothing: a drop that *declares* a
+    document whose file is missing would quietly take the generate path and
+    spend a model pass re-deriving work the drop said it had already done —
+    while looking, in every log line, exactly like a drop that never had one.
+    A drop that carries a document without declaring it is the ordinary
+    pre-declaration shape and is adopted as before.
+    """
+    key, filename = _DECLARATION[document_kind]
+    path = (
+        ctx.drop.extraction_summary_path
+        if document_kind == core.DOC_ARCH_SUMMARY
+        else ctx.drop.extraction_actions_path
+    )
+    if path is None and key in ctx.drop.declared_extractions:
+        raise StageError(
+            f"the drop declares metadata.extractions.{key} but carries no"
+            f" {filename}: {ctx.drop.path} — a drop is write-once, so its"
+            " declaration and its contents cannot be reconciled here"
+        )
+    return path
+
+
+def _read_drop_document(path: Path) -> tuple[str, str, int]:
+    """Text, sha256 of the raw bytes, and byte size. The drop is only read.
+
+    The digest is of the bytes, not the decoded text: the hash answers "did
+    this input change", which is a question about the file rather than about
+    our decoder. :func:`~meetingminer.domain.drops.sha256_and_size` is the one
+    hashing implementation, so this reads the file twice rather than growing a
+    second answer to "did these bytes change".
+
+    A file that is not UTF-8 is a named refusal, not a lossy decode. Replacing
+    undecodable bytes would put U+FFFD into artifact titles and bodies while
+    the checksum — correctly taken over the raw bytes — recorded a file nobody
+    could tell had been corrupt. Every other unusable input in this stage is
+    refused by name; so is this one.
+    """
+    try:
+        digest, byte_size = sha256_and_size(path)
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise StageError(
+            f"extraction document {path.name} could not be read: {exc}"
+        ) from exc
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise StageError(
+            f"extraction document {path.name} is not valid UTF-8 ({exc}) — the"
+            " drop is write-once evidence, so this file is replaced by a new"
+            " drop rather than read lossily"
+        ) from exc
+    return text, digest, byte_size
+
+
+def _generate(
+    llm: Llm, prompt: str, options: LlmOptions, document_kind: str
+) -> tuple[core.ParsedDocument, LlmReply]:
+    """Complete one document, parse strictly, one retry on a parse failure.
+
+    A model that answers unusably often answers well when asked again, so a
+    parse failure earns exactly one retry against the same completer. A second
+    unusable reply is a stage failure naming the document — never a silent
+    zero. An `LlmError` (both models down, or no fallback configured) surfaces
+    as a :class:`StageError` naming the document it happened on.
+    """
+    try:
+        reply = llm.complete(prompt, options)
+    except LlmError as exc:
+        raise StageError(
+            f"extract could not complete the {document_kind} document: {exc}"
+        ) from exc
+    try:
+        return core.parse_extraction_document(reply.text, document_kind), reply
+    except core.ArtifactParseError as first_error:
+        try:
+            reply = llm.complete(prompt, options)
+        except LlmError as exc:
+            raise StageError(
+                f"extract could not complete the {document_kind} document on"
+                f" retry: {exc}"
+            ) from exc
+        try:
+            return core.parse_extraction_document(reply.text, document_kind), reply
+        except core.ArtifactParseError as exc:
+            raise StageError(
+                f"the generated {document_kind} document was unusable after a"
+                f" retry: {exc} (first failure: {first_error})"
+            ) from exc
+
+
+def _adopt(path: Path, document_kind: str) -> tuple[core.ParsedDocument, str, int, str]:
+    """Parse a document the drop carried. No retry: the bytes cannot change.
+
+    Re-reading the same file cannot parse differently, so the one-retry
+    discipline the generate path uses would be a second read of identical bytes
+    and a second identical failure.
+    """
+    text, digest, byte_size = _read_drop_document(path)
+    try:
+        parsed = core.parse_extraction_document(text, document_kind)
+    except core.ArtifactParseError as exc:
+        raise StageError(
+            f"the {document_kind} document the drop carried ({path.name}) could"
+            f" not be parsed: {exc}"
+        ) from exc
+    return parsed, digest, byte_size, text
+
+
+def _meeting_date(bundle: evidence.MeetingEvidence) -> str:
+    """The meeting's date, the way the puller states it to the model.
+
+    Grounding the model in the real date is what stops it inventing calendar
+    due dates for vague commitments like "next week".
+    """
+    return bundle.started_at.strftime("%m/%d/%Y").lstrip("0").replace("/0", "/")
+
+
+def run(ctx: StageContext) -> None:
+    binding = ctx.config.settings.llm.roles.extraction
+    llm = build_llm(binding, ctx.config.settings.providers, log=ctx.log)
+    options = LlmOptions(
+        num_ctx=binding.num_ctx, timeout_seconds=binding.timeout_seconds
+    )
+    bundle = evidence.read_meeting(ctx.conn, ctx.meeting_id)
+
+    superseded = {
+        row[0]
+        for row in ctx.conn.execute(_SELECT_SUPERSEDED, (ctx.meeting_id,)).fetchall()
+    }
+    approved_moments = {
+        row[0]
+        for row in ctx.conn.execute(
+            _SELECT_APPROVED_MOMENTS, (ctx.meeting_id,)
+        ).fetchall()
+    }
+    deleted_drafts = ctx.conn.execute(
+        _DELETE_DRAFTS, (ctx.meeting_id, ctx.meeting_id)
+    ).rowcount
+
+    artifact_counts: dict[str, int] = {kind: 0 for kind in sorted(core.KNOWN_KINDS)}
+    documents: dict[str, dict[str, object]] = {}
+    models_used: set[str] = set()
+    fallback_engaged = False
+    skipped_approved = 0
+    skipped_superseded = 0
+    zero_signals: list[tuple[str, tuple[str, ...]]] = []
+
+    transcript = core.render_transcript(bundle.turns)
+    if not transcript.strip() or not bundle.moments:
+        # Nothing to read and nowhere to anchor: no calls, no rows. The reason
+        # is counted in the summary rather than passed off as a quiet success.
+        ctx.conn.execute(_DELETE_ALL_SOURCES, (ctx.meeting_id,))
+        ctx.log(
+            "stage.extract.summary",
+            meeting_id=ctx.meeting_id,
+            skipped_reason=(
+                "no transcript text" if not transcript.strip() else "no moments"
+            ),
+            moments=len(bundle.moments),
+            turns=len(bundle.turns),
+            documents={},
+            artifacts=artifact_counts,
+            drafts_replaced=deleted_drafts,
+            models=[],
+            fallback_engaged=False,
+            prompt_version=core.PROMPT_VERSION,
+        )
+        return
+
+    for document_kind in core.DOCUMENT_KINDS:
+        drop_path = _drop_document(ctx, document_kind)
+        model: str | None = None
+        prompt_version: int | None = None
+        # The hash of the resolved template text that produced this
+        # document's artifacts — set only on the generate branch, `None` for
+        # an adopted document (story 4.2), exactly like `model`/`prompt_version`.
+        prompt_hash: str | None = None
+        # Per document, not per meeting: the fallback engages at call time and
+        # stays engaged, so a summary answered by the primary and actions
+        # answered by the substitute must not both claim the substitute.
+        document_fallback = False
+        if drop_path is not None:
+            parsed, digest, byte_size, _text = _adopt(drop_path, document_kind)
+            origin = ORIGIN_ADOPTED
+            relative_path: str | None = ctx.drop_relative_path(drop_path)
+        else:
+            template = getattr(binding, _PROMPT_FIELD[document_kind])
+            prompt = core.build_prompt(
+                document_kind,
+                transcript,
+                template=template,
+                meeting_title=bundle.title,
+                meeting_date=_meeting_date(bundle),
+            )
+            parsed, reply = _generate(llm, prompt, options, document_kind)
+            origin = ORIGIN_GENERATED
+            relative_path = None
+            model = reply.model
+            prompt_version = core.PROMPT_VERSION
+            # The template's own hash, not a hash of the whole rendered
+            # prompt (which would also fold in the meeting header and
+            # transcript) — it answers "which prompt config produced this",
+            # unrelated to which meeting it ran against.
+            prompt_hash = hashlib.sha256(template.encode()).hexdigest()[:16]
+            models_used.add(reply.model)
+            document_fallback = reply.fallback_engaged
+            fallback_engaged = fallback_engaged or reply.fallback_engaged
+            digest, byte_size = _digest_of(reply.text)
+
+        inserted = 0
+        for proposal in parsed.artifacts:
+            try:
+                moment_id = core.resolve_anchor(proposal.anchor_ms, bundle.moments)
+            except core.AnchorResolutionError as exc:
+                raise StageError(
+                    f"artifact {proposal.item_id} ({proposal.title!r}) from the"
+                    f" {document_kind} document cannot be anchored: {exc}"
+                ) from exc
+            # A discarded proposal is named, not merely counted. Under
+            # whole-transcript extraction this is a genuinely new proposal
+            # being thrown away because its timestamp landed in a settled span
+            # — an operator deciding whether to re-open a moment needs to know
+            # which item, not just how many.
+            if moment_id in approved_moments:
+                # A human has acted on this moment's artifact set; re-proposing
+                # onto it would sit machine output beside approved judgment.
+                skipped_approved += 1
+                _log_discard(ctx, document_kind, proposal, moment_id, "approved-moment")
+                continue
+            if moment_id in superseded:
+                # A superseded moment is a ghost no right rail shows, so an
+                # artifact anchored to one would never surface.
+                skipped_superseded += 1
+                _log_discard(
+                    ctx, document_kind, proposal, moment_id, "superseded-moment"
+                )
+                continue
+            ctx.conn.execute(
+                _INSERT_ARTIFACT,
+                {
+                    "moment_id": moment_id,
+                    "meeting_id": ctx.meeting_id,
+                    "kind": proposal.kind,
+                    "title": proposal.title,
+                    "body": proposal.body,
+                    "provenance": Jsonb(
+                        {
+                            "role": "extraction",
+                            "source": origin,
+                            "model": model,
+                            "fallback_engaged": document_fallback,
+                            "prompt_version": prompt_version,
+                            "prompt_hash": prompt_hash,
+                            "anchor_ms": proposal.anchor_ms,
+                            "document_kind": document_kind,
+                            "layout": proposal.layout,
+                            "item_id": proposal.item_id,
+                        }
+                    ),
+                },
+            )
+            artifact_counts[proposal.kind] += 1
+            inserted += 1
+
+        ctx.conn.execute(
+            _UPSERT_EXTRACTION_SOURCE,
+            {
+                "meeting_id": ctx.meeting_id,
+                "kind": document_kind,
+                "origin": origin,
+                "drop_relative_path": relative_path,
+                "sha256": digest,
+                "byte_size": byte_size,
+                "layout": parsed.layout,
+                "item_count": len(parsed.artifacts),
+                "artifact_count": inserted,
+                "model": model,
+                "prompt_version": prompt_version,
+                "prompt_hash": prompt_hash,
+            },
+        )
+        documents[document_kind] = {
+            "origin": origin,
+            "layout": parsed.layout,
+            "items": len(parsed.artifacts),
+            "artifacts": inserted,
+        }
+        if not parsed.artifacts and parsed.populated_target_sections:
+            zero_signals.append((document_kind, parsed.populated_target_sections))
+
+    ctx.log(
+        "stage.extract.summary",
+        meeting_id=ctx.meeting_id,
+        moments=len(bundle.moments),
+        turns=len(bundle.turns),
+        documents=documents,
+        adopted=sum(1 for d in documents.values() if d["origin"] == ORIGIN_ADOPTED),
+        generated=sum(
+            1 for d in documents.values() if d["origin"] == ORIGIN_GENERATED
+        ),
+        artifacts=artifact_counts,
+        anchors_resolved=sum(artifact_counts.values())
+        + skipped_approved
+        + skipped_superseded,
+        skipped_approved=skipped_approved,
+        skipped_superseded=skipped_superseded,
+        drafts_replaced=deleted_drafts,
+        models=sorted(models_used),
+        fallback_engaged=fallback_engaged,
+        prompt_version=core.PROMPT_VERSION,
+    )
+    for document_kind, sections in zero_signals:
+        # The no-silent-zero constraint: a document whose target sections
+        # plainly carry content but which parsed to nothing is the
+        # `retrieval-prior-art.md` §8 shape. It is not an error and it is not
+        # unremarkable success either — it is a signal, and it names both the
+        # document and the sections that produced nothing.
+        ctx.log(
+            "stage.extract.zero_artifacts",
+            meeting_id=ctx.meeting_id,
+            document=document_kind,
+            origin=documents[document_kind]["origin"],
+            populated_sections=list(sections),
+        )
+
+
+def _log_discard(
+    ctx: StageContext,
+    document_kind: str,
+    proposal: core.ProposedArtifact,
+    moment_id: UUID,
+    reason: str,
+) -> None:
+    """Name a proposal the stage parsed but deliberately did not insert."""
+    ctx.log(
+        "stage.extract.artifact_discarded",
+        meeting_id=ctx.meeting_id,
+        document=document_kind,
+        item_id=proposal.item_id,
+        title=proposal.title,
+        moment_id=moment_id,
+        anchor_ms=proposal.anchor_ms,
+        reason=reason,
+    )
+
+
+def _digest_of(text: str) -> tuple[str, int]:
+    """sha256 and byte size of a generated document's UTF-8 bytes.
+
+    A generated document has no file, so there is nothing for
+    :func:`~meetingminer.domain.drops.sha256_and_size` to read — but the
+    `extraction_source` row still has to identify the exact bytes that were
+    parsed, so a rerun can prove whether the input changed.
+    """
+    raw = text.encode("utf-8")
+    return hashlib.sha256(raw).hexdigest(), len(raw)

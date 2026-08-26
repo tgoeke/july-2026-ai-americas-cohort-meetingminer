@@ -1,0 +1,78 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>demo-001 screens</title>
+<style>
+  body{margin:0;font-family:-apple-system,Segoe UI,sans-serif;background:#f4f5f7;color:#1a1d21}
+  .screen{display:none;min-height:100vh;box-sizing:border-box;padding:28px 48px}
+  .screen.active{display:block}
+  header{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #d0d4da;padding-bottom:14px;margin-bottom:22px}
+  .brand{font-weight:700;color:#2450a4;font-size:20px}
+  h1{font-size:34px;margin:.2em 0 .6em}
+  table{border-collapse:collapse;width:100%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+  th,td{border:1px solid #d9dde3;padding:10px 14px;text-align:left;font-size:16px}
+  th{background:#e8ecf3}
+  .pill{padding:2px 10px;border-radius:10px;font-size:13px}
+  .ok{background:#d8f2dd}.warn{background:#fdeeC8}.hold{background:#fadbd8}
+  .hint{position:fixed;bottom:10px;right:14px;color:#9aa1ab;font-size:12px}
+  .kv{display:grid;grid-template-columns:220px 1fr;gap:8px 20px;background:#fff;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.12);max-width:720px;font-size:16px}
+  .kv b{color:#5a6270}
+</style></head><body>
+
+<section class="screen active" id="s1">
+  <header><span class="brand">ACME Orders Console</span><span>Tim Goeke · Ops</span></header>
+  <h1>Order Search Results</h1>
+  <table>
+    <tr><th>Order #</th><th>Customer</th><th>Placed</th><th>Total</th><th>Status</th></tr>
+    <tr><td>SO-10482</td><td>Bramford Logistics</td><td>Aug 14</td><td>$12,940.00</td><td><span class="pill ok">Fulfilled</span></td></tr>
+    <tr><td>SO-10495</td><td>Kestrel Manufacturing</td><td>Aug 16</td><td>$3,187.50</td><td><span class="pill warn">Picking</span></td></tr>
+    <tr><td>SO-10511</td><td>Halvorsen &amp; Co</td><td>Aug 18</td><td>$27,020.10</td><td><span class="pill hold">Tax hold</span></td></tr>
+    <tr><td>SO-10512</td><td>Bluewater Retail</td><td>Aug 18</td><td>$864.99</td><td><span class="pill warn">Picking</span></td></tr>
+    <tr><td>SO-10520</td><td>Nordpine Interiors</td><td>Aug 19</td><td>$5,411.25</td><td><span class="pill ok">Fulfilled</span></td></tr>
+  </table>
+</section>
+
+<section class="screen" id="s2">
+  <header><span class="brand">ACME Orders Console</span><span>SO-10511 · Halvorsen &amp; Co</span></header>
+  <h1>Line Items and Tax Breakdown</h1>
+  <table>
+    <tr><th>Line</th><th>SKU</th><th>Description</th><th>Qty</th><th>Net</th><th>Tax code</th><th>Tax</th></tr>
+    <tr><td>1</td><td>FRM-2200</td><td>Steel frame assembly</td><td>40</td><td>$18,800.00</td><td>ST-VA</td><td>$1,222.00</td></tr>
+    <tr><td>2</td><td>PNL-0071</td><td>Composite panel, gray</td><td>120</td><td>$6,240.00</td><td>ST-VA</td><td>$405.60</td></tr>
+    <tr><td>3</td><td>SVC-INST</td><td>On-site installation</td><td>1</td><td>$3,500.00</td><td><b>UNMAPPED</b></td><td>—</td></tr>
+  </table>
+  <p style="font-size:16px">Line 3 has no tax-table mapping — the order is on <b>tax hold</b> until the mapping exists.</p>
+</section>
+
+<section class="screen" id="s3">
+  <header><span class="brand">ACME Orders Console · Admin</span><span>Configuration</span></header>
+  <h1>Tax Table Mapping Editor</h1>
+  <div class="kv">
+    <b>Jurisdiction</b><span>Virginia (US-VA)</span>
+    <b>Code ST-VA</b><span>6.5% — goods, mapped ✓</span>
+    <b>Code SVC-VA</b><span style="color:#b03a2e"><b>not mapped</b> — services default to hold</span>
+    <b>Effective from</b><span>2026-07-01</span>
+    <b>Last edited</b><span>2026-06-12 · j.alvarez</span>
+  </div>
+</section>
+
+<section class="screen" id="s4">
+  <header><span class="brand">ACME Orders Console</span><span>Warehouse · East</span></header>
+  <h1>Fulfillment Queue Pending Pick</h1>
+  <table>
+    <tr><th>Order #</th><th>Priority</th><th>Wave</th><th>Items</th><th>Waiting</th></tr>
+    <tr><td>SO-10495</td><td>High</td><td>W-88</td><td>14</td><td>26 min</td></tr>
+    <tr><td>SO-10512</td><td>Normal</td><td>W-89</td><td>3</td><td>12 min</td></tr>
+    <tr><td>SO-10516</td><td>Normal</td><td>W-89</td><td>9</td><td>8 min</td></tr>
+  </table>
+</section>
+
+<div class="hint">← → to change screens (1–4)</div>
+<script>
+  const screens=[...document.querySelectorAll('.screen')];let i=0;
+  addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight')i=Math.min(i+1,screens.length-1);
+    else if(e.key==='ArrowLeft')i=Math.max(i-1,0);
+    else if(/^[1-4]$/.test(e.key))i=+e.key-1;else return;
+    screens.forEach((s,n)=>s.classList.toggle('active',n===i));
+  });
+</script>
+</body></html>

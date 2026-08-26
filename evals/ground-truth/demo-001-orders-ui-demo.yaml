@@ -1,0 +1,82 @@
+# Ground truth for scripted meeting demo-001 (eval-design.md §1).
+#
+# Authored from the meeting script BEFORE the recording is processed. Nothing
+# in this file may be copied from pipeline output: a denominator built from
+# what the extractor emitted cannot contain a screen it missed.
+#
+# Timings below were corrected against the actual recording pulled to
+# /Volumes/nvmepool/mm_current/outbox/2026-08-20-scripted-ui-demo-orders-module-8240b4a2
+# (transcript.vtt + recording.mp4, 247s), not against pipeline output — the
+# take ran far short of the planned 12 minutes, so every shown_at/at value
+# moved earlier. duration_minutes is trued to that take: 247 s is 4.117
+# minutes, declared as 5 (the ceil the one-per-minute budget arm reads);
+# the duration-agreement check's 1.0-minute tolerance covers the 0.88
+# rounding.
+
+meeting:
+  id: demo-001
+  source_id: "https://contoso-my.sharepoint.com/personal/58231_contoso_com/_layouts/15/stream.aspx?id=%2Fpersonal%2F58231_contoso_com%2FDocuments%2FRecordings%2FScripted%20UI%20Demo%20%E2%80%94%20Orders%20Module-20260820_190537-Meeting%20Recording.mp4"
+  title: "Scripted UI Demo — Orders Module"
+  archetype: ui-demo
+  duration_minutes: 5
+  participants:
+    - name: Tim Goeke
+      role: presenter
+    - name: Tiffany Goeke
+      role: reviewer
+
+# Expected captures: 4 screens + 2 participant segments = 6.
+screens:
+  - id: SC1
+    name: "Order List"
+    shown_at: "00:00:47"
+    ocr_anchor: "Order Search Results"
+  - id: SC2
+    name: "Order Detail"
+    shown_at: "00:01:30"
+    ocr_anchor: "Line Items and Tax Breakdown"
+  - id: SC3
+    name: "Tax Table Admin"
+    shown_at: "00:02:40"
+    ocr_anchor: "Tax Table Mapping Editor"
+  - id: SC4
+    name: "Fulfillment Queue"
+    shown_at: "00:03:16"
+    ocr_anchor: "Fulfillment Queue Pending Pick"
+
+participant_segments:
+  - at: "00:00:00"
+    label: "meeting start, before sharing begins"
+  - at: "00:03:36"
+    label: "sharing stops for the closing discussion"
+
+planted:
+  action_items:
+    - id: AI1
+      text: "Update the tax table mapping by Friday"
+      speaker: Tim Goeke
+      at: "00:02:21"
+    - id: AI2
+      text: "Tiffany will re-run the fulfillment backlog report after the fix"
+      speaker: Tiffany Goeke
+      at: "00:03:46"
+  decisions:
+    - id: D1
+      text: "Orders module keeps optimistic locking"
+      speaker: Tim Goeke
+      at: "00:02:58"
+  phrases:
+    - id: P1
+      text: "purple elephant deployment window"
+      speaker: Tim Goeke
+      at: "00:02:13"
+
+qa:
+  - id: Q1
+    question: "What did Tim decide about locking in the Orders module?"
+    expected_moment: D1
+    answer_must_contain: ["optimistic locking"]
+  - id: Q2
+    question: "Who owns the tax table mapping change, and by when?"
+    expected_moment: AI1
+    answer_must_contain: ["tax table", "Friday"]

@@ -1,0 +1,103 @@
+[project]
+name = "meetingminer-server"
+version = "0.1.0"
+description = "MeetingMiner server: api and worker processes plus their shared libraries"
+# Pinned to one minor version, not a floor: the MLX ASR wheels (mlx-whisper,
+# parakeet-mlx) publish no build for this machine's default 3.14, so the
+# interpreter is part of the contract rather than an ambient property.
+# `server/.python-version` points uv at it; AD-9 fixes the runtime to one
+# Mac, so a narrow bound costs nothing.
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.141,<0.142",
+    "uvicorn[standard]>=0.34",
+    "pyyaml>=6.0",
+    "pydantic>=2.7",
+    "psycopg[binary]>=3.2",
+    "psycopg-pool>=3.2",
+    # format-nongpl extra: rfc3339-validator etc., so FormatChecker actually
+    # asserts "date-time" on startedAt instead of silently skipping it.
+    "jsonschema[format-nongpl]>=4.23",
+    # Explicit dep (story 1.10): the one .env dialect shared with docker
+    # compose --env-file. The loader parses via dotenv_values.
+    "python-dotenv>=1.0",
+    # The Apple Vision OCR engine (story 1.4). Marked macOS-only so the lock
+    # stays resolvable elsewhere; the adapter imports the frameworks lazily and
+    # reports unavailability instead of failing at import (AD-8/AD-9). Quartz
+    # decodes the sampled JPEG into the CGImage Vision recognizes.
+    "pyobjc-framework-Vision>=10.3; sys_platform == 'darwin'",
+    "pyobjc-framework-Quartz>=10.3; sys_platform == 'darwin'",
+    # Pillow (story 1.11): the only image decoder in the server. The `screens`
+    # stage measures cropped pixel facts per sampled frame — white fraction,
+    # mean saturation, change fraction — and surveys the share region once per
+    # recording. Imported by `pipeline/frameimage.py` and nowhere else, so the
+    # decision core stays engine-free.
+    "pillow>=11",
+    # The `Stt` port's two engines (story 1.5). MLX is Apple-silicon only, so
+    # both carry the same macOS marker the Vision bindings do; the adapters
+    # import them lazily and report unavailability instead of failing at
+    # import (AD-8/AD-9).
+    "mlx-whisper>=0.4; sys_platform == 'darwin'",
+    "parakeet-mlx>=0.3; sys_platform == 'darwin'",
+    # The two projection stores (story 1.7). Imported ONLY under
+    # `meetingminer/projections/` — AD-4's single-writer rule, asserted by
+    # tests/test_projections_single_writer.py rather than left to convention.
+    # The `Embedder` port deliberately adds no client dependency: it speaks
+    # Ollama's HTTP API through the standard library.
+    "neo4j>=6.0,<7",
+    # The `Llm` port's one client (story 4.1, AD-8). Imported ONLY under
+    # `meetingminer/adapters/llm/` — asserted by tests/test_extraction_core.py
+    # the way the store clients are. The embedder deliberately avoided a client
+    # dependency; AD-8 names LiteLLM for the `Llm` port specifically, because
+    # it is what makes `llm.roles.*.model` a config-only swap across the
+    # Anthropic and Ollama providers config.yaml declares.
+    "litellm>=1.60",
+    # Floored at the version this was built and tested against, because the
+    # module uses API surface that older clients do not have:
+    # `Index.update_embedders` / `get_embedders`,
+    # `delete_documents(filter=...)`, and `retrieveVectors` on document reads.
+    # A lower floor would resolve, type-check, and then fail at runtime
+    # against a live store, so it is pinned to what is actually verified.
+    "meilisearch>=0.43,<1",
+]
+
+[project.scripts]
+# `uv run rebuild` — regenerate Neo4j + Meilisearch from Postgres + config.yaml
+# alone (FR24, AD-4). Sits beside `make rebuild`, which is the same entry point.
+rebuild = "meetingminer.projections.cli:main"
+# `uv run backfill drop-paths` — one-shot conversion of pre-2.1a absolute drop
+# paths to paths anchored to MM_DROPS_ROOT. Fails closed: any row it cannot
+# place under the configured root is named and the exit code is non-zero.
+backfill = "meetingminer.backfill:main"
+# `uv run mint-drop <file> --corpus scripted` — mint a source drop from a local
+# recording and/or transcript and hand it to the intake door (AD-1's second
+# source: "local recording"). Sits beside `make mint-drop`, the same entry point.
+mint-drop = "meetingminer.mintdrop:main"
+# `uv run digest --output PATH` — write one example Morning Digest email from
+# every published artifact in Postgres (FR31, story 4.5). Read-only, no
+# delivery mechanism. Sits beside `make digest`, the same entry point.
+digest = "meetingminer.digest.cli:main"
+# `uv run prune --keep-corpus scripted` — delete every meeting outside an
+# explicitly named keep-set, with its evidence, produced content and published
+# documents. Reports by default; deleting takes `--delete`. Sits beside
+# `make purge`, the same entry point.
+prune = "meetingminer.prune.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1,<9.2",
+    "httpx>=0.28",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["meetingminer"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "real_projection: opt this test out of test_artifact_publish's projection stub — it exercises the real stores",
+]

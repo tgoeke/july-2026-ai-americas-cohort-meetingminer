@@ -1,0 +1,42 @@
+.DS_Store
+
+# Secrets & local env
+.env
+.env.*
+!.env.example
+
+# Logs & pidfiles
+.logs/
+*.log
+*.pid
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+server/dist/
+server/build/
+
+# Node / web
+node_modules/
+web/dist/
+# web/src/client/ (the generated TS client) is committed on purpose (story
+# 1.10, finding 1): a fresh clone must build without a live api. Refresh it
+# with `make client`.
+*.tsbuildinfo
+.pnpm-store/
+
+# Editors / OS
+.idea/
+# Anchored to the repo root (web/.gitignore governs web/.vscode itself);
+# keep the extensions.json exception working.
+.vscode/*
+!.vscode/extensions.json
+.playwright-mcp/
+
+# Build output.
+.dist/
