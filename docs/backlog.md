@@ -239,19 +239,10 @@ the column and the CHECK, safe as soon as no row has a null relative path.
 
 ### B-25 · Reap orphaned content directories — M
 
-Content directories exist under the content root with no meeting row — residue
-from meetings deleted or re-ingested before the purge. `prune` only removes
-directories for meetings it purges, so these are outside it by design. Several
-gigabytes, and no tool reaches them.
-
-### B-26 · Dispose of the pre-purge database dump — S
-
-A `pg_dump` taken before the corpus purge sits unencrypted outside the
-repository. It carries the full pre-purge corpus and has no deletion owner. It is
-the last copy of that material.
-
-**Do:** delete it once the rebuilt corpus is established, or move it somewhere
-with an owner and an expiry.
+A content directory can exist under the content root with no meeting row —
+left behind when a meeting is deleted by hand or re-ingested under a new id.
+`prune` only removes directories for the meetings it deletes, so these are
+outside it by design, and no other tool reaches them.
 
 ---
 
@@ -327,9 +318,9 @@ committed client gaining the chat operation, the artifact-publish lock bypass,
 and a config-test failure fixed at a later integrate.
 
 Ten more were obsoleted by events rather than fixed: the packaging path and its
-two findings retired with the demo; the import of recordings belonging to the
-prior corpus, which has since been purged; a capture-volume measurement taken
-against that same corpus; stale-worktree drift for worktrees that no longer
-exist; the scheduled archive-index job, whose plist was never installed and whose
-archive is no longer the corpus; and several documentation items already
-corrected in place.
+two findings retired with the demo; the import of recordings that are no longer
+in the corpus; a capture-volume measurement taken against that same set;
+stale-worktree drift for worktrees that no longer exist; the scheduled
+archive-index job, whose plist was never installed and whose archive is no
+longer a corpus source; and several documentation items already corrected in
+place.
