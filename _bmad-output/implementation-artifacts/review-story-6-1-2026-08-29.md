@@ -83,6 +83,8 @@ The multi-meeting timeline is described in wall-clock time, but mapped moment ev
 
 **Decision:** accept and clearly scope the exception, or require a narrow/reflow layout and update the component and flow specifications.
 
+**Owner resolution — 2026-08-29:** Fund and require the narrow/reflow layout. The final specification must support 200% text resize and WCAG 1.4.10 reflow and must remove the desktop-only conformance exception. Component states, key flows, mockups, and validation evidence must cover the narrow presentation.
+
 ### D5 — Versioning the design of record
 
 **Severity:** High
