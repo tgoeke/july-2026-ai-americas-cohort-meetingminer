@@ -79,7 +79,7 @@ export COREPACK_ENABLE_DOWNLOAD_PROMPT := 0
 # (finding 3).
 .NOTPARALLEL:
 
-.PHONY: help bootstrap up down test puller-test puller-sync puller-archive-check web-test evals-test evals-run migrate api worker web client \
+.PHONY: help bootstrap up down test test-fast puller-test puller-sync puller-archive-check web-test evals-test evals-run migrate api worker web client \
         rebuild purge digest backfill-drop-paths mint-drop test-db-prune check-reviews check-tools check-docker check-env check-client check-stores check-dev-stores check-test-stores check-api \
         infra-up start-api start-worker start-web \
         stop-api stop-worker stop-web \
@@ -91,6 +91,7 @@ help:
 	@echo "  make up          - start the data stores (Docker: 3 dev + 2 test twins), apply migrations, then api/worker/web (host, backgrounded)"
 	@echo "  make down        - stop host processes and containers"
 	@echo "  make test        - run the puller suite, the web suite, the eval suite, the server suite, and build the web app"
+	@echo "  make test-fast   - the iteration loop: the store-free suites plus the server suite's fast set (pytest -m 'not slow'); needs nothing up, store-backed tests skip with a reason"
 	@echo "  make puller-test - run the puller's own suite (emit-drop + drop-schema validation)"
 	@echo "  make web-test    - run the web component suite (vitest)"
 	@echo "  make evals-test  - run the eval harness suite (schema, loader, subject selection, check algorithms, run artifacts; no stores, no api)"
@@ -270,9 +271,23 @@ bootstrap: check-tools
 # suite has to run here or it never runs at all. The web build follows the
 # server suite (finding 23): the committed client must type-check and bundle
 # without a live api.
+# The server step passes `-m ""`: server/pyproject.toml's addopts selects
+# `-m "not slow"` (the fast set, story 11.1), and an empty expression on the
+# command line replaces it and clears the filter, so the gate runs the `slow`
+# modules too. `make test-fast` is the iteration loop.
 test: check-client puller-test web-test evals-test infra-up check-dev-stores check-test-stores
-	cd $(ROOT) && MM_REQUIRE_TEST_STORES=1 uv run --project $(ROOT)/server pytest $(ROOT)/server/tests
+	cd $(ROOT) && MM_REQUIRE_TEST_STORES=1 uv run --project $(ROOT)/server pytest -m "" $(ROOT)/server/tests
 	pnpm --dir $(WEB) run build
+
+# The iteration loop (story 11.1): the three store-free suites, then the
+# server suite under pyproject's default `-m "not slow"` — the tests whose
+# duration the test process controls (1,358 of 1,683 at e5510c7). Nothing is
+# required up: store-backed tests skip with a named reason when a store is
+# unreachable, and `-rs` prints every skip with its reason, so an unrun suite
+# is visible rather than silent. Only failures set the exit code. `make test`
+# is the gate.
+test-fast: puller-test web-test evals-test
+	cd $(ROOT) && uv run --project $(ROOT)/server pytest -q -rs $(ROOT)/server/tests
 
 # The eval harness half of `make test` (story 5.1). Joins puller-test and
 # web-test in the store-free group ahead of infra-up: ground-truth validation,
@@ -375,8 +390,11 @@ check-dev-stores:
 # including MM_TEST_NEO4J_URI / MM_TEST_MEILI_URL overrides. Direct pytest
 # keeps its named-skip convention; this Make gate promotes that state to a
 # failure so the repository's full test command cannot pass vacuously.
+# `-m ""` clears pyproject's default `-m "not slow"`: test_projections_search
+# is a `slow` module, and a node id inside a deselected module collects
+# nothing and exits 5 (story 11.1).
 check-test-stores:
-	cd $(ROOT) && MM_REQUIRE_TEST_STORES=1 uv run --project $(ROOT)/server pytest -q $(ROOT)/server/tests/test_projections_search.py::test_configured_projection_stores_are_reachable
+	cd $(ROOT) && MM_REQUIRE_TEST_STORES=1 uv run --project $(ROOT)/server pytest -q -m "" $(ROOT)/server/tests/test_projections_search.py::test_configured_projection_stores_are_reachable
 
 # The puller half of AD-1's "puller and pipeline both validate against the drop
 # schema in their tests". Needs no stores and no api — it runs the emit-drop
