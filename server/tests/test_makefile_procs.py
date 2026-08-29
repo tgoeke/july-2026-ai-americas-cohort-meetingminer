@@ -84,8 +84,10 @@ def _make(
 
     `logs` sets `LOGS` (a scratch pidfile directory) and `tmp_path` points
     `VENV`/`WEB` at the decoy tree under it (`_tree_vars`); both precede
-    `variables` on the command line, in that order.
+    `variables` on the command line, in that order, and a key in `variables`
+    overrides the one `logs`/`tmp_path` set.
     """
+    assert not isinstance(targets, str), "targets is a list of make targets, not one target"
     settings: dict[str, str] = {}
     if logs is not None:
         settings["LOGS"] = str(logs)
@@ -363,8 +365,7 @@ def test_start_is_noop_when_matching_process_running(tmp_path: Path) -> None:
     (logs / "api.pid").write_text(str(decoy.pid), encoding="utf-8")
     try:
         proc = _make(
-            ["start-api"],
-            {"LOGS": str(logs), "API_PORT": str(port), **_tree_vars(tmp_path)},
+            ["start-api"], {"API_PORT": str(port)}, logs=logs, tmp_path=tmp_path
         )
         output = proc.stdout + proc.stderr
         assert proc.returncode == 0, output
@@ -394,13 +395,9 @@ def test_repeat_start_on_a_hung_process_is_not_a_success(tmp_path: Path) -> None
     try:
         proc = _make(
             ["start-api"],
-            {
-                "LOGS": str(logs),
-                "API_PORT": str(_free_port()),
-                "READY_TRIES": "3",
-                "READY_DELAY": "0.1",
-                **_tree_vars(tmp_path),
-            },
+            {"API_PORT": str(_free_port()), "READY_TRIES": "3", "READY_DELAY": "0.1"},
+            logs=logs,
+            tmp_path=tmp_path,
         )
         output = proc.stdout + proc.stderr
         assert proc.returncode != 0, output
@@ -530,8 +527,7 @@ def test_unwritable_logs_dir_fails_loudly(tmp_path: Path) -> None:
     logs.chmod(0o500)  # readable, not writable
     try:
         proc = _make(
-            ["start-api"],
-            {"LOGS": str(logs), "API_PORT": str(_free_port()), **_tree_vars(tmp_path)},
+            ["start-api"], {"API_PORT": str(_free_port())}, logs=logs, tmp_path=tmp_path
         )
         output = proc.stdout + proc.stderr
         assert proc.returncode != 0, output
@@ -561,12 +557,9 @@ def test_worker_readiness_ignores_a_startup_line_from_a_previous_run(
     try:
         proc = _make(
             ["start-worker"],
-            {
-                "LOGS": str(logs),
-                "READY_TRIES": "3",
-                "READY_DELAY": "0.1",
-                **_tree_vars(tmp_path),
-            },
+            {"READY_TRIES": "3", "READY_DELAY": "0.1"},
+            logs=logs,
+            tmp_path=tmp_path,
         )
         output = proc.stdout + proc.stderr
         assert proc.returncode != 0, output
@@ -596,10 +589,7 @@ def test_worker_readiness_accepts_the_startup_line_this_run_wrote(
         "while :; do sleep 1; done\n",
     )
     try:
-        proc = _make(
-            ["start-worker"],
-            {"LOGS": str(logs), **_tree_vars(tmp_path)},
-        )
+        proc = _make(["start-worker"], logs=logs, tmp_path=tmp_path)
         output = proc.stdout + proc.stderr
         assert proc.returncode == 0, output
         assert "worker: ready" in output
@@ -644,12 +634,12 @@ def test_start_api_failure_names_process_and_tails_its_log(tmp_path: Path) -> No
     proc = _make(
         ["start-api"],
         {
-            "LOGS": str(logs),
             "VENV": str(venv),
             "API_PORT": str(_free_port()),
             "READY_TRIES": "5",
             "READY_DELAY": "0.1",
         },
+        logs=logs,
     )
     output = proc.stdout + proc.stderr
     assert proc.returncode != 0
@@ -671,12 +661,12 @@ def test_start_api_alive_but_never_ready_is_a_failure(tmp_path: Path) -> None:
         proc = _make(
             ["start-api"],
             {
-                "LOGS": str(logs),
                 "VENV": str(venv),
                 "API_PORT": str(_free_port()),
                 "READY_TRIES": "3",
                 "READY_DELAY": "0.1",
             },
+            logs=logs,
         )
         output = proc.stdout + proc.stderr
         assert proc.returncode != 0
@@ -711,7 +701,9 @@ def test_down_warns_about_processes_it_holds_no_pidfile_for(tmp_path: Path) -> N
     try:
         proc = _make(
             ["down"],
-            {"LOGS": str(logs), "ENVFILE": str(envfile), **_tree_vars(tmp_path)},
+            {"ENVFILE": str(envfile)},
+            logs=logs,
+            tmp_path=tmp_path,
             env=_path_env(docker_bin),
         )
         output = proc.stdout + proc.stderr
@@ -745,7 +737,9 @@ def test_down_falls_back_when_env_file_interpolation_fails(tmp_path: Path) -> No
 
     proc = _make(
         ["down"],
-        {"LOGS": str(logs), "ENVFILE": str(envfile), **_tree_vars(tmp_path)},
+        {"ENVFILE": str(envfile)},
+        logs=logs,
+        tmp_path=tmp_path,
         env=_path_env(docker_bin),
     )
     output = proc.stdout + proc.stderr
@@ -876,12 +870,7 @@ def test_empty_pidfile_is_an_in_flight_claim_not_a_stale_file(
     filler.start()
     try:
         proc = _make(
-            ["start-api"],
-            {
-                "LOGS": str(logs),
-                "API_PORT": str(port),
-                **_tree_vars(tmp_path),
-            },
+            ["start-api"], {"API_PORT": str(port)}, logs=logs, tmp_path=tmp_path
         )
         output = proc.stdout + proc.stderr
         assert proc.returncode == 0, output
@@ -910,13 +899,9 @@ def test_unfilled_fresh_pidfile_claim_fails_instead_of_reporting_success(
 
     proc = _make(
         ["start-api"],
-        {
-            "LOGS": str(logs),
-            "API_PORT": str(_free_port()),
-            "CLAIM_TRIES": "2",
-            "CLAIM_DELAY": "0.01",
-            **_tree_vars(tmp_path),
-        },
+        {"API_PORT": str(_free_port()), "CLAIM_TRIES": "2", "CLAIM_DELAY": "0.01"},
+        logs=logs,
+        tmp_path=tmp_path,
     )
     output = proc.stdout + proc.stderr
     assert proc.returncode != 0, output
@@ -933,7 +918,6 @@ def test_two_concurrent_starts_launch_exactly_one_process(tmp_path: Path) -> Non
     launches = tmp_path / "launches.txt"
     _serving_decoy(venv / "bin" / "uvicorn", "start-api", events, launches)
     variables = {
-        "LOGS": str(logs),
         "VENV": str(venv),
         "API_PORT": str(_free_port()),
     }
@@ -943,7 +927,7 @@ def test_two_concurrent_starts_launch_exactly_one_process(tmp_path: Path) -> Non
 
     def run() -> None:
         barrier.wait()
-        results.append(_make(["start-api"], variables))
+        results.append(_make(["start-api"], variables, logs=logs))
 
     threads = [threading.Thread(target=run) for _ in range(2)]
     try:
@@ -1017,13 +1001,13 @@ def test_parallel_make_up_runs_stores_then_migrate_then_host_processes(
     proc = _make(
         ["-j4", "up"],
         {
-            "LOGS": str(logs),
             "VENV": str(venv),
             "WEB": str(web),
             "ENVFILE": str(envfile),
             "API_PORT": str(_free_port()),
             "WEB_PORT": str(_free_port()),
         },
+        logs=logs,
         env=_path_env(docker_bin),
     )
     try:
@@ -1090,7 +1074,6 @@ exit 0
         proc = _make(
             ["up"],
             {
-                "LOGS": str(logs),
                 "VENV": str(venv),
                 "WEB": str(web),
                 "ENVFILE": str(envfile),
@@ -1099,6 +1082,7 @@ exit 0
                 "READY_TRIES": "10",
                 "READY_DELAY": "0.1",
             },
+            logs=logs,
             env=_path_env(docker_bin),
         )
         output = proc.stdout + proc.stderr

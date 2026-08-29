@@ -1,12 +1,16 @@
-"""infra/docker-compose.yml contract (story 1.10, findings 20-21).
+"""infra/docker-compose.yml contract (story 1.10, findings 20-21), plus the
+Makefile test recipes and pytest options the fast/full split rests on (11.1).
 
-Static assertions over the compose file — no Docker needed. These exist
-because a single edit reverting a port or a digest silently reopens the
-exposure the story closed.
+Static assertions over the compose file, the Makefile and pyproject — no
+Docker needed. These exist because a single edit reverting a port, a digest,
+a `-m ""`, or the default marker expression silently reopens what a story
+closed.
 """
 
 from __future__ import annotations
 
+import math
+import shlex
 import tomllib
 from typing import Any
 
@@ -60,21 +64,22 @@ def test_every_service_has_a_healthcheck(service: str) -> None:
     assert "test" in SERVICES[service].get("healthcheck", {})
 
 
-def test_make_test_requires_the_effective_test_store_endpoints() -> None:
-    """The full gate may not pass after pytest skips every store-backed test."""
-    makefile = MAKEFILE_PATH.read_text(encoding="utf-8")
-    test_recipe = makefile.split("\ntest:", maxsplit=1)[1].split("\n\n", maxsplit=1)[0]
-    assert "check-test-stores" in test_recipe
-    assert "MM_REQUIRE_TEST_STORES=1" in test_recipe
-    assert "test_configured_projection_stores_are_reachable" in makefile
-
-
 def _recipe(target: str) -> str:
     """`target:`'s rule and recipe lines, from the rule line to the first blank line."""
     makefile = MAKEFILE_PATH.read_text(encoding="utf-8")
     marker = f"\n{target}:"
     assert marker in makefile, f"infra/Makefile has no `{target}:` rule"
     return makefile.split(marker, maxsplit=1)[1].split("\n\n", maxsplit=1)[0]
+
+
+def test_make_test_requires_the_effective_test_store_endpoints() -> None:
+    """The full gate may not pass after pytest skips every store-backed test."""
+    test_recipe = _recipe("test")
+    assert "check-test-stores" in test_recipe
+    assert "MM_REQUIRE_TEST_STORES=1" in test_recipe
+    assert "test_configured_projection_stores_are_reachable" in MAKEFILE_PATH.read_text(
+        encoding="utf-8"
+    )
 
 
 def test_make_test_clears_the_default_marker_selection() -> None:
@@ -100,16 +105,48 @@ def _pytest_options() -> dict[str, Any]:
     ]
 
 
-def test_pyproject_selects_the_fast_set_by_default() -> None:
-    """The default selection is configuration: exactly the expression `-m ""` clears."""
-    assert _pytest_options()["addopts"] == "-m 'not slow'"
+def test_pyproject_selects_the_fast_set_by_default_with_strict_markers() -> None:
+    """The default selection is configuration — the expression `-m ""` clears — and a misspelled mark is an error."""
+    args = shlex.split(_pytest_options()["addopts"])
+    assert "-m" in args, args
+    assert args[args.index("-m") + 1] == "not slow"
+    assert "--strict-markers" in args
 
 
 def test_pyproject_registers_the_slow_marker() -> None:
-    """An unregistered `slow` would only warn, and `--strict-markers` would reject it."""
+    """With `--strict-markers` an unregistered `slow` would stop collection."""
     assert any(marker.startswith("slow:") for marker in _pytest_options()["markers"])
 
 
-def test_pyproject_sets_a_positive_fast_test_budget() -> None:
-    """The budget the fast_budget plugin reads is a configured positive number of seconds."""
-    assert float(_pytest_options()["mm_fast_test_budget_seconds"]) > 0
+def test_pyproject_sets_a_positive_finite_fast_test_budget() -> None:
+    """The budget the fast_budget plugin reads is a configured positive, finite number of seconds."""
+    budget = float(_pytest_options()["mm_fast_test_budget_seconds"])
+    assert math.isfinite(budget) and budget > 0
+
+
+# The measured slow set (story 11.1): the twelve modules that held 471 of the
+# full run's 527 test-seconds at e5510c7. Removing a module from the slow set
+# is a deliberate edit of both places — its `pytestmark` line and this list.
+SLOW_MODULES = (
+    "test_api_chat",
+    "test_api_search",
+    "test_augmentation",
+    "test_failfast",
+    "test_makefile_procs",
+    "test_migrations",
+    "test_parallel_store_safety",
+    "test_projections_graph",
+    "test_projections_locks",
+    "test_projections_rebuild",
+    "test_projections_search",
+    "test_projections_traversals",
+)
+
+
+@pytest.mark.parametrize("module", SLOW_MODULES)
+def test_each_measured_slow_module_is_marked_at_module_level(module: str) -> None:
+    """The list above is the measured set; a module leaves it only by editing both this list and its own mark."""
+    source = (REPO_ROOT / "server" / "tests" / f"{module}.py").read_text(encoding="utf-8")
+    assert any(
+        line.startswith("pytestmark = pytest.mark.slow(") for line in source.splitlines()
+    ), f"{module}.py has no module-level `pytestmark = pytest.mark.slow(` line"
