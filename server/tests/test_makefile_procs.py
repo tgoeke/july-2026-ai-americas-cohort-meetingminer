@@ -70,21 +70,26 @@ def _spawn_decoy(
 
 
 def _make(
-    target: str, logs: Path, tmp_path: Path | None = None
-) -> subprocess.CompletedProcess[str]:
-    variables = {"LOGS": str(logs)}
-    if tmp_path is not None:
-        variables.update(_tree_vars(tmp_path))
-    return _run_make([target], variables, timeout=60)
-
-
-def _run_make(
     targets: list[str],
-    variables: dict[str, str],
+    variables: dict[str, str] | None = None,
+    *,
+    logs: Path | None = None,
+    tmp_path: Path | None = None,
     env: dict[str, str] | None = None,
     timeout: int = 180,
 ) -> subprocess.CompletedProcess[str]:
-    """`make -C infra <targets> VAR=value ...` with an optional env override."""
+    """`make -C infra <targets> VAR=value ...` with an optional env override.
+
+    `logs` sets `LOGS` (a scratch pidfile directory) and `tmp_path` points
+    `VENV`/`WEB` at the decoy tree under it (`_tree_vars`); both precede
+    `variables` on the command line, in that order.
+    """
+    settings: dict[str, str] = {}
+    if logs is not None:
+        settings["LOGS"] = str(logs)
+    if tmp_path is not None:
+        settings.update(_tree_vars(tmp_path))
+    settings.update(variables or {})
     # A nested make must never inherit the outer one's jobserver or flags:
     # running this suite via `make test` would otherwise let MAKEFLAGS decide
     # whether the ordering assertions below mean anything.
@@ -93,7 +98,7 @@ def _run_make(
     child_env.pop("MFLAGS", None)
     child_env.pop("MAKELEVEL", None)
     return subprocess.run(
-        ["make", "-C", INFRA, *targets, *(f"{k}={v}" for k, v in variables.items())],
+        ["make", "-C", INFRA, *targets, *(f"{k}={v}" for k, v in settings.items())],
         capture_output=True,
         text=True,
         env=child_env,
@@ -292,7 +297,7 @@ def test_stop_kills_matching_process(name: str, tmp_path: Path) -> None:
     logs.mkdir()
     (logs / f"{name}.pid").write_text(str(decoy.pid), encoding="utf-8")
     try:
-        proc = _make(f"stop-{name}", logs, tmp_path)
+        proc = _make([f"stop-{name}"], logs=logs, tmp_path=tmp_path, timeout=60)
         assert proc.returncode == 0, proc.stdout + proc.stderr
         assert f"{name}: stopping (pid {decoy.pid})" in proc.stdout
         assert _wait_gone(decoy), "matching decoy should have been terminated"
@@ -311,7 +316,7 @@ def test_stop_spares_near_miss_process(name: str, tmp_path: Path) -> None:
     logs.mkdir()
     (logs / f"{name}.pid").write_text(str(decoy.pid), encoding="utf-8")
     try:
-        proc = _make(f"stop-{name}", logs, tmp_path)
+        proc = _make([f"stop-{name}"], logs=logs, tmp_path=tmp_path, timeout=60)
         assert proc.returncode == 0, proc.stdout + proc.stderr
         assert "removing stale pidfile without killing" in proc.stdout
         time.sleep(0.5)
@@ -328,7 +333,7 @@ def test_stop_with_dead_pid_removes_stale_pidfile(tmp_path: Path) -> None:
     logs = tmp_path / "logs"
     logs.mkdir()
     (logs / "api.pid").write_text(str(decoy.pid), encoding="utf-8")
-    proc = _make("stop-api", logs, tmp_path)
+    proc = _make(["stop-api"], logs=logs, tmp_path=tmp_path, timeout=60)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "api: not running" in proc.stdout
     assert not (logs / "api.pid").exists()
@@ -355,7 +360,7 @@ def test_start_is_noop_when_matching_process_running(tmp_path: Path) -> None:
     )
     (logs / "api.pid").write_text(str(decoy.pid), encoding="utf-8")
     try:
-        proc = _run_make(
+        proc = _make(
             ["start-api"],
             {"LOGS": str(logs), "API_PORT": str(port), **_tree_vars(tmp_path)},
         )
@@ -385,7 +390,7 @@ def test_repeat_start_on_a_hung_process_is_not_a_success(tmp_path: Path) -> None
     )
     (logs / "api.pid").write_text(str(decoy.pid), encoding="utf-8")
     try:
-        proc = _run_make(
+        proc = _make(
             ["start-api"],
             {
                 "LOGS": str(logs),
@@ -423,14 +428,14 @@ def test_check_client_fails_with_named_error_when_client_absent(
     """`up` must not proceed into a Vite import-resolution error (finding 1)."""
     web = tmp_path / "web"
     (web / "src").mkdir(parents=True)  # a checkout without src/client/
-    proc = _run_make(["check-client"], {"WEB": str(web)})
+    proc = _make(["check-client"], {"WEB": str(web)})
     assert proc.returncode != 0
     assert "generated TS client incomplete" in proc.stdout + proc.stderr
 
 
 def test_check_client_passes_on_the_real_checkout() -> None:
     """The committed client is present, so a fresh clone gets past the guard."""
-    proc = _run_make(["check-client"], {})
+    proc = _make(["check-client"], {})
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
@@ -442,7 +447,7 @@ def test_check_client_supports_a_web_path_with_spaces(tmp_path: Path) -> None:
     for name in ("client.gen.ts", "sdk.gen.ts", "types.gen.ts"):
         (client_dir / name).write_text("// generated", encoding="utf-8")
 
-    proc = _run_make(["check-client"], {"WEB": str(web)})
+    proc = _make(["check-client"], {"WEB": str(web)})
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
@@ -455,7 +460,7 @@ def test_check_client_rejects_a_partial_client(tmp_path: Path) -> None:
     for name in ("client.gen.ts", "sdk.gen.ts"):  # types.gen.ts missing
         (client_dir / name).write_text("// generated", encoding="utf-8")
 
-    proc = _run_make(["check-client"], {"WEB": str(tmp_path / "web")})
+    proc = _make(["check-client"], {"WEB": str(tmp_path / "web")})
     assert proc.returncode != 0
     assert "types.gen.ts is missing" in proc.stdout + proc.stderr
 
@@ -466,7 +471,7 @@ def test_make_web_refuses_without_the_generated_client(tmp_path: Path) -> None:
     guard as start-web."""
     web = tmp_path / "web"
     (web / "src").mkdir(parents=True)
-    proc = _run_make(["web"], {"WEB": str(web)}, timeout=60)
+    proc = _make(["web"], {"WEB": str(web)}, timeout=60)
     output = proc.stdout + proc.stderr
     assert proc.returncode != 0
     # Specifically the client guard — not merely "web deps missing", which
@@ -481,7 +486,7 @@ def test_check_env_rejects_an_unreadable_env_file(tmp_path: Path) -> None:
     envfile.write_text("POSTGRES_PASSWORD=x\n", encoding="utf-8")
     envfile.chmod(0o000)
     try:
-        proc = _run_make(["check-env"], {"ENVFILE": str(envfile)})
+        proc = _make(["check-env"], {"ENVFILE": str(envfile)})
         assert proc.returncode != 0
         assert "missing or unreadable" in proc.stdout + proc.stderr
     finally:
@@ -492,7 +497,7 @@ def test_check_env_rejects_a_readable_env_without_a_drops_root(tmp_path: Path) -
     envfile = tmp_path / ".env"
     envfile.write_text("POSTGRES_PASSWORD=x\n", encoding="utf-8")
 
-    proc = _run_make(["check-env"], {"ENVFILE": str(envfile)})
+    proc = _make(["check-env"], {"ENVFILE": str(envfile)})
 
     assert proc.returncode != 0
     assert "MM_DROPS_ROOT is not set" in proc.stdout + proc.stderr
@@ -505,7 +510,7 @@ def test_check_env_rejects_a_quoted_empty_drops_root(
     envfile = tmp_path / ".env"
     envfile.write_text(f"MM_DROPS_ROOT={quoted}\n", encoding="utf-8")
 
-    proc = _run_make(["check-env"], {"ENVFILE": str(envfile)})
+    proc = _make(["check-env"], {"ENVFILE": str(envfile)})
 
     assert proc.returncode != 0
     assert "MM_DROPS_ROOT is empty" in proc.stdout + proc.stderr
@@ -522,7 +527,7 @@ def test_unwritable_logs_dir_fails_loudly(tmp_path: Path) -> None:
     _write_script(venv / "bin" / "uvicorn", DECOY_BODY)
     logs.chmod(0o500)  # readable, not writable
     try:
-        proc = _run_make(
+        proc = _make(
             ["start-api"],
             {"LOGS": str(logs), "API_PORT": str(_free_port()), **_tree_vars(tmp_path)},
         )
@@ -552,7 +557,7 @@ def test_worker_readiness_ignores_a_startup_line_from_a_previous_run(
     _write_script(venv / "bin" / "python", DECOY_BODY)
 
     try:
-        proc = _run_make(
+        proc = _make(
             ["start-worker"],
             {
                 "LOGS": str(logs),
@@ -589,7 +594,7 @@ def test_worker_readiness_accepts_the_startup_line_this_run_wrote(
         "while :; do sleep 1; done\n",
     )
     try:
-        proc = _run_make(
+        proc = _make(
             ["start-worker"],
             {"LOGS": str(logs), **_tree_vars(tmp_path)},
         )
@@ -612,7 +617,7 @@ def test_repeated_worker_start_keeps_the_existing_worker_running(tmp_path: Path)
         '{"ts": "earlier", "event": "worker.startup"}\n', encoding="utf-8"
     )
     try:
-        proc = _make("start-worker", logs, tmp_path)
+        proc = _make(["start-worker"], logs=logs, tmp_path=tmp_path, timeout=60)
         output = proc.stdout + proc.stderr
         assert proc.returncode == 0, output
         assert f"worker: already running (pid {decoy.pid})" in output
@@ -634,7 +639,7 @@ def test_start_api_failure_names_process_and_tails_its_log(tmp_path: Path) -> No
     venv = tmp_path / "venv"
     _write_script(venv / "bin" / "uvicorn", DIE_BODY)
 
-    proc = _run_make(
+    proc = _make(
         ["start-api"],
         {
             "LOGS": str(logs),
@@ -661,7 +666,7 @@ def test_start_api_alive_but_never_ready_is_a_failure(tmp_path: Path) -> None:
     _write_script(venv / "bin" / "uvicorn", DECOY_BODY)  # lives, never binds
 
     try:
-        proc = _run_make(
+        proc = _make(
             ["start-api"],
             {
                 "LOGS": str(logs),
@@ -702,7 +707,7 @@ def test_down_warns_about_processes_it_holds_no_pidfile_for(tmp_path: Path) -> N
         .replace("__ENVFILE_EXIT__", "0"),
     )
     try:
-        proc = _run_make(
+        proc = _make(
             ["down"],
             {"LOGS": str(logs), "ENVFILE": str(envfile), **_tree_vars(tmp_path)},
             env=_path_env(docker_bin),
@@ -736,7 +741,7 @@ def test_down_falls_back_when_env_file_interpolation_fails(tmp_path: Path) -> No
         .replace("__ENVFILE_EXIT__", "1"),
     )
 
-    proc = _run_make(
+    proc = _make(
         ["down"],
         {"LOGS": str(logs), "ENVFILE": str(envfile), **_tree_vars(tmp_path)},
         env=_path_env(docker_bin),
@@ -767,7 +772,7 @@ def test_client_refuses_a_foreign_service(tmp_path: Path) -> None:
         f"#!/bin/bash\necho \"$*\" >> {pnpm_marker}\nexit 0\n",
     )
 
-    proc = _run_make(["client"], {}, env=_path_env(fake_bin))
+    proc = _make(["client"], {}, env=_path_env(fake_bin))
     output = proc.stdout + proc.stderr
     assert proc.returncode != 0
     assert "did not identify as the MeetingMiner api" in output
@@ -788,7 +793,7 @@ def test_client_accepts_the_meetingminer_api(tmp_path: Path) -> None:
         f"#!/bin/bash\necho \"$*\" >> {pnpm_marker}\nexit 0\n",
     )
 
-    proc = _run_make(["client"], {}, env=_path_env(fake_bin))
+    proc = _make(["client"], {}, env=_path_env(fake_bin))
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert pnpm_marker.exists()
     assert "run client" in pnpm_marker.read_text(encoding="utf-8")
@@ -868,7 +873,7 @@ def test_empty_pidfile_is_an_in_flight_claim_not_a_stale_file(
     filler = threading.Thread(target=fill_claim)
     filler.start()
     try:
-        proc = _run_make(
+        proc = _make(
             ["start-api"],
             {
                 "LOGS": str(logs),
@@ -901,7 +906,7 @@ def test_unfilled_fresh_pidfile_claim_fails_instead_of_reporting_success(
     venv = tmp_path / "venv"
     _write_script(venv / "bin" / "uvicorn", DECOY_BODY)
 
-    proc = _run_make(
+    proc = _make(
         ["start-api"],
         {
             "LOGS": str(logs),
@@ -936,7 +941,7 @@ def test_two_concurrent_starts_launch_exactly_one_process(tmp_path: Path) -> Non
 
     def run() -> None:
         barrier.wait()
-        results.append(_run_make(["start-api"], variables))
+        results.append(_make(["start-api"], variables))
 
     threads = [threading.Thread(target=run) for _ in range(2)]
     try:
@@ -1007,7 +1012,7 @@ def test_parallel_make_up_runs_stores_then_migrate_then_host_processes(
         encoding="utf-8",
     )
 
-    proc = _run_make(
+    proc = _make(
         ["-j4", "up"],
         {
             "LOGS": str(logs),
@@ -1080,7 +1085,7 @@ exit 0
     )
 
     try:
-        proc = _run_make(
+        proc = _make(
             ["up"],
             {
                 "LOGS": str(logs),
