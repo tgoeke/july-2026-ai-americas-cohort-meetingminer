@@ -59,6 +59,8 @@ The traceability claim in Story 6.1 requires every element to map to an existing
 
 **Decision:** persist an immutable ordinal, use a stable identifier hash and weaken ordinal language, or explicitly weaken the non-recoloring promise.
 
+**Owner resolution — 2026-08-29:** Persist an immutable `colorOrdinal` on each thread as part of the Story 10.3 contract. Assign it once and never recycle it within the corpus. A new thread created by a split receives a new ordinal; the surviving thread in a merge retains its ordinal. The client maps the persisted ordinal through the eight-hue, two-lap palette and uses grey beyond ordinal 16.
+
 ### D3 — Absolute timeline placement
 
 **Severity:** High
