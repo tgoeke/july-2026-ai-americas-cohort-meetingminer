@@ -40,3 +40,6 @@ web/dist/
 
 # Build output.
 .dist/
+
+# BMad working output (specs, story artifacts, memlogs) — local only, never committed.
+_bmad-output/
