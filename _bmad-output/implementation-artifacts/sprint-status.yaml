@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-18-2026 10:04
-last_updated: 08-29-2026 17:43
+last_updated: 08-29-2026 17:52
 project: meetingminer
 project_key: NOKEY
 tracking_system: file-system
@@ -104,7 +104,7 @@ development_status:
   6-4a-upload-sessions: backlog
   6-5-add-meeting-ui: backlog
   6-5a-add-meeting-file-tabs: backlog
-  6-6-youtube-deep-links: backlog
+  6-6-youtube-deep-links: in-progress
   6-7-extraction-prompt-wording-generalized: done
   epic-6-retrospective: optional
 
