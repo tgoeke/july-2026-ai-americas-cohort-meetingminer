@@ -152,6 +152,16 @@ def test_the_summary_prompt_pins_decisions_and_the_actions_prompt_pins_actions(
     assert "Committed, Assigned, or Tentative" in actions
 
 
+def test_neither_prompt_frames_the_input_as_a_teams_meeting(app_config) -> None:
+    # Story 6.7: a YouTube talk or a Zoom call goes through the same two
+    # prompts, so the preamble names the input generically. Pinned so a later
+    # edit cannot quietly re-introduce the Teams framing.
+    binding = app_config.settings.llm.roles.extraction
+    for template in (binding.arch_summary_prompt, binding.action_items_prompt):
+        assert "Microsoft Teams" not in template
+        assert "one meeting or recorded session transcript" in template
+
+
 def test_a_prompt_survives_a_missing_title_and_a_missing_date(app_config) -> None:
     binding = app_config.settings.llm.roles.extraction
     prompt = build_summary_prompt("[0:02] A: hi", template=binding.arch_summary_prompt)

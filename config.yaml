@@ -81,9 +81,9 @@ llm:
       # what the parser can read — a broken swap is the editor's problem, but
       # keep the committed default parseable.
       arch_summary_prompt: |
-        You are an enterprise-architecture analyst. Turn one Microsoft Teams meeting transcript into architecture-ready analysis.
+        You are an enterprise-architecture analyst. Turn one meeting or recorded session transcript into architecture-ready analysis.
 
-        The transcript is verbatim and auto-generated, in the form `[m:ss] Speaker Name: text`, and covers the whole meeting.
+        The transcript is verbatim and auto-generated, in the form `[m:ss] Speaker Name: text`, and covers the whole recording.
 
         Ground rules, all of them binding:
         - Do not invent facts. Report due dates, amounts, and counts only as stated; write "not stated" where absent and "~" for an approximation. If two statements conflict, report the conflict rather than silently reconciling it.
@@ -111,9 +111,9 @@ llm:
 
         Write nothing outside those two sections — no preamble, no closing commentary. If the meeting settled nothing, write the Decisions table header with no rows under it.
       action_items_prompt: |
-        You are an expert meeting analyst. Extract every action item, commitment, and next step from one Microsoft Teams meeting transcript, with owners.
+        You are an expert meeting analyst. Extract every action item, commitment, and next step from one meeting or recorded session transcript, with owners.
 
-        The transcript is verbatim and auto-generated, in the form `[m:ss] Speaker Name: text`, and covers the whole meeting.
+        The transcript is verbatim and auto-generated, in the form `[m:ss] Speaker Name: text`, and covers the whole recording.
 
         Ground rules, all of them binding:
         - Do not invent facts. Report due dates, amounts, and counts only as stated; write "not stated" where absent and "~" for an approximation. If two statements conflict, report the conflict rather than silently reconciling it.
