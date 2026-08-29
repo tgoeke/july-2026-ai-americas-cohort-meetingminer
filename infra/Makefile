@@ -80,7 +80,7 @@ export COREPACK_ENABLE_DOWNLOAD_PROMPT := 0
 .NOTPARALLEL:
 
 .PHONY: help bootstrap up down test puller-test puller-sync puller-archive-check web-test evals-test evals-run migrate api worker web client \
-        rebuild purge digest backfill-drop-paths mint-drop test-db-prune check-tools check-docker check-env check-client check-stores check-dev-stores check-test-stores check-api \
+        rebuild purge digest backfill-drop-paths mint-drop test-db-prune check-reviews check-tools check-docker check-env check-client check-stores check-dev-stores check-test-stores check-api \
         infra-up start-api start-worker start-web \
         stop-api stop-worker stop-web \
         worktree worktree-list worktree-remove
@@ -103,6 +103,7 @@ help:
 	@echo "                     placeholder source_ids, so the run has no subjects to measure."
 	@echo "  make migrate     - apply pending database migrations (server/meetingminer/migrations/)"
 	@echo "  make test-db-prune - drop leaked, unowned idle meetingminer_test_* databases"
+	@echo "  make check-reviews - verify every dispatched code review has a committed report"
 	@echo "  make purge       - delete every meeting outside a keep-set, with its evidence, produced"
 	@echo "                     content and published documents. REPORTS ONLY by default; deleting"
 	@echo "                     takes PURGE_ARGS=--delete. The keep-set is always explicit:"
@@ -435,6 +436,13 @@ test-db-prune: check-env | infra-up
 
 # Four reviews were completed in a session's terminal and never filed; naming
 # the required file in the review prompt did not prevent the fourth. This
+# checks the requirement mechanically: every review-prompt-story-* artifact
+# must have a committed review-story-* report. Reviewers run it before
+# reporting completion; anyone can run it to catch a loss immediately.
+# Needs no store, no env, no venv.
+check-reviews:
+	@python3 $(ROOT)/_bmad/scripts/check_review_reports.py
+
 # Per-run test databases (story 2.7) are dropped by their own fixtures; a run
 # killed with SIGKILL cannot, so this sweeps what is left. Before every
 # destructive action it obtains the same session advisory lock a suite holds

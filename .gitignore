@@ -62,5 +62,9 @@ _bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/mockups/*
 !_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/mockups/*.html
 
 # Vendored agent skill trees (per-machine copies; the installer regenerates them).
+# The hand-written `integrate` skill is not vendored and is tracked.
 .agents/
-.claude/
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/integrate/

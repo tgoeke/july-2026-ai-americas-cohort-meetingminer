@@ -1,0 +1,7 @@
+# `sprint-status.yaml` is edited by every story branch and again by every
+# reviewer, so git's line-proximity merge reports conflicts between branches
+# that advance two *different* stories and disagree about nothing. The driver
+# merges it by key instead. See _bmad/scripts/merge_sprint_status.py, and run
+# `_bmad/scripts/install_merge_drivers.sh` once per clone to register it —
+# .gitattributes selects a driver, but cannot define one.
+_bmad-output/implementation-artifacts/sprint-status.yaml merge=sprint-status
