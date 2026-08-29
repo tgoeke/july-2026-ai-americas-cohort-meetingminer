@@ -19,7 +19,8 @@ from meetingminer.adapters.ocr.port import OcrBlock, OcrError, OcrResult, readin
 from meetingminer.adapters.ocr.tesseract import TesseractOcr, parse_tsv
 from meetingminer.config import OcrConfig, load_config
 
-from conftest import REPO_ROOT, requires_ocr
+from conftest import requires_ocr
+from repo_paths import REPO_ROOT
 
 
 def fake_engine(name: str, reason: str | None) -> type:

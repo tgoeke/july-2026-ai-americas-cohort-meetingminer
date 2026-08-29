@@ -20,7 +20,8 @@ from meetingminer.domain.jobs import (
 
 from meetingminer.domain.drops import drop_relative_path
 
-from conftest import DROPS_ROOT, REPO_ROOT, valid_metadata
+from conftest import DROPS_ROOT, valid_metadata
+from repo_paths import REPO_ROOT
 
 PROBLEM = "application/problem+json"
 STAGES = ["probe", "frames", "ocr", "screens", "transcribe", "align", "moments", "extract"]

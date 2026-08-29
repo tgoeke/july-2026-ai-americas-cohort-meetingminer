@@ -45,12 +45,12 @@ from meetingminer.projections.stores import (
 )
 
 from conftest import (
-    REPO_ROOT,
     DownEmbedder,
     FakeEmbedder,
     _repoint_stores_at_test_twins,
     truncate_evidence,
 )
+from repo_paths import REPO_ROOT
 from projection_seed import DEEP_LINK, SeededTurn, seed_meeting
 from projection_seed import insert_artifact as seed_artifact
 

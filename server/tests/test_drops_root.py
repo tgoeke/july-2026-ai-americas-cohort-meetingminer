@@ -48,13 +48,13 @@ from meetingminer.pipeline import runner
 
 from conftest import (
     DROPS_ROOT,
-    REPO_ROOT,
     TEST_DATABASE,
     DropFactory,
     requires_ffmpeg,
     truncate_evidence,
     valid_metadata,
 )
+from repo_paths import REPO_ROOT
 
 
 def _cli_config(app_config: AppConfig) -> AppConfig:

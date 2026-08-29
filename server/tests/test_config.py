@@ -19,7 +19,7 @@ from meetingminer.config import (
     resolve_config_path,
 )
 
-from conftest import REPO_ROOT
+from repo_paths import REPO_ROOT
 
 VALID_CONFIG = """\
 config_version: 1

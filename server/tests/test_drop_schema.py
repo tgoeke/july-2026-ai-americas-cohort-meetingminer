@@ -8,7 +8,7 @@ from typing import Any
 import jsonschema
 import pytest
 
-from conftest import REPO_ROOT
+from repo_paths import REPO_ROOT
 from conftest import REAL_PROVENANCE_MIGRATED, REAL_PROVENANCE_PULLED, valid_metadata
 
 SCHEMA_PATH = REPO_ROOT / "docs" / "source-drop.schema.json"

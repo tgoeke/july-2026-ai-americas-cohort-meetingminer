@@ -17,7 +17,7 @@ import pytest
 
 from meetingminer.config import AppConfig, ConfigError, load_config, require_publish_root
 
-from conftest import REPO_ROOT
+from repo_paths import REPO_ROOT
 
 
 def _config_with_root(tmp_path: Path, value: str | None) -> AppConfig:

@@ -37,12 +37,12 @@ from conftest import (
     DropFactory,
     FFMPEG,
     FakeOcr,
-    REPO_ROOT,
     TEAMS_TRANSCRIPT,
     requires_ffmpeg,
     truncate_evidence,
     valid_metadata,
 )
+from repo_paths import REPO_ROOT
 
 
 @pytest.fixture()

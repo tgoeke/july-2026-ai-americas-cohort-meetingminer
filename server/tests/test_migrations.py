@@ -24,13 +24,13 @@ from meetingminer import db
 from meetingminer.config import AppConfig
 
 from conftest import (
-    REPO_ROOT,
     RUN_ID,
     cleanup_owned_database,
     create_owned_database,
     database_owner_lock,
     drop_owned_database,
 )
+from repo_paths import REPO_ROOT
 
 # Per-run like `TEST_DATABASE` (story 2.7): both are dropped WITH (FORCE),
 # so fixed names let one run delete a concurrent run's database.

@@ -39,7 +39,8 @@ from meetingminer import mintdrop
 from meetingminer.domain.drops import drop_relative_path
 from meetingminer.pipeline import media
 
-from conftest import DROPS_ROOT, FFMPEG, REPO_ROOT, requires_ffmpeg
+from conftest import DROPS_ROOT, FFMPEG, requires_ffmpeg
+from repo_paths import REPO_ROOT
 
 SCHEMA = json.loads(
     (REPO_ROOT / "docs" / "source-drop.schema.json").read_text(encoding="utf-8")

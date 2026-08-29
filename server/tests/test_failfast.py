@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from conftest import REPO_ROOT
+from repo_paths import REPO_ROOT
 
 
 def _run(

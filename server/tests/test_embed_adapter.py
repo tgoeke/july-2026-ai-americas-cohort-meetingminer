@@ -291,7 +291,7 @@ def test_the_shipped_config_names_a_model_the_local_host_can_serve() -> None:
     Deliberately a *shape* assertion, not a live call: `make test` must not
     depend on Ollama running. What it pins is that the id is fully qualified.
     """
-    from conftest import REPO_ROOT
+    from repo_paths import REPO_ROOT
     from meetingminer.config import load_config
 
     embedder = load_config(REPO_ROOT / "config.yaml", REPO_ROOT / ".env").settings.embedder
@@ -305,7 +305,7 @@ def test_the_shipped_config_names_a_model_the_local_host_can_serve() -> None:
 
 def test_the_shipped_config_serves_the_embedder_from_ollama() -> None:
     """AD-9 puts the model host on the Mac, not in a container."""
-    from conftest import REPO_ROOT
+    from repo_paths import REPO_ROOT
     from meetingminer.config import load_config
 
     settings = load_config(REPO_ROOT / "config.yaml", REPO_ROOT / ".env").settings

@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 import yaml
 
-from conftest import REPO_ROOT
+from repo_paths import REPO_ROOT
 
 COMPOSE_PATH = REPO_ROOT / "infra" / "docker-compose.yml"
 MAKEFILE_PATH = REPO_ROOT / "infra" / "Makefile"

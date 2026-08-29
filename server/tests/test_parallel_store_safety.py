@@ -15,7 +15,8 @@ from uuid import uuid4
 import psycopg
 import pytest
 
-from conftest import REPO_ROOT, _projection_lock_paths, _projection_lock_timeout_seconds
+from conftest import _projection_lock_paths, _projection_lock_timeout_seconds
+from repo_paths import REPO_ROOT
 
 
 def _database_exists(conninfo: str, name: str) -> bool:
@@ -306,7 +307,8 @@ def _lock_process_script(ready_path: Path, release_path: Path | None = None) -> 
     return f"""
 import time
 from pathlib import Path
-from conftest import REPO_ROOT, _projection_store_lock
+from conftest import _projection_store_lock
+from repo_paths import REPO_ROOT
 from meetingminer.config import load_config
 
 config = load_config(REPO_ROOT / \"config.yaml\", REPO_ROOT / \".env\")
@@ -350,7 +352,8 @@ def test_projection_lock_times_out_with_holder_details_then_releases(tmp_path: P
                 """
 import sys
 import time
-from conftest import REPO_ROOT, _projection_store_lock
+from conftest import _projection_store_lock
+from repo_paths import REPO_ROOT
 from meetingminer.config import load_config
 
 started = time.monotonic()

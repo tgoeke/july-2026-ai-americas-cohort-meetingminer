@@ -46,9 +46,9 @@ from meetingminer.adapters.stt.parakeet_mlx import ParakeetMlxStt
 from meetingminer.adapters.stt.port import SttResult, SttSegment
 from meetingminer.config import AppConfig, load_config
 
-# Tests may anchor on their own location; only meetingminer.config is barred
-# from __file__-derived repo paths (story 1.10, finding 17).
-REPO_ROOT = Path(__file__).resolve().parents[2]
+# The repo root lives in its own module so tests do not import the plugin
+# module for one constant (story 11.1); see repo_paths.py for the rule.
+from repo_paths import REPO_ROOT
 
 #: One id per pytest process, so two concurrent runs never share a database.
 #: The fixed ``meetingminer_test`` name was the single reason store-backed

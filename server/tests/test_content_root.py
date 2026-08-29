@@ -21,7 +21,7 @@ import yaml
 from meetingminer.config import AppConfig, ConfigError, load_config, require_content_root
 from meetingminer.worker.main import acquire_worker_lock
 
-from conftest import REPO_ROOT
+from repo_paths import REPO_ROOT
 
 
 # --- require_content_root() ------------------------------------------------

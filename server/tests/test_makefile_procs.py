@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import REPO_ROOT
+from repo_paths import REPO_ROOT
 
 INFRA = str(REPO_ROOT / "infra")
 TEST_WORKER_OWNER = "test-owner"
