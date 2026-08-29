@@ -54,7 +54,7 @@ from test_api_search import SpreadEmbedder, bind_embedder
 
 pytestmark = pytest.mark.slow(reason="/chat retrieves through the Neo4j and Meilisearch test twins: 54 tests, 96.6s at e5510c7")
 
-MARKER =re.compile(r"\[\[moment:([0-9a-fA-F-]{36})\]\]")
+MARKER = re.compile(r"\[\[moment:([0-9a-fA-F-]{36})\]\]")
 
 # The classifier replies, written the way the prompt asks for them.
 SEARCH_ONLY = json.dumps({"template": None, "searchTerms": "purchase order"})

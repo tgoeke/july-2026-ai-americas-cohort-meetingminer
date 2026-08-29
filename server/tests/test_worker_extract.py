@@ -1161,6 +1161,7 @@ def test_a_meeting_with_nothing_to_extract_from_completes_without_a_call(
 # --- NFR7 / AD-4: extract writes no store, so search never sees a draft -----
 
 
+@pytest.mark.slow(reason="reads the projected evidence back through both test twins under the projection lock: 1.5s at e5510c7")
 def test_search_never_returns_an_extracted_artifacts_content(
     pool: ConnectionPool,
     client: Any,

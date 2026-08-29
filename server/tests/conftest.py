@@ -64,8 +64,8 @@ RUN_ID = uuid4().hex[:12]
 #: cap — truncation would silently collide two runs onto one database.
 TEST_DATABASE = f"meetingminer_test_{RUN_ID}"
 
-# pytester: the fixture test_fast_budget.py drives an inner pytest run with.
-# fast_budget: the fast-set budget hook (story 11.1); pyproject holds the value.
+# pytester provides the fixture test_fast_budget.py drives its inner pytest runs
+# with; fast_budget is the fast-set budget and the slow-set rules (story 11.1).
 pytest_plugins = ["pytester", "fast_budget"]
 
 # The dedicated maintenance connection below owns this session-level advisory
