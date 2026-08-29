@@ -95,6 +95,8 @@ The design workspace and snapshots are ignored, yet `adoption.md` directs builde
 
 **Decision:** un-ignore and version the promoted design workspace, or promote the canonical spines/mockups into a tracked documentation path with an explicit update policy.
 
+**Owner resolution — 2026-08-29:** Track the canonical deliverables in the existing dated workspace: `DESIGN.md`, `EXPERIENCE.md`, all seven promoted mockups, both validation reports, `findings-for-epics.md`, and `adoption.md`. Keep temporary studies, rendered screenshots, working files, and snapshots ignored. Repository ignore rules must make this boundary explicit.
+
 ## Patches required after decisions
 
 ### P1 — Finish the System C promotion and repair stale validation evidence
