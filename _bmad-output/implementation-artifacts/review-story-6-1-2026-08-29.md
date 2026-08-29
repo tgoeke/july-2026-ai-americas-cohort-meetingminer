@@ -47,6 +47,8 @@ The traceability claim in Story 6.1 requires every element to map to an existing
 
 **Decision:** either amend the named source stories to own the proposed contracts, simplify the UX to contracts already owned, or decide each contract separately. Until then, the “every element backed” acceptance criterion is knowingly unmet.
 
+**Owner resolution — 2026-08-29:** Amend the named source stories. The proposed UX contracts remain in scope; remediation must add the fields, result shapes, problem types, and endpoints to the stories that own their implementation. No contract may remain traceable only through an assumption tag.
+
 ### D2 — Stable thread-color identity
 
 **Severity:** High
