@@ -105,6 +105,7 @@ def pytest_runtest_makereport(
     )
     return report
 
+
 # The dedicated maintenance connection below owns this session-level advisory
 # lock for each test database's whole lifetime.  `test-db-prune` takes the
 # same lock non-blockingly before it drops a candidate, so a freshly-created
