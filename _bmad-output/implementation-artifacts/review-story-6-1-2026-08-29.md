@@ -71,6 +71,8 @@ The multi-meeting timeline is described in wall-clock time, but mapped moment ev
 
 **Decision:** expose an absolute evidence timestamp, define placement as `meeting.startedAt + startMs` with time-zone rules, or redesign the axis to avoid absolute placement.
 
+**Owner resolution — 2026-08-29:** Story 10.3 exposes a canonical `occurredAt` value for each evidence item as an RFC 3339 UTC timestamp, derived server-side from the meeting start plus `startMs`. The client uses `occurredAt` directly for cross-meeting timeline placement and does not reconstruct wall-clock time.
+
 ### D4 — WCAG resize/reflow exception
 
 **Severity:** High
