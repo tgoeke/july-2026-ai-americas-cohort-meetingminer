@@ -43,3 +43,7 @@ web/dist/
 
 # BMad working output (specs, story artifacts, memlogs) — local only, never committed.
 _bmad-output/
+
+# Vendored agent skill trees (per-machine copies; the installer regenerates them).
+.agents/
+.claude/
