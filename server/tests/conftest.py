@@ -27,7 +27,7 @@ import sys
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Generator, Iterator
+from typing import Any, Callable, Iterator
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -64,47 +64,9 @@ RUN_ID = uuid4().hex[:12]
 #: cap — truncation would silently collide two runs onto one database.
 TEST_DATABASE = f"meetingminer_test_{RUN_ID}"
 
-#: The fast set is `-m "not slow"` (pyproject's addopts, story 11.1); this
-#: budget keeps it fast. Its value and rationale live in pyproject.toml.
-_FAST_TEST_BUDGET_KEY = "mm_fast_test_budget_seconds"
-
-
-def pytest_addoption(parser: pytest.Parser) -> None:
-    parser.addini(
-        _FAST_TEST_BUDGET_KEY,
-        help="seconds an unmarked test's call phase may take before it is reported failed (story 11.1)",
-        default="2.0",
-    )
-
-
-@pytest.hookimpl(wrapper=True)
-def pytest_runtest_makereport(
-    item: pytest.Item, call: pytest.CallInfo[None]
-) -> Generator[None, pytest.TestReport, pytest.TestReport]:
-    """Report a passing, unmarked test failed when its call phase ran over budget.
-
-    Call phase only: fixture setup (the per-run database, migrations, store
-    wipes) amortises across the run and is not what the budget guards. A
-    failing test keeps its own failure — the budget never replaces one — and
-    a `slow`-marked test is exempt whichever selection ran it.
-    """
-    report = yield
-    if call.when != "call" or not report.passed or item.get_closest_marker("slow"):
-        return report
-    budget = float(item.config.getini(_FAST_TEST_BUDGET_KEY))
-    if call.duration <= budget:
-        return report
-    report.outcome = "failed"
-    report.longrepr = (
-        f"{item.nodeid} passed, but its call phase took {call.duration:.2f}s "
-        f"against the {budget:.1f}s fast-set budget ({_FAST_TEST_BUDGET_KEY} in "
-        "server/pyproject.toml). Either mark it slow with a reason — "
-        "`@pytest.mark.slow(reason=...)`, or a module-level `pytestmark` when the "
-        "whole file is bound by a store, a spawned process, or a timer — so the "
-        "default run deselects it, or make the test itself faster."
-    )
-    return report
-
+# pytester: the fixture test_fast_budget.py drives an inner pytest run with.
+# fast_budget: the fast-set budget hook (story 11.1); pyproject holds the value.
+pytest_plugins = ["pytester", "fast_budget"]
 
 # The dedicated maintenance connection below owns this session-level advisory
 # lock for each test database's whole lifetime.  `test-db-prune` takes the
