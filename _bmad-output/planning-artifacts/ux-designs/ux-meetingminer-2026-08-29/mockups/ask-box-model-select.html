@@ -163,8 +163,8 @@ details.role-row > summary::-webkit-details-marker{display:none}
 .snapshot-note{margin:0;font-size:var(--fs-body-sm);color:var(--fg)}
 .contract-line{margin:0;font-size:var(--fs-body-sm);color:var(--muted-fg)}
 .shortcuts-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.toggle{position:relative;width:36px;height:20px;border-radius:var(--r-full);background:rgba(255,255,255,0.28);border:1px solid var(--border);flex:none}
-.toggle .knob{position:absolute;top:1px;left:17px;width:16px;height:16px;border-radius:50%;background:var(--fg)}
+.toggle{position:relative;width:36px;height:24px;min-width:36px;min-height:24px;padding:0;border-radius:var(--r-full);background:rgba(255,255,255,0.28);border:1px solid var(--control-border);flex:none}
+.toggle .knob{position:absolute;top:3px;left:17px;width:16px;height:16px;border-radius:50%;background:var(--fg)}
 .shortcuts-note{margin:8px 0 0;font-size:var(--fs-body-sm);color:var(--muted-fg)}
 .role-option.reverting{border:1px dashed var(--border-hover);opacity:0.65;padding:6px 8px;border-radius:var(--r-sm);display:flex;align-items:center;gap:10px}
 .reverting-note{font-size:var(--fs-mono-xs);color:var(--muted-fg);font-style:italic;margin-left:auto}
@@ -206,26 +206,26 @@ details.role-row > summary::-webkit-details-marker{display:none}
     <div class="ask-header">
       <h2>Ask</h2>
       <div class="model-select">
-        <button class="model-trigger" aria-haspopup="listbox" aria-expanded="true" data-field="GET /settings/models (active)">
+        <button class="model-trigger" aria-haspopup="listbox" aria-expanded="true" aria-controls="chat-model-listbox" data-field="GET /settings/models (active)">
           chat <span class="sep">·</span> claude-sonnet-5 <span class="sep">·</span> anthropic
           <span class="health-dot ok"></span><span class="health-word ok">ok</span>
         </button>
-        <div class="model-popover" role="listbox" aria-label="Choose the model bound to the chat role" data-field="GET /settings/models · GET /status (llmRoles[].keyState)">
-          <div class="popover-group">
-            <p class="group-label">anthropic</p>
-            <div class="option active" role="option" aria-selected="true">
+        <div id="chat-model-listbox" class="model-popover" role="listbox" tabindex="0" aria-activedescendant="chat-option-sonnet" aria-label="Choose the model bound to the chat role" data-field="GET /settings/models catalog[] · GET /status providers[] matched by provider">
+          <div class="popover-group" role="group" aria-labelledby="provider-anthropic">
+            <p id="provider-anthropic" class="group-label">anthropic</p>
+            <div id="chat-option-sonnet" class="option active" role="option" aria-selected="true">
               <span class="option-main">Claude Sonnet 5<span class="mono binding">anthropic/claude-sonnet-5</span></span>
               <span class="option-health"><span class="health-dot ok"></span><span class="health-word ok">ok</span></span>
               <span class="check">✓</span>
             </div>
           </div>
-          <div class="popover-group">
-            <p class="group-label">openai</p>
-            <div class="option muted" role="option" aria-selected="false">
+          <div class="popover-group" role="group" aria-labelledby="provider-openai">
+            <p id="provider-openai" class="group-label">openai</p>
+            <div id="chat-option-gpt" class="option muted" role="option" aria-selected="false" aria-describedby="chat-option-gpt-remediation">
               <span class="option-main">GPT-5.2<span class="mono binding">openai/gpt-5.2</span></span>
               <span class="option-health"><span class="health-dot" style="background:var(--health-invalid-dot)"></span><span class="health-word" style="color:var(--health-invalid-text)">invalid</span></span>
             </div>
-            <p class="remediation">→ set OPENAI_API_KEY in .env, restart the api</p>
+            <p id="chat-option-gpt-remediation" class="remediation">→ set OPENAI_API_KEY in .env, restart the api</p>
           </div>
           <div class="popover-footer">
             <a href="#" class="settings-link">All roles… (Settings)</a>
@@ -360,9 +360,9 @@ details.role-row > summary::-webkit-details-marker{display:none}
       <div class="role-row">
         <div class="shortcuts-row">
           <p class="role-name" style="margin:0">Single-key shortcuts</p>
-          <span class="toggle" role="switch" aria-checked="true" aria-label="Single-key shortcuts" data-field="client, localStorage">
+          <button type="button" class="toggle" role="switch" aria-checked="true" aria-label="Single-key shortcuts" data-field="client, localStorage">
             <span class="knob"></span>
-          </span>
+          </button>
         </div>
         <p class="shortcuts-note"><span class="mono">/ a n g-m g-t g-e 1 2 3 u</span> — off to use these keys for screen-reader navigation. Remembered in this browser.</p>
       </div>

@@ -324,9 +324,9 @@ button{font-family:inherit;cursor:pointer}
       <div class="name-field-block">
         <label for="name-input">Name SPEAKER_03</label>
         <div class="combobox">
-          <input id="name-input" class="name-input" type="text" value="pri" aria-expanded="true" aria-controls="name-suggestions" autocomplete="off">
+          <input id="name-input" class="name-input" type="text" value="pri" role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls="name-suggestions" aria-activedescendant="name-suggestion-priya" autocomplete="off">
           <ul id="name-suggestions" class="suggestions" role="listbox" data-field="GET /participants[].displayName">
-            <li role="option" aria-selected="true" class="highlighted">Priya Natarajan</li>
+            <li id="name-suggestion-priya" role="option" aria-selected="true" class="highlighted">Priya Natarajan</li>
           </ul>
         </div>
         <p class="helper-text">Suggestions are shown, never applied — pick one or type a name.</p>

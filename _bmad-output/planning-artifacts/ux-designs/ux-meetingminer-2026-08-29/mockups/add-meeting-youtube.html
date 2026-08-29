@@ -155,6 +155,9 @@ select.dialect{background:var(--card);border:1px solid var(--border);border-radi
 .note{font-size:12px;color:var(--muted-foreground);margin-top:10px}
 .word-progress{color:var(--muted-foreground);margin-left:6px}
 .field input:disabled,.field input[readonly]{opacity:.6}
+@media (max-width:1300px){
+  .chrome{height:auto;min-height:56px;flex-wrap:wrap;padding:10px 12px;gap:8px}.nav{flex:1 1 160px;min-width:0;flex-wrap:wrap}.chrome-spacer{display:none}.search-input,.ask-input{width:auto;min-width:0;flex:1 1 130px}.model-chip,.btn-primary,.health{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+}
 @media (max-width:900px){
   html,body{max-width:100%;overflow-x:hidden}
   .chrome{height:auto;min-height:56px;flex-wrap:wrap;padding:10px 12px;gap:8px}.nav{flex:1 1 160px;min-width:0;flex-wrap:wrap}.chrome-spacer{display:none}.search-input,.ask-input{width:auto;min-width:0;flex:1 1 130px}.model-chip,.btn-primary,.health{max-width:100%;white-space:normal;overflow-wrap:anywhere}
@@ -342,8 +345,8 @@ select.dialect{background:var(--card);border:1px solid var(--border);border-radi
         <input id="title-2" type="text" value="Config catalog walkthrough" data-field="POST /acquisitions (upload session): title">
       </div>
       <div class="field">
-        <label for="date-2">Date (ISO)</label>
-        <input id="date-2" type="text" inputmode="numeric" placeholder="YYYY-MM-DD" class="mono" value="2026-08-18" data-field="POST /acquisitions (upload session): startedAt">
+        <label for="date-2">Started at (RFC 3339)</label>
+        <input id="date-2" type="text" inputmode="text" placeholder="YYYY-MM-DDTHH:MM:SS±HH:MM" class="mono" value="2026-08-18T09:00:00-06:00" data-field="POST /acquisitions (upload session): startedAt">
       </div>
     </div>
     <div class="field" style="max-width:220px">
@@ -494,8 +497,8 @@ select.dialect{background:var(--card);border:1px solid var(--border);border-radi
         <input id="title-5" type="text" value="Config catalog walkthrough" readonly data-field="POST /acquisitions (upload session): title">
       </div>
       <div class="field">
-        <label for="date-5">Date (ISO)</label>
-        <input id="date-5" type="text" inputmode="numeric" placeholder="YYYY-MM-DD" class="mono" value="2026-08-18" readonly data-field="POST /acquisitions (upload session): startedAt">
+        <label for="date-5">Started at (RFC 3339)</label>
+        <input id="date-5" type="text" inputmode="text" placeholder="YYYY-MM-DDTHH:MM:SS±HH:MM" class="mono" value="2026-08-18T09:00:00-06:00" readonly data-field="POST /acquisitions (upload session): startedAt">
       </div>
     </div>
     <div class="field" style="max-width:220px">
@@ -509,7 +512,7 @@ select.dialect{background:var(--card);border:1px solid var(--border);border-radi
     </div>
 
     <ol class="stepper" aria-label="acquisition progress">
-      <li class="step" data-field="client: upload progress (browser upload events)">
+      <li class="step" data-field="client: upload progress (browser upload events)" role="img" aria-label="upload running, 412 MB of 1.2 GB">
         <span class="bar bar-running" aria-hidden="true"></span>
         <span class="word word-running">upload<span class="word-progress mono">412 MB / 1.2 GB</span></span>
       </li>

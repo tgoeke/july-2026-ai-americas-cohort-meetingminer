@@ -12,7 +12,7 @@ Gaps and contradictions the design exposed while mapping every element to a fiel
 
 **F-4 · FR40 / Story 10.4 — risk and question signals. Resolved by owner review.** Story 10.4 now owns strict-parser, moment-anchored persisted ranking-signal rows of kind `risk | question`, produced through `Llm(extraction)` and replaced on rerun. They are not publishable `MomentArtifact.kind` values and render as literal muted reason text, so the approved seven-kind palette does not invent two artifact colors.
 
-**F-5 · Story 10.3 — thread and timeline fields. Resolved by owner review.** `GET /threads` now owns `threadId`, `name`, counts, first/last mention, and immutable `colorOrdinal`; timeline items own replay fields, opaque media ids, topic membership for Split, and canonical RFC 3339 UTC `occurredAt` plus precision. The client never reconstructs cross-meeting time or color identity.
+**F-5 · Story 10.3 — thread and timeline fields. Resolved by owner review.** `GET /threads` now owns `threadId`, `name`, counts, first/last mention, and immutable `colorOrdinal`; a transactional corpus sequence allocates unique positive ordinals. Timeline items own replay fields, opaque media ids, topic membership for Split, and canonical RFC 3339 UTC `occurredAt` plus precision; day-precision meetings anchor at midnight UTC plus `startMs`, with stable id tie-breaks. The client never reconstructs cross-meeting time or color identity.
 
 **F-6 · Story 6.4 / 6.5 — pre-submit URL probe. Resolved by owner review.** Story 6.4 now creates `POST /acquisitions/probe {url}` → `{title,durationMs,captions:{kind,language},sourceId}` or refusal Problem Details. It performs the 6.2 checks without download, mint, process launch, or acquisition-state write; Story 6.5 gates Submit on its current response.
 
@@ -20,7 +20,7 @@ Gaps and contradictions the design exposed while mapping every element to a fiel
 
 **F-8 · Story 6.2 / 6.4 — `exists` outcome. Resolved by owner review.** The status remains `posted` and carries `result: exists` plus the existing job and meeting ids; the UI states `Already in the corpus — nothing downloaded.`
 
-**F-9 · Story 6.4a — upload metadata. Resolved by owner review.** The multipart session now requires `title`, RFC 3339 `startedAt`, `corpus: real`, and explicit `transcriptDialect` whenever VTT is present.
+**F-9 · Story 6.4a — upload metadata. Resolved by owner review.** The multipart session now requires `title`, RFC 3339 `startedAt` including a numeric UTC offset, `corpus: real`, and explicit `transcriptDialect` whenever VTT is present; the UI collects the timestamp and never invents one from a date.
 
 ## Non-blocking (the design routes around them; recorded so they are decisions, not omissions)
 

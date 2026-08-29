@@ -125,6 +125,9 @@ select.dialect{background:var(--card);border:1px solid var(--border);border-radi
 .refusal .remediation{font-size:14px;color:var(--muted-foreground);margin:0}
 .refusal .remediation a{color:var(--muted-foreground);text-decoration:underline}
 .note{font-size:12px;color:var(--muted-foreground);margin-top:14px}
+@media (max-width:1300px){
+  .chrome{height:auto;min-height:56px;flex-wrap:wrap;padding:10px 12px;gap:8px}.nav{flex:1 1 160px;min-width:0;flex-wrap:wrap}.chrome-spacer{display:none}.search-input,.ask-input{width:auto;min-width:0;flex:1 1 130px}.model-chip,.btn-primary,.health{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+}
 @media (max-width:900px){
   html,body{max-width:100%;overflow-x:hidden}
   .chrome{height:auto;min-height:56px;flex-wrap:wrap;padding:10px 12px;gap:8px}.nav{flex:1 1 160px;min-width:0;flex-wrap:wrap}.chrome-spacer{display:none}.search-input,.ask-input{width:auto;min-width:0;flex:1 1 130px}.model-chip,.btn-primary,.health{max-width:100%;white-space:normal;overflow-wrap:anywhere}
@@ -347,8 +350,8 @@ select.dialect{background:var(--card);border:1px solid var(--border);border-radi
         <input id="title-6" type="text" value="Config catalog walkthrough" data-field="POST /acquisitions (upload session): title">
       </div>
       <div class="field">
-        <label for="date-6">Date (ISO)</label>
-        <input id="date-6" type="text" inputmode="numeric" placeholder="YYYY-MM-DD" class="mono" value="2026-08-18" data-field="POST /acquisitions (upload session): startedAt">
+        <label for="date-6">Started at (RFC 3339)</label>
+        <input id="date-6" type="text" inputmode="text" placeholder="YYYY-MM-DDTHH:MM:SS±HH:MM" class="mono" value="2026-08-18T09:00:00-06:00" data-field="POST /acquisitions (upload session): startedAt">
       </div>
     </div>
     <div class="field" style="max-width:220px">
@@ -362,7 +365,7 @@ select.dialect{background:var(--card);border:1px solid var(--border);border-radi
     </div>
 
     <ol class="stepper" aria-label="acquisition progress">
-      <li class="step" data-field="client: upload progress (browser upload events)" role="img" aria-label="failed failed">
+      <li class="step" data-field="client: upload progress (browser upload events)" role="img" aria-label="upload failed">
         <span class="bar bar-failed" aria-hidden="true"></span>
         <span class="word word-failed">failed</span>
       </li>

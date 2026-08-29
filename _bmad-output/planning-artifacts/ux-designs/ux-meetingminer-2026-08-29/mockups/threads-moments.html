@@ -141,6 +141,7 @@ kbd{font-family:var(--mono);font-size:10px;background:var(--muted);border:1px so
 
 /* canvas — moments tier */
 .canvas-wrap{min-width:0}
+.timeline-scroll{min-width:0}
 .canvas-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:var(--sp-4)}
 .canvas-head h2{font-size:var(--fs-section);font-weight:500;color:var(--muted-foreground);margin:0}
 .timeline-controls{display:flex;gap:6px}
@@ -228,10 +229,13 @@ kbd{font-family:var(--mono);font-size:10px;background:var(--muted);border:1px so
 .split-panel-name label{display:block;font-size:var(--fs-label);letter-spacing:.08em;text-transform:uppercase;color:var(--muted-foreground);margin-bottom:4px}
 .split-panel-name input{width:100%;background:var(--background);border:1px solid var(--control-border);border-radius:var(--r-sm);color:var(--foreground);padding:6px 10px;font-size:var(--fs-body)}
 .split-panel-actions{display:flex;gap:8px;margin-top:12px}
+@media (max-width:1300px){
+  .chrome{height:auto;min-height:56px;flex-wrap:wrap;padding:10px 12px;gap:8px}.nav{flex:1 1 160px;min-width:0;flex-wrap:wrap;white-space:normal}.chrome-center{order:3;flex:1 1 100%;max-width:none;min-width:0;flex-wrap:wrap}.chrome-right{order:4;flex:1 1 100%;min-width:0;flex-wrap:wrap}.search-input{flex:1 1 100%;min-width:0}.ask-input,.ask-wrap{flex:1 1 100%;min-width:0}.ask-wrap{flex-wrap:wrap}.model-chip,.health{max-width:100%;min-width:0;white-space:normal;overflow-wrap:anywhere}
+}
 @media (max-width:900px){
   html,body{max-width:100%;overflow-x:hidden}.browser-frame{width:100%;margin:0;border-left:0;border-right:0;border-radius:0}
   .browser-addr{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.chrome{height:auto;min-height:56px;flex-wrap:wrap;padding:10px 12px;gap:8px}.nav{flex:1 1 160px;min-width:0;flex-wrap:wrap;white-space:normal}.chrome-center{order:3;flex:1 1 100%;max-width:none;min-width:0;flex-wrap:wrap}.chrome-right{order:4;flex:1 1 100%;min-width:0;flex-wrap:wrap}.search-input{flex:1 1 100%;min-width:0}.ask-input,.ask-wrap{flex:1 1 100%;min-width:0}.ask-wrap{flex-wrap:wrap}.model-chip,.health{max-width:100%;min-width:0;white-space:normal;overflow-wrap:anywhere}
-  .shell{padding:16px 12px;min-width:0}.threads-layout{grid-template-columns:minmax(0,1fr)}.thread-list{max-height:none;padding-right:0;border-right:0}.thread-meta{white-space:normal;overflow-wrap:anywhere}.canvas-wrap{width:100%;max-width:100%;overflow-x:auto;overscroll-behavior-inline:contain}.canvas-head{position:sticky;left:0}.moments-canvas{min-width:980px}.lod-card{flex-direction:column}.lod-shot{width:100%;height:auto;aspect-ratio:16/9}.state-section{margin-left:12px;margin-right:12px}
+  .shell{padding:16px 12px;min-width:0}.threads-layout{grid-template-columns:minmax(0,1fr)}.thread-list{max-height:none;padding-right:0;border-right:0}.thread-meta{white-space:normal;overflow-wrap:anywhere}.canvas-wrap{width:100%;max-width:100%}.timeline-scroll{width:100%;max-width:100%;overflow-x:auto;overscroll-behavior-inline:contain}.moments-canvas{min-width:980px}.lod-card{flex-direction:column}.lod-shot{width:100%;height:auto;aspect-ratio:16/9}.state-section{margin-left:12px;margin-right:12px}
 }
 </style>
 </head>
@@ -373,6 +377,7 @@ kbd{font-family:var(--mono);font-size:10px;background:var(--muted);border:1px so
           </div>
         </div>
 
+        <div class="timeline-scroll" role="region" aria-label="Scrollable Threads timeline data">
         <div class="moments-canvas" role="grid" aria-label="Threads timeline &mdash; moments tier, Embedding bake-off, 2026-05-13" tabindex="0">
           <div class="collapsed-strips" role="presentation" aria-hidden="true">
 <div class="collapsed-strip" style="background:var(--thread-4-band)" title="eval harness, collapsed"></div>
@@ -411,6 +416,7 @@ kbd{font-family:var(--mono);font-size:10px;background:var(--muted);border:1px so
 <div role="gridcell" class="moment-tick below" style="left:87.44%"><span class="tick-stem"></span><div class="tick-label" tabindex="-1" aria-label="Next steps for publish gate, 1:18:42, speaker unknown"><span class="tick-time mono">1:18:42</span><span class="tick-title">Next steps for publish gate</span><span class="tick-speaker unknown">speaker unknown</span></div></div>
             </div>
           </div>
+        </div>
         </div>
 
         <div class="canvas-caption">

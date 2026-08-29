@@ -6,22 +6,22 @@ review_baseline: full-content artifact review
 review_snapshot: _bmad-output/planning-artifacts/ux-designs/.snapshots/1423-final-system-c/ux-meetingminer-2026-08-29
 reviewer_branch: story/6-1-review
 date: 2026-08-29
-status: action-required
-verdict: changes-requested
+status: resolved
+verdict: approved
 ---
 
 # Story 6.1 Code Review
 
 ## Verdict
 
-Changes requested. The design spines are substantial and mechanically sound, but Story 6.1 does not yet satisfy the acceptance requirement that every designed element be backed by an existing API field or a named future story. Five owner decisions and nine bounded document/mockup patches remain. The story branch must not merge yet.
+Approved after remediation. All five owner decisions were made, all nine bounded patch groups were applied, the canonical deliverables are versioned, and the final contract/ARIA/browser verification passes. No retained review finding remains open.
 
-The four required review layers completed successfully: blind adversarial review, edge-case review, verification-gap review, and acceptance audit. They produced 60 raw observations, normalized to 39 unique candidates. Fourteen are retained below; 25 were dismissed as duplicates, contradicted by the artifacts, speculative implementation advice, or already covered by a stronger retained finding.
+The four required review layers completed successfully: blind adversarial review, edge-case review, verification-gap review, and acceptance audit. They produced 60 raw observations, normalized to 39 unique candidates. Fourteen were retained and are resolved below; 25 were dismissed as duplicates, contradicted by the artifacts, speculative implementation advice, or already covered by a stronger retained finding. A focused independent re-review also passed the provider-health and model-selector corrections.
 
 ## Scope and cutoff
 
 - Reviewed story branch: `story/6-1` at `e5510c7caf385720851b199382b62aa1221f4051`.
-- The branch has no meaningful Git diff because the UX workspace is ignored. Review therefore used the complete promoted artifact set, not a commit range.
+- The original story branch had no meaningful Git diff because the UX workspace was ignored. Review therefore used the complete promoted artifact set at the immutable cutoff; remediation then versioned the exact canonical boundary selected in D5.
 - Immutable review cutoff: `.snapshots/1423-final-system-c/ux-meetingminer-2026-08-29`.
 - Cutoff aggregate SHA-256, excluding `.snapshots-tmp`: `5b6ef1afec911eaf47b71bbfe6bee2ed2f25f7f425356927dace76cb7f9efffd`.
 - Spine SHA-256: `DESIGN.md` `1f1321a22c40f61b5645eb667ebcff466974471ce8986daa7edd2d3dfac65e68`; `EXPERIENCE.md` `ff4890ff528e74f1a0c8dc21555b685984d90aa800564707c2c10f28b53b027a`.
@@ -31,11 +31,13 @@ The four required review layers completed successfully: blind adversarial review
 - Both spine frontmatters parse as YAML and declare `status: final`.
 - The System C `colors` block contains 76 hex values.
 - The contrast table contains 116 measured rows: 49 AAA, 14 AA, and 53 non-text pairs at or above 3.0:1; no row declares a failure.
-- All seven promoted HTML mockups open in headless Chromium.
+- All seven promoted HTML mockups open in headless Chromium and have hash-bound desktop/320px screenshots.
 - A reference scan found no simple missing internal section target in `EXPERIENCE.md`.
-- No repository test suite was run because this story delivers ignored UX documents and standalone HTML mockups, not application code.
+- No application test suite was run because this story delivers UX documents and standalone HTML mockups, not application code. Purpose-built YAML, token, contrast, HTML/ARIA, and Chromium checks were run instead.
 
-## Owner decisions required
+## Owner decisions resolved
+
+The finding text below preserves the original decision context; each **Owner resolution** is now implemented in the final artifacts and owning source stories.
 
 ### D1 — Contract ownership for designed data and endpoints
 
@@ -97,7 +99,9 @@ The design workspace and snapshots are ignored, yet `adoption.md` directs builde
 
 **Owner resolution — 2026-08-29:** Track the canonical deliverables in the existing dated workspace: `DESIGN.md`, `EXPERIENCE.md`, all seven promoted mockups, both validation reports, `findings-for-epics.md`, and `adoption.md`. Keep temporary studies, rendered screenshots, working files, and snapshots ignored. Repository ignore rules must make this boundary explicit.
 
-## Patches required after decisions
+## Patches applied after decisions
+
+The finding text below preserves the pre-remediation evidence. P1–P9 are all applied and covered by the completed re-verification section.
 
 ### P1 — Finish the System C promotion and repair stale validation evidence
 
@@ -176,14 +180,18 @@ The thread mockups declare `role="grid"` without the required row/gridcell hiera
 
 Twenty-five normalized candidates were dismissed. The main dismissal reasons were duplicate manifestations of the retained System C or contract findings; unsupported assumptions about diarization, clustering, paging implementation, or replay internals; implementation-level preferences not required by the story; and claims disproved by the final spines. Dismissal does not certify future implementation behavior beyond Story 6.1’s design scope.
 
-## Required re-verification
+## Re-verification completed
 
-After the owner decisions and patches:
+1. All four review layers ran against the immutable cutoff; focused acceptance and evidence re-reviews passed after remediation.
+2. Both frontmatters parse and declare `status: final`; the complete System C block contains 76 hexadecimal color tokens.
+3. The contrast table independently totals 116 pairs: 49 AAA, 14 AA, and 53 non-text pairs at or above 3.0:1, with no failures.
+4. Every traceability row has a source; amended source stories and `findings-for-epics.md` own the accepted probe, acquisition, upload, speaker, model, thread, time, media, and feed contracts.
+5. Focused HTML checks pass for ids, ARIA references, named progress graphics, grid row/cell/rowheader structure, combobox/listbox ownership, provider groups, and the native switch.
+6. Headless Chromium rendered all seven final mocks at 1280 and 320 CSS pixels. Every document has zero non-timeline overflow; at 320 the two named timeline-data regions alone scroll over their 980px canvases, and timeline controls remain outside the scrollports.
+7. Screenshot names are bound to source SHA-256 values and recorded in `.working/screens/final-verification-manifest.json`; the seven full hashes are also recorded in `validation-report.md`.
+8. The Markdown and HTML reports agree on System C, the token/pair counts, the accepted decisions, and the final browser verdict.
+9. The exact D5 canonical boundary is tracked; working studies, screenshots, memlogs, and snapshots remain ignored.
 
-1. Re-run all four review layers against one immutable final snapshot.
-2. Parse both frontmatters and the complete color block.
-3. Recompute every contrast pair from canonical tokens.
-4. Validate all traceability rows against the amended source stories and architecture decisions.
-5. Open and interact with all seven promoted mockups in Chromium; verify console output, keyboard order, roles, accessible names, target sizes, and asynchronous states.
-6. Confirm the Markdown and HTML validation reports contain the same System C counts and conclusions with no superseded A-era claims.
-7. Commit and push the versioned design-of-record artifacts if D5 selects repository versioning.
+## Remediation outcome
+
+The persisted `colorOrdinal` allocation is transactional and never recycled; equal-time/day-precision placement has a deterministic server rule; feed reasons are validated before pagination; timeline cache identity includes pinned threads; focus has a no-cell fallback; model health joins through `GET /status providers[]`; upload metadata requires a complete RFC 3339 timestamp with offset; and the promoted mockups implement the resulting accessible states. Story 6.1 is ready to land.

@@ -288,7 +288,7 @@ components:
     word-color: '{colors.health-<state>-text}'
   reason-line:
     gap: '{spacing.chip-gap}'
-    chips: '{components.kind-chip} for artifact/due reasons · {components.thread-chip} for thread reasons · plain {typography.body-sm} {colors.muted-foreground} for recency/publication reasons'
+    chips: '{components.kind-chip} for artifact reasons · {components.thread-chip} for thread reasons · plain {typography.body-sm} {colors.muted-foreground} for due/risk/question/recency/published reasons'
   refusal-box:
     background: '{colors.state-failed-bar} at 12%'
     border: '1px solid {colors.state-failed-bar}'
@@ -642,7 +642,7 @@ Visual specs. Behavior lives in EXPERIENCE.md · Component Patterns under the sa
 - **State bar** (`{components.state-bar}`) — 6px, `{rounded.sm}`, one per stage; the acquisition stepper is four of them labeled launch / running / posted / ingesting, five on a file tab where **upload** comes first with `<sent> / <total>` beside it. Colors and textures as in Colors · States.
 - **State word** (`{components.state-word}`) — the state's name in `{typography.mono-xs}` beside its bar.
 - **Health dot** (`{components.health-dot}`) — 8px circle plus the word in `{typography.body-sm}`; every state except `ok` and `not-required` is followed by `→ remediation` in `{colors.muted-foreground}` (Colors · Health).
-- **Reason line** (`{components.reason-line}`) — the api's reasons, in order, each as a kind chip (artifact and due reasons), a thread chip (thread reasons), or plain muted text (recency and publication reasons), separated by `{spacing.chip-gap}`. The label text is the api's `label`, verbatim.
+- **Reason line** (`{components.reason-line}`) — the api's reasons, in order, each as a kind chip (the seven artifact kinds), a thread chip (`thread`), or plain muted text (`due`, `risk`, `question`, `recency`, `published`), separated by `{spacing.chip-gap}`. The label text is the api's `label`, verbatim.
 - **Refusal box** (`{components.refusal-box}`, see `mockups/add-meeting-refusal.html`) — rose tint at 12% with a 1px rose border; first line the rule name in `{typography.mono-sm}` `{colors.state-failed-text}` (`youtube-drop: duration over cap`), then the detail in `{typography.body}`, then `→ remediation` in `{colors.muted-foreground}`. It sits in place — under the field, under the stepper, in the answer region — never as a toast.
 - **Source tab** (`{components.source-tab}`) — four text tabs; the active one in foreground with a 2px primary underline. Tabs are a `role="tablist"`.
 - **Acquisition stepper** (`{components.acquisition-stepper}`, see `mockups/add-meeting-youtube.html`) — four state bars with words (five with **upload** on a file tab), then a `{typography.mono-xs}` log tail on `{colors.muted}` at 40%, then — once posted — the meeting card with its stage bars.

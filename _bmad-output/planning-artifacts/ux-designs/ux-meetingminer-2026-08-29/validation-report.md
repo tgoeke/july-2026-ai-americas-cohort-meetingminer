@@ -67,8 +67,23 @@ Noted, not applied: rubric row on Key Flow payoff sentences (the skill's flow sh
 - Both frontmatters parse as YAML, declare `status: final`, and carry `updated: 2026-08-29`; all 76 color tokens are hexadecimal and every real dotted token reference resolves.
 - The contrast table was counted independently from its rows: 116 total, exactly 49 AAA, 14 AA, and 53 non-text `ok` pairs.
 - All eight HTML files (seven mockups plus this report) pass the focused structure check: unique ids, valid ARIA references, named grids and `role=img` progress items, row/cell hierarchy, listbox options, and an existing panel for every selected tab.
-- Headless Chromium rendered all seven final mockups at desktop and under a DevTools-emulated 320 CSS-pixel viewport. At the narrow viewport every document's `scrollWidth` equals its `clientWidth`, no visible non-timeline element crosses the viewport, and the two Threads mocks contain the sole horizontal data scrollport (`281px` client width over a `980px` timeline canvas).
+- Headless Chromium rendered all seven final mockups at 1280 and under a DevTools-emulated 320 CSS-pixel viewport. At both widths every document's `scrollWidth` equals its `clientWidth`, no visible non-timeline element crosses the viewport, timeline controls remain outside the scrollport, and at 320 the two Threads mocks contain the sole horizontal data scrollport (`281px` / `266px` client width over a `980px` timeline canvas).
 - The accepted owner contracts are present in their source stories and mirrored in `findings-for-epics.md`: probe and acquisition result shapes, upload metadata, speaker labels and clip end, binding refusal, persisted `colorOrdinal`, canonical `occurredAt`, ID-addressed media, and the complete Moments feed/reason shape.
+- The post-remediation re-review also closed provider-health joining (`GET /status providers[]`), focusable/grouped model-selection semantics, full RFC 3339 upload timestamps, transactional ordinal allocation, deterministic day-precision ordering, pre-pagination reason validation, pinned-thread cache identity, and the no-cell timeline focus fallback.
+
+### Hash-bound rendering evidence
+
+The ignored evidence manifest is `.working/screens/final-verification-manifest.json` (generated `2026-08-29T16:05:46-0600`). Each screenshot filename embeds the first 12 characters of its final source SHA-256:
+
+- `add-meeting-refusal.html` — `cea7c85f5ce50e4e338b2b9dc5a4480faa2d652cc4af1689d24c5198dea3e5c4`
+- `add-meeting-youtube.html` — `7a07ec18c6b9c8383e6a968bbb1832297ef90188f333af9dd5f6fe362381c397`
+- `ask-box-model-select.html` — `62b8f5bf1f2b384b88953c9a40437f5055eaffaf43ea14e9ca087f4ffef61607`
+- `moments.html` — `b291572db943f4e21319a70ea70f96583db8d4773edd6d2932ffaeeddd1750d8`
+- `speaker-naming.html` — `d0ccb76c68472106e3fc7586a2ed3a63b842b4419aa923005d96c8af7355e7a8`
+- `threads-bands.html` — `7e03aa5c9bcdbf360bcbd5456a1f19cead91c887b6241252f0309c279aec83cc`
+- `threads-moments.html` — `62c88898cdfdc3409e8cbefa29445ccec37615195542ce360f003f11d1476e79`
+
+The selected System C study was separately captured from SHA-256 `cd8c56e18f57a82d4954f0ca6748ab156d995db15475fc0c8ec4e9ea17e8bcd1`.
 
 ## Reviewer files
 - `review-rubric.md`
