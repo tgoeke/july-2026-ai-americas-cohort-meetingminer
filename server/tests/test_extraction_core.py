@@ -14,6 +14,7 @@ content.
 from __future__ import annotations
 
 import ast
+import re
 import sys
 import types
 from dataclasses import dataclass
@@ -158,7 +159,7 @@ def test_neither_prompt_frames_the_input_as_a_teams_meeting(app_config) -> None:
     # edit cannot quietly re-introduce the Teams framing.
     binding = app_config.settings.llm.roles.extraction
     for template in (binding.arch_summary_prompt, binding.action_items_prompt):
-        assert "Microsoft Teams" not in template
+        assert re.search(r"\bTeams\b", template) is None
         assert "one meeting or recorded session transcript" in template
 
 
