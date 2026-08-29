@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Key screen — Add a meeting: refusals</title>
+<style>
+/* Governing spine sections illustrated by this file:
+   DESIGN.md    — Colors (Base tokens, States, refusal-box rose at 12% tint, control-border); Typography;
+                  Layout & Spacing (Shell, form-max-width 720px);
+                  Components: chrome, source-tab, acquisition-stepper (five bars on file tabs: upload, launch,
+                  running, posted, ingesting), state-bar, state-word, drop-zone (control-border, rounded xl),
+                  refusal-box, focus-ring.
+   EXPERIENCE.md — Component Patterns: Chrome, Refusal box, State bar + word, Acquisition stepper (upload bar),
+                  Source tab, Drop zone, File row, Dialect select;
+                  State Patterns · Add-meeting: Shape-invalid URL, Sync refusal, Tool refusal, Upload refused;
+                  Accessibility Floor (assertive failure announcement, Add-meeting focus order, log tail aria-live="off");
+                  Data Traceability · Add-meeting (data-field attributes below name the backing operation);
+                  Key Flows · Flow 2 — A refusal that names its rule;
+                  Key Flows · Flow 7 — Bring in a Zoom export (failure branch).
+   Voice and Tone — rule name, detail, remediation with a leading "&rarr;"; sentence case (including link text);
+                  no exclamation marks.
+*/
+:root{
+  --background:#0D0B09;
+  --card:#1B1715;
+  --foreground:#FBF8F6;
+  --muted:#292623;
+  --muted-foreground:#A7A09A;
+  --border:rgba(255,255,255,0.10);
+  --ring:#FF8F4B;
+  --primary:#FF8F4B;
+  --primary-foreground:#1C0D06;
+  --state-running-bar:#FE9A00;
+  --state-running-text:#FFB900;
+  --state-done-bar:#009966;
+  --state-failed-bar:#EC003F;
+  --state-failed-text:#FF637E;
+  --control-border:#FFFFFF57;
+  --health-ok-dot:#009966;
+  --health-ok-text:#00D492;
+  --radius-sm:6px;
+  --radius-md:8px;
+  --radius-lg:10px;
+  --radius-xl:14px;
+  --sans:'Geist Variable', ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--background);color:var(--foreground);font-family:var(--sans);font-size:14px;line-height:1.5}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+a{color:inherit}
+:focus-visible{outline:none;box-shadow:0 0 0 1px var(--background),0 0 0 3px var(--ring)}
+
+/* Chrome — DESIGN.md components.chrome; EXPERIENCE.md Component Patterns · Chrome */
+.chrome{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:20px;height:56px;padding:0 24px;background:var(--background);border-bottom:1px solid var(--border)}
+.brand{font-family:var(--sans);font-weight:600;font-size:18px;letter-spacing:-0.02em;white-space:nowrap}
+.nav{display:flex;gap:2px;font-size:14px}
+.nav a{color:var(--muted-foreground);text-decoration:none;padding:6px 10px;border-radius:var(--radius-sm);white-space:nowrap}
+.nav a:hover{color:var(--foreground)}
+.chrome-spacer{flex:1}
+.search-input,.ask-input{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--foreground);padding:7px 12px;font-size:13px;font-family:var(--sans);width:180px}
+.search-input::placeholder,.ask-input::placeholder{color:var(--muted-foreground)}
+.model-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:var(--mono);font-size:11px;color:var(--muted-foreground);white-space:nowrap}
+.ok-dot{width:6px;height:6px;border-radius:50%;background:var(--health-ok-dot);display:inline-block}
+.ok-word{color:var(--health-ok-text)}
+.btn-primary{background:var(--primary);color:var(--primary-foreground);border:none;border-radius:var(--radius-sm);padding:8px 14px;font-size:13px;font-weight:600;font-family:var(--sans);cursor:pointer;white-space:nowrap}
+.btn-primary:disabled{opacity:.4;cursor:not-allowed}
+.btn-outline{background:transparent;color:var(--foreground);border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px 12px;font-size:12px;font-family:var(--mono);cursor:pointer}
+.health{display:flex;align-items:center;gap:6px;font-size:12px;white-space:nowrap;color:var(--muted-foreground)}
+
+/* Shell — DESIGN.md Layout & Spacing, form-max-width 720px, centered */
+.shell{max-width:720px;margin:0 auto;padding:28px 24px 64px}
+.back-link{display:inline-flex;align-items:center;gap:4px;color:var(--muted-foreground);text-decoration:none;font-size:13px;margin-bottom:18px}
+.back-link:hover{color:var(--foreground)}
+.title{font-family:var(--sans);font-size:18px;font-weight:600;line-height:1.3;letter-spacing:-0.01em;margin:0 0 20px}
+
+.section-label{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-foreground);margin:44px 0 16px;padding-top:28px;border-top:1px solid var(--border)}
+.section-label:first-of-type{margin-top:0;padding-top:0;border-top:none}
+
+/* Source tab */
+.tablist{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:20px}
+.tab{font-family:var(--sans);font-size:14px;color:var(--muted-foreground);background:none;border:none;padding:9px 16px;cursor:pointer;position:relative;top:1px}
+.tab[aria-selected="true"]{color:var(--foreground);border-bottom:2px solid var(--primary)}
+.tab:hover{color:var(--foreground)}
+
+/* Form */
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+.field label{font-size:13px;color:var(--foreground)}
+.field input[type=url]{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-md);color:var(--foreground);padding:9px 12px;font-family:var(--mono);font-size:13px;width:100%}
+.helper{font-size:12px;color:var(--muted-foreground);margin:0}
+.form-row{display:flex;gap:12px;align-items:center;margin-top:18px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.dropzone{border:1px dashed var(--border);border-radius:var(--radius-md);padding:26px;text-align:center;color:var(--muted-foreground);font-size:13px;margin-bottom:16px}
+.dropzone-control{border:1px dashed var(--control-border);border-radius:var(--radius-xl)}
+.filerow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-md);margin-bottom:8px;font-family:var(--mono);font-size:12px}
+.filerow .name{color:var(--foreground)}
+select.dialect{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--foreground);font-family:var(--mono);font-size:12px;padding:4px 8px}
+.dialect-hint{color:var(--muted-foreground);font-family:var(--mono);font-size:11px}
+.remove-btn{background:transparent;border:1px solid var(--control-border);border-radius:var(--radius-sm);color:var(--muted-foreground);font-family:var(--mono);font-size:11px;width:24px;height:24px;line-height:1;cursor:pointer;flex-shrink:0}
+.remove-btn:disabled{opacity:.4;cursor:not-allowed}
+.field input:disabled,.field input[readonly]{opacity:.6}
+
+/* Acquisition stepper */
+.stepper{display:flex;gap:16px;margin:32px 0 0;padding:0;list-style:none}
+.step{flex:1;display:flex;flex-direction:column;gap:6px}
+.bar{height:6px;border-radius:var(--radius-sm)}
+.bar-queued{background:transparent;border:1px dashed color-mix(in srgb, var(--muted-foreground) 40%, transparent)}
+.bar-done{background:var(--state-done-bar)}
+.bar-failed{background:var(--state-failed-bar)}
+.word{font-family:var(--mono);font-size:11px}
+.word-queued{color:color-mix(in srgb, var(--muted-foreground) 60%, transparent)}
+.word-done{color:var(--foreground)}
+.word-failed{color:var(--state-failed-text);font-weight:500}
+
+/* Log tail */
+.log{margin-top:18px;background:color-mix(in srgb, var(--muted) 40%, transparent);border-radius:var(--radius-md);padding:10px 12px;font-family:var(--mono);font-size:11px;color:var(--muted-foreground);line-height:1.6;max-height:120px;overflow:auto}
+.log div{white-space:pre}
+
+/* Refusal box — DESIGN.md components.refusal-box */
+.refusal{background:color-mix(in srgb, var(--state-failed-bar) 12%, transparent);border:1px solid var(--state-failed-bar);border-radius:var(--radius-md);padding:12px 16px;margin-top:18px}
+.refusal .rule{font-family:var(--mono);font-size:12px;color:var(--state-failed-text);margin:0 0 6px}
+.refusal .detail{font-size:14px;margin:0 0 6px}
+.refusal .remediation{font-size:14px;color:var(--muted-foreground);margin:0}
+.refusal .remediation a{color:var(--muted-foreground);text-decoration:underline}
+.note{font-size:12px;color:var(--muted-foreground);margin-top:14px}
+@media (max-width:900px){
+  html,body{max-width:100%;overflow-x:hidden}
+  .chrome{height:auto;min-height:56px;flex-wrap:wrap;padding:10px 12px;gap:8px}.nav{flex:1 1 160px;min-width:0;flex-wrap:wrap}.chrome-spacer{display:none}.search-input,.ask-input{width:auto;min-width:0;flex:1 1 130px}.model-chip,.btn-primary,.health{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+  .shell{padding:20px 12px 48px;min-width:0}.grid-2{grid-template-columns:1fr}.tablist{flex-wrap:wrap}.tab{flex:1 1 120px}.form-row,.filerow{align-items:flex-start;flex-wrap:wrap}.form-row>*{min-width:0}.stepper{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.log div{white-space:pre-wrap;overflow-wrap:anywhere}.refusal,.field{min-width:0;overflow-wrap:anywhere}
+}
+</style>
+</head>
+<body>
+
+<header class="chrome">
+  <div class="brand">MeetingMiner</div>
+  <nav class="nav" aria-label="primary">
+    <a href="#">Moments</a>
+    <a href="#">Threads</a>
+    <a href="#">Meetings</a>
+    <a href="#">Participants</a>
+    <a href="#">Status</a>
+    <a href="#">Settings</a>
+  </nav>
+  <div class="chrome-spacer"></div>
+  <input class="search-input" type="text" placeholder="Search the corpus" aria-label="Search">
+  <input class="ask-input" type="text" placeholder="Ask a question of the corpus" aria-label="Ask">
+  <span class="model-chip">chat <span>·</span> claude-sonnet-5 <span>·</span> anthropic <span class="ok-dot" aria-hidden="true"></span> <span class="ok-word">ok</span></span>
+  <button class="btn-primary" type="button">Add meeting</button>
+  <span class="health"><span class="ok-dot" aria-hidden="true"></span><span class="ok-word">all systems healthy</span></span>
+</header>
+
+<div class="shell">
+  <a class="back-link" href="#">&larr; Back</a>
+  <h2 class="title">Add a meeting</h2>
+
+  <!-- Section 1 — Tool refusal, Key Flows · Flow 2 -->
+  <h3 class="section-label">YouTube tab &mdash; tool refusal (duration over cap)</h3>
+
+  <div role="tablist" aria-label="Meeting source" class="tablist">
+    <button role="tab" id="tab-youtube-1" aria-selected="true" aria-controls="panel-youtube-1" tabindex="0" class="tab" data-field="client: source tab">YouTube URL</button>
+    <button role="tab" id="tab-local-1" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Local files</button>
+    <button role="tab" id="tab-zoom-1" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Zoom export</button>
+    <button role="tab" id="tab-teams-1" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Teams export</button>
+  </div>
+
+  <div role="tabpanel" id="panel-youtube-1" aria-labelledby="tab-youtube-1">
+    <div class="field">
+      <label for="url-1">YouTube URL</label>
+      <input id="url-1" type="url" class="mono" value="https://www.youtube.com/watch?v=9fJhK2LpQ7A" data-field="client: youtube url shape check">
+      <p class="helper">Nothing is written until the acquisition tool accepts the URL.</p>
+    </div>
+    <div class="form-row">
+      <button class="btn-primary" type="button" data-field="POST /acquisitions">Submit</button>
+      <span class="reason" style="font-size:12px;color:var(--muted-foreground)">Form unlocked &mdash; edit the URL to retry.</span>
+    </div>
+
+    <ol class="stepper" aria-label="acquisition progress">
+      <li class="step" data-field="GET /acquisitions/{id}.status" role="img" aria-label="launch done">
+        <span class="bar bar-done" aria-hidden="true"></span>
+        <span class="word word-done">launch</span>
+      </li>
+      <li class="step" data-field="GET /acquisitions/{id}.status" role="img" aria-label="running done">
+        <span class="bar bar-done" aria-hidden="true"></span>
+        <span class="word word-done">running</span>
+      </li>
+      <li class="step" data-field="GET /acquisitions/{id}.status" role="img" aria-label="failed failed">
+        <span class="bar bar-failed" aria-hidden="true"></span>
+        <span class="word word-failed">failed</span>
+      </li>
+      <li class="step" data-field="GET /acquisitions/{id}.status" role="img" aria-label="ingesting queued">
+        <span class="bar bar-queued" aria-hidden="true"></span>
+        <span class="word word-queued">ingesting</span>
+      </li>
+    </ol>
+
+    <div class="log" role="region" aria-label="acquisition log" aria-live="off" data-field="GET /acquisitions/{id}.log">
+      <div>yt-dlp: extracting video info &mdash; id 9fJhK2LpQ7A</div>
+      <div>yt-dlp: duration 4:02:17</div>
+      <div>youtube-drop: checking acquisition.youtube.maxDurationMinutes = 180</div>
+      <div>youtube-drop: duration over cap &mdash; refusing before download</div>
+      <div>acquisition-worker: job 91a2f6c1 failed</div>
+    </div>
+
+    <div class="refusal" role="alert" data-field="GET /acquisitions/{id}.refusal">
+      <p class="rule mono">youtube-drop: duration over cap</p>
+      <p class="detail">4h 02m exceeds the configured 180 minutes.</p>
+      <p class="remediation">&rarr; Raise acquisition.youtube.maxDurationMinutes in config.yaml and restart the worker, or choose a shorter video.</p>
+    </div>
+    <p class="note">Nothing was downloaded, nothing minted, no meeting row exists.</p>
+  </div>
+
+  <!-- Section 2 — Sync refusal, 409 conflict -->
+  <h3 class="section-label">Sync refusal &mdash; 409 conflict</h3>
+
+  <div role="tablist" aria-label="Meeting source" class="tablist">
+    <button role="tab" id="tab-youtube-2" aria-selected="true" aria-controls="panel-youtube-2" tabindex="0" class="tab" data-field="client: source tab">YouTube URL</button>
+    <button role="tab" id="tab-local-2" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Local files</button>
+    <button role="tab" id="tab-zoom-2" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Zoom export</button>
+    <button role="tab" id="tab-teams-2" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Teams export</button>
+  </div>
+
+  <div role="tabpanel" id="panel-youtube-2" aria-labelledby="tab-youtube-2">
+    <div class="field">
+      <label for="url-2">YouTube URL</label>
+      <input id="url-2" type="url" class="mono" value="https://www.youtube.com/watch?v=dQw4w9WgXcQ" data-field="client: youtube url shape check">
+      <p class="helper">Nothing is written until the acquisition tool accepts the URL.</p>
+    </div>
+    <div class="form-row">
+      <button class="btn-primary" type="button" data-field="POST /acquisitions">Submit</button>
+    </div>
+
+    <div class="refusal" role="alert" data-field="POST /acquisitions (409 ProblemDetails)">
+      <p class="rule mono">acquisition already running for youtube:dQw4w9WgXcQ</p>
+      <p class="detail">one running acquisition per source id.</p>
+      <p class="remediation">&rarr; <a href="#">open the running acquisition</a></p>
+    </div>
+  </div>
+
+  <!-- Section 3 — Shape-invalid URL, not a refusal -->
+  <h3 class="section-label">Shape-invalid URL (not a refusal)</h3>
+
+  <div role="tablist" aria-label="Meeting source" class="tablist">
+    <button role="tab" id="tab-youtube-3" aria-selected="true" aria-controls="panel-youtube-3" tabindex="0" class="tab" data-field="client: source tab">YouTube URL</button>
+    <button role="tab" id="tab-local-3" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Local files</button>
+    <button role="tab" id="tab-zoom-3" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Zoom export</button>
+    <button role="tab" id="tab-teams-3" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Teams export</button>
+  </div>
+
+  <div role="tabpanel" id="panel-youtube-3" aria-labelledby="tab-youtube-3">
+    <div class="field">
+      <label for="url-3">YouTube URL</label>
+      <input id="url-3" type="url" class="mono" value="https://vimeo.com/12345" data-field="client: youtube url shape check">
+      <p class="helper">Not a YouTube video URL &mdash; paste a watch or youtu.be link.</p>
+    </div>
+    <div class="form-row">
+      <button class="btn-primary" type="button" disabled data-field="POST /acquisitions">Submit</button>
+    </div>
+  </div>
+
+  <!-- Section 4 — Probe refused before submit, story 6.5 -->
+  <h3 class="section-label">Probe refused before submit (story 6.5)</h3>
+
+  <div role="tablist" aria-label="Meeting source" class="tablist">
+    <button role="tab" id="tab-youtube-4" aria-selected="true" aria-controls="panel-youtube-4" tabindex="0" class="tab" data-field="client: source tab">YouTube URL</button>
+    <button role="tab" id="tab-local-4" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Local files</button>
+    <button role="tab" id="tab-zoom-4" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Zoom export</button>
+    <button role="tab" id="tab-teams-4" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Teams export</button>
+  </div>
+
+  <div role="tabpanel" id="panel-youtube-4" aria-labelledby="tab-youtube-4">
+    <div class="field">
+      <label for="url-4">YouTube URL</label>
+      <input id="url-4" type="url" class="mono" value="https://www.youtube.com/watch?v=9fJhK2LpQ7A" data-field="client: youtube url shape check">
+      <!-- Transient state not drawn here: a muted mono "Probing…" line shows while the
+           synchronous probe is in flight, then is replaced by the refusal box below. -->
+      <div class="refusal" role="alert" data-field="POST /acquisitions/probe: refusal Problem Details">
+        <p class="rule mono">youtube-drop: duration over cap</p>
+        <p class="detail">4h 02m exceeds the configured 180 minutes.</p>
+        <p class="remediation">&rarr; Raise acquisition.youtube.maxDurationMinutes in config.yaml and restart the worker, or choose a shorter video.</p>
+      </div>
+    </div>
+    <div class="form-row">
+      <button class="btn-primary" type="button" disabled data-field="POST /acquisitions">Submit</button>
+    </div>
+    <p class="note">Nothing was sent &mdash; the probe answered before submit.</p>
+  </div>
+
+  <!-- Section 5 — Playlist URL, shape check -->
+  <h3 class="section-label">Playlist URL (shape check)</h3>
+
+  <div role="tablist" aria-label="Meeting source" class="tablist">
+    <button role="tab" id="tab-youtube-5" aria-selected="true" aria-controls="panel-youtube-5" tabindex="0" class="tab" data-field="client: source tab">YouTube URL</button>
+    <button role="tab" id="tab-local-5" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Local files</button>
+    <button role="tab" id="tab-zoom-5" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Zoom export</button>
+    <button role="tab" id="tab-teams-5" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Teams export</button>
+  </div>
+
+  <div role="tabpanel" id="panel-youtube-5" aria-labelledby="tab-youtube-5">
+    <div class="field">
+      <label for="url-5">YouTube URL</label>
+      <input id="url-5" type="url" class="mono" value="https://www.youtube.com/playlist?list=PL9&hellip;" data-field="client: youtube url shape check">
+      <p class="helper">Playlist URLs are not accepted on this tab &mdash; paste one video's watch link.</p>
+    </div>
+    <div class="form-row">
+      <button class="btn-primary" type="button" disabled data-field="POST /acquisitions">Submit</button>
+    </div>
+  </div>
+
+  <!-- Section 6 — Upload refused, Zoom export tab, story 6.4a / 6.5a -->
+  <h3 class="section-label">Upload refused (Zoom export tab)</h3>
+
+  <div role="tablist" aria-label="Meeting source" class="tablist">
+    <button role="tab" id="tab-youtube-6" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">YouTube URL</button>
+    <button role="tab" id="tab-local-6" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Local files</button>
+    <button role="tab" id="tab-zoom-6" aria-selected="true" aria-controls="panel-zoom-6" tabindex="0" class="tab" data-field="client: source tab">Zoom export</button>
+    <button role="tab" id="tab-teams-6" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Teams export</button>
+  </div>
+
+  <div role="tabpanel" id="panel-zoom-6" aria-labelledby="tab-zoom-6">
+    <div class="dropzone dropzone-control" data-field="client: file drop">Drop files here, or browse the file system.</div>
+
+    <div class="filerow" data-field="client: file classification (File API)">
+      <span class="name">GMT20260818-Config catalog.mp4</span>
+      <span>1.2 GB</span>
+      <span>recording</span>
+      <button class="remove-btn" type="button" aria-label="Remove GMT20260818-Config catalog.mp4" data-field="client: file row remove">&#10005;</button>
+    </div>
+    <div class="filerow" data-field="client: file classification (File API)">
+      <span class="name">GMT20260818-Config catalog.transcript.vtt</span>
+      <span>84 KB</span>
+      <span>.vtt</span>
+      <select class="dialect" aria-label="transcript dialect" data-field="client: transcript dialect select (--transcript-dialect)">
+        <option value="zoom" selected>zoom</option>
+        <option value="teams-vtt">teams-vtt</option>
+        <option value="plain">plain</option>
+      </select>
+      <span class="dialect-hint">looks like zoom &mdash; Name: cues</span>
+      <button class="remove-btn" type="button" aria-label="Remove GMT20260818-Config catalog.transcript.vtt" data-field="client: file row remove">&#10005;</button>
+    </div>
+
+    <div class="grid-2" style="margin-top:16px">
+      <div class="field">
+        <label for="title-6">Title</label>
+        <input id="title-6" type="text" value="Config catalog walkthrough" data-field="POST /acquisitions (upload session): title">
+      </div>
+      <div class="field">
+        <label for="date-6">Date (ISO)</label>
+        <input id="date-6" type="text" inputmode="numeric" placeholder="YYYY-MM-DD" class="mono" value="2026-08-18" data-field="POST /acquisitions (upload session): startedAt">
+      </div>
+    </div>
+    <div class="field" style="max-width:220px">
+      <label for="corpus-6">Corpus</label>
+      <input id="corpus-6" type="text" class="mono" value="real" readonly data-field="POST /acquisitions (upload session): corpus=real fixed">
+      <p class="helper">New sources are corpus real &mdash; never eval subjects.</p>
+    </div>
+
+    <div class="form-row">
+      <button class="btn-primary" type="button" data-field="POST /acquisitions (upload session)">Submit</button>
+    </div>
+
+    <ol class="stepper" aria-label="acquisition progress">
+      <li class="step" data-field="client: upload progress (browser upload events)" role="img" aria-label="failed failed">
+        <span class="bar bar-failed" aria-hidden="true"></span>
+        <span class="word word-failed">failed</span>
+      </li>
+      <li class="step" data-field="GET /acquisitions/{id}.status" role="img" aria-label="launch queued">
+        <span class="bar bar-queued" aria-hidden="true"></span>
+        <span class="word word-queued">launch</span>
+      </li>
+      <li class="step" data-field="GET /acquisitions/{id}.status" role="img" aria-label="running queued">
+        <span class="bar bar-queued" aria-hidden="true"></span>
+        <span class="word word-queued">running</span>
+      </li>
+      <li class="step" data-field="GET /acquisitions/{id}.status" role="img" aria-label="posted queued">
+        <span class="bar bar-queued" aria-hidden="true"></span>
+        <span class="word word-queued">posted</span>
+      </li>
+      <li class="step" data-field="GET /jobs/events" role="img" aria-label="ingesting queued">
+        <span class="bar bar-queued" aria-hidden="true"></span>
+        <span class="word word-queued">ingesting</span>
+      </li>
+    </ol>
+
+    <div class="refusal" role="alert" data-field="POST /acquisitions (upload session, ProblemDetails)">
+      <p class="rule mono">upload-session: size over cap</p>
+      <p class="detail">2.4 GB exceeds the configured 2 GB.</p>
+      <p class="remediation">&rarr; Raise acquisition.upload.maxBytes in config.yaml and restart the api, or trim the recording.</p>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

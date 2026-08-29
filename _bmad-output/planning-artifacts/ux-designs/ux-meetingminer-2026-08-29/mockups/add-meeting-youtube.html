@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Key screen — Add a meeting: YouTube intake and local files</title>
+<style>
+/* Governing spine sections illustrated by this file:
+   DESIGN.md    — Colors (Base tokens, States, control-border); Typography; Layout & Spacing (Shell, form-max-width 720px);
+                  Components: chrome, source-tab, acquisition-stepper (five bars on file tabs: upload, launch,
+                  running, posted, ingesting), state-bar, state-word, drop-zone (control-border, rounded xl), focus-ring.
+   EXPERIENCE.md — Component Patterns: Chrome, Section header, State bar + word, Acquisition stepper (upload bar),
+                  Source tab, Drop zone, File row, Dialect select;
+                  State Patterns · Add-meeting: Probe running, Probe answered, Launched, Already ingested,
+                  Files classified, Uploading, Posted → ingesting;
+                  Accessibility Floor (Add-meeting focus order, live regions);
+                  Data Traceability · Add-meeting (data-field attributes below name the backing operation);
+                  Key Flows · Flow 1 — Add a YouTube meeting and watch it become evidence;
+                  Key Flows · Flow 7 — Bring in a Zoom export.
+   Reused verbatim from web/src/features/meetings/StageProgress.tsx and stageStyles.ts: the eight-stage
+   bar strip (probe, frames, ocr, screens, transcribe, align, moments, extract), its 6px bar / 10px label
+   sizing, and the queued/running/done/skipped/failed texture-per-state rule.
+*/
+:root{
+  --background:#0D0B09;
+  --card:#1B1715;
+  --popover:#1B1715;
+  --foreground:#FBF8F6;
+  --muted:#292623;
+  --muted-foreground:#A7A09A;
+  --border:rgba(255,255,255,0.10);
+  --ring:#FF8F4B;
+  --primary:#FF8F4B;
+  --primary-foreground:#1C0D06;
+  --state-running-bar:#FE9A00;
+  --state-running-text:#FFB900;
+  --state-done-bar:#009966;
+  --state-posted-bar:#009966;
+  --state-posted-text:#00D492;
+  --state-skipped-bar:#90A1B9;
+  --state-failed-bar:#EC003F;
+  --state-failed-text:#FF637E;
+  --control-border:#FFFFFF57;
+  --health-ok-dot:#009966;
+  --health-ok-text:#00D492;
+  --radius-sm:6px;
+  --radius-md:8px;
+  --radius-lg:10px;
+  --radius-xl:14px;
+  --sans:'Geist Variable', ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--background);color:var(--foreground);font-family:var(--sans);font-size:14px;line-height:1.5}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+a{color:inherit}
+:focus-visible{outline:none;box-shadow:0 0 0 1px var(--background),0 0 0 3px var(--ring)}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+/* Chrome — DESIGN.md components.chrome; EXPERIENCE.md Component Patterns · Chrome */
+.chrome{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:20px;height:56px;padding:0 24px;background:var(--background);border-bottom:1px solid var(--border)}
+.brand{font-family:var(--sans);font-weight:600;font-size:18px;letter-spacing:-0.02em;white-space:nowrap}
+.nav{display:flex;gap:2px;font-size:14px}
+.nav a{color:var(--muted-foreground);text-decoration:none;padding:6px 10px;border-radius:var(--radius-sm);white-space:nowrap}
+.nav a:hover{color:var(--foreground)}
+.chrome-spacer{flex:1}
+.search-input,.ask-input{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--foreground);padding:7px 12px;font-size:13px;font-family:var(--sans);width:180px}
+.search-input::placeholder,.ask-input::placeholder{color:var(--muted-foreground)}
+.model-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:var(--mono);font-size:11px;color:var(--muted-foreground);white-space:nowrap}
+.ok-dot{width:6px;height:6px;border-radius:50%;background:var(--health-ok-dot);display:inline-block}
+.ok-word{color:var(--health-ok-text)}
+.btn-primary{background:var(--primary);color:var(--primary-foreground);border:none;border-radius:var(--radius-sm);padding:8px 14px;font-size:13px;font-weight:600;font-family:var(--sans);cursor:pointer;white-space:nowrap}
+.btn-primary:disabled{opacity:.4;cursor:not-allowed}
+.btn-outline{background:transparent;color:var(--foreground);border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px 12px;font-size:12px;font-family:var(--mono);cursor:pointer}
+.health{display:flex;align-items:center;gap:6px;font-size:12px;white-space:nowrap;color:var(--muted-foreground)}
+
+/* Shell — DESIGN.md Layout & Spacing, form-max-width 720px, centered */
+.shell{max-width:720px;margin:0 auto;padding:28px 24px 64px}
+.back-link{display:inline-flex;align-items:center;gap:4px;color:var(--muted-foreground);text-decoration:none;font-size:13px;margin-bottom:18px}
+.back-link:hover{color:var(--foreground)}
+.title{font-family:var(--sans);font-size:18px;font-weight:600;line-height:1.3;letter-spacing:-0.01em;margin:0 0 20px}
+
+.section-label{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-foreground);margin:44px 0 16px;padding-top:28px;border-top:1px solid var(--border)}
+
+/* Source tab — DESIGN.md components.source-tab; EXPERIENCE.md Component Patterns · Source tab */
+.tablist{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:20px}
+.tab{font-family:var(--sans);font-size:14px;color:var(--muted-foreground);background:none;border:none;padding:9px 16px;cursor:pointer;position:relative;top:1px}
+.tab[aria-selected="true"]{color:var(--foreground);border-bottom:2px solid var(--primary)}
+.tab:hover{color:var(--foreground)}
+
+/* Form */
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+.field label{font-size:13px;color:var(--foreground)}
+.field input[type=text],.field input[type=url],.field input[type=date]{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-md);color:var(--foreground);padding:9px 12px;font-family:var(--mono);font-size:13px;width:100%}
+.field input[readonly]{color:var(--muted-foreground)}
+.helper{font-size:12px;color:var(--muted-foreground);margin:0}
+.form-row{display:flex;gap:12px;align-items:center;margin-top:18px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+
+/* Acquisition stepper — DESIGN.md components.acquisition-stepper / state-bar / state-word */
+.stepper{display:flex;gap:16px;margin:32px 0 0;padding:0;list-style:none}
+.step{flex:1;display:flex;flex-direction:column;gap:6px}
+.bar{height:6px;border-radius:var(--radius-sm)}
+.bar-queued{background:transparent;border:1px dashed color-mix(in srgb, var(--muted-foreground) 40%, transparent)}
+.bar-running{background:var(--state-running-bar);animation:pulse 2s ease-in-out infinite}
+.bar-done{background:var(--state-done-bar)}
+.bar-posted{background:var(--state-posted-bar)}
+.word{font-family:var(--mono);font-size:11px}
+.word-queued{color:color-mix(in srgb, var(--muted-foreground) 60%, transparent)}
+.word-running{color:var(--state-running-text);font-weight:500}
+.word-done{color:var(--foreground)}
+.word-posted{color:var(--state-posted-text)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@media (prefers-reduced-motion: reduce){.bar-running{animation:none}}
+
+/* Log tail — mono-xs on muted at 40%, aria-live="off" per Accessibility Floor */
+.log{margin-top:18px;background:color-mix(in srgb, var(--muted) 40%, transparent);border-radius:var(--radius-md);padding:10px 12px;font-family:var(--mono);font-size:11px;color:var(--muted-foreground);line-height:1.6;max-height:120px;overflow:auto}
+.log div{white-space:pre}
+.log-row{display:flex;justify-content:flex-end;margin-top:8px}
+
+/* Meeting card — reused verbatim from web/src/features/meetings/MeetingsList.tsx row layout */
+.card{display:flex;gap:16px;border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-top:22px;background:var(--card)}
+.poster{width:128px;height:80px;flex-shrink:0;border-radius:var(--radius-md);background:linear-gradient(160deg,var(--muted),var(--background));position:relative;border:1px solid var(--border)}
+.poster .offset-chip{position:absolute;left:6px;bottom:6px;font-family:var(--mono);font-size:10px;background:rgba(0,0,0,.6);color:var(--foreground);padding:2px 6px;border-radius:4px}
+.card-body{display:flex;flex-direction:column;gap:8px;min-width:0;flex:1}
+.card-title{font-family:var(--sans);font-size:15px;font-weight:600}
+.card-meta{font-family:var(--mono);font-size:12px;color:var(--muted-foreground)}
+.card-counts{font-family:var(--mono);font-size:12px;color:var(--muted-foreground)}
+/* Eight-stage strip — byte-identical sizing to StageProgress.tsx: 6px bars, 10px labels */
+.stagebar-list{display:flex;align-items:flex-end;gap:4px;list-style:none;padding:0;margin:6px 0 0}
+.stagebar-list li{flex:1;display:flex;flex-direction:column;gap:4px;min-width:0}
+.stagebar{height:6px;width:100%;border-radius:var(--radius-sm)}
+.stagelabel{font-size:10px;line-height:1;color:color-mix(in srgb, var(--muted-foreground) 60%, transparent);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stagelabel-done{color:var(--foreground)}
+.stagelabel-running{color:var(--state-running-text);font-weight:500}
+.card-actions{display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap}
+.reason{font-size:12px;color:var(--muted-foreground)}
+.link-muted{color:var(--muted-foreground);font-size:12px;text-decoration:underline}
+.caption{font-family:var(--mono);font-size:11px;color:color-mix(in srgb, var(--muted-foreground) 55%, transparent);margin-top:10px}
+
+/* Local-files section — file rows, dialect select, dropzone */
+.dropzone{border:1px dashed var(--border);border-radius:var(--radius-md);padding:26px;text-align:center;color:var(--muted-foreground);font-size:13px;margin-bottom:16px}
+.filerow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-md);margin-bottom:8px;font-family:var(--mono);font-size:12px}
+.filerow.ignored{color:var(--muted-foreground)}
+.filerow .name{color:var(--foreground)}
+select.dialect{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--foreground);font-family:var(--mono);font-size:12px;padding:4px 8px}
+.dialect-hint{color:var(--muted-foreground);font-family:var(--mono);font-size:11px}
+.dropzone-control{border:1px dashed var(--control-border);border-radius:var(--radius-xl)}
+.remove-btn{background:transparent;border:1px solid var(--control-border);border-radius:var(--radius-sm);color:var(--muted-foreground);font-family:var(--mono);font-size:11px;width:24px;height:24px;line-height:1;cursor:pointer;flex-shrink:0}
+.remove-btn:disabled{opacity:.4;cursor:not-allowed}
+.state-tag{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted-foreground);margin:0 0 6px}
+.probe-state{margin-top:16px}
+.probe-state + .probe-state{margin-top:20px;padding-top:16px;border-top:1px solid var(--border)}
+.note{font-size:12px;color:var(--muted-foreground);margin-top:10px}
+.word-progress{color:var(--muted-foreground);margin-left:6px}
+.field input:disabled,.field input[readonly]{opacity:.6}
+@media (max-width:900px){
+  html,body{max-width:100%;overflow-x:hidden}
+  .chrome{height:auto;min-height:56px;flex-wrap:wrap;padding:10px 12px;gap:8px}.nav{flex:1 1 160px;min-width:0;flex-wrap:wrap}.chrome-spacer{display:none}.search-input,.ask-input{width:auto;min-width:0;flex:1 1 130px}.model-chip,.btn-primary,.health{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+  .shell{padding:20px 12px 48px;min-width:0}.grid-2{grid-template-columns:1fr}.tablist{flex-wrap:wrap}.tab{flex:1 1 120px}.form-row,.filerow,.card{align-items:flex-start;flex-wrap:wrap}.form-row>*{min-width:0}.stepper{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.log div{white-space:pre-wrap;overflow-wrap:anywhere}.refusal,.field{min-width:0;overflow-wrap:anywhere}.poster{width:100%;height:auto;aspect-ratio:16/9}.stagebar-list{width:100%}
+}
+</style>
+</head>
+<body>
+
+<header class="chrome">
+  <div class="brand">MeetingMiner</div>
+  <nav class="nav" aria-label="primary">
+    <a href="#">Moments</a>
+    <a href="#">Threads</a>
+    <a href="#">Meetings</a>
+    <a href="#">Participants</a>
+    <a href="#">Status</a>
+    <a href="#">Settings</a>
+  </nav>
+  <div class="chrome-spacer"></div>
+  <input class="search-input" type="text" placeholder="Search the corpus" aria-label="Search">
+  <input class="ask-input" type="text" placeholder="Ask a question of the corpus" aria-label="Ask">
+  <span class="model-chip">chat <span>·</span> claude-sonnet-5 <span>·</span> anthropic <span class="ok-dot" aria-hidden="true"></span> <span class="ok-word">ok</span></span>
+  <button class="btn-primary" type="button">Add meeting</button>
+  <span class="health"><span class="ok-dot" aria-hidden="true"></span><span class="ok-word">all systems healthy</span></span>
+</header>
+
+<div class="shell">
+  <a class="back-link" href="#">&larr; Back</a>
+  <h2 class="title">Add a meeting</h2>
+
+  <div role="tablist" aria-label="Meeting source" class="tablist">
+    <button role="tab" id="tab-youtube-1" aria-selected="true" aria-controls="panel-youtube-1" tabindex="0" class="tab" data-field="client: source tab">YouTube URL</button>
+    <button role="tab" id="tab-local-1" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Local files</button>
+    <button role="tab" id="tab-zoom-1" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Zoom export</button>
+    <button role="tab" id="tab-teams-1" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Teams export</button>
+  </div>
+
+  <div role="tabpanel" id="panel-youtube-1" aria-labelledby="tab-youtube-1">
+    <div class="field">
+      <label for="url-1">YouTube URL</label>
+      <input id="url-1" type="url" class="mono" value="https://www.youtube.com/watch?v=dQw4w9WgXcQ" data-field="client: youtube url shape check">
+      <p class="helper">Nothing is written until the acquisition tool accepts the URL.</p>
+    </div>
+    <div class="form-row">
+      <button class="btn-primary" type="button" disabled data-field="POST /acquisitions">Submit</button>
+      <span class="reason">Form is locked while the acquisition runs.</span>
+    </div>
+
+    <!-- Launched → posted → ingesting — Key Flows · Flow 1, steps 3–5 -->
+    <ol class="stepper" aria-label="acquisition progress">
+      <li class="step" data-field="GET /acquisitions/{id}.status" role="img" aria-label="launch done">
+        <span class="bar bar-done" aria-hidden="true"></span>
+        <span class="word word-done">launch</span>
+      </li>
+      <li class="step" data-field="GET /acquisitions/{id}.status" role="img" aria-label="running done">
+        <span class="bar bar-done" aria-hidden="true"></span>
+        <span class="word word-done">running</span>
+      </li>
+      <li class="step" data-field="GET /acquisitions/{id}.status" role="img" aria-label="posted &mdash; job 8f3c&hellip; posted">
+        <span class="bar bar-posted" aria-hidden="true"></span>
+        <span class="word word-posted" data-field="GET /acquisitions/{id}.jobId">posted &mdash; job 8f3c&hellip;</span>
+      </li>
+      <li class="step" data-field="GET /jobs/events" role="img" aria-label="ingesting running">
+        <span class="bar bar-running" aria-hidden="true"></span>
+        <span class="word word-running">ingesting</span>
+      </li>
+    </ol>
+
+    <div class="log" role="region" aria-label="acquisition log" aria-live="off" data-field="GET /acquisitions/{id}.log">
+      <div>yt-dlp: downloading 1080p mp4 &hellip; captions: manual en</div>
+      <div>yt-dlp: download complete &mdash; 214.8 MB</div>
+      <div>acquisition-worker: drop staged at drops/youtube/dQw4w9WgXcQ/</div>
+      <div>acquisition-worker: metadata.json written &mdash; corpus real</div>
+      <div>posted &mdash; job 8f3c&hellip;</div>
+    </div>
+    <div class="log-row">
+      <button class="btn-outline" type="button">Copy log</button>
+    </div>
+
+    <!-- Meeting card — reused verbatim from MeetingsList row layout -->
+    <div class="card" data-field="GET /meetings.items[]">
+      <div class="poster" data-field="GET /meetings.items[].posterScreenshotPath">
+        <span class="offset-chip mono">0:04</span>
+      </div>
+      <div class="card-body">
+        <span class="card-title" data-field="GET /meetings.items[].title">Weekly community sync &mdash; 2026-08-21</span>
+        <span class="card-meta" data-field="GET /meetings.items[].{startedAt,corpus,status}">2026-08-21 &middot; real &middot; running</span>
+        <span class="card-counts" data-field="GET /meetings.items[].screenshotCount">18 screens</span>
+
+        <ol class="stagebar-list" aria-label="ingestion stages" aria-live="polite" aria-atomic="false" data-field="GET /meetings.items[].stages[] / GET /jobs/events">
+          <li title="probe: done" role="img" aria-label="probe: done">
+            <span class="stagebar bar-done" aria-hidden="true"></span>
+            <span class="stagelabel stagelabel-done">probe</span>
+            <span class="sr-only">done</span>
+          </li>
+          <li title="frames: done" role="img" aria-label="frames: done">
+            <span class="stagebar bar-done" aria-hidden="true"></span>
+            <span class="stagelabel stagelabel-done">frames</span>
+            <span class="sr-only">done</span>
+          </li>
+          <li title="ocr: done" role="img" aria-label="ocr: done">
+            <span class="stagebar bar-done" aria-hidden="true"></span>
+            <span class="stagelabel stagelabel-done">ocr</span>
+            <span class="sr-only">done</span>
+          </li>
+          <li title="screens: running" role="img" aria-label="screens: running">
+            <span class="stagebar bar-running" aria-hidden="true"></span>
+            <span class="stagelabel stagelabel-running">screens</span>
+            <span class="sr-only">running</span>
+          </li>
+          <li title="transcribe: queued" role="img" aria-label="transcribe: queued">
+            <span class="stagebar bar-queued" aria-hidden="true"></span>
+            <span class="stagelabel">transcribe</span>
+            <span class="sr-only">queued</span>
+          </li>
+          <li title="align: queued" role="img" aria-label="align: queued">
+            <span class="stagebar bar-queued" aria-hidden="true"></span>
+            <span class="stagelabel">align</span>
+            <span class="sr-only">queued</span>
+          </li>
+          <li title="moments: queued" role="img" aria-label="moments: queued">
+            <span class="stagebar bar-queued" aria-hidden="true"></span>
+            <span class="stagelabel">moments</span>
+            <span class="sr-only">queued</span>
+          </li>
+          <li title="extract: queued" role="img" aria-label="extract: queued">
+            <span class="stagebar bar-queued" aria-hidden="true"></span>
+            <span class="stagelabel">extract</span>
+            <span class="sr-only">queued</span>
+          </li>
+        </ol>
+
+        <div class="card-actions">
+          <button class="btn-primary" type="button" disabled aria-describedby="open-reason-1" data-field="GET /meetings.items[].viewable">Open</button>
+          <span id="open-reason-1" class="reason">Opens once every evidence stage is done or skipped.</span>
+        </div>
+        <div class="card-actions">
+          <a href="#" class="link-muted" aria-disabled="true" data-field="GET /meetings.items[].stages[name=transcribe].status">Name speakers</a>
+          <span class="reason">after transcribe</span>
+        </div>
+      </div>
+    </div>
+    <p class="caption mono">aria-live (polite): screens running</p>
+  </div>
+
+  <!-- Second section — Local files tab, files classified -->
+  <h3 class="section-label">Local files tab &mdash; files classified</h3>
+
+  <div role="tablist" aria-label="Meeting source" class="tablist">
+    <button role="tab" id="tab-youtube-2" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">YouTube URL</button>
+    <button role="tab" id="tab-local-2" aria-selected="true" aria-controls="panel-local-2" tabindex="0" class="tab" data-field="client: source tab">Local files</button>
+    <button role="tab" id="tab-zoom-2" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Zoom export</button>
+    <button role="tab" id="tab-teams-2" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Teams export</button>
+  </div>
+
+  <div role="tabpanel" id="panel-local-2" aria-labelledby="tab-local-2">
+    <div class="dropzone" data-field="client: file drop">Drop files here, or browse the file system.</div>
+
+    <div class="filerow" data-field="client: file classification (File API)">
+      <span class="name">recording.mp4</span>
+      <span>1.2 GB</span>
+      <span>recording</span>
+    </div>
+    <div class="filerow" data-field="client: file classification (File API)">
+      <span class="name">transcript.vtt</span>
+      <span>84 KB</span>
+      <select class="dialect" aria-label="transcript dialect" data-field="client: transcript dialect select (--transcript-dialect)">
+        <option value="" selected disabled>choose dialect &#9662;</option>
+        <option value="zoom">zoom</option>
+        <option value="teams-vtt">teams-vtt</option>
+        <option value="plain">plain</option>
+      </select>
+      <span class="dialect-hint">looks like zoom &mdash; Name: cues</span>
+    </div>
+    <div class="filerow ignored" data-field="client: file classification (File API)">
+      <span class="name">notes.docx</span>
+      <span>14 KB</span>
+      <span>ignored &mdash; not a drop file</span>
+    </div>
+
+    <div class="grid-2" style="margin-top:16px">
+      <div class="field">
+        <label for="title-2">Title</label>
+        <input id="title-2" type="text" value="Config catalog walkthrough" data-field="POST /acquisitions (upload session): title">
+      </div>
+      <div class="field">
+        <label for="date-2">Date (ISO)</label>
+        <input id="date-2" type="text" inputmode="numeric" placeholder="YYYY-MM-DD" class="mono" value="2026-08-18" data-field="POST /acquisitions (upload session): startedAt">
+      </div>
+    </div>
+    <div class="field" style="max-width:220px">
+      <label for="corpus-2">Corpus</label>
+      <input id="corpus-2" type="text" class="mono" value="real" readonly data-field="POST /acquisitions (upload session): corpus=real fixed">
+      <p class="helper">New sources are corpus real &mdash; never eval subjects.</p>
+    </div>
+
+    <div class="form-row">
+      <button class="btn-primary" type="button" disabled data-field="POST /acquisitions (upload session)">Submit</button>
+      <span class="reason">Choose the transcript dialect before submitting.</span>
+    </div>
+  </div>
+
+  <!-- Section 3 — Pre-flight probe, story 6.5 -->
+  <h3 class="section-label">Pre-flight probe</h3>
+
+  <div role="tablist" aria-label="Meeting source" class="tablist">
+    <button role="tab" id="tab-youtube-3" aria-selected="true" aria-controls="panel-youtube-3" tabindex="0" class="tab" data-field="client: source tab">YouTube URL</button>
+    <button role="tab" id="tab-local-3" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Local files</button>
+    <button role="tab" id="tab-zoom-3" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Zoom export</button>
+    <button role="tab" id="tab-teams-3" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Teams export</button>
+  </div>
+
+  <div role="tabpanel" id="panel-youtube-3" aria-labelledby="tab-youtube-3">
+    <div class="field">
+      <label for="url-3">YouTube URL</label>
+      <input id="url-3" type="url" class="mono" value="https://www.youtube.com/watch?v=dQw4w9WgXcQ" data-field="client: youtube url shape check">
+      <p class="helper">Nothing is written until the acquisition tool accepts the URL.</p>
+    </div>
+
+    <div class="probe-state" data-field="POST /acquisitions/probe (current URL generation)">
+      <p class="state-tag">Probe running</p>
+      <p class="helper mono">Probing&hellip;</p>
+      <div class="form-row">
+        <button class="btn-primary" type="button" disabled data-field="POST /acquisitions">Submit</button>
+      </div>
+    </div>
+
+    <div class="probe-state" data-field="POST /acquisitions/probe (current URL generation)">
+      <p class="state-tag">Probe answered</p>
+      <p class="helper mono">Retrieval bake-off review &middot; 1h 24m &middot; captions: manual en &middot; youtube:dQw4w9WgXcQ</p>
+      <div class="form-row">
+        <button class="btn-primary" type="button" data-field="POST /acquisitions">Submit</button>
+      </div>
+      <p class="note">Nothing has been written.</p>
+    </div>
+  </div>
+
+  <!-- Section 4 — Already in the corpus -->
+  <h3 class="section-label">Already in the corpus</h3>
+
+  <div role="tablist" aria-label="Meeting source" class="tablist">
+    <button role="tab" id="tab-youtube-4" aria-selected="true" aria-controls="panel-youtube-4" tabindex="0" class="tab" data-field="client: source tab">YouTube URL</button>
+    <button role="tab" id="tab-local-4" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Local files</button>
+    <button role="tab" id="tab-zoom-4" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Zoom export</button>
+    <button role="tab" id="tab-teams-4" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Teams export</button>
+  </div>
+
+  <div role="tabpanel" id="panel-youtube-4" aria-labelledby="tab-youtube-4">
+    <div class="field">
+      <label for="url-4">YouTube URL</label>
+      <input id="url-4" type="url" class="mono" value="https://www.youtube.com/watch?v=dQw4w9WgXcQ" readonly data-field="client: youtube url shape check">
+      <p class="helper">Nothing is written until the acquisition tool accepts the URL.</p>
+    </div>
+    <div class="form-row">
+      <button class="btn-primary" type="button" disabled data-field="POST /acquisitions">Submit</button>
+    </div>
+
+    <ol class="stepper" aria-label="acquisition progress">
+      <li class="step" data-field="GET /acquisitions/{id}.status" role="img" aria-label="launch done">
+        <span class="bar bar-done" aria-hidden="true"></span>
+        <span class="word word-done">launch</span>
+      </li>
+      <li class="step" data-field="GET /acquisitions/{id}.status" role="img" aria-label="running done">
+        <span class="bar bar-done" aria-hidden="true"></span>
+        <span class="word word-done">running</span>
+      </li>
+      <li class="step" data-field="GET /acquisitions/{id}.status" role="img" aria-label="posted done">
+        <span class="bar bar-done" aria-hidden="true"></span>
+        <span class="word word-done">posted</span>
+      </li>
+    </ol>
+    <p class="note" data-field="GET /acquisitions/{id}.status (exists)">Already in the corpus &mdash; nothing downloaded.</p>
+
+    <div class="card" data-field="GET /meetings.items[]">
+      <div class="poster" data-field="GET /meetings.items[].posterScreenshotPath">
+        <span class="offset-chip mono">0:04</span>
+      </div>
+      <div class="card-body">
+        <span class="card-title" data-field="GET /meetings.items[].title">Weekly community sync &mdash; 2026-08-21</span>
+        <span class="card-meta" data-field="GET /meetings.items[].{startedAt,corpus,status}">2026-08-21 &middot; real &middot; posted</span>
+        <span class="card-counts" data-field="GET /meetings.items[].{screenshotCount,momentCount,artifactCount,participantCount}">6 moments &middot; 42 screens &middot; 11 artifacts &middot; 3 participants</span>
+
+        <ol class="stagebar-list" aria-label="ingestion stages" aria-live="polite" aria-atomic="false" data-field="GET /meetings.items[].stages[] / GET /jobs/events">
+          <li title="probe: done" role="img" aria-label="probe: done"><span class="stagebar bar-done" aria-hidden="true"></span><span class="stagelabel stagelabel-done">probe</span><span class="sr-only">done</span></li>
+          <li title="frames: done" role="img" aria-label="frames: done"><span class="stagebar bar-done" aria-hidden="true"></span><span class="stagelabel stagelabel-done">frames</span><span class="sr-only">done</span></li>
+          <li title="ocr: done" role="img" aria-label="ocr: done"><span class="stagebar bar-done" aria-hidden="true"></span><span class="stagelabel stagelabel-done">ocr</span><span class="sr-only">done</span></li>
+          <li title="screens: done" role="img" aria-label="screens: done"><span class="stagebar bar-done" aria-hidden="true"></span><span class="stagelabel stagelabel-done">screens</span><span class="sr-only">done</span></li>
+          <li title="transcribe: done" role="img" aria-label="transcribe: done"><span class="stagebar bar-done" aria-hidden="true"></span><span class="stagelabel stagelabel-done">transcribe</span><span class="sr-only">done</span></li>
+          <li title="align: done" role="img" aria-label="align: done"><span class="stagebar bar-done" aria-hidden="true"></span><span class="stagelabel stagelabel-done">align</span><span class="sr-only">done</span></li>
+          <li title="moments: done" role="img" aria-label="moments: done"><span class="stagebar bar-done" aria-hidden="true"></span><span class="stagelabel stagelabel-done">moments</span><span class="sr-only">done</span></li>
+          <li title="extract: done" role="img" aria-label="extract: done"><span class="stagebar bar-done" aria-hidden="true"></span><span class="stagelabel stagelabel-done">extract</span><span class="sr-only">done</span></li>
+        </ol>
+
+        <div class="card-actions">
+          <button class="btn-primary" type="button" aria-label="Open Weekly community sync — 2026-08-21" data-field="GET /meetings.items[].viewable">Open</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section 5 — Uploading, Zoom export tab, story 6.5a / 6.4a -->
+  <h3 class="section-label">Uploading (Zoom export tab)</h3>
+
+  <div role="tablist" aria-label="Meeting source" class="tablist">
+    <button role="tab" id="tab-youtube-5" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">YouTube URL</button>
+    <button role="tab" id="tab-local-5" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Local files</button>
+    <button role="tab" id="tab-zoom-5" aria-selected="true" aria-controls="panel-zoom-5" tabindex="0" class="tab" data-field="client: source tab">Zoom export</button>
+    <button role="tab" id="tab-teams-5" aria-selected="false" tabindex="-1" class="tab" data-field="client: source tab">Teams export</button>
+  </div>
+
+  <div role="tabpanel" id="panel-zoom-5" aria-labelledby="tab-zoom-5">
+    <div class="dropzone dropzone-control" data-field="client: file drop">Drop files here, or browse the file system.</div>
+
+    <div class="filerow" data-field="client: file classification (File API)">
+      <span class="name">GMT20260818-Config catalog.mp4</span>
+      <span>1.2 GB</span>
+      <span>recording</span>
+      <button class="remove-btn" type="button" disabled aria-label="Remove GMT20260818-Config catalog.mp4" data-field="client: file row remove">&#10005;</button>
+    </div>
+    <div class="filerow" data-field="client: file classification (File API)">
+      <span class="name">GMT20260818-Config catalog.transcript.vtt</span>
+      <span>84 KB</span>
+      <span>.vtt</span>
+      <select class="dialect" aria-label="transcript dialect" disabled data-field="client: transcript dialect select (--transcript-dialect)">
+        <option value="zoom" selected>zoom</option>
+        <option value="teams-vtt">teams-vtt</option>
+        <option value="plain">plain</option>
+      </select>
+      <span class="dialect-hint">looks like zoom &mdash; Name: cues</span>
+      <button class="remove-btn" type="button" disabled aria-label="Remove GMT20260818-Config catalog.transcript.vtt" data-field="client: file row remove">&#10005;</button>
+    </div>
+
+    <div class="grid-2" style="margin-top:16px">
+      <div class="field">
+        <label for="title-5">Title</label>
+        <input id="title-5" type="text" value="Config catalog walkthrough" readonly data-field="POST /acquisitions (upload session): title">
+      </div>
+      <div class="field">
+        <label for="date-5">Date (ISO)</label>
+        <input id="date-5" type="text" inputmode="numeric" placeholder="YYYY-MM-DD" class="mono" value="2026-08-18" readonly data-field="POST /acquisitions (upload session): startedAt">
+      </div>
+    </div>
+    <div class="field" style="max-width:220px">
+      <label for="corpus-5">Corpus</label>
+      <input id="corpus-5" type="text" class="mono" value="real" readonly data-field="POST /acquisitions (upload session): corpus=real fixed">
+      <p class="helper">New sources are corpus real &mdash; never eval subjects.</p>
+    </div>
+
+    <div class="form-row">
+      <button class="btn-primary" type="button" disabled data-field="POST /acquisitions (upload session)">Uploading&hellip;</button>
+    </div>
+
+    <ol class="stepper" aria-label="acquisition progress">
+      <li class="step" data-field="client: upload progress (browser upload events)">
+        <span class="bar bar-running" aria-hidden="true"></span>
+        <span class="word word-running">upload<span class="word-progress mono">412 MB / 1.2 GB</span></span>
+      </li>
+      <li class="step" data-field="GET /acquisitions/{id}.status" role="img" aria-label="launch queued">
+        <span class="bar bar-queued" aria-hidden="true"></span>
+        <span class="word word-queued">launch</span>
+      </li>
+      <li class="step" data-field="GET /acquisitions/{id}.status" role="img" aria-label="running queued">
+        <span class="bar bar-queued" aria-hidden="true"></span>
+        <span class="word word-queued">running</span>
+      </li>
+      <li class="step" data-field="GET /acquisitions/{id}.status" role="img" aria-label="posted queued">
+        <span class="bar bar-queued" aria-hidden="true"></span>
+        <span class="word word-queued">posted</span>
+      </li>
+      <li class="step" data-field="GET /jobs/events" role="img" aria-label="ingesting queued">
+        <span class="bar bar-queued" aria-hidden="true"></span>
+        <span class="word word-queued">ingesting</span>
+      </li>
+    </ol>
+  </div>
+</div>
+
+</body>
+</html>
