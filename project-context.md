@@ -61,17 +61,26 @@ companions its frontmatter lists, plus the per-story frozen contracts in
   `infra/Makefile`, where the logic lives.
 - Iterate on a single Python test with
   `uv run --project server pytest server/tests/test_x.py`. Bare `pytest` runs
-  outside the project environment. A `slow` module (twelve are marked, plus
-  three tests elsewhere) needs `-m ""` on the command line —
+  outside the project environment, and pytest needs a path under
+  `server/tests` or a cwd of `server/` — `server/tests/conftest.py` registers
+  plugins through `pytest_plugins`, which only an initial conftest may do. A
+  `slow` module (twelve are marked, plus a few tests elsewhere) needs `-m ""`
+  on the command line —
   `uv run --project server pytest -m "" server/tests/test_projections_graph.py` —
   because `server/pyproject.toml` defaults every run to `-m "not slow"`, which
-  deselects every test in such a file and exits 5.
+  deselects every test in such a file and exits 5 with a hint.
 - `make test-fast` is the iteration loop: the three store-free suites, then
-  the server suite's fast set (`-m "not slow"`, 1,358 of 1,683 tests) with
-  skips printed with their reasons; nothing needs to be up. A passing test
-  with no `slow` mark whose call phase exceeds `mm_fast_test_budget_seconds`
-  (2.0s, `server/pyproject.toml`) is reported failed until it is marked `slow`
-  with a reason or made faster.
+  the server suite's fast set (`-m "not slow"`;
+  `uv run --project server pytest server/tests --co -q | tail -1` shows the
+  split) with skips printed with their reasons; nothing needs to be up.
+  `server/tests/fast_budget.py` (loaded from conftest's `pytest_plugins`)
+  fails a passing unmarked test whose call phase exceeds
+  `mm_fast_test_budget_seconds` (2.0s in `server/pyproject.toml`;
+  `-o mm_fast_test_budget_seconds=<seconds>` overrides it for one run) until
+  it is marked `slow` with a reason or made faster, and stops collection when
+  a `slow` mark has no `reason=` or an unmarked test requests
+  `projection_stores`/`stores_up`. `--strict-markers` is on. Re-measure with
+  `uv run --project server pytest -m "" server/tests --durations=25`.
 - `make test` is the gate, not the loop: it needs the stores up, passes
   `-m ""` so the `slow` modules run, runs four suites, and builds the web app.
 - The puller runs under `npm`; the web app uses `pnpm`.

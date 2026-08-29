@@ -308,18 +308,24 @@ estimate. At `e5510c7` on 2026-08-29 the full server run was 1,683 tests in
 twelve modules bound by the Neo4j/Meilisearch test twins, spawned processes,
 the projection file lock, or timers — not the seven process-spawning modules
 B-1 named; `test_mint_drop`, on that list, ran its 68 tests in 2.8s and stays
-in the fast set. Those twelve modules and three timing tests elsewhere now
-carry a `slow` mark with a reason and their measured cost;
-`server/pyproject.toml` defaults every run to `-m "not slow"` (1,358 of 1,683
-tests); `make test-fast` runs that selection plus the store-free suites, and
-`make test` runs everything with `-m ""`. A per-test budget
-(`mm_fast_test_budget_seconds`, 2.0s on the call phase) in
-`server/tests/conftest.py` fails any unmarked test that outgrows the fast set.
+in the fast set. Those twelve modules, plus the timer- and twin-bound tests in
+otherwise fast modules, carry a `slow` mark with a reason and their measured
+cost; `server/pyproject.toml` defaults every run to
+`-m "not slow" --strict-markers`; `make test-fast` runs that selection plus
+the store-free suites, and `make test` runs everything with `-m ""`. The
+split was 1,358 of 1,683 tests at `f7ea25c`, the commit that added the marks;
+at `eb31e47`, after the tests this story added and one more twin-bound test
+marked, it is 1,381 of 1,707 (`uv run --project server pytest server/tests
+--co -q` shows the current figure). `server/tests/fast_budget.py`, loaded
+from conftest's `pytest_plugins`, fails any unmarked test whose call phase
+exceeds `mm_fast_test_budget_seconds` (2.0s), and stops collection when a
+`slow` mark lacks a `reason=` or an unmarked test requests the test twins.
 `REPO_ROOT` moved to `server/tests/repo_paths.py`, and the two make runners in
-`test_makefile_procs.py` collapsed into one. Measured after the change:
-`make test-fast` is 64s wall with the stores up — 47.7s of it the 1,358-test
-pytest step, the rest the three store-free suites and interpreter startup.
-Not the "couple of seconds" B-1 asked for: the residue is roughly a thousand
-Postgres-backed api and worker tests at 20–50ms each, which is fixture cost,
-and making those fixtures cheaper changes what the tests do. That is a
-separate item if anyone wants it.
+`test_makefile_procs.py` collapsed into one. Measured with the stores up:
+`make test-fast` took 64s wall at `7206dd5` (47.7s of it the then-1,358-test
+pytest step) and 65s at `eb31e47` (48.7s for 1,381 tests); the rest is the
+three store-free suites and interpreter startup. Not the "couple of seconds"
+B-1 asked for: the residue is roughly a thousand Postgres-backed api and
+worker tests at 20–50ms each, which is fixture cost, and making those
+fixtures cheaper changes what the tests do. That is a separate item if anyone
+wants it.
