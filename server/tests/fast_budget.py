@@ -26,9 +26,12 @@ carries a non-empty ``reason=``, and a test with no ``slow`` mark may not
 request ``projection_stores`` or ``stores_up`` — a twin-bound test belongs in
 the slow set.
 
-**The by-path hint.** When the default ``-m "not slow"`` deselects every
-collected test (a ``slow`` module run by path), the session still exits 5,
-and one line says to pass ``-m ""``.
+**The by-path hint.** The collection hook also records whether every
+collected item carried ``slow`` — the case where the default expression alone
+empties the run. When it did, no ``-k`` was given, the expression is the
+default, and the session ends with nothing collected, one line says to pass
+``-m ""``. A ``-k`` miss, or a path with nothing slow in it, gets no hint:
+clearing the marker expression would not help there.
 """
 
 from __future__ import annotations
@@ -40,6 +43,7 @@ import pytest
 
 _FAST_TEST_BUDGET_KEY = "mm_fast_test_budget_seconds"
 _BUDGET = pytest.StashKey[float]()
+_ALL_SLOW = pytest.StashKey[bool]()
 _TWIN_FIXTURES = frozenset({"projection_stores", "stores_up"})
 _DEFAULT_MARK_EXPRESSION = "not slow"
 
@@ -74,12 +78,16 @@ def _has_reason(mark: pytest.Mark) -> bool:
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     unreasoned: list[str] = []
     twin_bound: list[str] = []
+    unmarked_seen = False
     for item in items:
         marks = list(item.iter_markers("slow"))
         if marks and not all(_has_reason(mark) for mark in marks):
             unreasoned.append(item.nodeid)
-        if not marks and _TWIN_FIXTURES & set(getattr(item, "fixturenames", ())):
-            twin_bound.append(item.nodeid)
+        if not marks:
+            unmarked_seen = True
+            if _TWIN_FIXTURES & set(getattr(item, "fixturenames", ())):
+                twin_bound.append(item.nodeid)
+    config.stash[_ALL_SLOW] = bool(items) and not unmarked_seen
     problems: list[str] = []
     if unreasoned:
         problems.append(
@@ -125,12 +133,15 @@ def pytest_runtest_makereport(
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int | pytest.ExitCode) -> None:
+    config = session.config
     if exitstatus != pytest.ExitCode.NO_TESTS_COLLECTED:
         return
-    if session.config.option.markexpr != _DEFAULT_MARK_EXPRESSION:
+    if config.option.markexpr != _DEFAULT_MARK_EXPRESSION or config.option.keyword:
         return
-    reporter = session.config.pluginmanager.get_plugin("terminalreporter")
-    if reporter is None or not reporter.stats.get("deselected"):
+    if not config.stash.get(_ALL_SLOW, False):
+        return
+    reporter = config.pluginmanager.get_plugin("terminalreporter")
+    if reporter is None:
         return
     reporter.write_line(
         'every collected test was deselected by the default -m "not slow" (addopts '

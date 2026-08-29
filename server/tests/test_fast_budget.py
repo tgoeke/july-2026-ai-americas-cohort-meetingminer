@@ -9,12 +9,17 @@ phase stays several times under the real 2.0s budget it runs under.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import pytest
 
+from fast_budget import _BUDGET
+
 TESTS_DIR = Path(__file__).resolve().parent
 BUDGET_KEY = "mm_fast_test_budget_seconds"
+DEFAULT_ADDOPTS = ("-o", "addopts=-m 'not slow'")
+HINT = 'deselected by the default -m "not slow"'
 
 PROBE = '''
 import time
@@ -40,6 +45,17 @@ def test_fast():
     assert True
 '''
 
+XPASS_PROBE = '''
+import time
+
+import pytest
+
+
+@pytest.mark.xfail(reason="probe: declared failing, passes instead", strict=False)
+def test_xpass_sleeper():
+    time.sleep(0.2)
+'''
+
 NO_REASON_PROBE = '''
 import pytest
 
@@ -62,18 +78,35 @@ def test_unmarked_twin_user(projection_stores):
     pass
 '''
 
+SLOW_ONLY_PROBE = '''
+import pytest
 
-def _inner_run(pytester: pytest.Pytester, **probe_files: str) -> pytest.RunResult:
-    """One in-process pytest over the probe files, fast_budget loaded, budget 0.05s."""
+
+@pytest.mark.slow(reason="probe")
+def test_only_slow():
+    pass
+'''
+
+TRIVIAL_PROBE = '''
+def test_trivial():
+    assert True
+'''
+
+
+def _inner_run(
+    pytester: pytest.Pytester, *extra_args: str, budget: str = "0.05", **probe_files: str
+) -> pytest.RunResult:
+    """One in-process pytest over the probe files, fast_budget loaded, the budget given."""
     pytester.makeini("[pytest]")
     pytester.syspathinsert(TESTS_DIR)
     pytester.makepyfile(**probe_files)
     return pytester.runpytest_inprocess(
         "-p", "fast_budget",
         "-p", "no:cacheprovider",
-        "-o", f"{BUDGET_KEY}=0.05",
+        "-o", f"{BUDGET_KEY}={budget}",
         "-o", "markers=slow: probe",
         "-v",
+        *extra_args,
     )
 
 
@@ -103,9 +136,11 @@ def _failure_section(result: pytest.RunResult, test_name: str) -> str:
 def test_the_real_session_loads_fast_budget_from_conftest(
     request: pytest.FixtureRequest,
 ) -> None:
-    """conftest's pytest_plugins registers the plugin and pyproject supplies the 2.0s budget."""
+    """conftest's pytest_plugins registers the plugin, and the budget it configured is a valid number — whatever the ini or a `-o` override said."""
     assert request.config.pluginmanager.hasplugin("fast_budget")
-    assert float(request.config.getini(BUDGET_KEY)) == 2.0
+    configured = request.config.stash[_BUDGET]
+    assert math.isfinite(configured) and configured > 0
+    assert configured == float(request.config.getini(BUDGET_KEY))
 
 
 def test_an_unmarked_test_over_budget_is_failed_naming_the_key(
@@ -144,9 +179,39 @@ def test_a_slow_marked_test_and_a_fast_test_pass(pytester: pytest.Pytester) -> N
     )
 
 
-def test_a_slow_mark_without_a_reason_stops_collection(pytester: pytest.Pytester) -> None:
-    """A bare `@pytest.mark.slow` is a usage error naming the node id; nothing is marked silently."""
-    result = _inner_run(pytester, test_no_reason_probe=NO_REASON_PROBE)
+def test_a_non_strict_xfail_that_passes_over_budget_keeps_its_xpass(
+    pytester: pytest.Pytester,
+) -> None:
+    """An unexpected pass on a non-strict xfail is reported as XPASS, never flipped into a budget failure."""
+    result = _inner_run(pytester, test_xpass_probe=XPASS_PROBE)
+    result.assert_outcomes(xpassed=1)
+    assert BUDGET_KEY not in result.stdout.str()
+
+
+@pytest.mark.parametrize("value", ["abc", "nan", "inf", "0", "-1"])
+def test_an_invalid_budget_is_a_usage_error_naming_the_key_and_value(
+    pytester: pytest.Pytester, value: str
+) -> None:
+    """Not a number, NaN, infinite, zero or negative: the run stops at configure time with the key and the offending value."""
+    result = _inner_run(pytester, budget=value, test_trivial_probe=TRIVIAL_PROBE)
+    assert result.ret == pytest.ExitCode.USAGE_ERROR
+    stderr = result.stderr.str()
+    assert BUDGET_KEY in stderr
+    assert repr(value) in stderr
+
+
+def test_a_valid_non_default_budget_is_accepted(pytester: pytest.Pytester) -> None:
+    """The documented `-o` override with any positive finite value configures the run."""
+    result = _inner_run(pytester, budget="3.5", test_trivial_probe=TRIVIAL_PROBE)
+    result.assert_outcomes(passed=1)
+
+
+@pytest.mark.parametrize("selection", [("-m", "not slow"), DEFAULT_ADDOPTS], ids=["cli", "addopts"])
+def test_a_slow_mark_without_a_reason_stops_collection(
+    pytester: pytest.Pytester, selection: tuple[str, str]
+) -> None:
+    """A bare `@pytest.mark.slow` is a usage error naming the node id, also when the default `not slow` expression would have deselected it first."""
+    result = _inner_run(pytester, *selection, test_no_reason_probe=NO_REASON_PROBE)
     assert result.ret == pytest.ExitCode.USAGE_ERROR
     result.stderr.fnmatch_lines(["*reason=*test_no_reason_probe.py::test_bare_slow_mark*"])
 
@@ -160,3 +225,23 @@ def test_an_unmarked_test_requesting_the_twins_stops_collection(
     result.stderr.fnmatch_lines(
         ["*projection_stores*test_twin_probe.py::test_unmarked_twin_user*"]
     )
+
+
+def test_a_slow_only_path_under_the_default_selection_prints_the_hint(
+    pytester: pytest.Pytester,
+) -> None:
+    """Every collected test carried `slow`, the default expression removed them all: exit 5 and the `-m ""` hint."""
+    result = _inner_run(pytester, *DEFAULT_ADDOPTS, test_slow_only_probe=SLOW_ONLY_PROBE)
+    assert result.ret == pytest.ExitCode.NO_TESTS_COLLECTED
+    result.stdout.fnmatch_lines([f"*{HINT}*"])
+
+
+def test_a_keyword_miss_on_a_fast_file_exits_5_without_the_hint(
+    pytester: pytest.Pytester,
+) -> None:
+    """`-k` emptied a fast file, not the marker expression: exit 5, and no hint that clearing `-m` would help."""
+    result = _inner_run(
+        pytester, *DEFAULT_ADDOPTS, "-k", "nomatch", test_trivial_probe=TRIVIAL_PROBE
+    )
+    assert result.ret == pytest.ExitCode.NO_TESTS_COLLECTED
+    assert HINT not in result.stdout.str()
