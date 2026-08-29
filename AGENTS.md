@@ -135,6 +135,33 @@ harness: ground-truth validation, subject selection, the check algorithms over
 synthetic captures, and the run-artifact rules; no stores, no api, and no run
 folder created).
 
+**Fast set and full gate (story 11.1).** `server/pyproject.toml` sets
+`addopts = "-m 'not slow'"`, so every `pytest` run selects the fast set unless
+the command line says otherwise: 1,358 of 1,683 tests, the ones whose duration
+the test process controls. `slow` marks the rest — twelve modules bound by the
+test twins, spawned processes, the projection lock, or timers, plus three
+timer- and twin-bound tests in otherwise fast modules — each with a one-line
+reason and its measured cost. The measurement (2026-08-29 at `e5510c7`) put
+471 of the full run's 527 test-seconds in those twelve modules, and the whole
+run at 9m17s. `make test-fast` runs the fast set with skip reasons printed
+(`-rs`) after the three store-free suites; `make test` passes `-m ""` and
+runs everything. Two rules follow:
+
+- **A `slow` module run by path needs `-m ""`.**
+  `pytest server/tests/test_projections_graph.py` deselects every test in the
+  file and exits 5; run
+  `uv run --project server pytest -m "" server/tests/test_projections_graph.py`.
+  An empty expression on the command line replaces the `addopts` one and
+  clears the filter. The Makefile's `test:` and `check-test-stores` already
+  pass it, and so does the child pytest `test_parallel_store_safety` spawns.
+- **The fast set is budgeted.** `server/tests/conftest.py` reports a passing
+  test failed when it carries no `slow` mark and its call phase exceeds
+  `mm_fast_test_budget_seconds` (2.0s, set with its rationale in
+  `server/pyproject.toml`), naming the test, its duration, the key, and the
+  two remedies: mark it `slow` with a one-line reason, or make it faster.
+  Fixture time does not count, a failing test keeps its own failure, and
+  `slow`-marked tests are exempt under either selection.
+
 The remaining isolation work is for `make evals-run`: per-run eval namespaces
 and run-artifact ownership would be needed before those runs can overlap. It
 is recorded in `docs/backlog.md` and

@@ -61,9 +61,19 @@ companions its frontmatter lists, plus the per-story frozen contracts in
   `infra/Makefile`, where the logic lives.
 - Iterate on a single Python test with
   `uv run --project server pytest server/tests/test_x.py`. Bare `pytest` runs
-  outside the project environment.
-- `make test` is not an iteration loop: it needs the stores up, runs four suites,
-  and builds the web app.
+  outside the project environment. A `slow` module (twelve are marked, plus
+  three tests elsewhere) needs `-m ""` on the command line —
+  `uv run --project server pytest -m "" server/tests/test_projections_graph.py` —
+  because `server/pyproject.toml` defaults every run to `-m "not slow"`, which
+  deselects every test in such a file and exits 5.
+- `make test-fast` is the iteration loop: the three store-free suites, then
+  the server suite's fast set (`-m "not slow"`, 1,358 of 1,683 tests) with
+  skips printed with their reasons; nothing needs to be up. A passing test
+  with no `slow` mark whose call phase exceeds `mm_fast_test_budget_seconds`
+  (2.0s, `server/pyproject.toml`) is reported failed until it is marked `slow`
+  with a reason or made faster.
+- `make test` is the gate, not the loop: it needs the stores up, passes
+  `-m ""` so the `slow` modules run, runs four suites, and builds the web app.
 - The puller runs under `npm`; the web app uses `pnpm`.
 - `make migrate` writes the shared dev database, not a private one. Announce it.
 - Run `make evals-run` one at a time — it takes no lock.

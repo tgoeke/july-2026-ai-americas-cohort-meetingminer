@@ -11,30 +11,6 @@ until a decision is made.
 
 ## Now — these cost something every day
 
-### B-1 · Split the test suite so a routine run takes seconds, not half an hour — S
-
-`pytest server/tests` runs 1,684 tests in ~33 minutes. Almost none of that is
-test logic.
-
-Measured: collecting all 1,684 tests takes **1.0s**; a pure decision-core module
-runs 34 tests in **0.04s**. But **215 tests (16%)** live in seven modules that
-spawn real processes — `test_makefile_procs.py` alone makes 46 subprocess calls
-running actual `make start-api` / `start-worker` / `client` targets with live
-readiness polls; `test_mint_drop.py` shells out to ffprobe and ffmpeg;
-`test_migrations.py` issues real `CREATE DATABASE`; `test_parallel_store_safety.py`
-waits on a file lock whose default timeout is 300s. Their combined timeout budget
-is ~1,500s. These are integration tests with no marker, sitting in the same
-directory, so every run pays for all of them.
-
-**Do:** mark those seven modules `slow`, default the runner to `-m "not slow"`,
-and keep the unmarked full run for `make test`. While there, move `REPO_ROOT` out
-of `conftest.py` into a normal module (five modules import conftest by name,
-relying on pytest's `sys.path` insertion) and collapse the duplicate
-`_make`/`_run_make` helpers.
-
-**Done when:** an iteration run executes ~1,169 tests in a couple of seconds, the
-215 integration tests still run under `make test`, and no test changes behaviour.
-
 ### B-2 · Add a LICENSE — S
 
 There is no `LICENSE`, `LICENCE`, or `COPYING` anywhere in the tree, while the
@@ -324,3 +300,26 @@ stale-worktree drift for worktrees that no longer exist; the scheduled
 archive-index job, whose plist was never installed and whose archive is no
 longer a corpus source; and several documentation items already corrected in
 place.
+
+One item was done rather than retired. B-1 (split the test suite so a routine
+run takes seconds) closed with story 11.1 on measured numbers, not its own
+estimate. At `e5510c7` on 2026-08-29 the full server run was 1,683 tests in
+9m17s (554s in pytest), not ~33 minutes, and 471 of its 527 test-seconds sat in
+twelve modules bound by the Neo4j/Meilisearch test twins, spawned processes,
+the projection file lock, or timers — not the seven process-spawning modules
+B-1 named; `test_mint_drop`, on that list, ran its 68 tests in 2.8s and stays
+in the fast set. Those twelve modules and three timing tests elsewhere now
+carry a `slow` mark with a reason and their measured cost;
+`server/pyproject.toml` defaults every run to `-m "not slow"` (1,358 of 1,683
+tests); `make test-fast` runs that selection plus the store-free suites, and
+`make test` runs everything with `-m ""`. A per-test budget
+(`mm_fast_test_budget_seconds`, 2.0s on the call phase) in
+`server/tests/conftest.py` fails any unmarked test that outgrows the fast set.
+`REPO_ROOT` moved to `server/tests/repo_paths.py`, and the two make runners in
+`test_makefile_procs.py` collapsed into one. Measured after the change:
+`make test-fast` is 64s wall with the stores up — 47.7s of it the 1,358-test
+pytest step, the rest the three store-free suites and interpreter startup.
+Not the "couple of seconds" B-1 asked for: the residue is roughly a thousand
+Postgres-backed api and worker tests at 20–50ms each, which is fixture cost,
+and making those fixtures cheaper changes what the tests do. That is a
+separate item if anyone wants it.
