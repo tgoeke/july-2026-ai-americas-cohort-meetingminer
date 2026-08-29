@@ -279,14 +279,17 @@ test: check-client puller-test web-test evals-test infra-up check-dev-stores che
 	cd $(ROOT) && MM_REQUIRE_TEST_STORES=1 uv run --project $(ROOT)/server pytest -m "" $(ROOT)/server/tests
 	pnpm --dir $(WEB) run build
 
-# The iteration loop (story 11.1): the three store-free suites, then the
-# server suite under pyproject's default `-m "not slow"` — the tests whose
-# duration the test process controls (1,358 of 1,683 at e5510c7). Nothing is
-# required up: store-backed tests skip with a named reason when a store is
-# unreachable, and `-rs` prints every skip with its reason, so an unrun suite
-# is visible rather than silent. Only failures set the exit code. `make test`
-# is the gate.
-test-fast: puller-test web-test evals-test
+# The iteration loop (story 11.1): check-client first, so a missing client
+# fails with its named message rather than as a Vite import error inside
+# web-test; then the three store-free suites; then the server suite under
+# pyproject's default `-m "not slow"` — the tests whose duration the test
+# process controls (1,381 of 1,707 at eb31e47; `pytest server/tests --co -q`
+# shows the current split). Nothing is required up: store-backed tests skip
+# with a named reason when a store is unreachable, and `-rs` prints every skip
+# with its reason, so an unrun suite is visible rather than silent. Skips
+# never set the exit code; failures and collection errors do. `make test` is
+# the gate.
+test-fast: check-client puller-test web-test evals-test
 	cd $(ROOT) && uv run --project $(ROOT)/server pytest -q -rs $(ROOT)/server/tests
 
 # The eval harness half of `make test` (story 5.1). Joins puller-test and
