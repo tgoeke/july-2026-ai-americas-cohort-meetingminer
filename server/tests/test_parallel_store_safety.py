@@ -18,6 +18,8 @@ import pytest
 from conftest import _projection_lock_paths, _projection_lock_timeout_seconds
 from repo_paths import REPO_ROOT
 
+pytestmark = pytest.mark.slow(reason="child pytest and lock-holder processes, projection lock waits: 12 tests, 8.6s at e5510c7")
+
 
 def _database_exists(conninfo: str, name: str) -> bool:
     with psycopg.connect(conninfo, autocommit=True) as conn:
@@ -75,7 +77,9 @@ def _run_pytest_with_plugin(
         [str(tmp_path), str(REPO_ROOT / "server"), str(REPO_ROOT / "server" / "tests"), env.get("PYTHONPATH", "")]
     )
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", "-p", "cleanup_plugin", target, "-q"],
+        # `-m ""` clears pyproject's default `-m "not slow"`: the target is in a
+        # `slow` module, which the default would deselect (story 11.1).
+        [sys.executable, "-m", "pytest", "-m", "", "-p", "cleanup_plugin", target, "-q"],
         cwd=REPO_ROOT,
         env=env,
         capture_output=True,

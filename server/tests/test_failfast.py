@@ -17,6 +17,8 @@ import yaml
 
 from repo_paths import REPO_ROOT
 
+pytestmark = pytest.mark.slow(reason="spawns the api and the worker to watch them exit: 12 tests, 6.8s at e5510c7")
+
 
 def _run(
     args: list[str],

@@ -411,6 +411,7 @@ def test_approve_returns_200_and_logs_recovery_when_projection_fails(
 
 
 @pytest.mark.real_projection
+@pytest.mark.slow(reason="the one real projection into both test twins, under the projection lock: 1.6s at e5510c7")
 def test_approve_projects_into_both_stores(
     client: Any,
     test_pool: ConnectionPool,

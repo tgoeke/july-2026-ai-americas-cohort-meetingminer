@@ -47,6 +47,8 @@ from projection_seed import (
 )
 from projection_seed import insert_artifact as seed_artifact
 
+pytestmark = pytest.mark.slow(reason="/search runs against the Meilisearch test twin: 41 tests, 60.5s at e5510c7")
+
 # A term that appears nowhere in the seeded transcripts, so a hit on it can
 # only have come through the OCR text of the screen that was up (AC1).
 OCR_ONLY_TERM = "Zylographic"

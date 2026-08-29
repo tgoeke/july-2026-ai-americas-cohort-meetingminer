@@ -37,6 +37,8 @@ from conftest import FakeEmbedder, truncate_evidence
 from projection_seed import DEEP_LINK, seed_meeting
 from test_projections_single_writer import imported_roots, python_files
 
+pytestmark = pytest.mark.slow(reason="the traversals query the Neo4j test twin: 32 tests, 28.5s at e5510c7")
+
 
 @pytest.fixture()
 def pool(test_pool: ConnectionPool) -> ConnectionPool:

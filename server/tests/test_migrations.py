@@ -32,6 +32,8 @@ from conftest import (
 )
 from repo_paths import REPO_ROOT
 
+pytestmark = pytest.mark.slow(reason="CREATE DATABASE per test and spawned api/worker boots: 10 tests, 16.9s at e5510c7")
+
 # Per-run like `TEST_DATABASE` (story 2.7): both are dropped WITH (FORCE),
 # so fixed names let one run delete a concurrent run's database.
 PENDING_DATABASE = f"meetingminer_test_pending_{RUN_ID}"

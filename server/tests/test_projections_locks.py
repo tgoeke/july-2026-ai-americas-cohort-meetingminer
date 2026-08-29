@@ -39,6 +39,8 @@ from meetingminer.projections.stores import ProjectionLockedError
 from conftest import FakeEmbedder, truncate_evidence
 from projection_seed import insert_artifact, seed_meeting
 
+pytestmark = pytest.mark.slow(reason="cross-process file lock plus both test twins: 9 tests, 3.7s at e5510c7")
+
 
 @pytest.fixture()
 def pool(test_pool: ConnectionPool) -> ConnectionPool:

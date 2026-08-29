@@ -42,6 +42,8 @@ from projection_seed import (
 )
 from projection_seed import insert_artifact as seed_artifact
 
+pytestmark = pytest.mark.slow(reason="every test writes the Neo4j test twin: 26 tests, 64.3s at e5510c7")
+
 
 @pytest.fixture()
 def pool(test_pool: ConnectionPool) -> ConnectionPool:

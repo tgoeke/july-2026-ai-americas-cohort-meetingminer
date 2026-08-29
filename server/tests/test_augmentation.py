@@ -51,7 +51,9 @@ from conftest import (
 from test_worker_moments import moment_rows
 from test_worker_runner import SCREEN_A, meetings, stage_statuses
 
-SOURCE_ID = "occ-recovered-recording"
+pytestmark = pytest.mark.slow(reason="runs the pipeline and projects into both test twins: 7 tests, 6.0s at e5510c7")
+
+SOURCE_ID ="occ-recovered-recording"
 
 
 def _augmenting_metadata(target_source_id: str = SOURCE_ID, **overrides: Any) -> dict:

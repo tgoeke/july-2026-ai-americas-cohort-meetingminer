@@ -431,6 +431,7 @@ def test_configured_heartbeat_cadence_is_honored(client) -> None:
     assert 0.35 <= elapsed < 1.5, f"three {fast}s heartbeats took {elapsed:.2f}s"
 
 
+@pytest.mark.slow(reason="waits out a real 3s heartbeat interval: 3.0s at e5510c7")
 def test_a_slow_configured_heartbeat_is_not_overridden_by_a_faster_default(
     client,
 ) -> None:
@@ -451,6 +452,7 @@ def test_a_slow_configured_heartbeat_is_not_overridden_by_a_faster_default(
     assert 2.0 <= elapsed < 4.5, f"a {slow}s heartbeat arrived after {elapsed:.2f}s"
 
 
+@pytest.mark.slow(reason="waits out the configured poll cadence before a stage change surfaces: 2.5s at e5510c7")
 def test_configured_poll_cadence_is_honored(client, test_pool, make_drop) -> None:
     """A stage transition surfaces no faster than the configured poll allows.
 

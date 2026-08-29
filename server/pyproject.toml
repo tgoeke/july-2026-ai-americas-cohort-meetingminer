@@ -98,6 +98,24 @@ only-include = ["meetingminer"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The default selection is the fast set (story 11.1). `slow` marks the tests
+# whose duration is set by something outside the test process — the Neo4j and
+# Meilisearch test twins, spawned processes, the projection file lock, timers —
+# and this deselects them unless the command line says otherwise. `-m ""` on
+# the command line replaces the expression and clears the filter: `make test`
+# passes it to run everything, and so must any by-path run of a `slow` module,
+# or pytest deselects every test in the file and exits 5.
+addopts = "-m 'not slow'"
 markers = [
     "real_projection: opt this test out of test_artifact_publish's projection stub — it exercises the real stores",
+    "slow: duration is set by something outside the test process (the store twins, spawned processes, the projection lock, timers); deselected by default, cleared with -m \"\"",
 ]
+# Per-test budget for the fast set, in seconds, read by the hook in
+# tests/conftest.py: a test that passes, carries no `slow` mark, and spends
+# longer than this in its call phase is reported failed, naming the test and
+# the two remedies, so the default run cannot regrow silently. Call phase
+# only — per-run database creation, migrations and store wipes are fixtures
+# and amortise across the run; the budget guards test bodies. 2.0 sits above
+# the fast set's slowest measured call (1.3s, test_frame_image, 2026-08-29 at
+# e5510c7) and below any readiness poll or store task wait.
+mm_fast_test_budget_seconds = "2.0"

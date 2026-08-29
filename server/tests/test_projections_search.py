@@ -54,6 +54,8 @@ from repo_paths import REPO_ROOT
 from projection_seed import DEEP_LINK, SeededTurn, seed_meeting
 from projection_seed import insert_artifact as seed_artifact
 
+pytestmark = pytest.mark.slow(reason="every test writes the Meilisearch test twin: 34 tests, 46.1s at e5510c7")
+
 
 @pytest.fixture()
 def pool(test_pool: ConnectionPool) -> ConnectionPool:

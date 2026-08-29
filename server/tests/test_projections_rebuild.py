@@ -41,6 +41,8 @@ from conftest import BrokenEmbedder, DownEmbedder, FakeEmbedder, truncate_eviden
 from projection_seed import STARTED_AT, seed_meeting
 from projection_seed import insert_artifact as seed_artifact
 
+pytestmark = pytest.mark.slow(reason="rebuild writes both test twins under the projection lock: 39 tests, 81.9s at e5510c7")
+
 
 @pytest.fixture()
 def pool(test_pool: ConnectionPool) -> ConnectionPool:
