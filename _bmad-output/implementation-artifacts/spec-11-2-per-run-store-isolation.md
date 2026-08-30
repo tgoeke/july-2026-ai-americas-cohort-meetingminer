@@ -2,7 +2,7 @@
 title: 'Per-Run Store Isolation'
 type: 'chore'
 created: '2026-08-30'
-status: 'review'
+status: 'in-progress'
 baseline_revision: 'de0fc0816c26a8131fdc153368719e6f3808f40e'
 reviewed_head: 'fa86b864c7101e2a45d2c278a9562669c72d962c'
 review_loop_iteration: 0
@@ -371,3 +371,20 @@ exactly how `claim` recognises a stale incarnation. Probe removed with
 - [x] [Review][Patch] The provisioning lock's exclusion behavior is unverified [server/tests/test_worktree_stack.py:116]
 - [x] [Review][Patch] The projection lock-key validator accepts a trailing newline [server/meetingminer/projections/locks.py:58]
 - [x] [Review][Patch] Three required documents omit the concrete Docker VM bound [README.md:351]
+
+### Remediation Follow-up Review Findings — 2026-08-30
+
+- [ ] [Review][Decision] `claim` proves the file's identity while Compose may start a process-overridden project [infra/Makefile:626] — owner must decide whether generated name/id are non-overridable or claim must operate on the effective identity.
+- [ ] [Review][Decision] AD-10 omits the generated stack incarnation identity [docs/architecture.md:109] — architecture authority is owned by the in-flight 8-1 lane/integration owner.
+- [x] [Review][Patch] Worktree removal could tear down a copied record's foreign stack [infra/Makefile:382]
+- [x] [Review][Patch] A process name override could hide a copied record from the test-session guard [server/tests/conftest.py:237]
+- [x] [Review][Patch] Make directives and duplicate assignments bypassed the ownership-record grammar [infra/Makefile:25]
+- [x] [Review][Patch] Same-target provisioners could publish two incarnation ids [infra/worktree_stack.py:483]
+- [x] [Review][Patch] `worktree-remove` accepted a traversal instead of a slug [infra/Makefile:394]
+- [x] [Review][Patch] `make down` in an unprovisioned worktree targeted the main project [infra/Makefile:987]
+- [x] [Review][Patch] The application loader accepted another worktree's copied record [server/meetingminer/config.py:899]
+- [x] [Review][Patch] `worktree-prune` masked Git worktree removal failure [infra/Makefile:428]
+- [x] [Review][Patch] The ownership-recheck regression did not exercise the final recheck [server/tests/test_worktree_stack.py:1079]
+- [x] [Review][Patch] Stack slug/project/id regexes accepted a trailing newline [infra/worktree_stack.py:166]
+
+Full evidence, red/green commit history, and resolutions are in `review-story-11-2-followup-2026-08-30.md`.
