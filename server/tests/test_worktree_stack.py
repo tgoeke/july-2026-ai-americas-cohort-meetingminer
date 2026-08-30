@@ -966,3 +966,183 @@ def test_cli_down_reports_and_propagates(
     monkeypatch.setattr(ws, "run_docker", _FakeDownDocker(ps_fail=True))
     assert ws.main(["down", "--project", "meetingminer-probe"]) == 1
     assert "simulated" in capsys.readouterr().err
+
+
+# --- remediation 2026-08-30: no teardown on a stale snapshot (finding 7) ----
+
+
+def test_prune_rechecks_ownership_immediately_before_teardown(tmp_path: Path) -> None:
+    """A worktree directory that appears after the classification snapshot
+    wins: ownership is re-resolved immediately before every `down -v`, so a
+    stack whose owner landed mid-sweep is skipped owned, never torn down
+    from stale knowledge."""
+    root = tmp_path / "wt"
+    root.mkdir()
+    owner_b = root / "b"
+
+    class _CreatingDocker(_FakeDocker):
+        def __call__(self, argv: list[str]) -> str:
+            if argv[:3] == ["docker", "compose", "-p"] and argv[3] == "meetingminer-a":
+                owner_b.mkdir()  # `make worktree STORY=b` lands mid-sweep
+            return super().__call__(argv)
+
+    volumes = _our_volumes("meetingminer-a") + "\n" + _our_volumes("meetingminer-b")
+    fake = _CreatingDocker("", volumes)
+    lines: list[str] = []
+    assert ws.prune(root, run=fake, out=lines.append) == ["meetingminer-a"]
+    assert _downs(fake) == ["meetingminer-a"]
+    assert f"skipped owned meetingminer-b ({owner_b})" in lines
+
+
+def _hold_provision_lock(root: Path, seconds: float) -> subprocess.Popen[str]:
+    """A subprocess holding <root>/.provision.lock; returns once it holds it."""
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import fcntl, sys, time\n"
+            "lock = open(sys.argv[1], 'a')\n"
+            "fcntl.flock(lock, fcntl.LOCK_EX)\n"
+            "print('held', flush=True)\n"
+            "time.sleep(float(sys.argv[2]))\n",
+            str(root / ".provision.lock"),
+            str(seconds),
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    assert proc.stdout is not None and proc.stdout.readline().strip() == "held"
+    return proc
+
+
+def test_prune_waits_for_the_provisioning_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The sweep serializes with provision/claim on .provision.lock — and the
+    mutation check: with flock a no-op the same run does NOT wait, so this
+    test fails if the lock is ever removed."""
+    import time
+
+    hold = 0.45
+
+    def timed_prune(root: Path) -> float:
+        down_times: list[float] = []
+
+        class _TimingDocker(_FakeDocker):
+            def __call__(self, argv: list[str]) -> str:
+                if argv[:3] == ["docker", "compose", "-p"]:
+                    down_times.append(time.monotonic())
+                return super().__call__(argv)
+
+        fake = _TimingDocker("", _our_volumes("meetingminer-x"))
+        holder = _hold_provision_lock(root, hold)
+        started = time.monotonic()
+        try:
+            ws.prune(root, run=fake, out=lambda _l: None)
+        finally:
+            holder.wait(timeout=10)
+        assert down_times, "the orphan was not removed"
+        return down_times[0] - started
+
+    locked_root = tmp_path / "locked"
+    locked_root.mkdir()
+    assert timed_prune(locked_root) >= hold - 0.1, (
+        "prune tore down before the provisioning lock was released"
+    )
+
+    noop_root = tmp_path / "noop"
+    noop_root.mkdir()
+    monkeypatch.setattr(ws.fcntl, "flock", lambda *_a, **_k: None)
+    assert timed_prune(noop_root) < hold - 0.1, (
+        "the mutation check lost its teeth: without flock the run still waited"
+    )
+
+
+# --- remediation 2026-08-30: the provisioning lock excludes (finding 8) -----
+
+
+def _two_slugs_with_the_same_base() -> tuple[str, str]:
+    found: dict[int, str] = {}
+    for n in range(200_000):
+        slug = f"s{n}"
+        index = ws.base_index(slug)
+        if index in found:
+            return found[index], slug
+        found[index] = slug
+    raise AssertionError("no colliding slugs found")
+
+
+_CHILD_PROVISION = """
+import importlib.util, sys, time
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("ws_child", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+sys.modules["ws_child"] = mod
+spec.loader.exec_module(mod)
+if sys.argv[5] == "noop":
+    class _NoFlock:
+        LOCK_EX = 0
+        LOCK_UN = 0
+        @staticmethod
+        def flock(*_a, **_k):
+            return None
+    mod.fcntl = _NoFlock
+root = Path(sys.argv[4])
+# barrier: both children reach provision together, whatever the spawn jitter
+(root / ("ready-" + sys.argv[2])).touch()
+deadline = time.monotonic() + 10
+while len(list(root.glob("ready-*"))) < 2:
+    if time.monotonic() > deadline:
+        raise SystemExit("barrier timeout")
+    time.sleep(0.01)
+state = {"first": True}
+def probe(_port):
+    if state["first"]:
+        state["first"] = False
+        time.sleep(0.3)  # hold the allocation window open
+    return True
+mod.provision(sys.argv[2], Path(sys.argv[3]), root, probe)
+"""
+
+
+@pytest.mark.slow(reason="four provisioning subprocesses with a 0.3s allocation window each, run as two concurrent pairs: ~2s")
+def test_concurrent_provisions_serialize_on_the_lock(tmp_path: Path) -> None:
+    """Two slugs hashing to one base, provisioned concurrently: the lock
+    makes the second see the first's publication and take the next base.
+    The mutation check runs the same race with flock a no-op and demands the
+    collision — so this test fails if the lock is ever removed."""
+    module_path = str(REPO_ROOT / "infra" / "worktree_stack.py")
+    slug_a, slug_b = _two_slugs_with_the_same_base()
+
+    def race(root: Path, mode: str) -> tuple[set[int], set[int]]:
+        for slug in (slug_a, slug_b):
+            (root / slug).mkdir(parents=True)
+        children = [
+            subprocess.Popen(
+                [sys.executable, "-c", _CHILD_PROVISION, module_path, slug, str(root / slug), str(root), mode],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            for slug in (slug_a, slug_b)
+        ]
+        for child in children:
+            _out, err = child.communicate(timeout=30)
+            assert child.returncode == 0, err
+        return (
+            ws.declared_ports(root / slug_a / ".env.worktree"),
+            ws.declared_ports(root / slug_b / ".env.worktree"),
+        )
+
+    ports_a, ports_b = race(tmp_path / "locked", "lock")
+    assert len(ports_a) == 7 and len(ports_b) == 7
+    assert ports_a.isdisjoint(ports_b), (ports_a, ports_b)
+    bases = sorted(min(ports) - 1 for ports in (ports_a, ports_b))
+    assert bases[1] == bases[0] + ws.BASE_STEP, bases  # the loser stepped one base
+
+    noop_a, noop_b = race(tmp_path / "noop", "noop")
+    assert noop_a == noop_b, (
+        "the mutation check lost its teeth: without flock the two provisions"
+        " no longer collide, so the lock test above proves nothing"
+    )

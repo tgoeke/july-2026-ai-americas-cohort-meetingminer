@@ -79,7 +79,9 @@ def test_lock_key_env_override_names_its_own_file(
 
 
 @pytest.mark.parametrize(
-    "value", ["", " ", "has space", "a/b", "../x", "x" * 65, "\u00fc", "k=v"]
+    "value",
+    ["", " ", "has space", "a/b", "../x", "x" * 65, "\u00fc", "k=v",
+     "b14-key\n", "\n", "key\r"],
 )
 def test_lock_key_env_override_rejects_bad_values(
     app_config: AppConfig, monkeypatch: pytest.MonkeyPatch, value: str

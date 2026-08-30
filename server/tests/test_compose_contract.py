@@ -601,6 +601,7 @@ SLOW_TESTS = (
     "test_api_events::test_configured_poll_cadence_is_honored",
     "test_artifact_publish::test_approve_projects_into_both_stores",
     "test_worker_extract::test_search_never_returns_an_extracted_artifacts_content",
+    "test_worktree_stack::test_concurrent_provisions_serialize_on_the_lock",
 )
 
 
