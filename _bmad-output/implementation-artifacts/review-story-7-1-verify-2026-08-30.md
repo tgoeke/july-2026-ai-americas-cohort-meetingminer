@@ -39,7 +39,7 @@
 - **Severity:** Medium
 - **Finding:** Finding 5 added `pyannote.audio.telemetry.set_telemetry_metrics` as a required runtime symbol, but Finding 2's build-time probe still validates only `pyannote.audio.Pipeline`. If the telemetry module or setter is missing/broken, `build_diarizer` returns an engine and the failure occurs on first `diarize`, after STT work, contradicting the fail-closed build boundary and the report's claim that the exact runtime provider symbol is validated.
 - **Evidence:** `_pyannote_available` imports only `pyannote.audio` and checks only `Pipeline`; `_load_pipeline` later imports `set_telemetry_metrics`. The isolated packaging smoke likewise imports only `pyannote.audio`, while unit tests fabricate a valid telemetry module. A discoverable audio module with a valid `Pipeline.from_pretrained` and an importer that raises for `pyannote.audio.telemetry` therefore passes every build check on the current tree.
-- **Resolution:** **OPEN — remediation in progress.** Add a red-first partial-install regression and extend the build probe to validate the callable telemetry switch required to enforce the owner's disable ruling.
+- **Resolution:** **RESOLVED.** Added `test_an_imported_provider_without_the_telemetry_switch_fails_at_build`; it failed on the original probe because no `DiarizerError` was raised. `_pyannote_available` now imports the telemetry module and requires callable `set_telemetry_metrics` after validating `Pipeline.from_pretrained`; all three partial-install regressions pass.
 
 ### V5. The optional-extra gate does not prove the committed lock
 
