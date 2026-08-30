@@ -355,3 +355,41 @@ B-1 asked for: the residue is roughly a thousand Postgres-backed api and
 worker tests at 20–50ms each, which is fixture cost, and making those
 fixtures cheaper changes what the tests do. That is a separate item if anyone
 wants it.
+
+---
+
+### B-36 · Nothing binds the LAN GPU host that was built for inference — M
+
+VM 120 `cuda-asr` has been serving `nvidia/parakeet-tdt-0.6b-v3` at
+`http://10.77.0.120:8000` since 2026-08-19 — verified answering `/health` on
+2026-08-30 at ~253x real time with native NeMo timestamps — and
+`ARCHITECTURE-SPINE.md` records it as *the* LAN inference host under the
+amended AD-9. **No code reaches it.** `stt.engine` is
+`Literal["mlx-whisper", "parakeet-mlx"]`, both MLX engines running in-process
+on the Mac; neither `adapters/stt/` nor `adapters/diarize/` contains an HTTP
+client; and no tracked source file references the address. The box is idle
+infrastructure the architecture already promised.
+
+Two separable pieces of work, and the second is worth more than the first:
+
+- **`Stt` over HTTP.** A remote engine bound as a third `stt.engine` value with
+  the host in `config.yaml` (AD-9's rule: where inference runs is a config
+  change, never a code change). This is an optimisation — transcription already
+  works locally — but it is what makes the recorded architecture true.
+- **`Diarizer` over HTTP, which is the one that unblocks something.** The
+  `Diarizer` port has no working engine at all: `noop` returns nothing and
+  `pyannote` needs a HuggingFace licence acceptance and a token this project
+  does not have. The spine notes the guest's NeMo install "carries diarizer
+  code but no weights and no endpoint", so this needs the service to grow a
+  `/diarize` route and pull the speaker weights before an adapter has anything
+  to call. The build request is drafted at
+  `~/Downloads/RUNBOOK-threadripper-diarize-addendum.md` (owner-held, outside
+  the repo). Story 7.1's acceptance criteria already name this endpoint as the
+  config-swappable alternative, so the story contract anticipates it.
+
+Constraints for whoever picks this up: VM 120 and VM 116 pass through the same
+RTX 4080 and must never run together, and VM 120 is `onboot=0` — so the
+endpoint is operator-scheduled infrastructure, deliberately *not* a
+best-effort dependency (spine, 2026-08-19). A stage bound to it fails by name
+when it is down rather than falling back silently. GPU headroom is the other
+limit: ASR alone peaked at 11,208 MiB of 16,376 in the handoff benchmark.
