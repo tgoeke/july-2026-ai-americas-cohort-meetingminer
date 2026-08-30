@@ -114,11 +114,16 @@ _MOMENTS = (
 #: rides a moment only after the ``extract`` stage has settled, so this read
 #: joins ``job_stage`` through ``meeting.job_id`` rather than trusting the
 #: api's coarser job status.
+# Newest checkpoint first: a retry deletes and re-seeds its stage rows, so
+# there is normally exactly one per (job, stage) — but `job_stage` carries no
+# uniqueness constraint on that pair (0001_jobs.sql), and an answer that
+# depended on planner order would be a guess. `id` is a uuidv7 tiebreak.
 _STAGE_STATUS = (
     "SELECT js.status"
     " FROM job_stage js"
     " JOIN meeting m ON m.job_id = js.job_id"
     " WHERE m.id = %s::uuid AND js.name = %s"
+    " ORDER BY js.created_at DESC, js.id DESC"
 )
 
 

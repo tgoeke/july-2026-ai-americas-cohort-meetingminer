@@ -32,6 +32,15 @@ Seeding through an ordinary writable psycopg connection follows the
 convention ``checks/test_corpus_artifacts.py`` established: test-layer
 setup, not harness production code — the harness's own connection cannot
 write at all (AD-16), which is exactly why it stays out of this file.
+
+**One residual window is accepted and detected after the fact.** A subject
+``extracted`` row landing on the chosen moment *between* the eligibility
+read and the approval — an operator approving or re-extracting mid-run —
+is consumed by the probe's approval; the settled-``extract``-stage gate
+narrows the window but cannot close it. The assembly detects the case (a
+foreign published id the discovery saw as ``extracted``) and fails the
+check naming the consumed ids, so the event is on the record rather than
+silent.
 """
 
 from __future__ import annotations
@@ -187,21 +196,23 @@ def split_owned(
 def _search_absent(search: Any, artifact_id: str) -> tuple[bool, str | None]:
     """Whether the erased document reads back absent, or the leftover line.
 
-    Tolerates an error object with no ``code`` attribute: absence is the
-    expected answer, and only an error *naming* a non-absent condition is a
-    leftover. A document that reads back is the unambiguous leftover.
+    Strict on purpose: only an error *naming* absence (the not-found codes,
+    or a 404 status) proves the erasure. An unclassifiable error — no code,
+    a 5xx — is "absence unproven", never "verified": this is a verification
+    step, and the safe default for one is doubt.
     """
     try:
         search.index(ARTIFACTS_INDEX).get_document(artifact_id)
     except MeilisearchApiError as exc:
         code = getattr(exc, "code", None)
         status = getattr(exc, "status_code", None)
-        if code in (None, "document_not_found", "index_not_found") or status == 404:
+        if code in ("document_not_found", "index_not_found") or status == 404:
             return True, None
         return False, (
             f"Meilisearch answered the erasure verification for artifact"
-            f" {artifact_id} with {code!r} — the document's absence is"
-            " unproven; delete it from the artifacts index by this id"
+            f" {artifact_id} with {code!r} (status {status!r}) — the"
+            " document's absence is unproven; delete it from the artifacts"
+            " index by this id"
         )
     except Exception as exc:  # noqa: BLE001 — a leftover must be named, not raised
         return False, (
@@ -221,6 +232,7 @@ def cleanup_probe(
     graph: Any,
     publish_root: Path | None,
     connection: Any,
+    expect_export: bool = False,
 ) -> CleanupReport:
     """Erase the probe from all four places it landed, verifying each.
 
@@ -275,18 +287,37 @@ def cleanup_probe(
         )
     else:
         export_path = Path(publish_root) / PROBE_KIND / f"{artifact_id}.md"
+        # The export verdict scopes to its own problem line — an earlier
+        # target's failure must never swallow this leftover's name.
+        export_problem: str | None = None
         try:
+            existed = export_path.exists()
             export_path.unlink(missing_ok=True)
             export_removed = not export_path.exists()
+            if not export_removed:
+                export_problem = (
+                    f"the probe's export file {export_path} survived its"
+                    " removal"
+                )
+            elif expect_export and not existed:
+                # The approval published the probe, so the route exported a
+                # file — and none stood at the path this run's configuration
+                # names. The likeliest cause is a publish root diverging
+                # between this run's `.env` resolution and the api's.
+                export_removed = False
+                export_problem = (
+                    f"no export file was found at {export_path} although the"
+                    " approval published the probe — the api may write under"
+                    " a different publish root; find and remove the export"
+                    f" for artifact {artifact_id}"
+                )
         except OSError as exc:
-            problems.append(
+            export_problem = (
                 f"the probe's export file {export_path} could not be removed:"
                 f" {exc}"
             )
-        if not export_removed and not problems:
-            problems.append(
-                f"the probe's export file {export_path} survived its removal"
-            )
+        if export_problem is not None:
+            problems.append(export_problem)
 
     postgres_removed = False
     try:
@@ -383,12 +414,33 @@ def run_gate_probe(
     artifacts = corpus.artifacts_for(meeting_id)
     eligible = eligible_moments(moments, artifacts)
     if not eligible:
+        # A stranded sibling probe (a run killed before its cleanup) is the
+        # one 'extracted' row this refusal can diagnose outright: its title
+        # carries the marker, so the remedy is erasure, not approval.
+        stranded = sorted(
+            str(artifact.id)
+            for artifact in artifacts
+            if artifact.state == checks.EXTRACTED_STATE
+            and str(getattr(artifact, "title", "") or "").startswith(
+                PROBE_TITLE_PREFIX
+            )
+        )
+        hint = ""
+        if stranded:
+            hint = (
+                f" Rows {', '.join(stranded)} carry the"
+                f" {PROBE_TITLE_PREFIX!r} marker: they are another run's"
+                " stranded probes — that run died before its cleanup; delete"
+                " each row, its search document, its graph node and its"
+                " export file by the row's id, then rerun."
+            )
         return GateProbe(
             problem=(
                 f"every moment of meeting {meeting_id} holds an unconsumed"
                 " 'extracted' artifact — approving any of them would consume"
                 " shared state the run does not own, so nothing was minted;"
-                " approve them in the app (or rerun after they are settled)"
+                " approve them in the app (or rerun after they are settled)."
+                + hint
             )
         )
 
@@ -437,16 +489,52 @@ def run_gate_probe(
         ).fetchone()
         artifact_id = str(row[0])
 
+        raced = False
         try:
             pre = _membership(search, graph, artifact_id)
-            approve, foreign = _approve(
-                base_url, moment_id, artifact_id, conn, transport
-            )
+            if any(presence.present for presence in pre.values()):
+                # A sibling run may have approved the shared moment between
+                # this run's mint and its pre-read, publishing this probe
+                # early — presence is then the gate working, not a
+                # violation. Only the row's own state can tell the two
+                # apart; a row still `extracted` proceeds and lets the
+                # assembly fire the genuine violation.
+                state_row = conn.execute(_PROBE_STATE, (artifact_id,)).fetchone()
+                if (
+                    state_row is not None
+                    and state_row[0] == checks.PUBLISHED_STATE
+                ):
+                    raced = True
+                    approve = ApproveOutcome(
+                        attempted=True,
+                        ok=True,
+                        detail=(
+                            "a concurrent run's approval published this"
+                            " probe before the pre-read — the gate was"
+                            " exercised through the public api; the race is"
+                            " on the record"
+                        ),
+                        published_ids=(artifact_id,),
+                    )
+            if not raced:
+                approve, foreign, raced = _approve(
+                    base_url, moment_id, artifact_id, conn, transport
+                )
             post = _membership(search, graph, artifact_id)
         except StoreAssertError as exc:
             problem = (
                 f"the probe was interrupted mid-sequence: {exc} — the gate"
                 " transition went unmeasured; the minted row is still erased"
+            )
+        except Exception as exc:  # noqa: BLE001 — the cleanup verdict survives
+            # Converted, never re-raised: an exception that escaped here
+            # would discard the CleanupReport below, and a leftover on this
+            # path would then be reported nowhere. The assembly renders this
+            # problem as a blocking failure, so nothing is quieter for it.
+            problem = (
+                f"the probe was interrupted mid-sequence by"
+                f" {type(exc).__name__}: {exc} — the gate transition went"
+                " unmeasured; the minted row is still erased"
             )
         finally:
             cleanup = cleanup_probe(
@@ -455,6 +543,11 @@ def run_gate_probe(
                 graph=graph,
                 publish_root=getattr(config.secrets, "mm_publish_root", None),
                 connection=conn,
+                expect_export=(
+                    approve.attempted
+                    and approve.ok
+                    and artifact_id in approve.published_ids
+                ),
             )
 
     return GateProbe(
@@ -465,6 +558,7 @@ def run_gate_probe(
         approve=approve,
         cleanup=cleanup,
         problem=problem,
+        raced=raced,
         foreign_ids=foreign,
     )
 
@@ -475,18 +569,20 @@ def _approve(
     artifact_id: str,
     conn: Any,
     transport: httpx.BaseTransport | None,
-) -> tuple[ApproveOutcome, tuple[str, ...]]:
+) -> tuple[ApproveOutcome, tuple[str, ...], bool]:
     """The one mutation, with the concurrent-run race resolved by ownership.
 
-    A 409 ``nothing-to-approve`` re-reads the probe's own row: if a sibling
-    run's approval published it, the gate was still exercised through the
-    public api — ``ok`` with the race named — and only a row still
-    unpublished makes the 409 a real refusal.
+    A 409 ``nothing-to-approve`` — matched on the structured problem slug
+    the api sent, never a substring of reworded prose — re-reads the probe's
+    own row: if a sibling run's approval published it, the gate was still
+    exercised through the public api — ``ok`` with the race named — and only
+    a row still unpublished makes the 409 a real refusal. The third return
+    is that race verdict.
     """
     try:
         returned = retrieval.approve_moment(base_url, moment_id, transport=transport)
     except ApproveError as exc:
-        if "nothing-to-approve" in str(exc):
+        if getattr(exc, "slug", None) == "nothing-to-approve":
             state_row = conn.execute(_PROBE_STATE, (artifact_id,)).fetchone()
             if state_row is not None and state_row[0] == checks.PUBLISHED_STATE:
                 return (
@@ -502,7 +598,8 @@ def _approve(
                         published_ids=(artifact_id,),
                     ),
                     (),
+                    True,
                 )
-        return ApproveOutcome(attempted=True, ok=False, detail=str(exc)), ()
+        return ApproveOutcome(attempted=True, ok=False, detail=str(exc)), (), False
     owned, foreign = split_owned(returned, artifact_id)
-    return ApproveOutcome(attempted=True, ok=True, published_ids=owned), foreign
+    return ApproveOutcome(attempted=True, ok=True, published_ids=owned), foreign, False

@@ -354,6 +354,110 @@ def test_a_minted_probe_with_no_cleanup_record_fails() -> None:
     )
 
 
+def test_a_recorded_leftover_earns_exactly_its_own_line() -> None:
+    """The seam VG found broken: `cleanup_probe` writes prose ("Meilisearch
+    still holds…"), and the assembly's unexplained-leftover backstop must
+    recognize that verbatim wording — a real leftover must never also earn
+    a false "no recorded reason" line telling the operator to fix reporting
+    that worked."""
+    verbatim = (
+        f"Meilisearch still holds artifact {PROBE_ARTIFACT} after the"
+        " erasure — delete it from the artifacts index by this id"
+    )
+    probe = clean_probe(
+        cleanup=CleanupReport(
+            search_document_removed=False,
+            graph_node_removed=True,
+            export_file_removed=True,
+            postgres_row_removed=True,
+            problems=(verbatim,),
+        )
+    )
+    result = gate([], {}, probe)
+    assert not result.passed
+    assert verbatim in result.problems
+    assert not any("no recorded reason" in p for p in result.problems), (
+        result.problems
+    )
+
+
+def test_a_raced_probe_with_a_present_pre_read_passes() -> None:
+    """The pre-read race: a sibling's approval published the probe before
+    this run's pre-read, so presence there is the gate working. A raced
+    probe is held to the positive half and the cleanup, never to
+    pre-absence."""
+    probe = clean_probe(
+        pre=present(PROBE_MOMENT),
+        raced=True,
+        approve=ApproveOutcome(
+            attempted=True,
+            ok=True,
+            detail="a concurrent run's approval published this probe",
+            published_ids=(PROBE_ARTIFACT,),
+        ),
+    )
+    result = gate(
+        [FakeArtifact(ARTIFACT, MOMENT, "published")],
+        {ARTIFACT: present(MOMENT)},
+        probe,
+    )
+    assert result.passed, result.problems
+    assert result.applicable
+
+
+def test_an_interrupted_probe_never_unsees_a_recorded_violation() -> None:
+    """An interruption after a pre-read that saw the extracted probe inside
+    a store must keep the violation beside the interruption diagnosis —
+    never soften it into not-applicable."""
+    probe = GateProbe(
+        artifact_id=PROBE_ARTIFACT,
+        moment_id=PROBE_MOMENT,
+        pre=present(PROBE_MOMENT),
+        cleanup=clean_cleanup(),
+        problem="the probe was interrupted mid-sequence: store unreachable",
+    )
+    result = gate([], {}, probe)
+    assert not result.passed
+    violation = next(p for p in result.problems if "GATE VIOLATION" in p)
+    assert PROBE_ARTIFACT in violation
+    assert result.applicable, "a recorded violation must never soften"
+
+
+def test_a_measured_probe_regression_stays_applicable_without_artifacts() -> None:
+    """A post-approval absence on a meeting with zero subject artifacts is a
+    measured 4-4 regression, not a could-not-measure: `applicable` must not
+    read False just because the subject halves had nothing to hold to."""
+    gone = {
+        checks.SEARCH_STORE: StorePresence(present=False),
+        checks.GRAPH_STORE: StorePresence(present=False),
+    }
+    probe = clean_probe(post=gone)
+    result = gate([], {}, probe)
+    assert not result.passed
+    assert result.applicable, (
+        "a measured regression read as not-applicable is the softening the"
+        " assembly exists to refuse"
+    )
+    assert any("absent from" in p for p in result.problems)
+
+
+def test_a_foreign_row_discovered_extracted_is_a_consumed_subject_row() -> None:
+    """The accepted residual window, detected: a foreign published id the
+    discovery saw as `extracted` means this run's approval consumed a
+    subject row that landed after the eligibility read — named, never
+    tolerated silently like an already-published foreign row."""
+    landed = "eeeeeeee-eeee-7eee-8eee-eeeeeeeeeeee"
+    probe = clean_probe(foreign_ids=(landed,))
+    result = gate(
+        [FakeArtifact(landed, MOMENT, "extracted")],
+        {landed: absent()},
+        probe,
+    )
+    assert not result.passed
+    consumed = next(p for p in result.problems if "consumed" in p)
+    assert landed in consumed
+
+
 # --------------------------------------------------------------------------
 # Probe refusals — blocking not-applicables that name state and remedy
 # --------------------------------------------------------------------------

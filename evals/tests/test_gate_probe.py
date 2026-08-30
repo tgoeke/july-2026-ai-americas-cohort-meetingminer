@@ -122,6 +122,16 @@ def test_a_minted_row_the_approval_left_unpublished_is_not_owned() -> None:
 # --------------------------------------------------------------------------
 
 
+def absent_error() -> Exception:
+    """A Meilisearch not-found the way the real client raises it — carrying
+    its `code`. `_search_absent` is strict now (an unclassifiable error is
+    "absence unproven"), so the fakes must speak the real error shape."""
+    error = gate_probe.MeilisearchApiError.__new__(gate_probe.MeilisearchApiError)
+    error.code = "document_not_found"
+    error.status_code = 404
+    return error
+
+
 class FakeTask:
     task_uid = 42
 
@@ -139,7 +149,7 @@ class FakeIndex:
     def get_document(self, document_id: str) -> Any:
         if self.client.still_present:
             return {"id": document_id, "momentIds": []}
-        raise gate_probe.MeilisearchApiError.__new__(gate_probe.MeilisearchApiError)
+        raise absent_error()
 
 
 class FakeSearchClient:
@@ -349,12 +359,7 @@ class ProbeSearchClient(FakeSearchClient):
             def get_document(self, document_id: str) -> Any:
                 if client.published:
                     return {"id": document_id, "momentIds": [MOMENT_A]}
-                error = gate_probe.MeilisearchApiError.__new__(
-                    gate_probe.MeilisearchApiError
-                )
-                error.code = "document_not_found"
-                error.status_code = 404
-                return (_ for _ in ()).throw(error)
+                raise absent_error()
 
         return Index()
 
@@ -428,6 +433,14 @@ def probe_config(tmp_path: Path) -> SimpleNamespace:
     )
 
 
+def write_export(tmp_path: Path) -> Path:
+    """What the real approve route leaves under the publish root."""
+    export = tmp_path / gate_probe.PROBE_KIND / f"{PROBE_ID}.md"
+    export.parent.mkdir(exist_ok=True)
+    export.write_text("# probe")
+    return export
+
+
 def run_probe(
     tmp_path: Path,
     *,
@@ -440,6 +453,7 @@ def run_probe(
     def publish_on_approve(request: httpx.Request) -> httpx.Response:
         search.published = True
         graph.published = True
+        write_export(tmp_path)
         return approve_transport(connection).handler(request)
 
     return gate_probe.run_gate_probe(
@@ -546,6 +560,7 @@ def test_a_409_race_resolves_by_rereading_the_probe_row(tmp_path: Path) -> None:
         connection.row_state = "published"
         search.published = True
         graph.published = True
+        write_export(tmp_path)
         return httpx.Response(
             409,
             json={
@@ -589,7 +604,9 @@ def test_a_409_with_an_unpublished_row_is_a_real_refusal(tmp_path: Path) -> None
     assert probe.cleanup is not None, "a refusal never skips the erasure"
 
 
-def test_a_store_failure_mid_probe_still_cleans_up(tmp_path: Path) -> None:
+def test_a_store_failure_mid_probe_still_cleans_up(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The pre-read failing leaves a minted row: the interruption is named
     on the probe and the erasure still runs."""
     search = ProbeSearchClient()
@@ -599,17 +616,123 @@ def test_a_store_failure_mid_probe_still_cleans_up(tmp_path: Path) -> None:
     def broken(client: Any, artifact_id: str) -> Any:
         raise gate_probe.StoreAssertError("Meilisearch could not be reached")
 
-    original = gate_probe.stores.artifact_in_search
-    gate_probe.stores.artifact_in_search = broken  # type: ignore[assignment]
-    try:
-        probe = run_probe(
-            tmp_path, corpus=FakeCorpus(), search=search, graph=graph,
-            connection=connection,
-        )
-    finally:
-        gate_probe.stores.artifact_in_search = original  # type: ignore[assignment]
+    monkeypatch.setattr(gate_probe.stores, "artifact_in_search", broken)
+    probe = run_probe(
+        tmp_path, corpus=FakeCorpus(), search=search, graph=graph,
+        connection=connection,
+    )
 
     assert probe.artifact_id == PROBE_ID
     assert probe.problem is not None
     assert "Meilisearch could not be reached" in probe.problem
     assert connection.row_state is None, "the minted row must still be erased"
+
+
+def test_an_unexpected_exception_mid_probe_keeps_the_cleanup_verdict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Any exception, not only StoreAssertError: an escape here would throw
+    the CleanupReport away, and a leftover on that path would be reported
+    nowhere. The interruption is converted, named with its type, and the
+    erasure verdict survives."""
+    search = ProbeSearchClient()
+    graph = ProbeGraphDriver()
+    connection = FakeConnection(row_state="extracted")
+
+    def explodes(client: Any, artifact_id: str) -> Any:
+        raise RuntimeError("driver caught fire")
+
+    monkeypatch.setattr(gate_probe.stores, "artifact_in_search", explodes)
+    probe = run_probe(
+        tmp_path, corpus=FakeCorpus(), search=search, graph=graph,
+        connection=connection,
+    )
+
+    assert probe.problem is not None
+    assert "RuntimeError" in probe.problem
+    assert "driver caught fire" in probe.problem
+    assert probe.cleanup is not None and probe.cleanup.verified
+    assert connection.row_state is None
+
+
+def test_a_stage_status_of_none_refuses_by_name(tmp_path: Path) -> None:
+    """`None` — no stage row, or no meeting row — is never a green light:
+    the corpus layer pins the None, this pins its consumer refusing on it."""
+    probe = run_probe(
+        tmp_path,
+        corpus=FakeCorpus(stage=None),
+        search=ProbeSearchClient(),
+        graph=ProbeGraphDriver(),
+        connection=FakeConnection(),
+    )
+    assert probe.artifact_id is None
+    assert probe.problem is not None
+    assert "None" in probe.problem
+
+
+def test_a_sibling_publishing_before_the_pre_read_is_the_named_race(
+    tmp_path: Path,
+) -> None:
+    """The pre-read race: a concurrent run approved the shared moment
+    between this run's mint and its pre-read, so the pre-read shows the
+    probe present and already `published`. That is the gate working, never
+    a violation — no own approve call is made, the race is named, and the
+    positive half and cleanup still hold."""
+    search = ProbeSearchClient()
+    graph = ProbeGraphDriver()
+    search.published = True
+    graph.published = True
+    write_export(tmp_path)
+    connection = FakeConnection(row_state="published")
+
+    def never_called(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("a raced probe must not approve again")
+
+    probe = run_probe(
+        tmp_path, corpus=FakeCorpus(), search=search, graph=graph,
+        connection=connection, transport=httpx.MockTransport(never_called),
+    )
+
+    assert probe.raced is True
+    assert probe.problem is None
+    assert probe.approve.ok
+    assert "before the pre-read" in (probe.approve.detail or "")
+    assert probe.approve.published_ids == (PROBE_ID,)
+    assert probe.pre is not None and probe.pre["meilisearch"].present
+    assert probe.post is not None and probe.post["neo4j"].present
+    assert probe.cleanup is not None and probe.cleanup.verified
+
+
+def test_a_published_probe_with_no_export_file_is_a_named_leftover(
+    tmp_path: Path,
+) -> None:
+    """The approval published the probe, so the route exported a file — none
+    at the path this run's configuration names means the api may write under
+    a different publish root, and 'verified' would be a guess."""
+    report = gate_probe.cleanup_probe(
+        PROBE_ID,
+        search=FakeSearchClient(),
+        graph=FakeGraphDriver(),
+        publish_root=tmp_path,
+        connection=FakeConnection(),
+        expect_export=True,
+    )
+    assert not report.export_file_removed
+    problem = next(p for p in report.problems if "publish root" in p)
+    assert PROBE_ID in problem
+
+
+def test_run_ids_sharing_their_first_64_bytes_share_an_order(
+    tmp_path: Path,
+) -> None:
+    """BLAKE2b keys cap at 64 bytes, so two run ids identical through byte
+    64 produce the same order — documented, not hidden: determinism is
+    intact, only the spread narrows, and the 409/pre-read race paths carry
+    the correctness either way. (A run id caps at 96 characters.)"""
+    shared = "2026-08-30-" + "x" * 60  # 71 chars: past the 64-byte key cap
+    moments = tuple(
+        moment(f"{i}0000000-0000-7000-8000-00000000000{i}") for i in range(1, 6)
+    )
+    left = gate_probe.choose_order(shared + "-left", moments)
+    right = gate_probe.choose_order(shared + "-right", moments)
+    assert left == right

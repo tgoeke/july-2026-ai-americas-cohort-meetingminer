@@ -980,6 +980,12 @@ class GateProbe:
     approve: ApproveOutcome = ApproveOutcome(attempted=False)
     cleanup: CleanupReport | None = None
     problem: str | None = None
+    #: A concurrent run's approval published this probe before (or instead
+    #: of) this run's own approve call — detected at the pre-read or at the
+    #: 409. The pre-read may then legitimately show presence (the row was
+    #: already ``published`` when it was read), so the pre-absence half is
+    #: not asserted; the positive half and the cleanup verdict still are.
+    raced: bool = False
     #: Approve-response rows for artifacts the run did not mint. The route
     #: returns every artifact under the moment by design, so these are
     #: recorded in the detail and ignored for ownership asserts — never a
@@ -1070,23 +1076,32 @@ def _probe_sequence_problems(probe: GateProbe) -> list[str]:
     problems: list[str] = []
     artifact_id = str(probe.artifact_id)
     moment_id = str(probe.moment_id) if probe.moment_id is not None else None
+    if moment_id is None:
+        problems.append(
+            f"probe artifact {artifact_id} recorded no moment id — its"
+            " citation resolution cannot be verified; the probe layer and"
+            " the check have diverged"
+        )
 
     # The negative half of the measured transition: the freshly minted
-    # `extracted` probe must be in neither store.
-    for store in PUBLISH_STORES:
-        presence = (probe.pre or {}).get(store)
-        if presence is None:
-            problems.append(
-                f"no pre-approval {store} membership was recorded for probe"
-                f" artifact {artifact_id} — the probe layer and the check"
-                " have diverged"
-            )
-        elif presence.present:
-            problems.append(
-                f"GATE VIOLATION: probe artifact {artifact_id} (state"
-                f" {EXTRACTED_STATE!r}) is present in {store} before approval"
-                " — an unpublished artifact reached a retrieval store (AD-4)"
-            )
+    # `extracted` probe must be in neither store. Not asserted for a raced
+    # probe: a sibling run's approval published the row before this run's
+    # pre-read, so presence there is the gate working, not a violation.
+    if not probe.raced:
+        for store in PUBLISH_STORES:
+            presence = (probe.pre or {}).get(store)
+            if presence is None:
+                problems.append(
+                    f"no pre-approval {store} membership was recorded for probe"
+                    f" artifact {artifact_id} — the probe layer and the check"
+                    " have diverged"
+                )
+            elif presence.present:
+                problems.append(
+                    f"GATE VIOLATION: probe artifact {artifact_id} (state"
+                    f" {EXTRACTED_STATE!r}) is present in {store} before approval"
+                    " — an unpublished artifact reached a retrieval store (AD-4)"
+                )
 
     # The mutation — the run's own approval, or the named reason it failed.
     if not probe.approve.attempted:
@@ -1147,9 +1162,27 @@ def _probe_cleanup_problems(probe: GateProbe) -> list[str]:
             " left behind; remove them by that id"
         ]
     problems = list(probe.cleanup.problems)
+    # `cleanup_probe` writes prose ("Meilisearch still holds artifact …"),
+    # not field names, so the unexplained-leftover backstop matches on the
+    # store vocabulary the real messages carry — pinned by the algorithm
+    # suite against the verbatim wording, so the two layers cannot drift
+    # back into the field-name mismatch this replaced (a real leftover used
+    # to earn a second, false "no recorded reason" line).
+    keywords: dict[str, tuple[str, ...]] = {
+        "search_document_removed": ("meilisearch",),
+        "graph_node_removed": ("neo4j",),
+        "export_file_removed": ("export file", "mm_publish_root"),
+        "postgres_row_removed": ("postgres",),
+    }
+    lowered = [problem.lower() for problem in problems]
     unexplained = [
-        name for name in probe.cleanup.leftovers()
-        if not any(name in problem for problem in problems)
+        name
+        for name in probe.cleanup.leftovers()
+        if not any(
+            keyword in problem
+            for keyword in keywords[name]
+            for problem in lowered
+        )
     ]
     if unexplained:
         problems.append(
@@ -1188,6 +1221,7 @@ def publish_gate(
     constraint broken (AD-4).
     """
     thresholds = PUBLISH_GATE_THRESHOLDS
+    by_id = {str(artifact.id): artifact for artifact in artifacts}
     states: dict[str, int] = {}
     for artifact in artifacts:
         states[artifact.state] = states.get(artifact.state, 0) + 1
@@ -1230,11 +1264,12 @@ def publish_gate(
     # The probe: the measured gate transition, or the named reason it went
     # unmeasured. A minted probe's cleanup verdict is enforced either way.
     probe_measured = False
+    probe_problems: list[str] = []
     if probe.problem is not None:
-        problems.append(probe.problem)
+        probe_problems.append(probe.problem)
     if probe.artifact_id is None:
         if probe.problem is None:
-            problems.append(
+            probe_problems.append(
                 f"the probe for meeting {meeting_id} recorded neither an"
                 " artifact nor a problem — the probe layer and the check"
                 " have diverged"
@@ -1242,8 +1277,41 @@ def publish_gate(
     else:
         if probe.problem is None:
             probe_measured = True
-            problems.extend(_probe_sequence_problems(probe))
-        problems.extend(_probe_cleanup_problems(probe))
+            probe_problems.extend(_probe_sequence_problems(probe))
+        elif not probe.raced:
+            # An interruption does not un-see a violation: a pre-read that
+            # recorded the extracted probe present in a store stands on its
+            # own, whatever stopped the sequence afterwards.
+            for store in PUBLISH_STORES:
+                presence = (probe.pre or {}).get(store)
+                if presence is not None and presence.present:
+                    probe_problems.append(
+                        f"GATE VIOLATION: probe artifact {probe.artifact_id}"
+                        f" (state {EXTRACTED_STATE!r}) is present in {store}"
+                        " before approval — an unpublished artifact reached a"
+                        " retrieval store (AD-4); recorded before the probe"
+                        " was interrupted"
+                    )
+        probe_problems.extend(_probe_cleanup_problems(probe))
+    # A foreign published row the discovery saw as `extracted` is a subject
+    # row this run's approval consumed — a row landed on the chosen moment
+    # between the eligibility read and the approval (the accepted residual
+    # window, named in gate_probe.py and the RUNBOOK). The remaining foreign
+    # rows — already published before this run — stay recorded-only.
+    consumed = sorted(
+        foreign_id
+        for foreign_id in probe.foreign_ids
+        if (row := by_id.get(foreign_id)) is not None
+        and row.state == EXTRACTED_STATE
+    )
+    if consumed:
+        probe_problems.append(
+            "the probe's approval consumed subject rows the discovery saw as"
+            f" {EXTRACTED_STATE!r}: {', '.join(consumed)} — the lifecycle is"
+            " one-way, so record this beside the run and re-extract the"
+            " subject before the next gate measurement"
+        )
+    problems.extend(probe_problems)
 
     if not artifacts:
         problems.append(
@@ -1300,8 +1368,13 @@ def publish_gate(
         # `applicable=False` only when the gate transition went unmeasured
         # (or there was no subject artifact to hold to the gate at all) *and*
         # nothing that was measured was violated: a real violation must read
-        # as a failure, never soften into "could not be measured".
-        applicable=(bool(artifacts) and probe_measured) or violation_found,
+        # as a failure, never soften into "could not be measured". A measured
+        # probe's own defects — a post-approval absence, a citation miss, a
+        # cleanup leftover — are measurements too, so they keep the result
+        # applicable even on a meeting with no subject artifacts.
+        applicable=(bool(artifacts) and probe_measured)
+        or violation_found
+        or bool(probe_measured and probe_problems),
         thresholds=thresholds,
         metrics={
             "artifacts": len(artifacts),

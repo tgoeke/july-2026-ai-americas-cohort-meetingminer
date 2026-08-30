@@ -99,8 +99,12 @@ but checking them first turns its refusals into things you expected.
    Docker stores read-only; its one write is check 2.11's run-owned probe,
    minted through the public api and erased on the way out. Two runs, or a
    run beside any test suite, do not contend — each run owns its folder and
-   its probe namespace. What still serializes briefly is the store-side
-   projection lock the approve route takes, which queues rather than fails.
+   its probe namespace. What can still briefly serialize is the approve
+   route's post-commit projection, which takes the same store file lock and
+   Postgres advisory lock as every dev-store writer (AGENTS.md, stores
+   section): a concurrent holder means a bounded wait, and a timeout is a
+   named error the route logs — `rebuild --meeting <id>` closes the gap
+   while the route itself still answers.
 
 ## Step 2 — Deterministic suite
 
@@ -134,7 +138,12 @@ non-scripted meeting is a named refusal with no store handle and no row —
 and its title carries the run id, so a row stranded by a killed process
 names the run that owes its erasure (delete it, its search document, its
 graph node and its export file by that artifact id). Reruns keep their gate
-half: nothing is consumed.
+half: nothing is consumed. One residual window is accepted and detected
+after the fact: a subject `extracted` row landing on the chosen moment
+between the eligibility read and the approval (an operator approving or
+re-extracting mid-run) is consumed by the probe's approval — the report
+then fails the check naming the consumed ids; record it beside the run and
+re-extract before the next gate measurement.
 
 `<label>` is a short slug for what this run is (e.g. `pre-demo`,
 `capture-fix`). Both `--run-label` and `--run-id` must start with a letter or

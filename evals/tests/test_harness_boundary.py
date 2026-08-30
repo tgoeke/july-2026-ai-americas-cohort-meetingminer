@@ -405,12 +405,32 @@ _PROBE_FORBIDDEN_STEMS = tuple(
     stem for stem in _STORE_WRITE_STEMS if stem != "delete"
 )
 
+#: Raw query-clause vocabulary the probe module must never carry — the
+#: channel its writes actually travel. The driver-method stems above cannot
+#: see inside a `session.run("MERGE …")` string, and the module's sanctioned
+#: writes are themselves raw text (`DETACH DELETE`, `DELETE FROM artifact`,
+#: `INSERT INTO artifact` — the mint, sanctioned by the seeding convention),
+#: so the same textual scan covers the clause forms: Cypher's creation and
+#: mutation keywords plus SQL's uppercase `UPDATE`, which the lowercase
+#: `update` stem cannot match. Uppercase-exact on purpose — `SET` must not
+#: fire on "settled", and a query keyword is always written uppercase here.
+_PROBE_FORBIDDEN_QUERY_CLAUSES = (
+    "MERGE",
+    "CREATE",
+    "SET",
+    "REMOVE",
+    "FOREACH",
+    "UPDATE",
+)
+
 
 def probe_write_references(text: str) -> list[str]:
     """Every creation-shaped store token in ``text``, or an empty list."""
     found: list[str] = []
     for stem in _PROBE_FORBIDDEN_STEMS:
         found.extend(re.findall(rf"\b{stem}\w*", text))
+    for clause in _PROBE_FORBIDDEN_QUERY_CLAUSES:
+        found.extend(re.findall(rf"\b{clause}\b", text))
     return found
 
 
@@ -427,7 +447,9 @@ def test_the_probe_module_is_pinned_to_the_erasure_direction() -> None:
 
 def test_the_probe_pin_still_catches_the_creation_surface() -> None:
     """The guard on the guard: dropping `delete` must not have dropped the
-    stems that matter."""
+    stems that matter — and the raw-query channel the module actually
+    writes through is covered too, since a `session.run("MERGE …")` never
+    names a driver method."""
     for call in (
         "client.index(x).add_documents([doc])",
         "index.add_documents_in_batches(docs)",
@@ -435,6 +457,11 @@ def test_the_probe_pin_still_catches_the_creation_surface() -> None:
         "index.update_settings(settings)",
         "client.create_index(uid)",
         "session.execute_write(work)",
+        'session.run("MERGE (a {id: $id})")',
+        'session.run("CREATE (a:Artifact {id: $id})")',
+        'session.run("MATCH (a {id: $id}) SET a.state = \'published\'")',
+        'session.run("MATCH (a {id: $id}) REMOVE a.state")',
+        'conn.execute("UPDATE artifact SET state = %s")',
     ):
         assert probe_write_references(call), f"the probe pin missed {call!r}"
 
@@ -444,7 +471,9 @@ def test_the_probe_pin_leaves_the_erasure_vocabulary_alone() -> None:
         "index.delete_document(doc_id)",
         "MATCH (a {id: $id}) DETACH DELETE a",
         "DELETE FROM artifact WHERE id = %s",
+        "INSERT INTO artifact (moment_id) VALUES (%s) RETURNING id",
         "the erasure verification",
+        "a settled stage's newest checkpoint",
     ):
         assert not probe_write_references(benign), benign
 

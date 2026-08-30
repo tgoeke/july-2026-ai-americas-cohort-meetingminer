@@ -65,8 +65,15 @@ class ApproveError(Exception):
 
     The message carries the problem slug when the api sent one (404
     ``not-found``, 409 ``meeting-not-viewable`` / ``nothing-to-approve``), so
-    the report names the refusal rather than a status code.
+    the report names the refusal rather than a status code — and ``slug``
+    carries it structurally, so a caller distinguishing one refusal from
+    another (the probe layer's 409 race resolution) matches the RFC 9457
+    type, never a substring of prose that may be reworded.
     """
+
+    def __init__(self, message: str, *, slug: str | None = None) -> None:
+        super().__init__(message)
+        self.slug = slug
 
 
 def _problem_slug(response: httpx.Response) -> str | None:
@@ -199,7 +206,8 @@ def approve_moment(
     if response.status_code != 200:
         raise ApproveError(
             f"approving moment {moment_id} was refused —"
-            f" {_describe_refusal(response)}"
+            f" {_describe_refusal(response)}",
+            slug=_problem_slug(response),
         )
     try:
         payload = response.json()
