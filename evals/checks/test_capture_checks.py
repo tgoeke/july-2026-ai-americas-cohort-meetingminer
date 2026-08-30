@@ -7,8 +7,8 @@ algorithm returned would be a verdict nothing produced.
 
 Store-backed, and read-only twice over: the captures arrive through the
 harness's ``default_transaction_read_only`` connection (AD-16), and the
-corpus is listed through the public api. **These tests hold the shared Docker
-stores — one agent at a time (AGENTS.md).**
+corpus is listed through the public api. **These tests read the shared dev
+stores read-only — safe beside another eval run or any suite (story 11.3).**
 """
 
 from __future__ import annotations

@@ -9,7 +9,8 @@ bundle (job -> meeting -> transcript source/segment -> moment -> moment_segment
 convention ``server/tests/projection_seed.py`` uses for projection tests, and
 cleans it up afterward so the shared corpus is left exactly as it was found.
 
-**These tests hold the shared Docker stores — one agent at a time (AGENTS.md).**
+**These tests seed and erase only their own rows — safe beside another eval
+run or any suite (story 11.3).**
 """
 
 from __future__ import annotations

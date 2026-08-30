@@ -7,8 +7,10 @@ Separate from ``evals/tests/`` on purpose, and the split is the whole design:
   exercises every check algorithm over synthetic captures.
 * ``evals/checks/`` — this package — is one eval *run*. It needs the api up,
   the stores up, and the scripted meetings ingested, so it has its own target
-  (``make evals-run``) and holds the shared Docker stores while it runs
-  (AGENTS.md).
+  (``make evals-run``). It reads the shared dev stores read-only; the one
+  write is check 2.11's run-owned probe — minted through the public api and
+  erased on the way out — so runs may overlap each other and any suite
+  (story 11.3).
 
 A package (rather than bare modules) so pytest's prepend import mode puts the
 repository root on ``sys.path`` and ``from evals.harness...`` resolves with no

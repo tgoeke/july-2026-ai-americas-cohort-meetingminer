@@ -6,8 +6,9 @@ query, since the route is the surface under test), and the scoring is the
 pure ``checks.search_recall`` over what came back. Nothing is computed here.
 
 Store-backed and api-backed, read-only: one unfiltered search per planted
-phrase, ``limit=5`` — the index gets no help. **These tests hold the shared
-Docker stores — one agent at a time (AGENTS.md).**
+phrase, ``limit=5`` — the index gets no help. **These tests read the shared
+dev stores read-only — safe beside another eval run or any suite (story
+11.3).**
 """
 
 from __future__ import annotations

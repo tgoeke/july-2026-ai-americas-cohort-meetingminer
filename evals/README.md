@@ -64,6 +64,9 @@ evals/
                              the only module importing either driver
   harness/run.py             the run folder, the config snapshot, the report
   checks/                    the store-backed tier-1 checks — one eval run
+  checks/gate_probe.py       the run-owned publish-gate probe: minted through
+                             the public api, erased with cleanup verified —
+                             the one delete-only store sanction (story 11.3)
   runs/<run-id>/             one run's immutable artifacts (committed)
   tests/__init__.py
   tests/conftest.py          valid-manifest builders every negative test
@@ -218,7 +221,7 @@ force has to travel with the number it produced.
 | 2.3 view classification | classified view vs the label the matched section implies | reported only |
 | 2.4 dedup quality | sequential captures above 0.9 similarity, listed for a human | reported only |
 | 2.10 doc-index search recall | each planted phrase through the public `GET /search`, unfiltered, `limit=5`: a hit from the containing meeting in the top 5; recall@5 = **1.0** | fails the run |
-| 2.11 publish-gate projection | non-`published` artifacts in **neither** store (read-only Meilisearch/Neo4j reads); approve via `POST /moments/{id}/approve`; `published` artifacts in **both**, citations resolving to their source moment | fails the run |
+| 2.11 publish-gate projection | subjects read-only: non-`published` artifacts in **neither** store, `published` in **both** with citations resolving (read-only Meilisearch/Neo4j reads); the approve→project transition measured on one run-owned probe via `POST /moments/{id}/approve`, erased afterward | fails the run |
 | duration agreement | `duration_minutes` vs the probed recording, ±1 minute | fails the run |
 
 Two gate semantics on the new rows worth stating:
@@ -228,13 +231,16 @@ Two gate semantics on the new rows worth stating:
   `indexMissing` response, a manifest with no planted phrases, or a search
   api refusal are each a named blocking failure, never a skip or a vacuous
   pass.
-- **2.11 consumes state and only ever mutates `scripted` meetings.** Approval
-  is one-way (no unpublish), so a run that approves leaves the next run with
-  nothing `extracted`: the gate half then records a blocking not-applicable
-  naming the state distribution — a full gate measurement needs an unconsumed
-  `extracted` artifact. The meeting's `corpus` tag is re-read from Postgres
-  before any api call, and anything not `scripted` is a named refusal: the
-  real corpus is never approved by a machine.
+- **2.11 mutates only what the run owns (story 11.3).** Subject artifacts are
+  never approved — the shared corpus's `extracted` rows survive every run —
+  and the gate transition is measured on one probe artifact the run mints
+  onto an eligible projected subject moment, approves through the public
+  api, and erases with per-target verification (Postgres row, publish-root
+  export, Meilisearch document, Neo4j node). The probe's title carries the
+  run id, so a stranded row names the run that owes its erasure. The
+  meeting's `corpus` tag is re-read from Postgres before any store handle is
+  built or row minted, and anything not `scripted` is a named refusal: the
+  real corpus is never approved by a machine, and never probed either.
 
 Two things eval-design leaves open are pinned in `harness/checks.py`:
 
@@ -276,8 +282,9 @@ make evals-run EVAL_ARGS='--run-label capture'
 ```
 
 **Store-backed and api-backed.** It reads Postgres directly (read-only) and
-lists the corpus through `GET /meetings`, so it needs `make up` and it holds
-the shared Docker stores while it runs — one agent at a time (AGENTS.md).
+lists the corpus through `GET /meetings`, so it needs `make up`. Runs may
+overlap each other and any suite: each run owns its folder and its probe
+namespace, and the dev stores are read-only otherwise (story 11.3).
 
 ### What a run is, and what lands in the folder
 
@@ -374,14 +381,13 @@ error, or a genuine capture miss. Shortcuts from the report:
   are planted verbatim, so the index has no excuse; the report carries the
   top-5 it got instead, and the `ranking` mode says whether the embedder was
   even involved.
-- a **post-approval absence on check 2.11** is, today, **the missing story
-  4-4 wiring**: nothing projects artifacts on publish yet, so once real
-  subjects exist the positive half fails until 4-4 lands — that failure is
-  the check defending the gate; never weaken or green it. After 4-4 lands, a
-  post-approval absence is a **regression** of projection-on-publish. A
+- a **post-approval absence on check 2.11** — the probe or an already
+  `published` subject row missing from a store — is a **regression** of
+  projection-on-publish (story 4-4, landed); never weaken or green it. A
   *pre*-approval presence is the headline **GATE VIOLATION** either way: an
   unpublished artifact reached a retrieval store.
-- a 2.11 "nothing left to approve" not-applicable names the artifact state
-  distribution: a previous run's approval consumed the `extracted` rows
-  (one-way lifecycle). Re-measuring the gate half needs a fresh extraction —
-  a rerun alone cannot bring it back.
+- a 2.11 probe refusal (no eligible moment, an unsettled `extract` stage, an
+  unprojected meeting) is a blocking not-applicable naming its remedy; a
+  cleanup leftover names the exact ids still standing and where. Neither is
+  a gate verdict — the first means the gate went unmeasured, the second that
+  the run owes an erasure.

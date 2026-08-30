@@ -95,10 +95,12 @@ but checking them first turns its refusals into things you expected.
    for triage of the matched subject, never for a PASS verdict: ground truth
    that measured nothing must fail the run rather than quietly shrink it.
 
-5. **You hold the stores alone.** `make evals-run` reads the shared Docker
-   stores for its whole duration — one agent at a time (AGENTS.md). Do not
-   start a run while another agent holds them, and do not let one start while
-   yours runs.
+5. **Runs overlap safely (story 11.3).** `make evals-run` reads the shared
+   Docker stores read-only; its one write is check 2.11's run-owned probe,
+   minted through the public api and erased on the way out. Two runs, or a
+   run beside any test suite, do not contend — each run owns its folder and
+   its probe namespace. What still serializes briefly is the store-side
+   projection lock the approve route takes, which queues rather than fails.
 
 ## Step 2 — Deterministic suite
 
@@ -119,17 +121,20 @@ seeds and cleans its own rows, makes no LLM call, and does not touch the run
 folder or `deterministic-report.yaml` — expect it in the test output, not as
 a surprise.
 
-**One check in this pass mutates state — deliberately, and only there.**
-Check 2.11 approves each subject's `extracted` artifacts through the public
+**One check in this pass mutates state — deliberately, and only what the run
+owns (story 11.3).** Check 2.11 never approves a subject's `extracted`
+artifacts: it asserts subject membership read-only, then measures the
+approve→project transition on one probe artifact the run mints onto an
+eligible projected subject moment, approves through the public
 `POST /moments/{id}/approve` (the harness's one sanctioned mutation, AD-16),
-and only after re-reading the meeting's `corpus: scripted` tag from Postgres
-— a non-scripted meeting is a named refusal with no api call. Approval is
-one-way (no unpublish), so this run consumes the subject's `extracted`
-artifacts: the **next** run finds nothing to approve and records 2.11's gate
-half as a blocking not-applicable naming the state distribution. A full gate
-measurement needs an unconsumed `extracted` artifact — i.e. a fresh
-extraction over the subject, not merely a rerun. That is inherent to
-verifying a one-way gate against a shared corpus (eval-design §2.11a).
+and erases with per-target verification — the Postgres row, the publish-root
+export, the Meilisearch document, the Neo4j node. The probe is minted only
+after re-reading the meeting's `corpus: scripted` tag from Postgres — a
+non-scripted meeting is a named refusal with no store handle and no row —
+and its title carries the run id, so a row stranded by a killed process
+names the run that owes its erasure (delete it, its search document, its
+graph node and its export file by that artifact id). Reruns keep their gate
+half: nothing is consumed.
 
 `<label>` is a short slug for what this run is (e.g. `pre-demo`,
 `capture-fix`). Both `--run-label` and `--run-id` must start with a letter or
@@ -205,15 +210,16 @@ The seven checks every completed run must report per subject:
 | `2.3 view classification` | accuracy reported | reported only |
 | `2.4 dedup quality` | pairs strictly above 0.9 similarity listed | reported only |
 | `2.10 doc-index search recall` | recall@5 = 1.0 on planted phrases, unfiltered public `GET /search` | fails the run |
-| `2.11 publish-gate projection` | non-`published` in neither store; `published` in both, citing its moment | fails the run |
+| `2.11 publish-gate projection` | subjects read-only (non-`published` in neither store; `published` in both, citing its moment); the gate transition on a run-owned probe, erased afterward | fails the run |
 | `ground-truth duration agreement` | ±1.0 minute vs the probed recording | fails the run |
 
 A subject missing any of the seven fails the run on completeness. 2.10 records
 each phrase's rank, the `ranking` mode (`hybrid`, or `keyword` when the
 embedder was down — recorded, never itself a failure) and `indexMissing`;
-2.11 records every artifact's pre- and post-approval membership per store and
-the approve outcome (a refusal carries its problem slug, e.g.
-`nothing-to-approve`).
+2.11 records every subject artifact's membership per store, and the probe's
+whole sequence: pre/post membership, the approve outcome (a refusal carries
+its problem slug; a concurrent run's win is named as the race it is), the
+foreign response rows it set aside, and the cleanup verdict per target.
 
 What to do with check 2.3's number: view-classification accuracy is a tracked
 metric, not a gate and not a worksheet. Read it each run; a notable drop from
@@ -259,13 +265,11 @@ report's own signatures:
 - A **pre-approval `GATE VIOLATION` on check 2.11** — an unpublished artifact
   present in a retrieval store — is the headline pipeline bug: something
   projected past the publish gate (AD-4). It is never a script error.
-- A **post-approval absence on check 2.11** is a pipeline finding with two
-  readings, and the report line says which to reach for first: **until story
-  4-4 lands** nothing wires projection-on-publish, so this failure is the
-  expected state — the check defending a contract with no implementation yet;
-  record it, never weaken or green it. **After 4-4 lands**, the same line is
-  a regression of projection-on-publish. A citation-resolution failure
-  (present but not citing the source moment) triages the same way.
+- A **post-approval absence on check 2.11** — the probe (or an already
+  `published` subject row) missing from a store — is a regression of
+  projection-on-publish (story 4-4, landed): the approve route must land the
+  artifact in both stores. A citation-resolution failure (present but not
+  citing the source moment) triages the same way.
 
 **2. Ground-truth script error** — the manifest is wrong, not the pipeline.
 - A `ground-truth duration agreement` failure: the manifest is describing a
@@ -281,13 +285,14 @@ report's own signatures:
 nothing for the entry: an unmatched entry in 2.1's `detail` with a low best
 score and no script-error signature.
 
-One 2.11 line belongs to none of the three classes: **"nothing left to
-approve"**, naming the artifact state distribution, is the one-way lifecycle
-consumed — a previous run (or a human in the app) already approved the
-subject's `extracted` artifacts, so the gate half could not be measured this
-run. It still fails the run (a blocking not-applicable is never a pass); the
-remedy is a fresh extraction over the subject before the rerun, not a code or
-script fix.
+Two 2.11 lines belong to none of the three classes. A **probe refusal** —
+every moment holds an unconsumed `extracted` row, the `extract` stage is not
+settled, the meeting was never projected, or there are no moments — is the
+gate half unmeasured, still failing the run (a blocking not-applicable is
+never a pass); each names its remedy in the line. A **cleanup leftover**
+names the exact ids still standing and where: the run owes an erasure —
+remove the named row, document, node or file by that artifact id and rerun
+under a new run id.
 
 **What to do with each class:**
 
@@ -546,12 +551,12 @@ git push
 
 Anything you want to change after this point is a new run.
 
-**End state of the environment.** The exclusive hold on the shared Docker
-stores ended when `make evals-run` exited — steps 3 through 7 (triage, human
-judging, verdict, archive) read files and the app, holding nothing. The stack
-may stay up for the next task or come down with `make down`, which stops the
-web app, worker, api and the store containers; nothing about a recorded run
-depends on either choice.
+**End state of the environment.** `make evals-run` held nothing exclusive
+(story 11.3): it read the stores, and its probe namespace was erased before
+it exited — steps 3 through 7 (triage, human judging, verdict, archive) read
+files and the app, holding nothing either. The stack may stay up for the next
+task or come down with `make down`, which stops the web app, worker, api and
+the store containers; nothing about a recorded run depends on either choice.
 
 ## Step 8 — Rerun rule
 
