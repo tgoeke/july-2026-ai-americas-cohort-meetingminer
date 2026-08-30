@@ -85,3 +85,11 @@ Review of the Story 6.2 YouTube Acquisition Command implementation, limited to t
 - **Finding:** `main()` resolves the drops root before `acquire()` classifies the URL. The reused resolver write-probes the root by creating and removing `.staging`, so the user-facing command does perform filesystem writes before the promised offline non-YouTube refusal.
 - **Evidence:** URL parsing first occurs at `acquire()` line 423, after `main()` calls `resolve_drops_root()` at line 519. That resolver calls `staging_root.mkdir(...)` and conditionally `rmdir()`. Tests assert an untouched root only when calling `acquire()` directly, bypassing this CLI ordering.
 - **Suggested direction:** Classify the URL before any write-probing resolver runs, then retain the existing API/root validation ordering for valid YouTube inputs. Add a `main()` regression test that observes no root mutation for an invalid URL.
+
+### F10 — The Make target permits shell-command injection through `URL`
+
+- **Location:** `infra/Makefile:554-557`
+- **Severity:** high
+- **Finding:** `$(URL)` is interpolated directly into double-quoted shell source in both the non-empty guard and Python invocation. A URL containing a double quote followed by shell syntax escapes the argument and executes commands before `video_id_from_url()` can reject it.
+- **Evidence:** `make -n youtube-drop URL='https://www.youtube.com/watch?v=aB3dEfGhIj0"; printf REVIEW_INJECTION; #'` renders both `[ -n "..."; printf REVIEW_INJECTION; #" ]` and `python -m meetingminer.youtube "..."; printf REVIEW_INJECTION; #"`. The documented single quotes protect the caller's shell only; Make removes that boundary when expanding the recipe.
+- **Suggested direction:** Do not place the raw Make variable into shell program text. Pass the value through a channel that preserves it as data (for example, an exported environment value read by the Python wrapper) and add a harmless metacharacter regression proving the recipe cannot execute injected shell syntax.
