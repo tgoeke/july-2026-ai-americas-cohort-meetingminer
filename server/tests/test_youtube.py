@@ -195,6 +195,16 @@ def test_neither_timestamp_is_a_named_refusal_never_a_guess() -> None:
         youtube.started_at_from_info(info)
 
 
+@pytest.mark.parametrize(
+    "release",
+    [float("nan"), float("inf"), 10**30, pytest.param(10**1000, id="huge")],
+)
+def test_invalid_release_timestamp_uses_the_valid_upload_date(release: object) -> None:
+    assert youtube.started_at_from_info(
+        {"release_timestamp": release, "upload_date": "20260812"}
+    ) == ("2026-08-12T00:00:00Z", "day", "upload_date")
+
+
 def test_manual_english_captions_win_over_auto() -> None:
     assert youtube.select_captions(info_fixture("full")) == ("en", "manual")
 
@@ -231,6 +241,37 @@ def test_provenance_extra_carries_the_ac_field_list() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    "field,value,match",
+    [
+        ("channel", "", "channel"),
+        ("duration", None, "duration"),
+        ("format_id", "", "format_id"),
+    ],
+)
+def test_incomplete_downloaded_provenance_is_refused_by_name(
+    field: str, value: object, match: str
+) -> None:
+    info = info_fixture("full")
+    info[field] = value
+    if field == "channel":
+        info.pop("uploader", None)
+    with pytest.raises(youtube.YoutubeError, match=match):
+        youtube.provenance_extra_from_info(info, VALID_ID, "2026.07.04")
+
+
+def test_empty_yt_dlp_version_is_refused_by_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        youtube,
+        "_run",
+        lambda command, **kwargs: subprocess.CompletedProcess(command, 0, "\n", ""),
+    )
+    with pytest.raises(youtube.YoutubeError, match="version"):
+        youtube.yt_dlp_version()
+
+
 # --- the refusal matrix (drops root untouched every time) --------------------
 
 
@@ -254,6 +295,19 @@ def test_a_missing_ffmpeg_is_refused_by_name_before_any_network(
     )
     monkeypatch.setattr(youtube, "_run", _must_not_run("yt-dlp"))
     with pytest.raises(youtube.YoutubeError, match=r"ffmpeg is not on PATH.*brew install"):
+        youtube.acquire(WATCH_URL, **acquire_kwargs(drops_root))
+    assert list(drops_root.iterdir()) == []
+
+
+def test_a_missing_ffprobe_is_refused_before_media_download(
+    drops_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        shutil, "which", lambda name: None if name == "ffprobe" else "/stub/x"
+    )
+    monkeypatch.setattr(youtube, "_run", _must_not_run("yt-dlp"))
+    monkeypatch.setattr(youtube, "download", _must_not_run("download"))
+    with pytest.raises(youtube.YoutubeError, match=r"ffprobe.*brew install ffmpeg"):
         youtube.acquire(WATCH_URL, **acquire_kwargs(drops_root))
     assert list(drops_root.iterdir()) == []
 
@@ -303,6 +357,49 @@ def test_over_the_duration_cap_names_duration_cap_and_config_key(
     assert list(drops_root.iterdir()) == []
 
 
+@pytest.mark.parametrize(
+    "duration",
+    [
+        None,
+        "1830",
+        -1,
+        float("nan"),
+        float("inf"),
+        True,
+        pytest.param(10**1000, id="huge"),
+    ],
+)
+def test_missing_or_invalid_duration_is_refused_before_download(
+    duration: object,
+    drops_root: Path,
+    tools_present: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    info = info_fixture("full")
+    info["duration"] = duration
+    monkeypatch.setattr(youtube, "probe", lambda url: info)
+    monkeypatch.setattr(youtube, "download", _must_not_run("download"))
+    with pytest.raises(youtube.YoutubeError, match="duration"):
+        youtube.acquire(WATCH_URL, **acquire_kwargs(drops_root))
+    assert list(drops_root.iterdir()) == []
+
+
+@pytest.mark.parametrize("metadata_id", [None, "different01"])
+def test_probe_identity_must_match_the_requested_video(
+    metadata_id: object,
+    drops_root: Path,
+    tools_present: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    info = info_fixture("full")
+    info["id"] = metadata_id
+    monkeypatch.setattr(youtube, "probe", lambda url: info)
+    monkeypatch.setattr(youtube, "download", _must_not_run("download"))
+    with pytest.raises(youtube.YoutubeError, match="video id"):
+        youtube.acquire(WATCH_URL, **acquire_kwargs(drops_root))
+    assert list(drops_root.iterdir()) == []
+
+
 def test_neither_timestamp_refuses_before_the_download(
     drops_root: Path, tools_present: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -314,6 +411,45 @@ def test_neither_timestamp_refuses_before_the_download(
     with pytest.raises(youtube.YoutubeError, match="release_timestamp"):
         youtube.acquire(WATCH_URL, **acquire_kwargs(drops_root))
     assert list(drops_root.iterdir()) == []
+
+
+def test_downloaded_metadata_is_revalidated_before_mint(
+    drops_root: Path, tools_present: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    probe_info = info_fixture("full")
+    downloaded = dict(probe_info)
+    downloaded["id"] = "different01"
+    downloaded["duration"] = 999999
+    monkeypatch.setattr(youtube, "probe", lambda url: probe_info)
+    monkeypatch.setattr(youtube, "yt_dlp_version", lambda: "2026.07.04")
+
+    def fake_download(
+        url: str, video_id: str, workdir: Path, captions: tuple[str, str] | None
+    ) -> tuple[Path, Path | None, dict[str, Any]]:
+        return workdir / f"{video_id}.mp4", None, downloaded
+
+    monkeypatch.setattr(youtube, "download", fake_download)
+    monkeypatch.setattr(youtube, "mint", _must_not_run("mint"))
+    with pytest.raises(youtube.YoutubeError, match="video id|duration"):
+        youtube.acquire(WATCH_URL, **acquire_kwargs(drops_root))
+    assert list(drops_root.iterdir()) == []
+
+
+def test_selected_captions_must_materialize_a_vtt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / f"{VALID_ID}.mp4").write_bytes(b"media")
+    (tmp_path / f"{VALID_ID}.info.json").write_text(
+        json.dumps(info_fixture("full")), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        youtube,
+        "_run",
+        lambda command, **kwargs: subprocess.CompletedProcess(command, 0, "", ""),
+    )
+
+    with pytest.raises(youtube.YoutubeError, match="caption.*no VTT"):
+        youtube.download(WATCH_URL, VALID_ID, tmp_path, ("en", "manual"))
 
 
 # --- the exists short-circuit ------------------------------------------------

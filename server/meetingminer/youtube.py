@@ -19,8 +19,8 @@ What it guarantees, and why each one is here:
 
 * **Refuse before writing anything.** Every refusal is a named error with a
   non-zero exit stating the rule and the remediation: a URL that is not a
-  YouTube video, ``yt-dlp`` or ``ffmpeg`` missing from PATH, a private or
-  removed video, no video stream, a duration over
+  YouTube video, ``yt-dlp``, ``ffmpeg``, or ``ffprobe`` missing from PATH, a
+  private or removed video, no video stream, a duration over
   ``acquisition.youtube.max_duration_minutes``, a video carrying neither
   ``release_timestamp`` nor ``upload_date``. All of it is decided at classify
   or probe time — before a byte of media is downloaded.
@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import shutil
 import subprocess
@@ -56,7 +57,7 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from meetingminer.config import ConfigError
 from meetingminer.domain.drops import read_metadata
@@ -81,6 +82,7 @@ PROGRAM = "youtube-drop"
 #: ``check-tools`` — the same rule ``mint-drop`` applies to ffprobe.
 YT_DLP = "yt-dlp"
 FFMPEG = "ffmpeg"
+FFPROBE = "ffprobe"
 
 #: Prefixed so a minted id can never be confused with ``mint-drop``'s
 #: content-derived ``sha256:`` ids or the puller's Stream-URL ids.
@@ -164,16 +166,20 @@ def video_id_from_url(url: str) -> str:
 
 
 def ensure_tools() -> None:
-    """Refuse by name before any network when either tool is missing.
+    """Refuse by name before any network when a required tool is missing.
 
     ``ffmpeg`` is needed twice: yt-dlp merges the video and audio streams with
     it, and ``mint()``'s video check needs the ffprobe it ships with.
     """
-    for tool in (YT_DLP, FFMPEG):
+    for tool, install_name in (
+        (YT_DLP, YT_DLP),
+        (FFMPEG, FFMPEG),
+        (FFPROBE, FFMPEG),
+    ):
         if shutil.which(tool) is None:
             raise YoutubeError(
                 f"{tool} is not on PATH — acquiring a YouTube video needs it."
-                f" Install it with 'brew install {tool}' (checked at run time"
+                f" Install it with 'brew install {install_name}' (checked at run time"
                 " by name; acquisition does not depend on the rest of the"
                 " stack)"
             )
@@ -217,7 +223,13 @@ def yt_dlp_version() -> str:
         raise YoutubeError(
             f"{YT_DLP} --version failed: {classify_probe_failure(completed.stderr)}"
         )
-    return completed.stdout.strip()
+    version = completed.stdout.strip()
+    if not version:
+        raise YoutubeError(
+            f"{YT_DLP} --version returned an empty version — reinstall or upgrade"
+            f" it with 'brew install {YT_DLP}' before acquiring evidence"
+        )
+    return version
 
 
 # --- probe and the refusal matrix -------------------------------------------
@@ -241,6 +253,56 @@ def probe(url: str) -> dict[str, Any]:
     return info
 
 
+def _is_finite_number(value: object) -> TypeGuard[int | float]:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def _duration_seconds(info: dict[str, Any]) -> int | float:
+    duration = info.get("duration")
+    if not _is_finite_number(duration) or duration < 0:
+        raise YoutubeError(
+            "the video duration is missing or invalid — yt-dlp must report a"
+            " finite non-negative number before evidence can be downloaded"
+        )
+    return duration
+
+
+def _channel_from_info(info: dict[str, Any]) -> str:
+    channel = info.get("channel") or info.get("uploader")
+    if not isinstance(channel, str) or not channel.strip():
+        raise YoutubeError(
+            "the video channel is missing or invalid — provenance requires the"
+            " source publisher before evidence can be finalized"
+        )
+    return channel.strip()
+
+
+def _format_id_from_info(info: dict[str, Any]) -> str:
+    format_id = info.get("format_id")
+    if not isinstance(format_id, str) or not format_id.strip():
+        raise YoutubeError(
+            "the downloaded format_id is missing or invalid — provenance must"
+            " identify the format whose bytes were finalized"
+        )
+    return format_id.strip()
+
+
+def _validate_video_identity(info: dict[str, Any], expected_video_id: str) -> None:
+    actual = info.get("id")
+    if not isinstance(actual, str) or actual != expected_video_id:
+        shown = repr(actual) if actual is not None else "missing"
+        raise YoutubeError(
+            f"yt-dlp metadata video id {shown} does not match requested video id"
+            f" {expected_video_id!r} — refusing to mint bytes under the wrong"
+            " source identity"
+        )
+
+
 def refuse_unacceptable(info: dict[str, Any], *, max_duration_minutes: int) -> None:
     """The probe-time refusals: no video stream, over the duration cap."""
     formats = info.get("formats")
@@ -253,18 +315,30 @@ def refuse_unacceptable(info: dict[str, Any], *, max_duration_minutes: int) -> N
             "the video carries no video stream — recording.mp4 must be a"
             " video, and an audio-only publication is not one"
         )
-    duration = info.get("duration")
-    if (
-        isinstance(duration, (int, float))
-        and not isinstance(duration, bool)
-        and duration > max_duration_minutes * 60
-    ):
+    duration = _duration_seconds(info)
+    if duration > max_duration_minutes * 60:
         raise YoutubeError(
             f"the video is {duration / 60:.1f} minutes long — over the"
             f" {max_duration_minutes}-minute cap. Raise"
             f" {MAX_DURATION_CONFIG_KEY} in config.yaml if this video really"
             " belongs in the corpus"
         )
+
+
+def validate_info(
+    info: dict[str, Any],
+    *,
+    expected_video_id: str,
+    max_duration_minutes: int,
+    require_format_id: bool,
+) -> None:
+    """Fail-closed metadata boundary shared by probe and download results."""
+    _validate_video_identity(info, expected_video_id)
+    refuse_unacceptable(info, max_duration_minutes=max_duration_minutes)
+    started_at_from_info(info)
+    _channel_from_info(info)
+    if require_format_id:
+        _format_id_from_info(info)
 
 
 def started_at_from_info(info: dict[str, Any]) -> tuple[str, str, str]:
@@ -277,9 +351,13 @@ def started_at_from_info(info: dict[str, Any]) -> tuple[str, str, str]:
     mtime, and a drop is write-once (AD-1).
     """
     release = info.get("release_timestamp")
-    if isinstance(release, (int, float)) and not isinstance(release, bool):
-        moment = datetime.fromtimestamp(release, tz=timezone.utc)
-        return _iso_second_utc(moment), "second", "release_timestamp"
+    if _is_finite_number(release):
+        try:
+            moment = datetime.fromtimestamp(release, tz=timezone.utc)
+        except (OSError, OverflowError, ValueError):
+            pass
+        else:
+            return _iso_second_utc(moment), "second", "release_timestamp"
     upload = info.get("upload_date")
     if isinstance(upload, str) and re.fullmatch(r"\d{8}", upload):
         try:
@@ -370,7 +448,14 @@ def download(
     transcript: Path | None = None
     if captions is not None:
         candidates = sorted(workdir.glob(f"{video_id}*.vtt"))
-        transcript = candidates[0] if candidates else None
+        if not candidates:
+            language, kind = captions
+            raise YoutubeError(
+                f"yt-dlp selected the {kind} {language!r} caption track but wrote"
+                " no VTT — retry after upgrading yt-dlp; recording-only is allowed"
+                " only when the probe reports no English captions"
+            )
+        transcript = candidates[0]
     return recording, transcript, info
 
 
@@ -383,20 +468,20 @@ def provenance_extra_from_info(
     """The provenance keys the acceptance criteria name, merged over
     ``build_metadata``'s defaults (which is how ``tool`` becomes this
     program's name rather than ``mint-drop``)."""
+    _validate_video_identity(info, video_id)
+    if not isinstance(tool_version, str) or not tool_version.strip():
+        raise YoutubeError(
+            "yt-dlp version is missing or invalid — provenance must record the"
+            " extractor version that produced the evidence"
+        )
     extra: dict[str, Any] = {
         "tool": PROGRAM,
         "url": watch_url(video_id),
-        "ytDlpVersion": tool_version,
+        "ytDlpVersion": tool_version.strip(),
+        "channel": _channel_from_info(info),
+        "durationSeconds": _duration_seconds(info),
+        "formatId": _format_id_from_info(info),
     }
-    channel = info.get("channel") or info.get("uploader")
-    if isinstance(channel, str) and channel.strip():
-        extra["channel"] = channel.strip()
-    duration = info.get("duration")
-    if isinstance(duration, (int, float)) and not isinstance(duration, bool):
-        extra["durationSeconds"] = duration
-    format_id = info.get("format_id")
-    if isinstance(format_id, str) and format_id:
-        extra["formatId"] = format_id
     return extra
 
 
@@ -434,16 +519,24 @@ def acquire(
     ensure_tools()
     canonical = watch_url(video_id)
     info = probe(canonical)
-    refuse_unacceptable(info, max_duration_minutes=max_duration_minutes)
-    # Refused here, before the download costs anything; the downloaded
-    # info.json below is still what the minted metadata reads.
-    started_at_from_info(info)
+    validate_info(
+        info,
+        expected_video_id=video_id,
+        max_duration_minutes=max_duration_minutes,
+        require_format_id=False,
+    )
     captions = select_captions(info)
     tool_version = yt_dlp_version()
     with tempfile.TemporaryDirectory(prefix="youtube-drop-") as tmp:
         workdir = Path(tmp)
         recording, transcript, downloaded = download(
             canonical, video_id, workdir, captions
+        )
+        validate_info(
+            downloaded,
+            expected_video_id=video_id,
+            max_duration_minutes=max_duration_minutes,
+            require_format_id=True,
         )
         supplied = [str(recording)]
         if transcript is not None:
