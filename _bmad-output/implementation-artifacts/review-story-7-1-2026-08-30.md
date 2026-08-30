@@ -66,7 +66,7 @@ The exclusions and pre-recorded deferred items named in the review handoff remai
 - **Finding:** Importing and running locked pyannote 4.0.7 activates its default OpenTelemetry exporter, but the adapter neither disables it nor documents that a nominally in-process diarizer makes this external request. AD-12 permits egress, so this is not an architecture prohibition; it is an implicit operational/privacy behavior introduced by the new engine.
 - **Evidence:** Direct inspection of the installed 4.0.7 wheel shows `pyannote/audio/telemetry/config.yaml` sets `metrics_enabled: true` and targets `https://otel.pyannote.ai/v1/traces`. Its pipeline hooks emit model/pipeline origin, package version, session id, audio duration, and requested speaker-count parameters on initialization/application. The story adds no `PYANNOTE_METRICS_ENABLED` handling, adapter-level telemetry choice, or operator wording.
 - **Suggested direction:** Make the behavior deliberate: either disable pyannote telemetry in the adapter before model initialization, or explicitly document and test the chosen egress policy so upgrades cannot silently change it.
-- **Resolution:** **Open — owner decision required.** Per the owner's remediation instruction, the review lane made no telemetry-policy change. The owner must choose whether to disable this egress or explicitly accept/document it before final approval.
+- **Resolution:** Resolved in `a459433` following the owner's disable ruling in `f17b87a076a5ce679603bd2178047655f197df26`. The regression was written first and failed because its event trace contained model loading without a preceding telemetry call. `_load_pipeline` now calls `set_telemetry_metrics(False)` before `Pipeline.from_pretrained`; the test pins both the call and its ordering, `config.yaml` states the policy beside the engine settings, and the spec change log records the owner decision.
 
 ## Triage
 
@@ -78,7 +78,7 @@ All four configured adversarial layers completed: Blind Hunter, Edge Case Hunter
 | 2. Discoverability is not importability | Blind Hunter + Edge Case Hunter + Acceptance Auditor | Resolved — `567efbf` | The build boundary now validates the precise provider symbol. |
 | 3. Default factory wiring untested | Verification Gap Reviewer + Blind Hunter | Resolved — `0e135e2` | A model-free test pins the exact model/token call and was mutation-proven. |
 | 4. Optional-extra path ungated | Verification Gap Reviewer + Blind Hunter | Resolved — `0a39b59` | The full gate now installs/imports the extra in an isolated environment. |
-| 5. Implicit telemetry policy | Blind Hunter | Open — owner decision | AD-12 permits egress, so disabling versus explicitly accepting/documenting telemetry remains an owner policy choice. |
+| 5. Implicit telemetry policy | Blind Hunter | Resolved — `a459433` | The owner ruled to disable it; construction now turns metrics off before loading the provider pipeline, with ordering regression coverage. |
 
 Dismissed candidates included the four items already recorded in the spec frontmatter (process-environment token threading, the extra-installed `test_stt_adapter.py` failure, stale runbook guidance, and MPS placement); they were confirmed but deliberately not re-reported. The blocked 60-minute measurement is explicitly permitted by the frozen contract while `HF_TOKEN` is absent. Other dismissed candidates were unreachable provider shapes, behavior deliberately fixed by the contract (first-surviving-appearance canonicalization and regular diarization through unchanged `speaker_at` semantics), unsupported timeout requirements, and changes outside Stories 7.2–7.4's excluded scope. The suggestion to remove `DiarizerConfig` defaults was also dismissed because the frozen Story 7.1 task explicitly requires those defaults.
 
@@ -94,11 +94,11 @@ Dismissed candidates included the four items already recorded in the spec frontm
 ### Remediation verification
 
 - Every patch followed a red-green cycle recorded in its finding's Resolution field. Finding 3 was a test-only verification gap, so its red phase used a deliberate uncommitted mutation that removed token forwarding; the new test failed on the empty keyword map before the correct call was restored.
-- `uv run --project server pytest server/tests/test_diarize_pyannote.py server/tests/test_stt_adapter.py -q` in the normal extra-free venv — 55 passed, 1 named skip.
+- `uv run --project server pytest server/tests/test_diarize_pyannote.py server/tests/test_stt_adapter.py -q` in the normal extra-free venv — 56 passed, 1 named skip.
 - `make diarize-extra-test` — passed in an isolated environment after installing 166 locked packages; no model was loaded.
 - `uv run --project server pytest server/tests/test_compose_contract.py -q` — 31 passed.
-- `make test-fast` in the foreground — puller 128 passed; web 291 passed; evals 549 passed; server 1,426 passed, 1 named pyannote skip, 326 deselected.
+- `make test-fast` in the foreground — puller 128 passed; web 291 passed; evals 549 passed; server 1,427 passed, 1 named pyannote skip, 326 deselected.
 
 ## Verdict
 
-**Patch remediation complete; final approval remains held on Finding 5.** All four patch findings are resolved and the requested suites are green. The sole remaining item is the explicit owner decision on pyannote's telemetry policy; no implementation was authorized for that finding. Per the wave instruction, this review branch is pushed but must not be merged to `main` by the reviewer.
+**Approved after remediation.** All five findings are resolved, including the owner-directed telemetry shutdown, and every requested suite is green. The four pre-recorded deferred items and the token-blocked 60-minute measurement remain outside this review's patch scope; none is a newly open review finding. Per the wave instruction, this review branch is pushed but must not be merged to `main` by the reviewer.
