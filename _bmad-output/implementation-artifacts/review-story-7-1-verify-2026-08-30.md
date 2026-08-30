@@ -23,7 +23,7 @@
 - **Severity:** Low
 - **Finding:** Finding 1's regression proves that 1,001 distinct speakers are rejected, but it never proves that the intended maximum of exactly 1,000 speakers succeeds and ends at `SPEAKER_999`. An off-by-one regression can therefore reject a valid placeholder tag while the claimed regression remains green.
 - **Evidence:** Exact mutation `MAX_PLACEHOLDER_SPEAKERS = 1000` → `MAX_PLACEHOLDER_SPEAKERS = 999` left `test_more_than_one_thousand_speakers_fails_before_a_tag_escapes_placeholder_protection` passing (`1 passed`). The production error promises support for “at most 1000,” and `SPEAKER_999` remains inside the downstream three-character placeholder matcher.
-- **Resolution:** **OPEN — remediation in progress.** Add a boundary regression that processes exactly 1,000 surviving labels and pins the final tag as `SPEAKER_999`; demonstrate it red against the `999` mutation and green after restoration.
+- **Resolution:** **RESOLVED.** Added `test_one_thousand_speakers_reaches_the_last_protected_placeholder`, which requires 1,000 turns, final tag `SPEAKER_999`, and placeholder recognition. It failed against the `999` mutation with `DiarizerError: ... more than 999 distinct speakers` and passed after restoring `1000`.
 
 ### V3. The provider-symbol validation branch is untested and accepts unusable objects
 

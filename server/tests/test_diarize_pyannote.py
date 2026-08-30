@@ -411,6 +411,22 @@ def test_more_than_one_thousand_speakers_fails_before_a_tag_escapes_placeholder_
         engine.diarize(tmp_path / "audio.wav")
 
 
+def test_one_thousand_speakers_reaches_the_last_protected_placeholder(
+    tmp_path,
+) -> None:
+    tracks = [
+        (FakeSegment(float(index), float(index) + 0.5), f"t{index}", index)
+        for index in range(1000)
+    ]
+    engine = _engine(FakePipeline(FakeAnnotation(tracks)))
+
+    turns = engine.diarize(tmp_path / "audio.wav")
+
+    assert len(turns) == 1000
+    assert turns[-1].speaker == "SPEAKER_999"
+    assert is_placeholder_label(turns[-1].speaker)
+
+
 # --- the tag contract through the transcribe stage ------------------------
 
 
