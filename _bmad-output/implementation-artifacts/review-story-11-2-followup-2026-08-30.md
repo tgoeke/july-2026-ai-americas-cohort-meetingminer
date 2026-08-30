@@ -36,3 +36,11 @@
 - **Red regression:** `test_linked_worktree_refusal_cannot_be_masked_by_a_process_name_override` failed at `assert message is not None`; the observed guard result was exactly `None` for a copied `meetingminer-other` file masked by `MM_STACK_NAME=meetingminer-probe`.
 - **Resolution:** Fixed on the review branch. The config module now exposes the validated file declarations before process precedence; the session guard compares that source record with the directory while retaining `merged_env` for base-file validation and runtime endpoint precedence.
 - **Green verification:** The red regression, the existing linked-worktree semantics test, and all of `test_config.py` passed: 117 tests.
+
+### Finding 3 — Non-assignment Make syntax bypasses the ownership-record guard
+
+- **Location:** `infra/Makefile:25`
+- **Severity:** high
+- **Finding:** The parse-time guard extracts only assignment-shaped keys, then `-include`s the entire file. Non-assignment directives, Make expansion expressions, and duplicate assignments are invisible to the guard; the Python parser likewise ignores non-assignment lines and overwrites duplicate keys, so the advertised whole-file schema is not actually shared or closed.
+- **Evidence:** Appending `include /tmp/override.mk` or `$(eval ROOT := /elsewhere)` to an otherwise valid `.env.worktree` produces no `WT_ENVFILE_FOREIGN` key, and Make executes it during `-include` before `check-env`. Appending a non-assignment line is skipped by `parse_env_lines`; repeating a canonical key overwrites its first value in the returned dict. Thus a file can contain executable Make syntax while `validate_env_file` and `merged_env` still see only the expected final key set.
+- **Suggested direction:** Before inclusion, parse the file as data with the same strict ownership-record grammar used by both Python readers: only blank/comment lines and one assignment for each canonical key, with no duplicate, directive, expansion, or ignored line. Any syntax error must stop Make at parse time before the file is included.
