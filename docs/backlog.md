@@ -112,6 +112,26 @@ not matter.
 
 ---
 
+### B-34 · Keep `source_deep_link` on moments that also have replay — S
+
+The `moments` stage writes a moment's `source_deep_link` only when the meeting
+has neither a recording nor screenshots, and nulls it on the superseded-row
+update once replay exists (`server/meetingminer/worker/moments.py`, the write
+at ~295-302 and the update at ~385-399). Every YouTube meeting with a recording
+— all of what story 6.2 will mint — therefore carries `sourceDeepLink: null` on
+`MomentDetail`, `SearchHit`, and `CitationModel`, and the secondary link story
+6.6 renders beside replay appears only on the drill-down header, which reads the
+meeting-level field.
+
+**Do:** retain the link beside replay in the stage and on the superseded-row
+update; the web side already renders the field when present and keeps replay
+primary for non-YouTube hosts. The store-backed tests are
+`test_worker_moments.py` and `test_augmentation.py`, which story 11.1 owned
+while 6.6 was in flight — 11.1 has landed, so nothing blocks this now.
+
+**Done when:** a recorded YouTube meeting's moments carry the deep link on all
+three models and the 6.6 secondary link shows on search hits and citations.
+
 ## Robustness and hygiene
 
 ### B-14 · Make the projection-lock timeout test independent — S

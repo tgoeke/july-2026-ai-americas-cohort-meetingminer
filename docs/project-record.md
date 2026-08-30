@@ -246,6 +246,53 @@ bake-off has no minimum-agreement floor.
 
 ---
 
+## Epic 11 — A test loop measured in seconds (in progress: 11.1 landed)
+
+**Delivered**
+
+- A fast set and a full gate. `server/pyproject.toml` defaults every pytest run
+  to `-m 'not slow' --strict-markers`; `slow` marks the tests whose duration
+  something outside the test process sets — the Neo4j/Meilisearch test twins,
+  spawned processes, the projection file lock, timers — each with a `reason=`
+  and its measured cost. `make test-fast` runs `check-client`, the store-free
+  suites, and the fast set against Postgres alone; `make test` passes `-m ""`
+  and runs everything against all three stores.
+- A per-test budget (`server/tests/fast_budget.py`, 2.0s on the call phase
+  only) that fails an unmarked passing test which outgrows the fast set, so the
+  default run cannot regrow silently.
+- Two collection-time rules: a `slow` mark must carry a reason, and an unmarked
+  test may not request the twin-bound fixtures (`projection_stores`,
+  `stores_up`) — checked statically, again at fixture setup, and again when the
+  test is reported, so a `request.getfixturevalue` cannot slip past.
+
+**Know before you change it**
+
+- The split rests on a measurement, not the estimate that preceded it: at
+  `e5510c7` (2026-08-29) the full server run was 1,683 tests in 9m17s, with 471
+  of 527 test-seconds in twelve twin-, process-, lock-, or timer-bound modules.
+  Re-measure with `--durations=25 -m ""` before moving a mark.
+- The slow set is pinned in `server/tests/test_compose_contract.py`
+  (`SLOW_MODULES`, `SLOW_TESTS`), as are `test-fast`'s prerequisites and its
+  one pytest command. Adding a mark, a prerequisite, or a recipe line is an
+  edit of both places.
+- A `slow` module run by path without `-m ""` collects nothing and exits 5 with
+  a hint; an empty expression on the command line replaces the `addopts` one.
+- Plugins are registered through `pytest_plugins` in `server/tests/conftest.py`,
+  so pytest needs a path under `server/tests` or a cwd of `server/`.
+  `REPO_ROOT` lives in `server/tests/repo_paths.py`, not the conftest.
+- Contention is not a reason to mark: a test that is slow only while another
+  suite, a rebuild, or the worker runs is re-run alone before it is marked.
+
+**Left undone, deliberately**
+
+The fast set is ~50s of pytest, not seconds: ~1,000 Postgres-backed api and
+worker tests at 20–50ms each, a fixture cost the marks do not touch (backlog
+residue, filed in the process record). Per-run store isolation for the twins
+(11.2), eval-run namespacing (11.3), and lint/type tooling in the fast loop
+(11.4) are the rest of the epic and have not started.
+
+---
+
 ## Retrieval and evaluation posture
 
 Retrieval is two lanes over one authoritative store. The search and graph stores
