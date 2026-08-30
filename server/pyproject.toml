@@ -87,6 +87,13 @@ prune = "meetingminer.prune.cli:main"
 dev = [
     "pytest>=9.1,<9.2",
     "httpx>=0.28",
+    # Lint and type tooling in the fast loop (story 11.4, backlog B-4). Both
+    # pinned to one minor: the rule set and the error surface move between
+    # minors, and the dated baseline in [tool.ruff.lint] below is only green
+    # against the versions it was measured with. Bumping a pin is a
+    # deliberate act that re-runs the baseline math.
+    "ruff>=0.16.5,<0.17",
+    "mypy>=2.3.1,<2.4",
 ]
 
 [build-system]
@@ -123,3 +130,111 @@ markers = [
 # readiness poll or store task wait. Must be a positive, finite number.
 # Override for one run with `-o mm_fast_test_budget_seconds=<seconds>`.
 mm_fast_test_budget_seconds = "2.0"
+
+# ---------------------------------------------------------------------------
+# Lint (story 11.4, backlog B-4). Ruff's DEFAULT rule selection at the pinned
+# minor — the `<0.17` dev-group pin is what holds the rule set still, so there
+# is no select list here to audit; upgrading the pin re-runs the baseline
+# math. Everything below is a dated baseline measured on main as it stood
+# (2026-08-30 at 0.16.5: `ruff check server --isolated` reported 264
+# violations, 200 file-code pairs across 108 files; this committed config
+# surfaces 30 more, because `requires-python` sets target-version py312 and
+# the isolated default does not reach UP017). Never a source sweep: no
+# existing file was edited to satisfy a rule, and every entry is filed for
+# per-module retirement in _bmad-output/implementation-artifacts/deferred-work.md.
+
+[tool.ruff]
+# Refuse to run under a ruff outside the dev-group pin: a different rule set
+# would turn the dated baseline into noise (new violations) or dead entries.
+required-version = ">=0.16.5,<0.17"
+
+[tool.ruff.lint]
+# Seven mechanical codes carried 162 of the measured pairs. A per-file table
+# that size would drown the meaningful entries below, so these seven are
+# ignored globally and filed as per-module cleanup in deferred-work.md; every
+# other rule is live in every file. Hit counts at measurement:
+ignore = [
+    "I001",    # unsorted or unformatted import block (69 hits)
+    "UP035",   # import from the deprecated typing aliases (50 hits)
+    "PLW1510", # subprocess.run without an explicit `check=` (33 hits)
+    "UP017",   # datetime.timezone.utc for datetime.UTC (30 hits, 11 files;
+               # fires only under this config's py312 target-version)
+    "SIM117",  # nested `with` statements (17 hits)
+    "RUF100",  # unused noqa directive (14 hits)
+    "UP037",   # quoted annotation (12 hits)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# The remaining 49 file-code pairs, verbatim from the same measurement, paths
+# relative to server/. New files get the full rule set; retiring an entry is
+# fixing the file and deleting its line (filed in deferred-work.md).
+"meetingminer/adapters/diarize/__init__.py" = ["RUF022"]
+"meetingminer/adapters/embed/ollama.py" = ["UP041"]
+"meetingminer/api/chat_router.py" = ["RUF022"]
+"meetingminer/api/citations.py" = ["RUF022"]
+"meetingminer/api/status.py" = ["BLE001"]
+"meetingminer/domain/drops.py" = ["B018"]
+"meetingminer/mintdrop.py" = ["B018"]
+"meetingminer/pipeline/extraction.py" = ["FURB167", "FURB188", "SIM102"]
+"meetingminer/pipeline/frameimage.py" = ["RUF023"]
+"meetingminer/pipeline/runner.py" = ["BLE001", "S110"]
+"meetingminer/pipeline/screens.py" = ["RUF023"]
+"meetingminer/pipeline/stages/transcribe.py" = ["F401"]
+"meetingminer/projections/locks.py" = ["SIM115"]
+"meetingminer/projections/traversals.py" = ["TRY004"]
+"meetingminer/prune/cli.py" = ["SIM102"]
+"meetingminer/worker/main.py" = ["F401"]
+"tests/conftest.py" = ["BLE001", "ISC004", "S110"]
+"tests/fast_budget.py" = ["TRY004"]
+"tests/test_api_chat.py" = ["FURB188"]
+"tests/test_api_registry.py" = ["PLR0402"]
+"tests/test_digest.py" = ["F401"]
+"tests/test_drops_root.py" = ["F401"]
+"tests/test_extraction_core.py" = ["SIM102"]
+"tests/test_fast_budget.py" = ["PIE810"]
+"tests/test_frame_image.py" = ["C408"]
+"tests/test_makefile_procs.py" = ["FURB167"]
+"tests/test_mint_drop.py" = ["PYI034", "PYI036"]
+"tests/test_ocr_adapter.py" = ["FLY002"]
+"tests/test_parallel_store_safety.py" = ["PYI034", "S102"]
+"tests/test_projections_chunking.py" = ["RUF007"]
+"tests/test_projections_query.py" = ["F401"]
+"tests/test_projections_rebuild.py" = ["RUF059"]
+"tests/test_projections_single_writer.py" = ["SIM102"]
+"tests/test_projections_traversals.py" = ["PYI034", "PYI036"]
+"tests/test_prune.py" = ["B017", "F401", "RUF059"]
+"tests/test_screens_core.py" = ["C408", "RUF059"]
+"tests/test_screens_with_real_pixels.py" = ["C408"]
+"tests/test_worker_transcripts.py" = ["RUF012"]
+
+[tool.mypy]
+# Typecheck scope (story 11.4): the architecture's decision cores —
+# "Segmentation, classification, identity, chunking, and highlighting are
+# database-free, model-free" (docs/architecture.md:205) — mapped to concrete
+# modules. Encoded as `files` so `make typecheck` and a bare `python -m mypy`
+# run from server/ agree on the scope; widening it is a config edit, pinned
+# by tests/test_lint_contract.py.
+files = [
+    "meetingminer/domain/__init__.py",
+    "meetingminer/domain/drops.py",
+    "meetingminer/domain/jobs.py",
+    "meetingminer/pipeline/alignment.py",
+    "meetingminer/pipeline/extraction.py",
+    "meetingminer/pipeline/moments.py",
+    "meetingminer/pipeline/outputs.py",
+    "meetingminer/pipeline/screens.py",
+    "meetingminer/pipeline/speakers.py",
+    "meetingminer/pipeline/transcripts.py",
+    "meetingminer/projections/chunking.py",
+    "meetingminer/projections/publish_gate.py",
+    "meetingminer/projections/query.py",
+]
+check_untyped_defs = true
+
+# Committed ignore baseline (2026-08-30), the mypy half of the no-sweep rule:
+# jsonschema ships no type information and its stub package is not in the dev
+# group (adding types-jsonschema would exceed the named dev-group edit);
+# domain/drops.py imports it. Retirement filed in deferred-work.md.
+[[tool.mypy.overrides]]
+module = ["jsonschema", "jsonschema.*"]
+ignore_missing_imports = true
