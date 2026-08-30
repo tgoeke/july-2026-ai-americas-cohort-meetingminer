@@ -16,6 +16,7 @@ import os
 import re
 import shlex
 import subprocess
+import sys
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,7 @@ def _worktree_stack() -> Any:
     )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclasses resolve annotations via sys.modules
     spec.loader.exec_module(module)
     return module
 
@@ -188,6 +190,13 @@ def test_diarize_extra_gate_pins_every_pyannote_sensitive_module() -> None:
         f"pinned {list(DIARIZE_EXTRA_TEST_MODULES)}; edit both "
         "DIARIZE_EXTRA_TEST_MODULES and infra/Makefile's gate command"
     )
+
+
+def test_test_db_prune_sweeps_worktree_stacks_too() -> None:
+    """The one prune target does both sweeps: databases, then the stacks whose checkout is gone (story 11.2)."""
+    recipe = _recipe("test-db-prune")
+    assert "PRUNE_TEST_DBS" in recipe
+    assert "worktree_stack.py prune --worktree-root" in recipe
 
 
 def _under_server_tests(word: str) -> bool:

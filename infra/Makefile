@@ -9,10 +9,11 @@ INFRA   := $(ROOT)/infra
 LOGS    := $(ROOT)/.logs
 ENVFILE := $(ROOT)/.env
 # A git worktree's private compose stack (story 11.2): `make worktree` writes
-# .env.worktree beside .env — the compose project name and the seven host
-# ports — and three readers take its KEY=value lines: this include, compose
-# (a second --env-file, which wins over .env) and the config loader. Absent,
-# every default below reproduces the main checkout's stack exactly.
+# .env.worktree beside .env — the compose project name, the seven host ports
+# and the two test-twin URLs, and nothing else (the loader refuses any other
+# key there, and refuses these keys in .env). This include and compose (a
+# second --env-file) read its stack keys; the loader reads it after .env.
+# Absent, every default below reproduces the main checkout's stack exactly.
 WT_ENVFILE := $(ROOT)/.env.worktree
 STACK_VARS := MM_STACK_NAME MM_POSTGRES_PORT MM_NEO4J_HTTP_PORT MM_NEO4J_BOLT_PORT MM_MEILI_PORT MM_NEO4J_TEST_HTTP_PORT MM_NEO4J_TEST_BOLT_PORT MM_MEILI_TEST_PORT
 DEFAULT_MM_STACK_NAME := meetingminer
@@ -51,8 +52,17 @@ PULLER_ARCHIVE ?= $(MM_PULLER_ARCHIVE)
 
 # The second --env-file is present only when the worktree file is; `-p` names
 # the project explicitly so the Makefile, compose and the fallback teardown in
-# `down` can never disagree about which stack this checkout owns.
-COMPOSE := docker compose --env-file $(ENVFILE) $(if $(wildcard $(WT_ENVFILE)),--env-file $(WT_ENVFILE),) -p $(MM_STACK_NAME) -f $(INFRA)/docker-compose.yml
+# `down` can never disagree about which stack this checkout owns. The resolved
+# stack values are passed to compose through the environment as well: compose
+# treats a blank exported variable as unset and would publish the default port
+# while this Makefile and the loader used the file's. --project-directory is
+# the directory compose labels the containers with (worktree_stack.py prunes
+# by it); `worktree` points it at the NEW worktree's infra/ while running this
+# checkout's Makefile and compose file.
+COMPOSE_PROJECT_DIR ?= $(INFRA)
+STACK_ENV := $(foreach v,$(STACK_VARS),$(v)=$($(v)))
+UNSET_STACK_ENV := env $(foreach v,$(STACK_VARS),-u $(v))
+COMPOSE := env $(STACK_ENV) docker compose --env-file $(ENVFILE) $(if $(wildcard $(WT_ENVFILE)),--env-file $(WT_ENVFILE),) -p $(MM_STACK_NAME) -f $(INFRA)/docker-compose.yml --project-directory $(COMPOSE_PROJECT_DIR)
 
 # Host process bind targets, in one place so each launch line, its readiness
 # poll, and the messages we print can never drift apart.
@@ -111,7 +121,7 @@ export COREPACK_ENABLE_DOWNLOAD_PROMPT := 0
         rebuild purge digest backfill-drop-paths mint-drop test-db-prune check-reviews check-tools check-docker check-env check-client check-stores check-dev-stores check-test-stores check-api \
         infra-up start-api start-worker start-web \
         stop-api stop-worker stop-web \
-        worktree worktree-list worktree-remove worktree-prune
+        worktree worktree-list worktree-remove worktree-prune worktree-provision
 
 help:
 	@echo "MeetingMiner targets:"
@@ -161,7 +171,8 @@ help:
 	@echo "  make worktree STORY=<slug> [BASE=main] - isolated checkout + branch + a private Docker stack:"
 	@echo "                     compose project meetingminer-<slug> on its own ports, written to the"
 	@echo "                     worktree's .env.worktree and brought up before the target returns"
-	@echo "  make worktree-list                - show every worktree"
+	@echo "  make worktree-list                - show every worktree, with its stack name and store ports"
+	@echo "  make worktree-provision           - in a linked worktree that has no .env.worktree: write one and start its stack"
 	@echo "  make worktree-remove STORY=<slug> - remove one when its work has landed; tears its stack and volumes down"
 	@echo "  make worktree-prune               - remove every clean worktree already merged into origin/main, with its stack"
 	@echo "                     Each worktree owns its five stores, so server suites and rebuilds in"
@@ -211,7 +222,14 @@ check-docker:
 # moment the operator was not thinking about configuration. Presence only —
 # whether the path is absolute and exists is the loader's gate, which reports
 # it far better than a shell test could.
+# A linked worktree ($(ROOT)/.git is a FILE there; a directory in the main
+# checkout) without its .env.worktree would resolve the main checkout's ports
+# everywhere — the loader, compose, the twins the test session wipes — so it
+# is refused by name here and at the test session's import (conftest.py).
 check-env:
+	@if [ -f "$(ROOT)/.git" ] && [ ! -r "$(ROOT)/.env.worktree" ]; then \
+		echo "error: $(ROOT) is a linked git worktree with no .env.worktree — it would use the main checkout's Docker stack (story 11.2)."; \
+		echo "  Run 'make worktree-provision' here to write the file and start this worktree's own stack."; exit 1; fi
 	@[ -r "$(ENVFILE)" ] || { echo "error: $(ENVFILE) missing or unreadable — run 'make bootstrap' (it copies .env.example)."; exit 1; }
 	@grep -Eq '^[[:space:]]*(export[[:space:]]+)?MM_DROPS_ROOT[[:space:]]*=[[:space:]]*[^[:space:]#]' "$(ENVFILE)" \
 		|| { echo "error: MM_DROPS_ROOT is not set in $(ENVFILE)."; \
@@ -240,13 +258,16 @@ check-client:
 #
 # WT_ROOT hangs off the git common dir rather than $(ROOT), so a worktree's
 # own Makefile places siblings beside the main repo too. Lazy (`=`): only the
-# worktree targets and test-db-prune run git for it.
-WT_ROOT = $(abspath $(shell git -C $(ROOT) rev-parse --path-format=absolute --git-common-dir)/../../meetingminer-wt)
+# worktree targets and test-db-prune run git for it. An empty answer (git
+# older than 2.31 has no --path-format) is an error, never a path under /.
+GIT_COMMON_DIR = $(shell git -C $(ROOT) rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+WT_ROOT = $(if $(GIT_COMMON_DIR),$(abspath $(GIT_COMMON_DIR)/../../meetingminer-wt),$(error 'git -C $(ROOT) rev-parse --path-format=absolute --git-common-dir' printed nothing — git 2.31 or newer is required to place worktrees beside the main repo))
 BASE ?= main
 # A slug names the branch, the directory and the compose project, so it is
-# held to characters none of git, the filesystem or compose rewrites (the
-# same rule infra/worktree_stack.py applies).
-SLUG_RULE := [a-z0-9][a-z0-9._-]*
+# held to characters none of git, the filesystem or compose rewrites or
+# rejects — compose refuses `.` in a project name (the same rule
+# infra/worktree_stack.py applies).
+SLUG_RULE := [a-z0-9][a-z0-9_-]*
 
 # stack_down(name): tear one worktree stack and its volumes down; already
 # gone is a note, Docker being off is a note (test-db-prune sweeps later).
@@ -270,25 +291,49 @@ worktree:
 	@printf '%s' "$(STORY)" | grep -Eq '^$(SLUG_RULE)$$' || { echo "error: STORY must match $(SLUG_RULE) (it names the branch, the directory and the compose project): got '$(STORY)'"; exit 1; }
 	@[ ! -e "$(WT_ROOT)/$(STORY)" ] || { echo "error: $(WT_ROOT)/$(STORY) already exists — 'make worktree-list', or pick another STORY."; exit 1; }
 	@mkdir -p "$(WT_ROOT)"
+	@# A stack of this name left behind by a hand-deleted worktree would be
+	@# attached to rather than replaced: sweep exactly that project first. A
+	@# live owner is an error; with Docker down there is nothing to sweep.
+	@if docker info >/dev/null 2>&1; then python3 $(INFRA)/worktree_stack.py prune --worktree-root "$(WT_ROOT)" --project "meetingminer-$(STORY)" || exit 1; fi
 	@git -C $(ROOT) show-ref --verify --quiet refs/heads/story/$(STORY) \
 		&& git -C $(ROOT) worktree add "$(WT_ROOT)/$(STORY)" story/$(STORY) \
 		|| git -C $(ROOT) worktree add -b story/$(STORY) "$(WT_ROOT)/$(STORY)" $(BASE)
 	@[ -r "$(ENVFILE)" ] && ln -sfn "$$(readlink -f "$(ENVFILE)" 2>/dev/null || echo "$(ENVFILE)")" "$(WT_ROOT)/$(STORY)/.env" \
 		|| echo "note: no readable $(ENVFILE) to link — run 'make bootstrap' in the worktree."
-	@python3 $(INFRA)/worktree_stack.py provision --slug "$(STORY)" --worktree "$(WT_ROOT)/$(STORY)" --worktree-root "$(WT_ROOT)"
+	@python3 $(INFRA)/worktree_stack.py provision --slug "$(STORY)" --worktree "$(WT_ROOT)/$(STORY)" --worktree-root "$(WT_ROOT)" \
+		|| { echo "error: could not write $(WT_ROOT)/$(STORY)/.env.worktree. The worktree exists but has no stack, and check-env and the test session refuse to run there until it does."; \
+		     echo "  Fix the cause above, then: cd $(WT_ROOT)/$(STORY) && make worktree-provision"; exit 1; }
 	@echo ""
 	@echo "worktree ready: $(WT_ROOT)/$(STORY)  (branch story/$(STORY) from $(BASE))"
 	@echo "  cd $(WT_ROOT)/$(STORY) && make bootstrap"
 	@echo "  .env is symlinked from the main checkout; config.yaml came with the branch;"
 	@echo "  .env.worktree (above) names this worktree's private Docker stack. Starting it..."
-	@$(MAKE) --no-print-directory -C "$(WT_ROOT)/$(STORY)/infra" infra-up \
-		|| { echo "error: the stack for $(STORY) did not come up. The worktree and its .env.worktree are in place; start it with:"; \
+	@# THIS checkout's Makefile and compose file bring the new stack up — the
+	@# new worktree may be checked out from a ref older than story 11.2, whose
+	@# infra/ would start the main stack. Its own env files, its own infra/ as
+	@# the project directory, and no inherited stack variables from the shell.
+	@$(UNSET_STACK_ENV) $(MAKE) --no-print-directory -C $(INFRA) infra-up ENVFILE="$(WT_ROOT)/$(STORY)/.env" WT_ENVFILE="$(WT_ROOT)/$(STORY)/.env.worktree" COMPOSE_PROJECT_DIR="$(WT_ROOT)/$(STORY)/infra" \
+		|| { echo "error: the stack for $(STORY) did not come up. The worktree and its .env.worktree are in place; until the stack is up, store-backed tests there skip with named reasons. Start it with:"; \
 		     echo "  cd $(WT_ROOT)/$(STORY) && make infra-up"; exit 1; }
 	@echo "  stack meetingminer-$(STORY) is up. The api (:$(API_PORT)) and web (:$(WEB_PORT)) ports are still"
 	@echo "  fixed, so 'make up' here collides with another checkout's api/web (AGENTS.md)."
 
+# For a linked worktree that has no .env.worktree (provisioning failed after
+# `git worktree add`, or the file was deleted): write THIS checkout's file —
+# the slug is the directory name — and start its stack. The main checkout
+# runs the main stack and is refused.
+worktree-provision:
+	@[ -f "$(ROOT)/.git" ] || { echo "error: $(ROOT) is the main checkout — it runs the main stack (meetingminer); worktree-provision is for a linked worktree ('make worktree STORY=<slug>' creates one with its stack)."; exit 1; }
+	@python3 $(INFRA)/worktree_stack.py provision --slug "$(notdir $(ROOT))" --worktree "$(ROOT)" --worktree-root "$(WT_ROOT)"
+	@$(UNSET_STACK_ENV) $(MAKE) --no-print-directory -C $(INFRA) infra-up
+
 worktree-list:
-	@git -C $(ROOT) worktree list
+	@git -C $(ROOT) worktree list | while read -r path rest; do \
+		f="$$path/.env.worktree"; \
+		if [ -r "$$f" ]; then \
+			echo "$$path $$rest  [$$(sed -n 's/^MM_STACK_NAME=//p' "$$f") postgres:$$(sed -n 's/^MM_POSTGRES_PORT=//p' "$$f") bolt:$$(sed -n 's/^MM_NEO4J_BOLT_PORT=//p' "$$f") meili:$$(sed -n 's/^MM_MEILI_PORT=//p' "$$f")]"; \
+		else echo "$$path $$rest"; fi; \
+	done
 
 # The stack name is read from the worktree's file BEFORE the checkout goes,
 # and torn down only AFTER git has removed it: a dirty tree makes git refuse
@@ -568,11 +613,13 @@ migrate: check-env | infra-up
 # worktree stacks whose checkout directory no longer exists
 # (infra/worktree_stack.py prune: only meetingminer-<slug> projects, never
 # `meetingminer`, and anything whose directory exists is reported as owned).
+# Both sweeps always run; the target fails if either did.
 test-db-prune: check-env | infra-up
 	@echo "pruning leaked, unowned idle meetingminer_test_* databases..."
-	@cd $(ROOT) && $(VENV)/bin/python -c "$$PRUNE_TEST_DBS"
-	@echo "pruning worktree stacks whose checkout is gone..."
-	@python3 $(INFRA)/worktree_stack.py prune --worktree-root "$(WT_ROOT)"
+	@rc=0; cd $(ROOT) && $(VENV)/bin/python -c "$$PRUNE_TEST_DBS" || rc=1; \
+	echo "pruning worktree stacks whose checkout is gone..."; \
+	python3 $(INFRA)/worktree_stack.py prune --worktree-root "$(WT_ROOT)" || rc=1; \
+	exit $$rc
 
 # Four reviews were completed in a session's terminal and never filed; naming
 # the required file in the review prompt did not prevent the fourth. This
