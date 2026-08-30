@@ -882,18 +882,109 @@ class StorePresence:
 class ApproveOutcome:
     """What happened at ``POST /moments/{id}/approve`` — the one mutation.
 
-    ``attempted=False`` means the test layer found nothing in ``extracted``
-    state to approve; the gate half is then unmeasurable (the one-way
-    lifecycle consumed it), which the check records by name rather than
-    passing over. ``detail`` carries the problem slug when the api refused.
+    Since story 11.3 the approval is only ever the run-owned probe's:
+    ``attempted=False`` on a minted probe means the probe layer and the check
+    have diverged, and the check says so rather than passing over it.
+    ``detail`` carries the problem slug when the api refused — or the named
+    race, when a concurrent run's approval published the probe first (the
+    409 resolved by re-reading the probe's own row; the gate was still
+    exercised through the public api, so ``ok`` is ``True`` and the race is
+    on the record).
     """
 
     attempted: bool
     ok: bool = False
     detail: str | None = None
-    #: The artifact ids the approval advanced to ``published``, read off the
-    #: endpoint's own post-call response — the positive half's assert set.
+    #: The run-minted artifact ids the approval advanced to ``published``,
+    #: read off the endpoint's own post-call response after the ownership
+    #: filter — the positive half's assert set.
     published_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class CleanupReport:
+    """What the probe erased on its way out, verified per target.
+
+    Four booleans because the probe lands in four places: the Postgres row
+    the run minted, the Meilisearch document and Neo4j node the api
+    projected for it, and the export file the api wrote under the publish
+    root. Each is ``True`` only when the erasure was *verified* — the target
+    read back absent afterward — never merely attempted. ``problems`` names
+    every leftover with the exact ids and the manual remedy; a leftover is a
+    named failure of the check, loud by design.
+    """
+
+    search_document_removed: bool
+    graph_node_removed: bool
+    export_file_removed: bool
+    postgres_row_removed: bool
+    problems: tuple[str, ...] = ()
+
+    @property
+    def verified(self) -> bool:
+        return (
+            self.search_document_removed
+            and self.graph_node_removed
+            and self.export_file_removed
+            and self.postgres_row_removed
+            and not self.problems
+        )
+
+    def leftovers(self) -> tuple[str, ...]:
+        """The targets whose erasure did not verify, by field name."""
+        return tuple(
+            name
+            for name, removed in (
+                ("search_document_removed", self.search_document_removed),
+                ("graph_node_removed", self.graph_node_removed),
+                ("export_file_removed", self.export_file_removed),
+                ("postgres_row_removed", self.postgres_row_removed),
+            )
+            if not removed
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "search_document_removed": self.search_document_removed,
+            "graph_node_removed": self.graph_node_removed,
+            "export_file_removed": self.export_file_removed,
+            "postgres_row_removed": self.postgres_row_removed,
+            "verified": self.verified,
+            "problems": list(self.problems),
+        }
+
+
+@dataclass(frozen=True)
+class GateProbe:
+    """The run-owned probe artifact: the one mutation sequence 2.11 measures.
+
+    The probe layer (``evals/checks/gate_probe.py``) mints one ``extracted``
+    artifact onto an eligible projected subject moment, reads its membership
+    in both stores, approves it through the public api, reads again, and
+    erases everything it left behind. This record carries that whole
+    sequence into the pure assembly.
+
+    ``problem`` set means the sequence did not complete: either nothing was
+    minted at all (no eligible moment, unprojected meeting, unsettled
+    extract stage — ``artifact_id`` is then ``None``), or a store read
+    failed mid-probe (``artifact_id`` is set, and the cleanup verdict is
+    still enforced). Either way the gate transition went unmeasured, which
+    is a blocking not-applicable — never a pass, and never allowed to
+    soften a violation the reads did establish.
+    """
+
+    artifact_id: str | None = None
+    moment_id: str | None = None
+    pre: Mapping[str, StorePresence] | None = None
+    post: Mapping[str, StorePresence] | None = None
+    approve: ApproveOutcome = ApproveOutcome(attempted=False)
+    cleanup: CleanupReport | None = None
+    problem: str | None = None
+    #: Approve-response rows for artifacts the run did not mint. The route
+    #: returns every artifact under the moment by design, so these are
+    #: recorded in the detail and ignored for ownership asserts — never a
+    #: divergence.
+    foreign_ids: tuple[str, ...] = ()
 
 
 def _membership_of(
@@ -912,6 +1003,11 @@ PUBLISH_GATE_THRESHOLDS: Mapping[str, Any] = {
         f"non-{PUBLISHED_STATE} artifacts appear in neither store;"
         f" {PUBLISHED_STATE} artifacts appear in both"
         f" ({', '.join(PUBLISH_STORES)}) citing their source moment"
+    ),
+    "probe": (
+        "the gate transition is measured on one run-owned probe artifact —"
+        " minted, approved and erased by the run, with cleanup verified;"
+        " subject artifacts are read-only and never approved"
     ),
     "approvable_corpus": SCRIPTED_CORPUS,
 }
@@ -963,186 +1059,258 @@ def publish_gate_refusal(
     )
 
 
+def _probe_sequence_problems(probe: GateProbe) -> list[str]:
+    """Every defect in the probe's minted-approved-asserted sequence.
+
+    Only called for a probe that was minted *and* not interrupted: an
+    interruption already carries its own named diagnosis, and piling the
+    pre/post divergence lines on top of it would bury the cause under its
+    consequences.
+    """
+    problems: list[str] = []
+    artifact_id = str(probe.artifact_id)
+    moment_id = str(probe.moment_id) if probe.moment_id is not None else None
+
+    # The negative half of the measured transition: the freshly minted
+    # `extracted` probe must be in neither store.
+    for store in PUBLISH_STORES:
+        presence = (probe.pre or {}).get(store)
+        if presence is None:
+            problems.append(
+                f"no pre-approval {store} membership was recorded for probe"
+                f" artifact {artifact_id} — the probe layer and the check"
+                " have diverged"
+            )
+        elif presence.present:
+            problems.append(
+                f"GATE VIOLATION: probe artifact {artifact_id} (state"
+                f" {EXTRACTED_STATE!r}) is present in {store} before approval"
+                " — an unpublished artifact reached a retrieval store (AD-4)"
+            )
+
+    # The mutation — the run's own approval, or the named reason it failed.
+    if not probe.approve.attempted:
+        problems.append(
+            f"probe artifact {artifact_id} was minted but no approval was"
+            " attempted — the probe layer and the check have diverged"
+        )
+    elif not probe.approve.ok:
+        problems.append(
+            "approving the probe through the public api failed:"
+            f" {probe.approve.detail or 'no detail recorded'}"
+        )
+    elif artifact_id not in probe.approve.published_ids:
+        problems.append(
+            "the approval reported success but probe artifact"
+            f" {artifact_id} is not among the published rows it returned —"
+            " the approve outcome and the probe have diverged, so the"
+            " positive half verified nothing"
+        )
+    else:
+        # The positive half: the published probe is in both stores, citing
+        # the subject moment it was minted onto.
+        for store in PUBLISH_STORES:
+            presence = (probe.post or {}).get(store)
+            if presence is None:
+                problems.append(
+                    f"no post-approval {store} membership was recorded for"
+                    f" probe artifact {artifact_id} — the probe layer and"
+                    " the check have diverged"
+                )
+            elif not presence.present:
+                problems.append(
+                    f"published probe artifact {artifact_id} is absent from"
+                    f" {store} after approval — projection-on-publish"
+                    " (story 4-4) has regressed: the approve route must land"
+                    " the artifact in both stores"
+                )
+            elif (
+                moment_id is not None
+                and moment_id not in presence.cited_moment_ids
+            ):
+                cited = ", ".join(presence.cited_moment_ids) or "nothing"
+                problems.append(
+                    f"probe artifact {artifact_id} is present in {store} but"
+                    " its citation does not resolve to its source moment"
+                    f" {moment_id} — the store cites {cited}"
+                )
+    return problems
+
+
+def _probe_cleanup_problems(probe: GateProbe) -> list[str]:
+    """The cleanup verdict, enforced for every minted probe — loud always."""
+    artifact_id = str(probe.artifact_id)
+    if probe.cleanup is None:
+        return [
+            f"no cleanup was recorded for probe artifact {artifact_id} — the"
+            " run-minted row and whatever the api projected for it may be"
+            " left behind; remove them by that id"
+        ]
+    problems = list(probe.cleanup.problems)
+    unexplained = [
+        name for name in probe.cleanup.leftovers()
+        if not any(name in problem for problem in problems)
+    ]
+    if unexplained:
+        problems.append(
+            f"probe cleanup left {', '.join(unexplained)} unverified for"
+            f" artifact {artifact_id} with no recorded reason — remove the"
+            " leftover by that id and fix the cleanup reporting"
+        )
+    return problems
+
+
 def publish_gate(
     meeting_id: str,
     artifacts: Sequence[Any],
-    pre_membership: Mapping[str, Mapping[str, StorePresence]],
-    approve_outcome: ApproveOutcome,
-    post_membership: Mapping[str, Mapping[str, StorePresence]],
+    membership: Mapping[str, Mapping[str, StorePresence]],
+    probe: GateProbe,
 ) -> CheckResult:
     """Check 2.11: unpublished absent from both stores; published in both.
 
-    Pure assembly over observations the test layer gathered (discovery via the
-    read-only corpus connection, membership via read-only store reads,
-    approval via the public api). ``artifacts`` items carry ``id``,
-    ``moment_id`` and ``state`` (``corpus.ArtifactRow`` does).
+    Pure assembly over observations the test layer gathered (discovery via
+    the read-only corpus connection, membership via read-only store reads,
+    the probe via ``evals/checks/gate_probe.py``). ``artifacts`` items carry
+    ``id``, ``moment_id`` and ``state`` (``corpus.ArtifactRow`` does).
 
-    The sequence asserted: every non-``published`` artifact absent from both
-    stores before approval → approve → every ``published`` artifact (newly
-    published plus already published) present in both, with citations
-    resolving to its source moment. Any violation fails the run; the
-    pre-approval half is the headline — an unpublished artifact in a store is
-    the SPEC's publish-gate constraint broken.
+    Subject artifacts are asserted **read-only**, one membership read apiece:
+    every non-``published`` row absent from both stores, every ``published``
+    row present in both with its citation resolving. The run never approves
+    a subject row — the shared corpus's ``extracted`` rows survive every run
+    — so an unconsumed extracted row is the expected steady state, not a
+    divergence, and there is no consumed-lifecycle branch any more.
+
+    The gate *transition* is measured on the run-owned probe: minted
+    ``extracted``, absent from both stores, approved through the public api,
+    present in both citing its subject moment, and erased with the cleanup
+    verified. Any violation fails the run; an unpublished artifact in a
+    store — subject or probe — is the headline: the SPEC's publish-gate
+    constraint broken (AD-4).
     """
     thresholds = PUBLISH_GATE_THRESHOLDS
-    if not artifacts:
-        return CheckResult(
-            check=PUBLISH_GATE_PROJECTION,
-            passed=False,
-            applicable=False,
-            thresholds=thresholds,
-            metrics={"artifacts": 0},
-            problems=(
-                (
-                    f"meeting {meeting_id} has no artifacts at all — the"
-                    " extract stage never ran for it, so the publish gate"
-                    " cannot be measured; never a vacuous pass"
-                ),
-            ),
-        )
-
-    by_id = {str(artifact.id): artifact for artifact in artifacts}
     states: dict[str, int] = {}
     for artifact in artifacts:
         states[artifact.state] = states.get(artifact.state, 0) + 1
 
     problems: list[str] = []
 
-    # The negative half: nothing outside `published` is in either store.
+    # The subject halves: one read per artifact, no mutation anywhere.
     for artifact in artifacts:
-        if artifact.state == PUBLISHED_STATE:
-            continue
-        for store, presence in _membership_of(
-            pre_membership, str(artifact.id)
-        ).items():
+        artifact_id = str(artifact.id)
+        moment_id = str(artifact.moment_id)
+        for store, presence in _membership_of(membership, artifact_id).items():
             if presence is None:
                 problems.append(
-                    f"no pre-approval {store} membership was recorded for"
-                    f" artifact {artifact.id} (state {artifact.state!r}) — the"
+                    f"no {store} membership was recorded for artifact"
+                    f" {artifact_id} (state {artifact.state!r}) — the"
                     " observations and the discovery have diverged"
                 )
+            elif artifact.state == PUBLISHED_STATE:
+                if not presence.present:
+                    problems.append(
+                        f"published artifact {artifact_id} is absent from"
+                        f" {store} — projection-on-publish (story 4-4) has"
+                        " regressed: the approve route must land the artifact"
+                        " in both stores"
+                    )
+                elif moment_id not in presence.cited_moment_ids:
+                    cited = ", ".join(presence.cited_moment_ids) or "nothing"
+                    problems.append(
+                        f"artifact {artifact_id} is present in {store} but"
+                        " its citation does not resolve to its source moment"
+                        f" {moment_id} — the store cites {cited}"
+                    )
             elif presence.present:
                 problems.append(
-                    f"GATE VIOLATION: artifact {artifact.id} (state"
-                    f" {artifact.state!r}) is present in {store} before"
-                    " approval — an unpublished artifact reached a retrieval"
-                    " store (AD-4)"
+                    f"GATE VIOLATION: artifact {artifact_id} (state"
+                    f" {artifact.state!r}) is present in {store} — an"
+                    " unpublished artifact reached a retrieval store (AD-4)"
                 )
 
-    # The mutation: `POST /moments/{id}/approve`, or the named reason not.
-    gate_half_unmeasured = False
-    if approve_outcome.attempted:
-        if not approve_outcome.ok:
+    # The probe: the measured gate transition, or the named reason it went
+    # unmeasured. A minted probe's cleanup verdict is enforced either way.
+    probe_measured = False
+    if probe.problem is not None:
+        problems.append(probe.problem)
+    if probe.artifact_id is None:
+        if probe.problem is None:
             problems.append(
-                "approval through the public api failed:"
-                f" {approve_outcome.detail or 'no detail recorded'}"
+                f"the probe for meeting {meeting_id} recorded neither an"
+                " artifact nor a problem — the probe layer and the check"
+                " have diverged"
             )
     else:
-        extracted = sorted(
-            str(a.id) for a in artifacts if a.state == EXTRACTED_STATE
-        )
-        if extracted:
-            problems.append(
-                f"artifacts {', '.join(extracted)} are {EXTRACTED_STATE!r}"
-                " but no approval was attempted — the test layer and the"
-                " check have diverged"
-            )
-        else:
-            gate_half_unmeasured = True
-            distribution = ", ".join(
-                f"{state}: {count}" for state, count in sorted(states.items())
-            )
-            problems.append(
-                f"nothing left to approve for meeting {meeting_id} — artifact"
-                f" states are {{{distribution}}}; the one-way lifecycle"
-                " consumed the extracted rows (an earlier run approved them),"
-                " so the gate half cannot be measured. The positive half is"
-                " still asserted below for every published row."
-            )
+        if probe.problem is None:
+            probe_measured = True
+            problems.extend(_probe_sequence_problems(probe))
+        problems.extend(_probe_cleanup_problems(probe))
 
-    # The positive half: everything published is in both stores, cited.
-    published_ids = sorted(
-        set(approve_outcome.published_ids)
-        | {str(a.id) for a in artifacts if a.state == PUBLISHED_STATE}
-    )
-    if approve_outcome.attempted and approve_outcome.ok and not published_ids:
+    if not artifacts:
         problems.append(
-            "approval reported success but no artifact is published — the"
-            " endpoint 409s when there is nothing to approve and a success"
-            " publishes at least one row, so the approve outcome and the"
-            " discovery have diverged and the positive half verified nothing"
+            f"meeting {meeting_id} has no artifacts at all — the extract"
+            " stage never ran for it, so the subject halves of the publish"
+            " gate have nothing to hold to; never a vacuous pass"
         )
-    for artifact_id in published_ids:
-        artifact = by_id.get(artifact_id)
-        moment_id = str(artifact.moment_id) if artifact is not None else None
-        if artifact is None:
-            problems.append(
-                f"the approval published artifact {artifact_id}, which the"
-                " corpus discovery never saw — the observations and the"
-                " discovery have diverged, and its citation resolution is"
-                " unverified"
+
+    def presence_dicts(
+        recorded: Mapping[str, StorePresence] | None,
+    ) -> dict[str, dict[str, Any] | None]:
+        return {
+            store: (
+                presence.to_dict()
+                if (presence := (recorded or {}).get(store)) is not None
+                else None
             )
-        for store, presence in _membership_of(post_membership, artifact_id).items():
-            if presence is None:
-                problems.append(
-                    f"no post-approval {store} membership was recorded for"
-                    f" published artifact {artifact_id} — the observations and"
-                    " the approval outcome have diverged"
-                )
-            elif not presence.present:
-                problems.append(
-                    f"published artifact {artifact_id} is absent from {store}"
-                    " after approval — projection-on-publish (story 4-4) has"
-                    " regressed: the approve route must land the artifact in"
-                    " both stores"
-                )
-            elif moment_id is not None and moment_id not in presence.cited_moment_ids:
-                cited = ", ".join(presence.cited_moment_ids) or "nothing"
-                problems.append(
-                    f"artifact {artifact_id} is present in {store} but its"
-                    f" citation does not resolve to its source moment"
-                    f" {moment_id} — the store cites {cited}"
-                )
+            for store in PUBLISH_STORES
+        }
 
     detail = tuple(
         {
             "artifact": str(artifact.id),
             "moment": str(artifact.moment_id),
             "state": artifact.state,
-            # "asserted", not "published after approval": this is true for
-            # rows already published before this run's approval too — the set
-            # the positive half holds to both-stores-with-citations.
-            "asserted_published": str(artifact.id) in set(published_ids),
-            "pre": {
-                store: presence.to_dict() if presence is not None else None
-                for store, presence in _membership_of(
-                    pre_membership, str(artifact.id)
-                ).items()
-            },
-            "post": {
-                store: presence.to_dict() if presence is not None else None
-                for store, presence in _membership_of(
-                    post_membership, str(artifact.id)
-                ).items()
-            },
+            "membership": presence_dicts(membership.get(str(artifact.id))),
         }
         for artifact in artifacts
+    ) + (
+        {
+            "probe": True,
+            "artifact": probe.artifact_id,
+            "moment": probe.moment_id,
+            "problem": probe.problem,
+            "approve": {
+                "attempted": probe.approve.attempted,
+                "ok": probe.approve.ok,
+                "detail": probe.approve.detail,
+                "published_ids": list(probe.approve.published_ids),
+            },
+            "foreign_rows": list(probe.foreign_ids),
+            "pre": presence_dicts(probe.pre),
+            "post": presence_dicts(probe.post),
+            "cleanup": (
+                probe.cleanup.to_dict() if probe.cleanup is not None else None
+            ),
+        },
     )
 
     violation_found = any("GATE VIOLATION" in problem for problem in problems)
     return CheckResult(
         check=PUBLISH_GATE_PROJECTION,
         passed=not problems,
-        # `applicable=False` only when the gate half never ran *and* nothing
-        # it did measure was violated: a real violation must read as a
-        # failure, never soften into "could not be measured".
-        applicable=not gate_half_unmeasured or violation_found,
+        # `applicable=False` only when the gate transition went unmeasured
+        # (or there was no subject artifact to hold to the gate at all) *and*
+        # nothing that was measured was violated: a real violation must read
+        # as a failure, never soften into "could not be measured".
+        applicable=(bool(artifacts) and probe_measured) or violation_found,
         thresholds=thresholds,
         metrics={
             "artifacts": len(artifacts),
             "states": states,
-            "approve_attempted": approve_outcome.attempted,
-            "published_asserted": len(published_ids),
+            "probe_minted": probe.artifact_id is not None,
+            "approve_attempted": probe.approve.attempted,
+            "cleanup_verified": (
+                probe.cleanup is not None and probe.cleanup.verified
+            ),
         },
         detail=detail,
         problems=tuple(problems),
