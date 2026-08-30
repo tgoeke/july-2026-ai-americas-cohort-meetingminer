@@ -32,3 +32,11 @@
 - **Finding:** Finding 2's probe checks only that `Pipeline` is non-`None`; it does not require the `from_pretrained` callable the real factory uses. Its new regression covers an exception during module import, not a successfully imported module with an absent or unusable `Pipeline` symbol. Such an installation passes `build_diarizer` and fails only after work reaches the lazy factory.
 - **Evidence:** Exact mutation `return getattr(module, "Pipeline", None) is not None` → `return True` left the discoverable-but-unimportable regression, both broken-`find_spec` cases, and the real-probe test green (`4 passed`). A module exposing `Pipeline = object()` likewise satisfies the current production predicate although `_load_pipeline` cannot call `Pipeline.from_pretrained`.
 - **Resolution:** **OPEN — remediation in progress.** Add a red-first build-boundary regression for a successfully imported provider with no usable `Pipeline.from_pretrained`, then make the probe validate that exact callable.
+
+### V4. Telemetry remediation reopens the late provider-import failure
+
+- **Location:** `server/meetingminer/adapters/diarize/__init__.py:48-60`; `server/meetingminer/adapters/diarize/pyannote.py:36-42`
+- **Severity:** Medium
+- **Finding:** Finding 5 added `pyannote.audio.telemetry.set_telemetry_metrics` as a required runtime symbol, but Finding 2's build-time probe still validates only `pyannote.audio.Pipeline`. If the telemetry module or setter is missing/broken, `build_diarizer` returns an engine and the failure occurs on first `diarize`, after STT work, contradicting the fail-closed build boundary and the report's claim that the exact runtime provider symbol is validated.
+- **Evidence:** `_pyannote_available` imports only `pyannote.audio` and checks only `Pipeline`; `_load_pipeline` later imports `set_telemetry_metrics`. The isolated packaging smoke likewise imports only `pyannote.audio`, while unit tests fabricate a valid telemetry module. A discoverable audio module with a valid `Pipeline.from_pretrained` and an importer that raises for `pyannote.audio.telemetry` therefore passes every build check on the current tree.
+- **Resolution:** **OPEN — remediation in progress.** Add a red-first partial-install regression and extend the build probe to validate the callable telemetry switch required to enforce the owner's disable ruling.
