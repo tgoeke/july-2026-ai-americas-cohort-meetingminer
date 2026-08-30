@@ -38,6 +38,78 @@ Story 6.3 footprint and treats the verbatim Story 6.2 override hunk as context.
 - **Evidence:** A cue whose payload was `Good morning` followed by `Alice: hello` minted as `Good morning Alice | 00:01\nhello`; the never-guess rule requires an unattributed turn containing all of those words.
 - **Suggested direction:** Add a multiline-cue regression test, classify only the cleaned first payload line for a speaker prefix, and append later cleaned payload lines only as speech.
 
+### F4 — Reverse cue timing is silently rewritten
+
+- **Location:** `server/meetingminer/transcripts/dialects.py:340-352`
+- **Severity:** medium
+- **Finding:** A cue whose end precedes its start is accepted and rewritten as a zero-duration cue through `max(end_ms, start_ms)`. This changes source evidence instead of failing closed and named.
+- **Evidence:** `00:00:03.000 --> 00:00:01.000` with `Alice: hello` was accepted, rendered into the trusted text transcript at `00:03`, and emitted into the timing VTT as `00:00:03.000 --> 00:00:03.000`.
+- **Suggested direction:** Add a red regression test and refuse the timing line with its source line number when `end_ms < start_ms`.
+
+### F5 — Unattributed cues are asserted to be one speaker
+
+- **Location:** `server/meetingminer/transcripts/dialects.py:419-430`, `:241-243`
+- **Severity:** medium
+- **Finding:** `zoom_turns()` maps every missing speaker to `Unknown` and then merges adjacent cues on that placeholder equality. Missing attribution is not evidence that two cues have the same speaker. The same implementation also records `Unknown` in provenance `speakerLabels`, presenting a placeholder as a discovered source label.
+- **Evidence:** Two adjacent unprefixed cues after one named cue became one `Unknown` turn (`first unknown second unknown`), reduced `turnCount` from three cues to two turns, and emitted `speakerLabels: ["Alice", "Unknown"]`.
+- **Suggested direction:** Merge only when the current cue carries a real speaker equal to the preceding turn's speaker. Derive `speakerLabels` from non-null cue labels so placeholders never appear as discovered labels.
+
+### F6 — Whole-second legacy stamps can erase a speaker turn's duration
+
+- **Location:** `server/meetingminer/transcripts/dialects.py:434-449`; `server/meetingminer/pipeline/alignment.py:153-170`
+- **Severity:** medium
+- **Finding:** Truncating every legacy start to a whole second gives two speaker changes within one second the same start. The first turn's VTT matching window then ends at that same truncated start, before either real cue begins, so it receives no VTT end and falls back to a zero-duration boundary.
+- **Evidence:** Provided starts representing cues at 1.100s and 1.900s both become 1.000s. `merge_vtt_end_timings()` returned `(None, 2200)`; `resolve_end_times()` consequently bounds the first turn at the following 1.000s start. This is a concrete downstream consequence of the frozen truncation decision.
+- **Suggested direction:** **Open — frozen-spec decision required.** Amend the representation contract to preserve subsecond ordering (or define a deterministic monotonic stamp policy) before changing the converter; the current frozen contract explicitly requires truncation.
+
+### F7 — Original-file provenance can hash different bytes than were converted
+
+- **Location:** `server/meetingminer/transcripts/dialects.py:203-216`
+- **Severity:** medium
+- **Finding:** The source is read once for conversion and reopened later for provenance hashing. If it changes between those reads, the trusted outputs describe the first snapshot while the only durable original-file digest describes the second.
+- **Evidence:** A deterministic reproduction replaced the source after `_read_source()` returned but before `sha256_and_size()`. The output remained `Alice | 00:01\noriginal`, while provenance recorded the replacement bytes' digest rather than the converted snapshot's digest.
+- **Suggested direction:** Read the source bytes once, decode and hash that same in-memory snapshot, and add a regression test that mutates the path after the snapshot while asserting provenance remains tied to the converted bytes.
+
+### F8 — A missing cue separator merges two cues into fabricated speech
+
+- **Location:** `server/meetingminer/transcripts/dialects.py:342-346`
+- **Severity:** high
+- **Finding:** The cue-body loop consumes until a blank line without recognizing that another timing line has started. When the separator is missing, the next cue's timing, speaker, and words become literal speech in the first cue; the second timing is lost.
+- **Evidence:** Two otherwise valid cues without the intervening blank line were accepted as one Alice turn whose text was `first 00:00:03.000 --> 00:00:04.000 Bob: second`; the emitted VTT likewise contained one cue only.
+- **Suggested direction:** Add a red malformed-structure test and refuse a timing line encountered inside a cue body, naming the missing separator and line number.
+
+### F9 — Out-of-order cues enter the trusted transcript unchanged
+
+- **Location:** `server/meetingminer/transcripts/dialects.py:325-370`
+- **Severity:** medium
+- **Finding:** Cue chronology is never checked. The converted text can therefore move from a later start back to an earlier start, while downstream text-turn processing assumes provided order and only the VTT side is sorted.
+- **Evidence:** A 5-second Alice cue followed by a 1-second Bob cue was accepted and rendered in that source order (`Alice | 00:05`, then `Bob | 00:01`).
+- **Suggested direction:** Add a red test and refuse a cue whose start precedes the previous accepted cue's start, naming both the offending line and chronology rule.
+
+### F10 — The claimed WebVTT gate accepts malformed signatures and stamps
+
+- **Location:** `server/meetingminer/transcripts/dialects.py:112-115`, `:317-340`
+- **Severity:** low
+- **Finding:** Header validation accepts any prefix beginning with `WEBVTT`, and the timing regex permits a decimal separator with no fractional digits. Files beginning `WEBVTT-NOT-A-HEADER` and cues stamped `00:00:01.` are normalized and minted despite the converter's stated strictness.
+- **Evidence:** Both malformed inputs were accepted in direct reproductions and produced ordinary trusted transcript files.
+- **Suggested direction:** Require the WebVTT signature token followed only by permitted header text/whitespace, and require at least one fractional digit whenever `.` or `,` is present.
+
+### F11 — A valid no-space speaker delimiter loses attribution
+
+- **Location:** `server/meetingminer/transcripts/dialects.py:119-121`, `:385-398`
+- **Severity:** medium
+- **Finding:** The frozen rule defines the speaker as text before the first colon, but `_PREFIXED` requires whitespace after that colon. `Alice:hello` is therefore demoted to `Unknown`, even though no ambiguity exists about the delimiter.
+- **Evidence:** A reproduction minted `Unknown | 00:01\nAlice:hello` while a later `Bob: kept` cue supplied the one recognized speaker needed to pass the file-level guard.
+- **Suggested direction:** Add a red test and accept zero or more spaces after the first colon while retaining the existing conservative checks on the prefix itself.
+
+### F12 — Conversion write failures escape the named-refusal boundary
+
+- **Location:** `server/meetingminer/transcripts/dialects.py:211-216`; `server/meetingminer/mintdrop.py:1095-1112`
+- **Severity:** medium
+- **Finding:** Writes of the generated transcript files and the later source hash are not wrapped as `DialectError`. A permission failure, full disk, or disappearance race can escape `main()`'s caught taxonomy as an `OSError` traceback instead of the repository's named refusal.
+- **Evidence:** `_read_source()` translates read errors and `mint()` translates copy/read errors, but both `Path.write_text()` calls are direct and `main()` catches only `ConfigError`, `MintError`, and `DialectError`.
+- **Suggested direction:** Add a red CLI-level write-failure test, translate conversion workspace I/O failures to `DialectError` with the affected path, and keep refusal before any drop finalization.
+
 ## Verdict
 
 Pending review and verification.
