@@ -1855,6 +1855,28 @@ def test_a_stack_file_assigning_a_makefile_variable_fails_at_parse_time(tmp_path
     assert "MeetingMiner targets" not in proc.stdout  # nothing ran
 
 
+def test_a_stack_file_make_directive_is_refused_before_include_executes_it(
+    tmp_path: Path,
+) -> None:
+    """A non-assignment line must not disappear from the key extractor and
+    execute as Make syntax before the ownership record is validated."""
+    repo, docker_bin, _argv_log = _throwaway_repo(tmp_path)
+    worktree = _linked_worktree_without_stack(repo, "probe")
+    marker = tmp_path / "included-ran"
+    override = tmp_path / "override.mk"
+    override.write_text(f"SEEN := $$(shell touch {marker})\n", encoding="utf-8")
+    (worktree / ".env.worktree").write_text(
+        good_stack_text("probe") + f"include {override}\n", encoding="utf-8"
+    )
+
+    proc = _make_at(worktree, docker_bin, ["help"])
+    output = proc.stdout + proc.stderr
+    assert proc.returncode != 0, output
+    assert "invalid line" in output
+    assert not marker.exists()
+    assert "MeetingMiner targets" not in proc.stdout
+
+
 # --- remediation 2026-08-30: one start path, safe for old refs and retries --
 
 import shutil  # noqa: E402

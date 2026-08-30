@@ -522,6 +522,8 @@ BAD_STACK_FILES: list[tuple[str, list[str], str, bool]] = [
     ("incoherent-neo4j-twin", _replaced(_GOOD, "MM_TEST_NEO4J_URI", "bolt://localhost:9999"), "MM_TEST_NEO4J_URI", True),
     ("incoherent-meili-twin", _replaced(_GOOD, "MM_TEST_MEILI_URL", "http://localhost:9999"), "MM_TEST_MEILI_URL", True),
     ("foreign-key", [*_GOOD, "POSTGRES_PASSWORD=x"], "POSTGRES_PASSWORD", True),
+    ("make-directive", [*_GOOD, "include /tmp/override.mk"], "invalid line", True),
+    ("duplicate-key", [*_GOOD, "MM_STACK_NAME=meetingminer-victim"], "MM_STACK_NAME", True),
     ("blank-value", _replaced(_GOOD, "MM_MEILI_PORT", ""), "MM_MEILI_PORT", True),
 ]
 BAD_STACK_IDS = [case for case, _lines, _key, _loader in BAD_STACK_FILES]
