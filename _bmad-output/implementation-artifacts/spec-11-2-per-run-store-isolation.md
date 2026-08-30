@@ -247,6 +247,19 @@ The 11-2 worktree's `.env.worktree` predates `MM_STACK_ID`, so after Theme 1 lan
 
 ## Review Triage Log
 
+### 2026-08-30 — Follow-up review remediation round
+- intent_gap: 0
+- bad_spec: 0
+- patch: 10: (high 4, medium 3, low 3)
+- defer: 0
+- reject: 0
+- Every finding of the follow-up review (`review-story-11-2-2026-08-30.md`) was
+  triaged `patch`: none had a specification root cause, so the intent-contract
+  is unchanged. All ten are closed red-then-green in
+  `ebbcd6c..e331fb6` and checked off under `### Review Findings`; the per-finding
+  red evidence is in `## Auto Run Result`. A second follow-up review is dispatched
+  by `review-prompt-story-11-2-followup-2026-08-30.md`.
+
 ### 2026-08-30 — Review pass
 - intent_gap: 0
 - bad_spec: 0
@@ -328,7 +341,7 @@ exactly how `claim` recognises a stale incarnation. Probe removed with
 
 **Remediation notes.** (1) `../meetingminer-wt/11-2-review`'s stack is still an id-less incarnation; its owner's next `make infra-up` there will run `claim`, tear it down and recreate it fresh — the same one-time migration every pre-remediation worktree stack gets (decision (i)). (2) The main checkout's containers will be recreated once by the new label at its next `up`; its corpus volumes are never touched (proven on the throwaway label probe above). (3) The main checkout keeps running label-less containers until then — `claim` never runs there (no stack file), so nothing tears it down. (4) `git worktree move` is now refused by every guard (stack name must equal `meetingminer-<directory name>`); documented in AGENTS.md. (5) `worktree-start STORY=<slug>` is the retry for every start failure and the only start path; no failure message names a command that would run a pre-11.2 `infra/Makefile`'s stack logic.
 
-**Status:** done (2026-08-30). Branch `story/11-2` at `fa86b86` in worktree `../meetingminer-wt/11-2`, pushed, `origin/story/11-2` identical (`git rev-list --left-right --count HEAD...@{u}` → `0	0`), `git status --porcelain` empty; 11 commits `b6fac36`..`fa86b86` on base `de0fc08` (= `main`).
+**Round-one record (superseded by the remediation record above; kept for history).** **Status:** done (2026-08-30). Branch `story/11-2` at `fa86b86` in worktree `../meetingminer-wt/11-2`, pushed, `origin/story/11-2` identical (`git rev-list --left-right --count HEAD...@{u}` → `0	0`), `git status --porcelain` empty; 11 commits `b6fac36`..`fa86b86` on base `de0fc08` (= `main`).
 
 **Implemented.** Every worktree owns a private compose stack. `infra/docker-compose.yml` interpolates the project name, the five container names and the seven host ports from `MM_STACK_NAME` / `MM_*_PORT` with today's values as defaults, so the main checkout's stack, names and corpus volumes are unchanged. `make worktree STORY=<slug> [BASE=main]` validates the slug (`[a-z0-9][a-z0-9_-]*`), adds the checkout beside the main repo (`WT_ROOT` from the git common dir, so a worktree can create siblings), links `.env` to the main file, sweeps a stale project of the same name, writes `.env.worktree` (`infra/worktree_stack.py provision`: base `crc32(slug) % 400` in 20000–23999, stepping past bound or sibling-declared ports) and brings the stack up through the invoking checkout's Makefile and compose file with `--project-directory <wt>/infra` — so a worktree cut from a pre-11.2 ref still gets its own stack. `worktree-remove` / `worktree-prune` tear the stack and volumes down after git removes the checkout; `test-db-prune` adds a second sweep (`worktree_stack.py prune`) that removes `meetingminer-<slug>` projects whose checkout directory is gone and reports every owned one; `worktree-list` shows each stack's name and ports; `worktree-provision` writes the file for an existing linked worktree. Three readers take the file: the Makefile (`-include`, precedence env > file > default, values passed to compose explicitly), compose (second `--env-file`, `-p`), and the loader (`merged_env`: `.env`, then `.env.worktree`, then the process env with the blank rule; `MM_POSTGRES_PORT` / `MM_NEO4J_BOLT_PORT` / `MM_MEILI_PORT` replace only the port of the configured endpoints; stack keys only in `.env.worktree`, never in `.env`). The test session reads its twin URLs through the same merged env; a linked worktree without the file is refused by `check-env` and at conftest import. `MM_PROJECTION_LOCK_KEY` names the projection lock file (B-14); unset, the derivation is byte-identical. AD-10 restated in one sentence; AGENTS.md's store section rewritten with the measurements; CLAUDE.md, README, glossary, project-context, `.env.example`, the integrate skill's dispatch note and the backlog (B-14 closed, B-35 filed) follow.
 
