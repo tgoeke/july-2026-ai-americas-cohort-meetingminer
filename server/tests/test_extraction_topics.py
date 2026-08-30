@@ -646,6 +646,41 @@ def test_an_early_exit_rerun_removes_existing_topics_and_mentions(
     assert summary["topic_mentions"] == 0
 
 
+def test_topics_attach_to_moments_with_approved_artifacts(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_extraction_drop: Callable[[str], Any],
+    fake_llm: Callable[..., FakeLlm],
+) -> None:
+    fake_llm(replies=(TOPICS_DOC,))
+    job_id = enqueue(pool, make_extraction_drop("source-approved"), "source-approved")
+    assert runner.run_once(pool, app_config, content_root) is True
+    [meeting] = meetings(pool, job_id)
+    moments = moment_ids(pool, meeting["id"])
+
+    with pool.connection() as conn:
+        updated = conn.execute(
+            "UPDATE artifact SET state = 'approved'"
+            " WHERE meeting_id = %s AND moment_id = %s AND kind = 'adr'",
+            (meeting["id"], moments[0]),
+        ).rowcount
+    assert updated == 1
+
+    document = (
+        "## Topics\n\n"
+        "| ID | Topic | Gist | Timestamps |\n"
+        "|----|-------|------|------------|\n"
+        "| T1 | Vendor feed transport | Still navigable after approval | [0:10] |\n"
+    )
+    fake_llm(replies=(document,))
+    requeue_extract(pool, job_id)
+    assert runner.run_once(pool, app_config, content_root) is True
+
+    [topic] = topic_rows(pool, meeting["id"])
+    assert mention_rows(pool, topic["id"]) == [(moments[0], 10_000)]
+
+
 def test_superseded_mentions_are_skipped_and_an_unmentioned_topic_dropped(
     pool: ConnectionPool,
     app_config: AppConfig,
