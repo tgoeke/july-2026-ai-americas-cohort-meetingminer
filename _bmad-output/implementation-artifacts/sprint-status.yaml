@@ -99,7 +99,7 @@ development_status:
   6-1-ux-design-spec-for-the-new-flows: done
   6-2-youtube-acquisition-command: done
   6-2a-playlist-acquisition: backlog
-  6-3-local-files-acquisition-with-transcript-dialect-conversion: backlog
+  6-3-local-files-acquisition-with-transcript-dialect-conversion: review
   6-4-acquisition-launch-surface: backlog
   6-4a-upload-sessions: backlog
   6-5-add-meeting-ui: backlog

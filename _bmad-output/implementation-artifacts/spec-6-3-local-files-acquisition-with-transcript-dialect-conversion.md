@@ -2,7 +2,7 @@
 title: 'Story 6.3: Local-Files Acquisition with Transcript Dialect Conversion'
 type: 'feature'
 created: '2026-08-30'
-status: 'draft'
+status: 'review'
 baseline_revision: 'd72c658'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -10,7 +10,26 @@ context:
   - '{project-root}/_bmad-output/implementation-artifacts/build-prompt-story-6-3-2026-08-30.md'
   - '{project-root}/_bmad-output/implementation-artifacts/wave-2026-08-30-rules.md'
   - '{project-root}/.claude/skills/integrate/conflict-playbook.md'
-deferred: []
+deferred:
+  - summary: >-
+      A cue prefix containing `.`, `?` or `!` is not read as a speaker, so a
+      name written `Dr. Alice Chen` becomes an `Unknown` turn. The rule is
+      deliberate — the alternative reads `Right. So:` as a person — but a
+      roster-aware second pass (accept a rejected prefix that normalizes onto
+      a name the same file already established) would recover it without
+      guessing. Out of scope here: it needs the drop's participant graph,
+      which mint-drop does not read.
+    location: 'server/meetingminer/transcripts/dialects.py:_is_speaker_name'
+    severity: low
+  - summary: >-
+      Turn merging is "consecutive cues by the same speaker", with no gap
+      bound, so a speaker whose cues straddle a long silence with nobody else
+      speaking becomes one turn. `align` caps the derived end at
+      `pipeline.align.max_segment_ms`, so the effect is confined to turn
+      granularity, and a gap threshold would be a new tunable in `config.yaml`
+      — outside this story's footprint.
+    location: 'server/meetingminer/transcripts/dialects.py:zoom_turns'
+    severity: low
 ---
 
 <intent-contract>
@@ -197,3 +216,82 @@ the key is absent.
   Zoom names, and the same roster resolves the same people written Teams-style.
 - `make test-fast`, then `make test` once before `review`.
 - `python3 _bmad/scripts/branch_conflicts.py --against story/6-3`.
+
+## Result
+
+Landed on `story/6-3`:
+
+| SHA | What |
+|---|---|
+| `f145c1e` | this spec, and the story 6.2 `mint()`/`build_metadata()` override hunk taken verbatim |
+| `bb5d031` | `meetingminer/transcripts/` (new), the `--transcript-dialect` CLI, `test_transcript_dialects.py` (35 tests) |
+| `05315d6` | `docs/README.md` — the "Transcript dialects" subsection and one argument-table row |
+
+### Footprint, as actually used
+
+Two regions the build prompt allowed were **not** edited, because nothing
+needed them: `classify_supplied` and `EXTENSION_TO_CANONICAL`. The converted
+files are ordinary `.vtt`/`.txt` paths by the time `mint()` sees them, and the
+"two files map to one canonical name" case is refused earlier and by a better
+name in `dialects._zoom_source` ("the conversion produces `transcript.txt`, and
+a drop holds one of each") than `classify_supplied` could give it while naming
+two workspace paths. Not editing them also keeps `mintdrop.py`'s diff to the
+6.2 hunk plus the CLI, which is what keeps the branch pair clean below.
+
+`server/meetingminer/pipeline/transcripts.py` and `pipeline/stages/align.py`
+are untouched, as the acceptance criteria require. Both are *imported* by the
+converter and by the tests — `parse_timestamp` so this repository has one
+answer to what `00:01:02.500` means, `parse_text_transcript` so the converter's
+self-check is the pipeline's own reading rather than a second implementation of
+it, and `speakers.resolve_label` so the roster assertion is the resolver's real
+behaviour.
+
+### The branch pair, and the one named conflict
+
+`python3 _bmad/scripts/branch_conflicts.py --against story/6-3` reports
+`story/6-3 × story/6-2` **clean** — the verbatim hunk did what it was meant to:
+both branches carry the identical change, so there is nothing to resolve.
+
+`story/6-3 × story/6-2-review` reports one conflict, in `mintdrop.py`, and it
+is mechanical. `story/6-2-review` hardened `provenance_extra` after `6-2` was
+cut (`_validate_provenance_extra`, refusing the mint-owned keys `title`,
+`mintedAt`, `suppliedBy`, `startedAtSource`, `files`); its merge base with this
+branch predates the block entirely, so both sides read as "added the same
+region". **Resolution: take `story/6-2-review`'s side of that block whole.** It
+is a strict superset of the block this branch carries, this branch adds no
+other line inside it, and `transcriptDialect` is not a mint-owned key.
+
+That resolution was executed and tested rather than asserted: resolving the
+conflict that way and running `test_transcript_dialects.py` plus the whole of
+`test_mint_drop.py` against the result gives **103 passed**.
+
+The other pairs this run reported (`11-2-review`, `11-4-review`, `7-1` on
+`sprint-notes.md`) conflict with `main` as well, so they are inherited, not
+introduced here.
+
+### Verification actually run
+
+- `uv run --project server pytest server/tests/test_transcript_dialects.py -q`
+  — **35 passed** in 0.21s (every test store-free and inside the fast budget).
+- **A 14-mutation matrix** over the converter and the CLI wiring, each mutation
+  applied to the implementation and the suite re-run: turns never merge, any
+  prefix is a speaker, self-verification disabled, the emitted `.vtt` keeps the
+  speaker prefix, no hour field in the block stamp, `teams-vtt` records
+  nothing, `plain` infers zoom from content, a malformed cue timing is skipped
+  rather than refused, a supplied `.txt` is allowed beside the conversion,
+  `mint()` is not given the dialect provenance, the stamp rounds instead of
+  truncating, a speaker-less export declared `zoom` is accepted, a cue with no
+  words is kept, the converted files are never handed to `mint()`. **Every
+  mutation was killed**, each by the test that names the rule.
+- `make test-fast` — one failure, `test_frame_image.py::
+  test_an_unreadable_frame_raises_a_named_error`, on the fast-set *budget*
+  (2.91s against 2.00s) in a module this story does not touch. Re-run alone it
+  takes 0.01s, so it is the contention the budget message itself tells you to
+  check for, from the other lanes' suites on the shared stack. It did not recur
+  in the full gate.
+- `make test` — **1762 passed** in 9m22s, plus the web build.
+- `python3 _bmad/scripts/branch_conflicts.py --against story/6-3` — as above.
+
+Not run: `make evals-run` (paid), the shared api and worker (never started), any
+model call. No test posts to an api; the two mint-through-the-CLI tests pass
+`--no-post` and install a fixture that fails the test if any HTTP call is made.
