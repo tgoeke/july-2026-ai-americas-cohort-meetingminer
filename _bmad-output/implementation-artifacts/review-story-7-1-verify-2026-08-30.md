@@ -55,7 +55,7 @@
 - **Severity:** High
 - **Finding:** Story 7.1's optional-extra gate imported `pyannote.audio` but did not run the test modules whose behavior changes when that extra is available. The STT adapter's structural `Binding` predates `token_env`; the worker test assumes every pyannote failure says “not bundled,” although an installed extra correctly advances to the missing-token error. Both defects stay hidden in the supported extra-free lane. A new pyannote-sensitive module could also escape the gate silently because no exact module inventory existed.
 - **Evidence:** Before fixing either test, the widened target ran `test_diarize_pyannote.py`, `test_stt_adapter.py`, and `test_worker_transcripts.py` under `--extra diarize` and failed on the reported `AttributeError`, the stale worker error assertion, and the real provider probe exceeding the ordinary 2-second fast budget (16.01 seconds in the fresh isolated environment). The gate contract was itself red before the Makefile changed, and the two-way source inventory already discovered exactly those three modules.
-- **Resolution:** **RESOLVED — `0b3be4f`.** The widened target owns `check-tools` and `infra-up`, runs the exact three-module inventory under `--locked --isolated --extra diarize`, and uses a target-local 60-second budget for the measured cold import. The STT `Binding` now supplies `token_env`; both affected assertions clear a test-only token variable and accept only the valid missing-extra or missing-token fail-closed reason. Installed-extra passed `90`; locked isolated extra-free passed `89` with the one named provider skip. The adapter was not weakened.
+- **Resolution:** **RESOLVED — `9e3d464`.** The widened target owns `check-tools` and `infra-up`, runs the exact three-module inventory under `--locked --isolated --extra diarize`, and uses a target-local 60-second budget for the measured cold import. The STT `Binding` now supplies `token_env`; both affected assertions clear a test-only token variable and accept only the valid missing-extra or missing-token fail-closed reason. Installed-extra passed `90`; locked isolated extra-free passed `89` with the one named provider skip. The adapter was not weakened.
 
 ### V7. The landed lint gate rejects the diarizer remediation
 
@@ -63,7 +63,7 @@
 - **Severity:** Medium
 - **Finding:** After Story 11-4 landed during this review, its new `lint` prerequisite made `make test-fast` reject the remediated diarizer. The availability probe deliberately catches arbitrary provider-import failures but lacks the required documented `BLE001` exception; turn conversion also wraps integer-returning `round(...)` calls in redundant `int(...)` casts.
 - **Evidence:** On the branch rebased onto `origin/main` at `33263f4`, foreground `make test-fast` stopped in `ruff check` with exactly one `BLE001` at `__init__.py:59` and two `RUF046` violations at `pyannote.py:59-60`; no later prerequisite ran.
-- **Resolution:** **OPEN.** Preserve the fail-closed catch boundary with an explicit, justified lint exception; remove the behavior-neutral casts; then prove lint and the full fast gate green.
+- **Resolution:** **RESOLVED — `e78089b`.** The broad catch remains because arbitrary provider/native import failures must become build-time unavailability; its existing rationale now carries the targeted `BLE001` exception. The redundant casts were removed. `make lint` and all 29 diarizer tests passed before the full fast gate.
 
 ### V8. Story 11-4's review-worktree contract is checkout-dependent after landing
 
@@ -71,7 +71,7 @@
 - **Severity:** High
 - **Finding:** The newly landed contract test checks that Story 11-4's frozen review prompt contains the current test checkout's `REPO_ROOT`. That prompt correctly names its dedicated `11-4-review` worktree, so the assertion passes only when the entire repository suite happens to run from that historical worktree and fails from main or every other story worktree.
 - **Evidence:** After V7 made lint and typecheck green, foreground `make test-fast` reached the server suite and failed only `test_review_handoff_uses_a_dedicated_review_worktree`: current root `/Users/devopsterus/current/cohort/meetingminer-wt/7-1-review` was not in the report block, whose correct recorded worktree is `/Users/devopsterus/current/cohort/meetingminer-wt/11-4-review`. Result: `1 failed, 1616 passed, 1 skipped, 326 deselected`.
-- **Resolution:** **OPEN.** Pin the report block to the named `meetingminer-wt/11-4-review` destination instead of the caller's checkout, retaining the existing branch/order assertions.
+- **Resolution:** **RESOLVED — `963adb6`.** The report-block assertion now pins `/meetingminer-wt/11-4-review`, independent of the executing checkout, while retaining the existing branch, command-order, and main-checkout rejection assertions. The focused regression and lint passed, followed by the full fast gate.
 
 ## Mutation Audit
 
@@ -92,7 +92,7 @@ V4 used the actual unfixed cross-fix state rather than a synthetic mutation: a v
 
 ## Scope and Resolution Honesty
 
-- The remediation range changes eight paths. `infra/Makefile` and the pre-existing `server/tests/test_compose_contract.py` exceed the original frozen footprint, but the 2026-08-30 owner ruling accepts both additions and assigns their disjoint proximity conflicts with Stories 11-3 and 11-4 to integrate for union resolution under `211857c`.
+- The remediation range changes eight paths. `infra/Makefile` and the pre-existing `server/tests/test_compose_contract.py` exceed the original frozen footprint, but the 2026-08-30 owner ruling accepts both additions and assigns their disjoint proximity conflicts with Stories 11-3 and 11-4 to integrate for union resolution under `211857c`. The final rebase performed that union and regenerated `server/uv.lock` from the combined dependency declarations. V7 changes only the already-owned diarizer adapter; V8 repairs a checkout-dependent contract that Story 11-4 landed on main while this review was in progress.
 - Findings 1–3 are behaviorally supported after V2–V4 remediation.
 - Finding 4's functional claim and scope are accepted after the V1 owner ruling. Its “locked packages” evidence is now supported by the V5 `--locked` patch.
 - Finding 5 is supported both by the call-order regression and by the real locked provider probe below: telemetry is disabled before `Pipeline.from_pretrained`.
@@ -106,15 +106,16 @@ Blind Hunter, Edge Case Hunter, Verification Gap Reviewer, and Acceptance Audito
 - `uv run --project server pytest server/tests/test_diarize_pyannote.py -q` — `28 passed, 1 skipped` (named extra-free skip).
 - `uv run --project server pytest server/tests/test_stt_adapter.py -q` — `31 passed`.
 - `uv run --project server pytest server/tests/test_compose_contract.py -q` — `31 passed`.
-- `make diarize-extra-test` after V5 — passed after visibly executing `uv run --locked --isolated ...` and installing 166 packages in the disposable environment.
+- `uv lock --check --project server` after the Story 11-4 lock union — passed (`193` packages resolved, no lock change).
+- `make diarize-extra-test` on final `origin/main` — `90 passed` after visibly executing `uv run --locked --isolated ... --extra diarize`; the disposable environment installed 172 packages.
 - V6 installed-extra gate after widening — `90 passed` across `test_diarize_pyannote.py`, `test_stt_adapter.py`, and `test_worker_transcripts.py`; no skips.
 - V6 locked isolated extra-free mirror — `89 passed, 1 skipped`, with the skip naming absent `pyannote.audio`.
-- Full installed-extra server fast suite on current `origin/main` — `1602 passed, 1 skipped, 326 deselected`; the sole skip is the opt-in real-network YouTube test.
+- Final default server fast suite on current `origin/main` — `1617 passed, 1 skipped, 326 deselected`; the sole skip is the opt-in real-network YouTube test.
 - Real-wheel telemetry proof, run with `uv run --locked --isolated --project server --extra diarize`: locked `pyannote.audio==4.0.7` reported endpoint `https://otel.pyannote.ai/v1/traces` and metrics enabled before the adapter call; with only `Pipeline.from_pretrained` mocked to prevent a model/network operation, `_load_pipeline` made the provider's own `is_metrics_enabled()` false before that call. Output: `before=true before_load=false`.
-- `make test-fast` in the foreground after V6 and the current-main rebase — puller `128 passed`; web `294 passed`; evals `549 passed`; server `1602 passed, 1 skipped, 326 deselected`.
+- `make test-fast` in the foreground after V7/V8 — ruff passed; mypy passed across 13 source files; puller `128 passed`; web `294 passed`; evals `643 passed`; server `1617 passed, 1 skipped, 326 deselected`.
 - `make check-reviews` — passed: `every dispatched review has a committed report`.
 - `make evals-run` was not run.
 
 ## Verdict
 
-**Approved after owner ruling and remediation.** V1 is resolved by the dated owner decision to retain the dependency gate and send the disjoint proximity conflict to integrate for union resolution. V5 is resolved red-first with `--locked`; integration blocker V6 is resolved red-first with the pinned installed-extra module lane and dual-configuration proof. V2–V4 remain resolved, every requested suite is green, and no review finding remains open. Integrate must expect and preserve the known `infra/Makefile` and `server/tests/test_compose_contract.py` union with Stories 11-3 and 11-4.
+**Approved after owner ruling and remediation.** V1 is resolved by the dated owner decision to retain the dependency gate; the final rebase completed the known disjoint union with Stories 11-3 and 11-4. V5 is resolved red-first with `--locked`; integration blocker V6 is resolved red-first with the pinned installed-extra module lane and dual-configuration proof. V7 and V8 close the two failures exposed only after Story 11-4's lint/type tooling landed. V2–V4 remain resolved, every requested suite is green, and no review finding remains open.
