@@ -9,7 +9,9 @@ test loads (or could load) a real model.
 from __future__ import annotations
 
 import inspect
+import sys
 from dataclasses import dataclass
+from types import ModuleType
 
 import pytest
 
@@ -21,6 +23,7 @@ from meetingminer.adapters.diarize import (
     PyannoteDiarizer,
     build_diarizer,
 )
+from meetingminer.adapters.diarize.pyannote import _load_pipeline
 from meetingminer.adapters.stt.port import SttResult, SttSegment
 from meetingminer.config import AppConfig
 from meetingminer.pipeline.speakers import is_placeholder_label
@@ -221,6 +224,32 @@ def test_the_pinned_pipeline_api_accepts_token() -> None:
         pyannote_audio.Pipeline.from_pretrained
     ).parameters
     assert "token" in parameters
+
+
+def test_the_default_factory_forwards_the_configured_model_and_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    sentinel = object()
+
+    class StubPipeline:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            calls.append((args, kwargs))
+            return sentinel
+
+    pyannote_package = ModuleType("pyannote")
+    pyannote_package.__path__ = []
+    pyannote_audio = ModuleType("pyannote.audio")
+    pyannote_audio.Pipeline = StubPipeline
+    pyannote_package.audio = pyannote_audio
+    monkeypatch.setitem(sys.modules, "pyannote", pyannote_package)
+    monkeypatch.setitem(sys.modules, "pyannote.audio", pyannote_audio)
+
+    assert _load_pipeline("configured-model", "configured-token") is sentinel
+    assert calls == [
+        (("configured-model",), {"token": "configured-token"}),
+    ]
 
 
 # --- the engine over an injected pipeline ---------------------------------
