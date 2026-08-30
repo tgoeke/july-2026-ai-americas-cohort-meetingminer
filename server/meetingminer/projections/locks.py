@@ -69,7 +69,7 @@ def _lock_key(config: AppConfig) -> str:
         return hashlib.sha256(
             f"{stores.neo4j.uri}|{stores.meilisearch.url}".encode()
         ).hexdigest()[:16]
-    if not _KEY_RE.match(override):
+    if not _KEY_RE.fullmatch(override):
         raise ConfigError(
             f"{KEY_ENV} must match [A-Za-z0-9._-]{{1,64}}, got {override!r}"
         )

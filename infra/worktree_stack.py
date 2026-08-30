@@ -42,7 +42,7 @@ import subprocess
 import sys
 import zlib
 from collections.abc import Callable, Iterable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -385,8 +385,9 @@ def _provision_lock(worktree_root: Path) -> Iterator[None]:
     """The one exclusion for allocation, publication, claiming and pruning:
     ``<worktree_root>/.provision.lock``, held exclusively. A sweep that ran
     against a pre-lock inventory snapshot could tear down a stack a
-    concurrent ``make worktree`` had just created (finding 7)."""
-    worktree_root.mkdir(parents=True, exist_ok=True)
+    concurrent ``make worktree`` had just created (finding 7). The root must
+    already exist — creating it here would make ``prune`` invent a place to
+    put volumes-only projects."""
     with open(worktree_root / LOCK_FILENAME, "a", encoding="utf-8") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
@@ -420,6 +421,7 @@ def provision(
         raise StackError(f"worktree directory does not exist: {worktree}")
     temp_file = worktree / f"{ENV_FILENAME}.tmp-{os.getpid()}"
     try:
+        worktree_root.mkdir(parents=True, exist_ok=True)
         with _provision_lock(worktree_root):
             ports = allocate_ports(slug, taken_ports(worktree_root, exclude=worktree), probe)
             text = render_env(slug, ports, secrets.token_hex(6))
@@ -649,6 +651,7 @@ def claim(
     values = validate_env_file(env_file, worktree.name)
     name = values[STACK_NAME_VAR]
     stack_id = values[STACK_ID_VAR]
+    worktree_root.mkdir(parents=True, exist_ok=True)
     with _provision_lock(worktree_root):
         stacks, _foreign = worktree_stacks(run(PS_ARGV), run(VOLUME_ARGV), worktree_root)
         stack = stacks.get(name)
@@ -695,51 +698,68 @@ def prune(
     With ``project``, only that project is considered, and an existing owner
     or an unknown layout is an error: the caller is about to create a stack
     of that name and must not attach to someone else's.
+
+    Inventory and every teardown run under :func:`_provision_lock`, the same
+    file ``provision`` and ``claim`` hold, so a sweep never interleaves with
+    a concurrent creation (finding 7); and ownership is re-resolved
+    immediately before every ``down -v`` — a directory that appeared after
+    the snapshot always wins.
     """
-    stacks, foreign = worktree_stacks(run(PS_ARGV), run(VOLUME_ARGV), worktree_root)
-    if project is not None:
-        stacks = {name: stack for name, stack in stacks.items() if name == project}
+    # An absent root holds no lock file and no worktrees to interleave with;
+    # taking the lock there would also *create* the root and hand
+    # volumes-only projects a place they never had.
+    guard = _provision_lock(worktree_root) if worktree_root.is_dir() else nullcontext()
+    with guard:
+        stacks, foreign = worktree_stacks(run(PS_ARGV), run(VOLUME_ARGV), worktree_root)
+        if project is not None:
+            stacks = {name: stack for name, stack in stacks.items() if name == project}
+            if not stacks:
+                out(f"no stale stack {project}")
+                return []
+        else:
+            for name in foreign:
+                out(f"skipped foreign {name} (not a meetingminer-<slug> name)")
+        removed: list[str] = []
+        failed: list[str] = []
+        for name in sorted(stacks):
+            stack = stacks[name]
+            owner = stack.present_owner
+            if owner is not None:
+                if project is not None:
+                    raise StackError(
+                        f"stack {name} belongs to the existing checkout {owner} —"
+                        " remove that worktree (make worktree-remove) or pick another STORY"
+                    )
+                out(f"skipped owned {name} ({owner})")
+                continue
+            if stack.unknown:
+                if project is not None:
+                    raise StackError(
+                        f"a compose project named {name} exists with containers or"
+                        " volumes this tool does not recognise — inspect it and"
+                        f" remove it by hand (docker compose -p {name} down -v) first"
+                    )
+                out(f"skipped unknown {name}")
+                continue
+            # Re-resolve immediately before the teardown: the owner directory
+            # may have appeared since the check above.
+            owner = stack.present_owner
+            if owner is not None:
+                out(f"skipped owned {name} ({owner})")
+                continue
+            try:
+                run(["docker", "compose", "-p", name, "down", "-v", "--remove-orphans"])
+            except StackError as exc:
+                failed.append(name)
+                out(f"failed {name}: {exc}")
+                continue
+            out(f"removed stack {name}")
+            removed.append(name)
         if not stacks:
-            out(f"no stale stack {project}")
-            return []
-    else:
-        for name in foreign:
-            out(f"skipped foreign {name} (not a meetingminer-<slug> name)")
-    removed: list[str] = []
-    failed: list[str] = []
-    for name in sorted(stacks):
-        stack = stacks[name]
-        owner = stack.present_owner
-        if owner is not None:
-            if project is not None:
-                raise StackError(
-                    f"stack {name} belongs to the existing checkout {owner} —"
-                    " remove that worktree (make worktree-remove) or pick another STORY"
-                )
-            out(f"skipped owned {name} ({owner})")
-            continue
-        if stack.unknown:
-            if project is not None:
-                raise StackError(
-                    f"a compose project named {name} exists with containers or"
-                    " volumes this tool does not recognise — inspect it and"
-                    f" remove it by hand (docker compose -p {name} down -v) first"
-                )
-            out(f"skipped unknown {name}")
-            continue
-        try:
-            run(["docker", "compose", "-p", name, "down", "-v", "--remove-orphans"])
-        except StackError as exc:
-            failed.append(name)
-            out(f"failed {name}: {exc}")
-            continue
-        out(f"removed stack {name}")
-        removed.append(name)
-    if not stacks:
-        out("no worktree stacks found")
-    if failed:
-        raise StackError(f"{len(failed)} stack(s) could not be removed: {', '.join(failed)}")
-    return removed
+            out("no worktree stacks found")
+        if failed:
+            raise StackError(f"{len(failed)} stack(s) could not be removed: {', '.join(failed)}")
+        return removed
 
 
 # --- CLI -------------------------------------------------------------------
