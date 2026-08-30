@@ -265,9 +265,19 @@ That resolution was executed and tested rather than asserted: resolving the
 conflict that way and running `test_transcript_dialects.py` plus the whole of
 `test_mint_drop.py` against the result gives **103 passed**.
 
-The other pairs this run reported (`11-2-review`, `11-4-review`, `7-1` on
-`sprint-notes.md`) conflict with `main` as well, so they are inherited, not
-introduced here.
+The other two kinds of pair this run reported are not about code:
+
+- `sprint-notes.md` conflicts with every lane that has also written its
+  narrative there (`7-1`, `8-1`, `10-1`, `11-3`, `11-4`). The wave rules put
+  narrative in that file, every lane appends at EOF, and git cannot union two
+  appends after the same last line — so this is inherent to the instruction,
+  not to any lane's edit. The narrowing available was to make the hunk small:
+  this story's entry was trimmed to the decisions and the coupling result,
+  with the detail left here, in the file only this lane owns. Resolution at
+  integrate is "keep both sections".
+- `spec-11-2-per-run-store-isolation.md` (with `11-2-review`) and
+  `review-story-11-4-2026-08-30.md` (with `11-4-review`) conflict with `main`
+  as well, so they are inherited, not introduced here.
 
 ### Verification actually run
 

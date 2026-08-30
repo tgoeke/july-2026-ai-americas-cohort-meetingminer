@@ -161,9 +161,15 @@ rather than two parallel ones (the `seed_meeting()` precedent in
   0.01s when re-run alone, and absent from the full gate. Cross-lane
   contention on the shared stack, as the budget message itself anticipates.
 - `python3 _bmad/scripts/branch_conflicts.py --against story/6-3` — clean
-  against `main`, `story/6-2`, `8-1`, `10-1`, `11-2`, `11-3`, `11-4`; the
-  `6-2-review` pair is the named union above, and the `11-2-review`,
-  `11-4-review` and `7-1` pairs conflict with `main` as well (inherited).
+  against `main`, `story/6-2`, `11-2` and `11-2-followup-review`. Three other
+  kinds of pair, none of them code: the `6-2-review` pair is the named union
+  above; `sprint-notes.md` conflicts with every lane that has also written its
+  narrative there (`7-1`, `8-1`, `10-1`, `11-3`, `11-4`), because the wave
+  rules put narrative in that file and git cannot union two appends after the
+  same last line — this story's entry was trimmed to keep that hunk small;
+  and the `11-2-review` spec and `11-4-review` report pairs conflict with
+  `main` as well (inherited). If you think the sprint-notes collision was
+  avoidable, that is a legitimate finding — say how.
 - Not run: `make evals-run` (paid), the shared api or worker (never started),
   any model call. No test makes an HTTP call — the CLI tests install a fixture
   that fails the test if one is attempted.
