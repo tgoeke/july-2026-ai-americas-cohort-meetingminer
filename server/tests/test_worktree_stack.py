@@ -76,7 +76,10 @@ def test_defaults_reproduce_todays_stack() -> None:
     )
 
 
-@pytest.mark.parametrize("slug", ["Foo_Bar!", "-lead", "UPPER", "a b", "", "x/y", "a.b_c", "v1.2"])
+@pytest.mark.parametrize(
+    "slug",
+    ["Foo_Bar!", "-lead", "UPPER", "a b", "", "x/y", "a.b_c", "v1.2", "probe\n", "probe\r"],
+)
 def test_bad_slug_is_refused_by_name(slug: str) -> None:
     """Compose rejects `.` in a project name, so the rule refuses it too."""
     with pytest.raises(ws.StackError, match=SLUG_RULE_RE):
@@ -169,6 +172,12 @@ def test_rendered_file_round_trips_through_dotenv_and_carries_stack_keys_only(tm
     assert tuple(values) == ws.STACK_KEYS
     # The module's own parser agrees with dotenv on what it wrote.
     assert ws.parse_env_lines(text) == {k: v for k, v in values.items() if v is not None}
+
+
+@pytest.mark.parametrize("stack_id", ["0123456789ab\n", "0123456789ab\r"])
+def test_render_refuses_a_stack_id_with_trailing_control_characters(stack_id: str) -> None:
+    with pytest.raises(ws.StackError, match="MM_STACK_ID"):
+        ws.render_env("probe", ws.ports_for_base(20000), stack_id)
 
 
 def test_provision_writes_once_and_keeps_a_complete_existing_file(tmp_path: Path) -> None:
@@ -731,7 +740,14 @@ def test_declared_owners_counts_only_valid_worktree_stack_names(tmp_path: Path) 
 
 @pytest.mark.parametrize(
     "project",
-    ["meetingminer-Foo", "meetingminer-", "meetingminer-.backup", "meetingminer-UPPER"],
+    [
+        "meetingminer-Foo",
+        "meetingminer-",
+        "meetingminer-.backup",
+        "meetingminer-UPPER",
+        "meetingminer-probe\n",
+        "meetingminer-probe\r",
+    ],
 )
 def test_a_prefix_with_an_invalid_slug_is_not_a_worktree_project(project: str) -> None:
     """Only meetingminer-<valid slug> can be a stack this tool provisioned."""
