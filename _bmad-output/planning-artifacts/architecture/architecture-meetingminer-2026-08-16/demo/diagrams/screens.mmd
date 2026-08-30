@@ -1,0 +1,11 @@
+graph LR
+    rec["recording.mp4"] --> frames["sample a frame<br/>every 2 seconds<br/>(ffmpeg)"]
+    frames --> crop["detect the shared-content<br/>region once per recording —<br/>webcam column cropped out"]
+    crop --> ocr["Apple Vision OCR<br/>per frame — text +<br/>block geometry"]
+    ocr --> ident["screen identity by<br/><b>text similarity</b>,<br/>not pixels"]
+    ident --> shot["best frame kept as<br/>the screenshot"]
+    shot --> mom["cited by moments<br/>as replay evidence"]
+
+    style rec fill:#e8f0f8,stroke:#1e5a8a
+    style ident fill:#1e5a8a,color:#fff,stroke:#0d3a5c
+    style shot fill:#2e7d32,color:#fff,stroke:#1b5e20

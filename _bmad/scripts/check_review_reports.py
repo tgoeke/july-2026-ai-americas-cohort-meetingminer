@@ -13,9 +13,9 @@ instead of stories later.
 Exit 0 when every dispatched review is filed, 1 otherwise, listing what is
 missing. A report that exists but is only on disk (uncommitted) is called out
 separately — an uncommitted report is one crash away from being the next loss.
-A report that is gitignored (the 2026-08-26 reorg made ``_bmad-output``
-local-only) cannot be committed, so for those the check degrades to
-presence-on-disk and says so in one line rather than failing.
+``_bmad-output`` is tracked (owner decision 2026-08-30), so a report is
+expected to be committed; the presence-on-disk degradation below remains only
+for a checkout whose ignore rules differ.
 """
 
 from __future__ import annotations

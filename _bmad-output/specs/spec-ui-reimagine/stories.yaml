@@ -1,0 +1,61 @@
+- id: "1"
+  title: Read-only reveal API
+  description: >-
+    Serve the counts and config the new UI renders: corpus-scale stats,
+    per-meeting roll-ups (poster screenshot, duration, moment/screen/artifact/
+    participant counts), and the allowlist-sanitized config endpoint (CAP-1,
+    CAP-3 backend; constraints "New backend is read-only" and "Secrets never
+    serialize").
+  invoke_dev_with: >-
+    All new endpoints land here, plus the single `make client` regeneration
+    (api must be running; web/src/client is generated+committed, never
+    hand-edited) — stories 2-4 consume the regenerated client and add no
+    endpoints. Config endpoint is an allowlist projection of Settings, never a
+    model dump: a future field is hidden by default. No mutation routes. Do
+    not restart the worker; only the api.
+- id: "2"
+  title: Corpus-revealing home
+  description: >-
+    Replace the bare meeting rows with the CAP-1 dashboard: corpus stats
+    header, meeting evidence cards with poster and counts, corpus
+    filter/recency sort, and search + ask promoted to persistent chrome.
+  invoke_dev_with: >-
+    Reuse the SSE-patched StageProgress and viewable/blockedReason logic from
+    MeetingsList rather than rebuilding it. Density idiom per reference-ui.md:
+    counts in section headers, timestamps everywhere, honest absence notes.
+- id: "3"
+  title: Dense meeting evidence view
+  description: >-
+    Recompose the meeting page to the CAP-2 three-column anatomy from
+    reference-ui.md: header stat line, timestamped screens film-strip, full
+    speaker transcript, right rail of artifacts by kind with moment anchors
+    and publish state, participants, published documents.
+  invoke_dev_with: >-
+    Build on the existing drilldown payload plus the unused
+    listMeetingMoments/artifact data catalogued in current-ui-inventory.md.
+    Render only kinds with backing data — no topics or risks sections. Keep
+    existing moment-view routes working; every element clicks through to its
+    moment or replays in place.
+- id: "4"
+  title: Configuration transparency page
+  description: >-
+    The CAP-3 read-only settings page: LLM roles with prompts, embedder,
+    STT/OCR, capture thresholds, search knobs, store coordinates, each
+    section stating the config.yaml-edit-plus-restart change path.
+  invoke_dev_with: >-
+    UI-only — consume story 1's sanitized endpoint; add no routes of your
+    own. Assert in a test that no known secret-bearing key appears in the
+    endpoint payload.
+- id: "5"
+  title: Demo dry-run gate
+  description: >-
+    CAP-4: run the three-minute demo path — ask, cited answer, open moment,
+    replay — through the new chrome; fix regressions; existing web test
+    suite and make test web build pass.
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Spend authorization: at most 5 live /chat calls (paid openai gpt-5.2
+    role), granted 2026-08-21 for this dry-run only — do not re-run beyond
+    that or restart the worker. Any UI piece not landed by its story falls
+    back to the existing screen; record what fell back in the story report
+    so the morning review sees demo readiness at a glance.

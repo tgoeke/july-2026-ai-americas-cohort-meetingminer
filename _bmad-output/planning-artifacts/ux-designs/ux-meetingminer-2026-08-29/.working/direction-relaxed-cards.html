@@ -1,0 +1,444 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>Relaxed cards — MeetingMiner Moments</title>
+<style>
+/* Direction: "Relaxed cards" — evidence-board reading of the Moments view.
+   All color tokens below are the exact values given in the direction brief
+   (oklch first, sRGB hex second where the brief supplied one); the full
+   swatch + contrast audit for this palette lives at
+   .working/color-system-a-signal.html next to this file — read that first
+   for the base look this direction inherits (dark neutral base, chroma
+   spent only on meaning).
+
+   base:     background oklch(0.15 0.006 60) #0D0B09 · card oklch(0.18 0.03 50) #1C0D06
+             foreground oklch(0.98 0.004 60) #FBF8F6 · muted-foreground oklch(0.71 0.012 60) #A7A09A
+             muted oklch(0.27 0.008 60) #292623 · border rgba(255,255,255,.10)
+             ring oklch(0.70 0.15 250) · primary oklch(0.76 0.158 50) #EBEBEB
+             primary-foreground oklch(0.18 0.03 50)
+   kinds (fill / text / border, L/C pattern 0.28/0.05 · 0.86/0.11 · 0.58/0.10):
+             decision h249 · adr h300 · action-item h96 · story h147
+             requirement h198 · bug-fix h351 · change-request h45
+   states:   running oklch(0.769 0.188 70.08) (pulse) · done/posted oklch(0.596 0.145 163.225)
+             failed oklch(0.586 0.253 17.585) · skipped oklch(0.704 0.04 256.788) (hatched)
+             queued = dashed border only
+             text-running oklch(0.828 0.189 84.429) · text-failed oklch(0.712 0.194 13.428)
+             text-ok oklch(0.765 0.177 163.223)
+   threads:  12 hues 30° apart, oklch(0.72 0.13 h), h = 0,30,60,...,330 — this
+             page uses the first six: retrieval split(0) publish gate(30)
+             speaker naming(60) eval harness(90) YouTube intake(120) config catalog(150)
+   type:     sans = Geist, fallback system-ui · mono = ui-monospace/Menlo
+   radius:   10px cards · 6px chips
+*/
+:root{
+  --background: oklch(0.15 0.006 60);
+  --card: oklch(0.18 0.03 50);
+  --foreground: oklch(0.98 0.004 60);
+  --muted-foreground: oklch(0.71 0.012 60);
+  --muted: oklch(0.27 0.008 60);
+  --border: rgba(255,255,255,0.10);
+  --ring: oklch(0.70 0.15 250);
+  --primary: oklch(0.76 0.158 50);
+  --primary-foreground: oklch(0.18 0.03 50);
+
+  --kind-decision-fill: oklch(0.28 0.05 290);
+  --kind-decision-text: oklch(0.86 0.11 249);
+  --kind-decision-border: oklch(0.58 0.10 249);
+  --kind-adr-fill: oklch(0.28 0.05 290);
+  --kind-adr-text: oklch(0.86 0.11 300);
+  --kind-adr-border: oklch(0.58 0.10 300);
+  --kind-action-item-fill: oklch(0.28 0.05 55);
+  --kind-action-item-text: oklch(0.86 0.0884 55);
+  --kind-action-item-border: oklch(0.58 0.10 96);
+  --kind-story-fill: oklch(0.28 0.0495 190);
+  --kind-story-text: oklch(0.86 0.11 190);
+  --kind-story-border: oklch(0.58 0.10 147);
+  --kind-requirement-fill: oklch(0.28 0.05 198);
+  --kind-requirement-text: oklch(0.86 0.11 190);
+  --kind-requirement-border: oklch(0.58 0.10 198);
+  --kind-bug-fix-fill: oklch(0.28 0.05 345);
+  --kind-bug-fix-text: oklch(0.86 0.11 351);
+  --kind-bug-fix-border: oklch(0.58 0.10 351);
+  --kind-change-request-fill: oklch(0.28 0.05 345);
+  --kind-change-request-text: oklch(0.86 0.11 45);
+  --kind-change-request-border: oklch(0.58 0.10 45);
+
+  --state-running: oklch(0.769 0.188 70.08);
+  --state-done: oklch(0.596 0.145 163.225);
+  --state-failed: oklch(0.586 0.253 17.585);
+  --state-skipped: oklch(0.704 0.04 256.788);
+  --text-running: oklch(0.828 0.189 84.429);
+  --text-failed: oklch(0.712 0.194 13.428);
+  --text-ok: oklch(0.765 0.177 163.223);
+
+  --thread-retrieval-split: oklch(0.75 0.12 0);
+  --thread-publish-gate: oklch(0.75 0.12 45);
+  --thread-speaker-naming: oklch(0.75 0.12 90);
+  --thread-eval-harness: oklch(0.75 0.12 135);
+  --thread-youtube-intake: oklch(0.75 0.12 180);
+  --thread-config-catalog: oklch(0.75 0.12 225);
+
+  --radius-card: 10px;
+  --radius-chip: 6px;
+  --font-sans: Geist, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--background);color:var(--foreground);font:14px/1.5 var(--font-sans);}
+.mono{font-family:var(--font-mono)}
+.page{max-width:1500px;margin:0 auto;padding:28px 24px 64px}
+
+.rationale{max-width:920px;margin:0 0 24px;color:var(--muted-foreground);font-size:13.5px;line-height:1.6}
+.rationale b{color:var(--foreground);font-weight:600}
+
+.browserframe{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--background);box-shadow:0 30px 80px rgba(0,0,0,.5)}
+.chrome{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--muted);border-bottom:1px solid var(--border)}
+.chrome .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+.chrome .dot.r{background:#EC003F} .chrome .dot.y{background:#FE9A00} .chrome .dot.g{background:#009966}
+.chrome .url{margin-left:10px;flex:1;background:var(--background);border:1px solid var(--border);border-radius:6px;padding:5px 12px;font-family:var(--font-mono);font-size:12px;color:var(--muted-foreground)}
+
+.app{padding:22px 28px 36px}
+
+/* ---- topbar ---- */
+.topbar{border-bottom:1px solid var(--border);padding-bottom:16px;margin-bottom:16px}
+.row1{display:flex;align-items:center;gap:28px}
+.brand{font-weight:700;font-size:16px;letter-spacing:-.01em}
+.nav{display:flex;gap:22px;font-size:13.5px}
+.nav a{color:var(--muted-foreground);text-decoration:none}
+.nav a.active{color:var(--foreground);font-weight:600}
+.row1 .spacer{flex:1}
+.health{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;white-space:nowrap}
+.health i{width:8px;height:8px;border-radius:50%;display:inline-block;flex:0 0 auto}
+.health.ok{color:var(--text-ok)} .health.ok i{background:var(--state-done)}
+.health.attn{color:var(--text-running)} .health.attn i{background:var(--state-running);animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:6px;font-size:13px;font-weight:600;border:1px solid var(--border);background:transparent;color:var(--foreground);cursor:default;font-family:var(--font-sans)}
+.btn.primary{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary)}
+.btn.secondary{background:transparent;color:var(--foreground);border-color:rgba(255,255,255,.2)}
+.btn.small{padding:5px 11px;font-size:12.5px}
+
+.row2{display:flex;gap:12px;margin-top:14px}
+.search{flex:1.4;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:9px 14px;color:var(--foreground);font-size:13px;font-family:var(--font-sans)}
+.search::placeholder{color:var(--muted-foreground)}
+.ask{flex:1;display:flex;align-items:center;gap:0;background:var(--card);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.ask input{flex:1;background:transparent;border:0;padding:9px 14px;color:var(--foreground);font-size:13px;font-family:var(--font-sans);min-width:0}
+.ask input::placeholder{color:var(--muted-foreground)}
+.model-pill{display:flex;align-items:center;gap:8px;padding:7px 12px;border-left:1px solid var(--border);font-size:11.5px;color:var(--muted-foreground);white-space:nowrap}
+.model-pill .dot-ok{width:6px;height:6px;border-radius:50%;background:var(--state-done);display:inline-block}
+.model-pill .txt-ok{color:var(--text-ok)}
+
+/* ---- state annotation strip (documents the health-dot variants) ---- */
+.statehint{display:flex;align-items:center;gap:22px;flex-wrap:wrap;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:26px;font-size:12px}
+.statehint .label{color:var(--muted-foreground);text-transform:uppercase;letter-spacing:.06em;font-size:10.5px}
+
+/* ---- section heads ---- */
+.section-head{display:flex;align-items:baseline;justify-content:space-between;gap:16px}
+.section-head h2{margin:0;font-size:14px;font-weight:500;color:var(--muted-foreground)}
+.section-head h2 .count{font-family:var(--font-mono);color:var(--foreground);margin-left:6px;font-weight:600}
+.subline{font-size:12.5px;color:var(--muted-foreground);margin:4px 0 18px}
+.filters{display:flex;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:var(--radius-chip);font-size:12px;border:1px solid transparent;line-height:1.3}
+.chip.filter{border-color:var(--border);color:var(--foreground);background:transparent}
+
+/* ---- kind chips ---- */
+.chip.k-decision{background:var(--kind-decision-fill);color:var(--kind-decision-text);border-color:var(--kind-decision-border)}
+.chip.k-adr{background:var(--kind-adr-fill);color:var(--kind-adr-text);border-color:var(--kind-adr-border)}
+.chip.k-action-item{background:var(--kind-action-item-fill);color:var(--kind-action-item-text);border-color:var(--kind-action-item-border)}
+.chip.k-story{background:var(--kind-story-fill);color:var(--kind-story-text);border-color:var(--kind-story-border)}
+.chip.k-requirement{background:var(--kind-requirement-fill);color:var(--kind-requirement-text);border-color:var(--kind-requirement-border)}
+.chip.k-bug-fix{background:var(--kind-bug-fix-fill);color:var(--kind-bug-fix-text);border-color:var(--kind-bug-fix-border)}
+.chip.k-change-request{background:var(--kind-change-request-fill);color:var(--kind-change-request-text);border-color:var(--kind-change-request-border)}
+.chip.thread{background:transparent;font-weight:500}
+
+/* ---- moments grid ---- */
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:18px}
+.card{grid-column:span 1;background:var(--card);border:1px solid var(--border);border-radius:var(--radius-card);padding:16px;transition:box-shadow .16s ease,border-color .16s ease}
+.card:hover{border-color:rgba(255,255,255,.22);box-shadow:0 8px 28px rgba(0,0,0,.35)}
+.shot{aspect-ratio:16/9;border-radius:8px;background:linear-gradient(165deg,var(--muted),var(--background));position:relative;overflow:hidden}
+.shot .slidechip{position:absolute;left:8px;bottom:8px;background:rgba(0,0,0,.6);padding:3px 8px;border-radius:5px;font-size:11px;color:var(--foreground)}
+.card-meta{margin-top:12px}
+.card-title{font-size:15px;font-weight:600;font-family:var(--font-sans)}
+.card-time{font-size:12px;color:var(--muted-foreground);margin-top:3px}
+.reason{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.excerpt{font-size:13px;line-height:1.5;color:var(--foreground);opacity:.88;font-style:italic;margin:10px 0 14px;display:-webkit-box;-webkit-box-clamp:2;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.actions.muted-note{color:var(--muted-foreground);font-size:12.5px;font-style:italic}
+
+/* ---- expanded card ---- */
+.card.expanded{grid-column:1/-1;display:grid;grid-template-columns:1.25fr 1fr;gap:22px}
+.card.expanded .expanded-media{display:flex;flex-direction:column}
+.player{aspect-ratio:16/9;border-radius:8px;background:linear-gradient(165deg,var(--muted),var(--background));position:relative;display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden}
+.player-controls{display:flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(0,0,0,.55)}
+.play-btn{font-size:13px;color:var(--foreground)}
+.scrubber{flex:1;height:4px;background:rgba(255,255,255,.2);border-radius:2px;position:relative}
+.scrubber-fill{position:absolute;left:0;top:0;bottom:0;width:58%;background:var(--primary);border-radius:2px}
+.scrubber-dot{position:absolute;left:58%;top:50%;transform:translate(-50%,-50%);width:10px;height:10px;border-radius:50%;background:var(--primary)}
+.player .time{font-size:11px;color:var(--muted-foreground);white-space:nowrap}
+.expanded-body{display:flex;flex-direction:column}
+.expanded-body .excerpt{-webkit-line-clamp:unset;display:block;overflow:visible;font-size:13.5px}
+
+/* ---- threads strip ---- */
+.threads-section{margin-top:44px}
+.bands{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-card);padding:18px 18px 14px;margin-top:14px}
+.band-row{display:grid;grid-template-columns:190px 1fr;align-items:center;gap:14px;margin:9px 0}
+.band-name{font-size:13px;font-weight:500}
+.cells{display:flex;gap:2px;height:20px}
+.cells i{flex:1;border-radius:2px;display:block}
+.axis{display:grid;grid-template-columns:190px 1fr;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+.axis .months{display:flex}
+.axis .months span{flex:1;text-align:center;font-size:11px;color:var(--muted-foreground)}
+.legend{margin-top:10px;font-size:11.5px;color:var(--muted-foreground)}
+</style></head>
+<body><div class="page">
+
+<p class="rationale"><b>Relaxed cards</b> treats the Moments view as an evidence board you scan, not an instrument panel you operate: 16px padding, a full-width 16:9 still, and reason chips given their own line let each card breathe at 20px apart across a 3-column grid at 1440px. The same counted headers, timestamps, and monospace-for-data rule as every other direction carry over unchanged — only the Moments cards get room to read as artifacts rather than rows. Expanding a card cross-fades in 160ms and swaps the still for a scrubbable player without leaving the grid.</p>
+
+<div class="browserframe">
+  <div class="chrome"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><div class="url">app.meetingminer.local/moments</div></div>
+  <div class="app">
+
+    <header class="topbar">
+      <div class="row1">
+        <div class="brand">MeetingMiner</div>
+        <nav class="nav">
+          <a class="active">Moments</a><a>Threads</a><a>Meetings</a><a>Participants</a><a>Status</a><a>Settings</a>
+        </nav>
+        <div class="spacer"></div>
+        <div class="health ok"><i></i>all systems healthy</div>
+        <button class="btn primary">+ Add meeting</button>
+      </div>
+      <div class="row2">
+        <input class="search" placeholder="Search the corpus for the moments where something was discussed">
+        <div class="ask">
+          <input placeholder="Ask a question about the corpus">
+          <div class="model-pill"><span>chat · claude-sonnet-5 · anthropic</span><i class="dot-ok"></i><span class="txt-ok">ok</span></div>
+        </div>
+      </div>
+    </header>
+
+    <div class="statehint">
+      <span class="label">Health dot — state variants shown for reference</span>
+      <span class="health ok"><i></i>all systems healthy</span>
+      <span class="health attn"><i></i>attention needed · openai key invalid → set OPENAI_API_KEY in .env, restart the api</span>
+    </div>
+
+    <section class="moments-section">
+      <div class="section-head">
+        <h2>Moments <span class="count mono">24</span></h2>
+        <div class="filters">
+          <span class="chip filter">corpus: real ▾</span>
+          <span class="chip filter">thread: any ▾</span>
+          <span class="chip filter">kind: any ▾</span>
+        </div>
+      </div>
+      <p class="subline">ranked by decision, due date, recency, thread</p>
+
+      <div class="grid">
+
+        <!-- EXPANDED CARD -->
+        <article class="card expanded">
+          <div class="expanded-media">
+            <div class="player">
+              <div class="player-controls">
+                <span class="play-btn">▶</span>
+                <div class="scrubber"><div class="scrubber-fill"></div><div class="scrubber-dot"></div></div>
+                <span class="time mono">12:40 / 14:05</span>
+              </div>
+            </div>
+          </div>
+          <div class="expanded-body">
+            <div class="card-meta">
+              <div class="card-title">Retrieval bake-off review</div>
+              <div class="card-time mono">2026-08-14 · 12:40–14:05</div>
+            </div>
+            <div class="reason">
+              <span class="chip k-decision">◆ decision at <span class="mono">12:40</span></span>
+              <span class="chip k-action-item">☐ <span class="mono">1</span> action item · due <span class="mono">2026-08-28</span></span>
+              <span class="chip thread" style="color:var(--thread-retrieval-split);border-color:var(--thread-retrieval-split)">#retrieval split</span>
+            </div>
+            <div class="excerpt">&ldquo;BM25 stays first-class; hybrid only on paraphrase — we split retrieval by query shape. Vector search adds latency without gains on exact-name lookups, so hybrid stays opt-in per query shape.&rdquo;</div>
+            <div class="actions">
+              <button class="btn primary small">▶ Replay <span class="mono">12:40</span></button>
+              <button class="btn secondary small">Open moment</button>
+            </div>
+          </div>
+        </article>
+
+        <!-- CARD 2 — YouTube source -->
+        <article class="card">
+          <div class="shot"><span class="slidechip mono">frame · 09:12</span></div>
+          <div class="card-meta">
+            <div class="card-title">Weekly community sync — 2026-08-21</div>
+            <div class="card-time mono">2026-08-21 · 09:00–09:42</div>
+          </div>
+          <div class="reason">
+            <span class="chip k-action-item">☐ <span class="mono">2</span> action items · due <span class="mono">2026-09-04</span></span>
+            <span class="chip thread" style="color:var(--thread-eval-harness);border-color:var(--thread-eval-harness)">#eval harness</span>
+          </div>
+          <div class="excerpt">&ldquo;We'll wire the eval harness into the nightly run once the retrieval split lands — owner is on the hook for the runbook page before the next sync.&rdquo;</div>
+          <div class="actions">
+            <button class="btn primary small">▶ Replay <span class="mono">09:12</span></button>
+            <button class="btn secondary small">Open moment</button>
+            <button class="btn secondary small">Open on YouTube at <span class="mono">09:12</span> ↗</button>
+          </div>
+        </article>
+
+        <!-- CARD 3 — transcript only, no recording -->
+        <article class="card">
+          <div class="shot"><span class="slidechip mono">slide · 03:58</span></div>
+          <div class="card-meta">
+            <div class="card-title">Config catalog walkthrough</div>
+            <div class="card-time mono">2026-08-11 · 03:58–04:40</div>
+          </div>
+          <div class="reason">
+            <span class="chip k-requirement">≡ requirement at <span class="mono">03:58</span></span>
+            <span class="chip thread" style="color:var(--thread-config-catalog);border-color:var(--thread-config-catalog)">#config catalog</span>
+          </div>
+          <div class="excerpt">&ldquo;Every catalog entry needs a default and a validator; unset keys fall back silently today and that's the bug we're fixing.&rdquo;</div>
+          <div class="actions muted-note">transcript only — no recording and no source link</div>
+        </article>
+
+        <!-- CARD 4 — YouTube source -->
+        <article class="card">
+          <div class="shot"><span class="slidechip mono">slide · 15:33</span></div>
+          <div class="card-meta">
+            <div class="card-title">Publish gate demo</div>
+            <div class="card-time mono">2026-08-06 · 15:20–16:05</div>
+          </div>
+          <div class="reason">
+            <span class="chip k-decision">◆ decision at <span class="mono">15:33</span></span>
+            <span class="chip thread" style="color:var(--thread-publish-gate);border-color:var(--thread-publish-gate)">#publish gate</span>
+          </div>
+          <div class="excerpt">&ldquo;Publish gate blocks on a missing ADR link; the artifact stays in draft until the citation resolves to a real moment.&rdquo;</div>
+          <div class="actions">
+            <button class="btn primary small">▶ Replay <span class="mono">15:33</span></button>
+            <button class="btn secondary small">Open moment</button>
+            <button class="btn secondary small">Open on YouTube at <span class="mono">15:33</span> ↗</button>
+          </div>
+        </article>
+
+        <!-- CARD 5 -->
+        <article class="card">
+          <div class="shot"><span class="slidechip mono">slide · 10:42</span></div>
+          <div class="card-meta">
+            <div class="card-title">Speaker naming design</div>
+            <div class="card-time mono">2026-07-29 · 10:05–11:10</div>
+          </div>
+          <div class="reason">
+            <span class="chip k-adr">§ adr at <span class="mono">10:42</span></span>
+            <span class="chip thread" style="color:var(--thread-speaker-naming);border-color:var(--thread-speaker-naming)">#speaker naming</span>
+          </div>
+          <div class="excerpt">&ldquo;Diarization labels stay provisional until a human confirms a name; we never auto-post a speaker attribution.&rdquo;</div>
+          <div class="actions">
+            <button class="btn primary small">▶ Replay <span class="mono">10:42</span></button>
+            <button class="btn secondary small">Open moment</button>
+          </div>
+        </article>
+
+        <!-- CARD 6 -->
+        <article class="card">
+          <div class="shot"><span class="slidechip mono">slide · 13:15</span></div>
+          <div class="card-meta">
+            <div class="card-title">Eval harness runbook</div>
+            <div class="card-time mono">2026-07-22 · 13:00–13:50</div>
+          </div>
+          <div class="reason">
+            <span class="chip k-story">▣ story at <span class="mono">13:15</span></span>
+            <span class="chip thread" style="color:var(--thread-eval-harness);border-color:var(--thread-eval-harness)">#eval harness</span>
+          </div>
+          <div class="excerpt">&ldquo;The runbook needs a one-page checklist: seed corpus, run the eval set, diff against last week's scores.&rdquo;</div>
+          <div class="actions">
+            <button class="btn primary small">▶ Replay <span class="mono">13:15</span></button>
+            <button class="btn secondary small">Open moment</button>
+          </div>
+        </article>
+
+      </div>
+    </section>
+
+    <section class="threads-section">
+      <div class="section-head">
+        <h2>Threads <span class="count mono">11</span></h2>
+      </div>
+      <p class="subline">6 of 11 shown · 2026-03 → 2026-08</p>
+
+      <div class="bands">
+        <div class="band-row">
+          <span class="band-name" style="color:var(--thread-retrieval-split)">#retrieval split</span>
+          <div class="cells">
+            <i style="background:var(--thread-retrieval-split);opacity:.08"></i><i style="background:var(--thread-retrieval-split);opacity:.08"></i><i style="background:var(--thread-retrieval-split);opacity:.3"></i><i style="background:var(--thread-retrieval-split);opacity:.5"></i>
+            <i style="background:var(--thread-retrieval-split);opacity:.08"></i><i style="background:var(--thread-retrieval-split);opacity:.3"></i><i style="background:var(--thread-retrieval-split);opacity:.5"></i><i style="background:var(--thread-retrieval-split);opacity:.75"></i>
+            <i style="background:var(--thread-retrieval-split);opacity:.3"></i><i style="background:var(--thread-retrieval-split);opacity:.5"></i><i style="background:var(--thread-retrieval-split);opacity:.75"></i><i style="background:var(--thread-retrieval-split);opacity:1"></i>
+            <i style="background:var(--thread-retrieval-split);opacity:.75"></i><i style="background:var(--thread-retrieval-split);opacity:1"></i><i style="background:var(--thread-retrieval-split);opacity:1"></i><i style="background:var(--thread-retrieval-split);opacity:.75"></i>
+            <i style="background:var(--thread-retrieval-split);opacity:.5"></i><i style="background:var(--thread-retrieval-split);opacity:.3"></i><i style="background:var(--thread-retrieval-split);opacity:.5"></i><i style="background:var(--thread-retrieval-split);opacity:.75"></i>
+            <i style="background:var(--thread-retrieval-split);opacity:1"></i><i style="background:var(--thread-retrieval-split);opacity:.75"></i><i style="background:var(--thread-retrieval-split);opacity:.5"></i><i style="background:var(--thread-retrieval-split);opacity:.3"></i>
+          </div>
+        </div>
+        <div class="band-row">
+          <span class="band-name" style="color:var(--thread-publish-gate)">#publish gate</span>
+          <div class="cells">
+            <i style="background:var(--thread-publish-gate);opacity:.5"></i><i style="background:var(--thread-publish-gate);opacity:.75"></i><i style="background:var(--thread-publish-gate);opacity:1"></i><i style="background:var(--thread-publish-gate);opacity:.75"></i>
+            <i style="background:var(--thread-publish-gate);opacity:.3"></i><i style="background:var(--thread-publish-gate);opacity:.08"></i><i style="background:var(--thread-publish-gate);opacity:.08"></i><i style="background:var(--thread-publish-gate);opacity:.3"></i>
+            <i style="background:var(--thread-publish-gate);opacity:.5"></i><i style="background:var(--thread-publish-gate);opacity:.3"></i><i style="background:var(--thread-publish-gate);opacity:.08"></i><i style="background:var(--thread-publish-gate);opacity:.3"></i>
+            <i style="background:var(--thread-publish-gate);opacity:.5"></i><i style="background:var(--thread-publish-gate);opacity:.75"></i><i style="background:var(--thread-publish-gate);opacity:1"></i><i style="background:var(--thread-publish-gate);opacity:1"></i>
+            <i style="background:var(--thread-publish-gate);opacity:.75"></i><i style="background:var(--thread-publish-gate);opacity:.5"></i><i style="background:var(--thread-publish-gate);opacity:.3"></i><i style="background:var(--thread-publish-gate);opacity:.08"></i>
+            <i style="background:var(--thread-publish-gate);opacity:.08"></i><i style="background:var(--thread-publish-gate);opacity:.3"></i><i style="background:var(--thread-publish-gate);opacity:.5"></i><i style="background:var(--thread-publish-gate);opacity:.75"></i>
+          </div>
+        </div>
+        <div class="band-row">
+          <span class="band-name" style="color:var(--thread-speaker-naming)">#speaker naming</span>
+          <div class="cells">
+            <i style="background:var(--thread-speaker-naming);opacity:.75"></i><i style="background:var(--thread-speaker-naming);opacity:1"></i><i style="background:var(--thread-speaker-naming);opacity:.75"></i><i style="background:var(--thread-speaker-naming);opacity:.5"></i>
+            <i style="background:var(--thread-speaker-naming);opacity:.3"></i><i style="background:var(--thread-speaker-naming);opacity:.08"></i><i style="background:var(--thread-speaker-naming);opacity:.08"></i><i style="background:var(--thread-speaker-naming);opacity:.08"></i>
+            <i style="background:var(--thread-speaker-naming);opacity:.08"></i><i style="background:var(--thread-speaker-naming);opacity:.08"></i><i style="background:var(--thread-speaker-naming);opacity:.3"></i><i style="background:var(--thread-speaker-naming);opacity:.5"></i>
+            <i style="background:var(--thread-speaker-naming);opacity:.3"></i><i style="background:var(--thread-speaker-naming);opacity:.08"></i><i style="background:var(--thread-speaker-naming);opacity:.08"></i><i style="background:var(--thread-speaker-naming);opacity:.08"></i>
+            <i style="background:var(--thread-speaker-naming);opacity:.08"></i><i style="background:var(--thread-speaker-naming);opacity:.08"></i><i style="background:var(--thread-speaker-naming);opacity:.3"></i><i style="background:var(--thread-speaker-naming);opacity:.5"></i>
+            <i style="background:var(--thread-speaker-naming);opacity:.75"></i><i style="background:var(--thread-speaker-naming);opacity:.5"></i><i style="background:var(--thread-speaker-naming);opacity:.3"></i><i style="background:var(--thread-speaker-naming);opacity:.08"></i>
+          </div>
+        </div>
+        <div class="band-row">
+          <span class="band-name" style="color:var(--thread-eval-harness)">#eval harness</span>
+          <div class="cells">
+            <i style="background:var(--thread-eval-harness);opacity:.08"></i><i style="background:var(--thread-eval-harness);opacity:.08"></i><i style="background:var(--thread-eval-harness);opacity:.08"></i><i style="background:var(--thread-eval-harness);opacity:.3"></i>
+            <i style="background:var(--thread-eval-harness);opacity:.08"></i><i style="background:var(--thread-eval-harness);opacity:.08"></i><i style="background:var(--thread-eval-harness);opacity:.3"></i><i style="background:var(--thread-eval-harness);opacity:.5"></i>
+            <i style="background:var(--thread-eval-harness);opacity:.3"></i><i style="background:var(--thread-eval-harness);opacity:.08"></i><i style="background:var(--thread-eval-harness);opacity:.08"></i><i style="background:var(--thread-eval-harness);opacity:.3"></i>
+            <i style="background:var(--thread-eval-harness);opacity:.5"></i><i style="background:var(--thread-eval-harness);opacity:.75"></i><i style="background:var(--thread-eval-harness);opacity:1"></i><i style="background:var(--thread-eval-harness);opacity:.75"></i>
+            <i style="background:var(--thread-eval-harness);opacity:1"></i><i style="background:var(--thread-eval-harness);opacity:1"></i><i style="background:var(--thread-eval-harness);opacity:.75"></i><i style="background:var(--thread-eval-harness);opacity:.5"></i>
+            <i style="background:var(--thread-eval-harness);opacity:.75"></i><i style="background:var(--thread-eval-harness);opacity:1"></i><i style="background:var(--thread-eval-harness);opacity:.75"></i><i style="background:var(--thread-eval-harness);opacity:.5"></i>
+          </div>
+        </div>
+        <div class="band-row">
+          <span class="band-name" style="color:var(--thread-youtube-intake)">#YouTube intake</span>
+          <div class="cells">
+            <i style="background:var(--thread-youtube-intake);opacity:1"></i><i style="background:var(--thread-youtube-intake);opacity:.75"></i><i style="background:var(--thread-youtube-intake);opacity:.5"></i><i style="background:var(--thread-youtube-intake);opacity:.3"></i>
+            <i style="background:var(--thread-youtube-intake);opacity:.08"></i><i style="background:var(--thread-youtube-intake);opacity:.08"></i><i style="background:var(--thread-youtube-intake);opacity:.08"></i><i style="background:var(--thread-youtube-intake);opacity:.08"></i>
+            <i style="background:var(--thread-youtube-intake);opacity:.3"></i><i style="background:var(--thread-youtube-intake);opacity:.08"></i><i style="background:var(--thread-youtube-intake);opacity:.08"></i><i style="background:var(--thread-youtube-intake);opacity:.3"></i>
+            <i style="background:var(--thread-youtube-intake);opacity:.08"></i><i style="background:var(--thread-youtube-intake);opacity:.08"></i><i style="background:var(--thread-youtube-intake);opacity:.3"></i><i style="background:var(--thread-youtube-intake);opacity:.08"></i>
+            <i style="background:var(--thread-youtube-intake);opacity:.08"></i><i style="background:var(--thread-youtube-intake);opacity:.3"></i><i style="background:var(--thread-youtube-intake);opacity:.5"></i><i style="background:var(--thread-youtube-intake);opacity:.3"></i>
+            <i style="background:var(--thread-youtube-intake);opacity:.08"></i><i style="background:var(--thread-youtube-intake);opacity:.08"></i><i style="background:var(--thread-youtube-intake);opacity:.08"></i><i style="background:var(--thread-youtube-intake);opacity:.08"></i>
+          </div>
+        </div>
+        <div class="band-row">
+          <span class="band-name" style="color:var(--thread-config-catalog)">#config catalog</span>
+          <div class="cells">
+            <i style="background:var(--thread-config-catalog);opacity:.3"></i><i style="background:var(--thread-config-catalog);opacity:.08"></i><i style="background:var(--thread-config-catalog);opacity:.08"></i><i style="background:var(--thread-config-catalog);opacity:.08"></i>
+            <i style="background:var(--thread-config-catalog);opacity:.08"></i><i style="background:var(--thread-config-catalog);opacity:.3"></i><i style="background:var(--thread-config-catalog);opacity:.08"></i><i style="background:var(--thread-config-catalog);opacity:.08"></i>
+            <i style="background:var(--thread-config-catalog);opacity:.08"></i><i style="background:var(--thread-config-catalog);opacity:.08"></i><i style="background:var(--thread-config-catalog);opacity:.3"></i><i style="background:var(--thread-config-catalog);opacity:.5"></i>
+            <i style="background:var(--thread-config-catalog);opacity:.3"></i><i style="background:var(--thread-config-catalog);opacity:.08"></i><i style="background:var(--thread-config-catalog);opacity:.08"></i><i style="background:var(--thread-config-catalog);opacity:.3"></i>
+            <i style="background:var(--thread-config-catalog);opacity:.5"></i><i style="background:var(--thread-config-catalog);opacity:.75"></i><i style="background:var(--thread-config-catalog);opacity:1"></i><i style="background:var(--thread-config-catalog);opacity:.75"></i>
+            <i style="background:var(--thread-config-catalog);opacity:.5"></i><i style="background:var(--thread-config-catalog);opacity:.3"></i><i style="background:var(--thread-config-catalog);opacity:.5"></i><i style="background:var(--thread-config-catalog);opacity:.75"></i>
+          </div>
+        </div>
+
+        <div class="axis">
+          <span></span>
+          <div class="months mono"><span>2026-03</span><span>2026-04</span><span>2026-05</span><span>2026-06</span><span>2026-07</span><span>2026-08</span></div>
+        </div>
+        <div class="legend">density = mentions per week</div>
+      </div>
+    </section>
+
+  </div>
+</div>
+</div>
+</body></html>

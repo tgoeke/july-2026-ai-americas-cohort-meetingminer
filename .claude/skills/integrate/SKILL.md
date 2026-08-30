@@ -79,9 +79,9 @@ For each branch being landed, in sequence (never two at once into `main`):
    make check-reviews
    ```
    It fails if any dispatched review prompt lacks its committed report. A
-   missing report is a stop, not a warning. Since the 2026-08-26 reorg,
-   `_bmad-output/implementation-artifacts/` is gitignored, so the gate can
-   only check that the report exists on disk — it says so in its output.
+   missing report is a stop, not a warning. `_bmad-output/` is tracked
+   (owner decision 2026-08-30), so the report must be committed on the
+   review branch, not merely present on disk.
 2. **Rebase onto main**, so the reviewed range is the range that lands:
    ```bash
    git -C <worktree> fetch origin && git -C <worktree> rebase origin/main

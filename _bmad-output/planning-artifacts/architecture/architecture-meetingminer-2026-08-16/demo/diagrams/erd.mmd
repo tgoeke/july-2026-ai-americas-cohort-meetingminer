@@ -1,0 +1,13 @@
+erDiagram
+    MEETING ||--o{ MOMENT : contains
+    MEETING ||--o{ SCREENSHOT : captured
+    MEETING }o--o{ PARTICIPANT : attended
+    MEETING }o--o| SERIES : "member of"
+    PROJECT ||--o{ MEETING : scopes
+    PRODUCT ||--o{ PROJECT : owns
+    SCREEN ||--o{ SCREENSHOT : "appears as"
+    MOMENT }o--o| SCREENSHOT : evidences
+    MOMENT ||--o{ TRANSCRIPT_SEGMENT : covers
+    MOMENT ||--o{ ARTIFACT : yields
+    PARTICIPANT ||--o{ TRANSCRIPT_SEGMENT : speaks
+    JOB ||--|| MEETING : ingests

@@ -1,0 +1,240 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>B · Spectrum — MeetingMiner color system</title>
+<style>
+/* Candidate B · Spectrum — every value below is oklch with its sRGB hex. Governs DESIGN.md §Colors if picked.
+  background: oklch(0.16 0.012 260) = #0A0D12
+  card: oklch(0.21 0.014 260) = #15181F
+  popover: oklch(0.21 0.014 260) = #15181F
+  foreground: oklch(0.985 0.004 260) = #F8FAFD
+  muted: oklch(0.27 0.014 260) = #22272D
+  muted_foreground: oklch(0.72 0.02 260) = #9DA5B1
+  border: rgba(255,255,255,0.12) = rgba(255,255,255,0.12)
+  ring: oklch(0.82 0.13 200) = #34DDE5
+  primary: oklch(0.82 0.13 200) = #34DDE5
+  primary_foreground: oklch(0.18 0.02 200) = #061415
+  kind-decision: fill oklch(0.8 0.1056 249) #87C3FF · text oklch(0.18 0.03 249) #07131E · border oklch(0.8 0.1056 249) #87C3FF
+  kind-adr: fill oklch(0.8 0.1189 300) #C9ACFF · text oklch(0.18 0.03 300) #140E1D · border oklch(0.8 0.1189 300) #C9ACFF
+  kind-action-item: fill oklch(0.8 0.15 96) #DBBC33 · text oklch(0.18 0.03 96) #161103 · border oklch(0.8 0.15 96) #DBBC33
+  kind-story: fill oklch(0.8 0.15 147) #76D783 · text oklch(0.18 0.03 147) #08150A · border oklch(0.8 0.15 147) #76D783
+  kind-requirement: fill oklch(0.8 0.1362 198) #00D8DD · text oklch(0.18 0.03 198) #001616 · border oklch(0.8 0.1362 198) #00D8DD
+  kind-bug-fix: fill oklch(0.8 0.1352 351) #FF98C8 · text oklch(0.18 0.03 351) #1C0C13 · border oklch(0.8 0.1352 351) #FF98C8
+  kind-change-request: fill oklch(0.8 0.1223 45) #FFA47A · text oklch(0.18 0.03 45) #1C0D06 · border oklch(0.8 0.1223 45) #FFA47A
+  thread-1: oklch(0.78 0.1402 0) #FF8FB4 · lap2 oklch(0.61 0.11 0) #B86580
+  thread-2: oklch(0.78 0.1291 30) #FF9686 · lap2 oklch(0.61 0.11 30) #BC685B
+  thread-3: oklch(0.78 0.15 60) #FC9E47 · lap2 oklch(0.61 0.11 60) #B37238
+  thread-4: oklch(0.78 0.15 90) #DDB227 · lap2 oklch(0.61 0.11 90) #9D8026
+  thread-5: oklch(0.78 0.15 120) #ABC54B · lap2 oklch(0.61 0.11 120) #7B8D3A
+  thread-6: oklch(0.78 0.15 150) #67D283 · lap2 oklch(0.61 0.11 150) #4D965F
+  thread-7: oklch(0.78 0.1417 180) #00D4BB · lap2 oklch(0.61 0.11 180) #049886
+  thread-8: oklch(0.78 0.1351 210) #00CEE7 · lap2 oklch(0.61 0.1058 210) #0094A6
+  thread-9: oklch(0.78 0.1251 240) #64C1FF · lap2 oklch(0.61 0.11 240) #3A8BBE
+  thread-10: oklch(0.78 0.1112 270) #9CB4FF · lap2 oklch(0.61 0.11 270) #697FC5
+  thread-11: oklch(0.78 0.1319 300) #C4A3FF · lap2 oklch(0.61 0.11 300) #8D73BB
+  thread-12: oklch(0.78 0.15 330) #EC92E5 · lap2 oklch(0.61 0.11 330) #A86AA2
+  state-queued: bar None - · text None -
+  state-running: bar oklch(0.769 0.188 70.08) #FE9A00 · text oklch(0.828 0.189 84.429) #FFB900
+  state-done: bar oklch(0.596 0.145 163.225) #009966 · text None -
+  state-posted: bar oklch(0.596 0.145 163.225) #009966 · text oklch(0.765 0.177 163.223) #00D492
+  state-skipped: bar oklch(0.704 0.04 256.788) #90A1B9 · text None -
+  state-failed: bar oklch(0.586 0.253 17.585) #EC003F · text oklch(0.712 0.194 13.428) #FF637E
+  state-unknown: bar oklch(0.591 0.293 322.896) #C800DE · text oklch(0.74 0.238 322.16) #ED6AFF
+*/
+
+body{margin:0;font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+h1{font-size:20px;margin:0 0 4px} h2{font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin:28px 0 10px;opacity:.7}
+.wrap{max-width:1180px;margin:0 auto;padding:32px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:6px;font-size:12px;border:1px solid transparent}
+.sw{display:inline-flex;flex-direction:column;gap:4px;min-width:150px;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,.1)}
+.sw b{font-size:12px} .sw small{opacity:.75;font-size:11px}
+.grade{font-size:10px;padding:0 5px;border-radius:4px;background:rgba(255,255,255,.08)}
+.bar{display:flex;gap:3px;height:8px;margin:6px 0} .bar span{flex:1;border-radius:2px}
+.card{border-radius:10px;padding:14px;border:1px solid rgba(255,255,255,.1);max-width:560px}
+.card .shot{height:140px;border-radius:6px;display:flex;align-items:flex-end;padding:8px;box-sizing:border-box}
+.band{display:grid;grid-template-columns:160px 1fr;gap:10px;align-items:center;margin:4px 0}
+.band .cells{display:flex;gap:2px;height:18px} .band .cells i{flex:1;border-radius:2px}
+table{border-collapse:collapse;font-size:12px;width:100%} td,th{padding:3px 8px;border-bottom:1px solid rgba(255,255,255,.08);text-align:left}
+.fail{color:#FF6467} .ok{opacity:.85}
+
+body{background:oklch(0.16 0.012 260);color:oklch(0.985 0.004 260)} .card{background:oklch(0.21 0.014 260)} .sw{background:oklch(0.21 0.014 260)}</style></head><body><div class="wrap">
+<h1>B · Spectrum</h1><p style="opacity:.8;max-width:760px">A blue-black base with one brand accent and saturated, filled kind chips. Louder, more graphic; the Threads view reads like a chart.</p>
+<h2>Base tokens (shadcn names)</h2><div class="chips">
+<div class="sw"><span style="display:block;height:26px;border-radius:4px;background:oklch(0.16 0.012 260);border:1px solid rgba(255,255,255,.15)"></span><b>background</b><small class="mono">oklch(0.16 0.012 260)</small><small class="mono">#0A0D12</small></div>
+<div class="sw"><span style="display:block;height:26px;border-radius:4px;background:oklch(0.21 0.014 260);border:1px solid rgba(255,255,255,.15)"></span><b>card</b><small class="mono">oklch(0.21 0.014 260)</small><small class="mono">#15181F</small></div>
+<div class="sw"><span style="display:block;height:26px;border-radius:4px;background:oklch(0.21 0.014 260);border:1px solid rgba(255,255,255,.15)"></span><b>popover</b><small class="mono">oklch(0.21 0.014 260)</small><small class="mono">#15181F</small></div>
+<div class="sw"><span style="display:block;height:26px;border-radius:4px;background:oklch(0.985 0.004 260);border:1px solid rgba(255,255,255,.15)"></span><b>foreground</b><small class="mono">oklch(0.985 0.004 260)</small><small class="mono">#F8FAFD</small></div>
+<div class="sw"><span style="display:block;height:26px;border-radius:4px;background:oklch(0.27 0.014 260);border:1px solid rgba(255,255,255,.15)"></span><b>muted</b><small class="mono">oklch(0.27 0.014 260)</small><small class="mono">#22272D</small></div>
+<div class="sw"><span style="display:block;height:26px;border-radius:4px;background:oklch(0.72 0.02 260);border:1px solid rgba(255,255,255,.15)"></span><b>muted-foreground</b><small class="mono">oklch(0.72 0.02 260)</small><small class="mono">#9DA5B1</small></div>
+<div class="sw"><span style="display:block;height:26px;border-radius:4px;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,.15)"></span><b>border</b><small class="mono">rgba(255,255,255,0.12)</small><small class="mono">rgba(255,255,255,0.12)</small></div>
+<div class="sw"><span style="display:block;height:26px;border-radius:4px;background:oklch(0.82 0.13 200);border:1px solid rgba(255,255,255,.15)"></span><b>ring</b><small class="mono">oklch(0.82 0.13 200)</small><small class="mono">#34DDE5</small></div>
+<div class="sw"><span style="display:block;height:26px;border-radius:4px;background:oklch(0.82 0.13 200);border:1px solid rgba(255,255,255,.15)"></span><b>primary</b><small class="mono">oklch(0.82 0.13 200)</small><small class="mono">#34DDE5</small></div>
+<div class="sw"><span style="display:block;height:26px;border-radius:4px;background:oklch(0.18 0.02 200);border:1px solid rgba(255,255,255,.15)"></span><b>primary-foreground</b><small class="mono">oklch(0.18 0.02 200)</small><small class="mono">#061415</small></div>
+</div>
+<h2>Moment kinds — chip = fill + text + border; glyph always present</h2><div class="chips">
+<span class="chip" style="background:oklch(0.8 0.1056 249);color:oklch(0.18 0.03 249);border-color:oklch(0.8 0.1056 249)">◆ decision <span class="grade">10.1 AAA</span></span>
+<span class="chip" style="background:oklch(0.8 0.1189 300);color:oklch(0.18 0.03 300);border-color:oklch(0.8 0.1189 300)">§ adr <span class="grade">9.8 AAA</span></span>
+<span class="chip" style="background:oklch(0.8 0.15 96);color:oklch(0.18 0.03 96);border-color:oklch(0.8 0.15 96)">☐ action-item <span class="grade">10.1 AAA</span></span>
+<span class="chip" style="background:oklch(0.8 0.15 147);color:oklch(0.18 0.03 147);border-color:oklch(0.8 0.15 147)">▣ story <span class="grade">10.6 AAA</span></span>
+<span class="chip" style="background:oklch(0.8 0.1362 198);color:oklch(0.18 0.03 198);border-color:oklch(0.8 0.1362 198)">≡ requirement <span class="grade">10.5 AAA</span></span>
+<span class="chip" style="background:oklch(0.8 0.1352 351);color:oklch(0.18 0.03 351);border-color:oklch(0.8 0.1352 351)">✕ bug-fix <span class="grade">9.5 AAA</span></span>
+<span class="chip" style="background:oklch(0.8 0.1223 45);color:oklch(0.18 0.03 45);border-color:oklch(0.8 0.1223 45)">Δ change-request <span class="grade">9.7 AAA</span></span>
+</div><p style="opacity:.7;font-size:12px">Same chips as plain colored text on a card (reason line, rail header):</p><div class="card chips">
+<span style="color:oklch(0.8 0.1056 249)">◆ decision <span class="grade">9.5 AAA</span></span>
+<span style="color:oklch(0.8 0.1189 300)">§ adr <span class="grade">9.1 AAA</span></span>
+<span style="color:oklch(0.8 0.15 96)">☐ action-item <span class="grade">9.5 AAA</span></span>
+<span style="color:oklch(0.8 0.15 147)">▣ story <span class="grade">10.0 AAA</span></span>
+<span style="color:oklch(0.8 0.1362 198)">≡ requirement <span class="grade">10.0 AAA</span></span>
+<span style="color:oklch(0.8 0.1352 351)">✕ bug-fix <span class="grade">8.9 AAA</span></span>
+<span style="color:oklch(0.8 0.1223 45)">Δ change-request <span class="grade">9.1 AAA</span></span>
+</div>
+<h2>Ingestion &amp; acquisition states — existing stageStyles.ts values, unchanged</h2><div class="card">
+<div class="mono" style="font-size:11px;opacity:.8">probe · frames · ocr · screens · transcribe · align · moments · extract</div><div class="bar">
+<span style="background:oklch(0.596 0.145 163.225)"></span>
+<span style="background:oklch(0.596 0.145 163.225)"></span>
+<span style="background:oklch(0.596 0.145 163.225)"></span>
+<span style="background:repeating-linear-gradient(135deg,oklch(0.704 0.04 256.788) 0,oklch(0.704 0.04 256.788) 2px,transparent 2px,transparent 5px);border:1px solid oklch(0.704 0.04 256.788)"></span>
+<span style="background:oklch(0.769 0.188 70.08)"></span>
+<span style="border:1px dashed oklch(0.72 0.02 260);opacity:.5"></span>
+<span style="border:1px dashed oklch(0.72 0.02 260);opacity:.5"></span>
+<span style="border:1px dashed oklch(0.72 0.02 260);opacity:.5"></span>
+</div><div class="chips">
+<span class="chip" style="color:oklch(0.72 0.02 260);border-color:rgba(255,255,255,.12)"><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:transparent;border:1px dashed oklch(0.72 0.02 260)"></i>queued</span>
+<span class="chip" style="color:oklch(0.828 0.189 84.429);border-color:rgba(255,255,255,.12)"><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:oklch(0.769 0.188 70.08);border:1px solid oklch(0.769 0.188 70.08)"></i>running</span>
+<span class="chip" style="color:oklch(0.985 0.004 260);border-color:rgba(255,255,255,.12)"><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:oklch(0.596 0.145 163.225);border:1px solid oklch(0.596 0.145 163.225)"></i>done</span>
+<span class="chip" style="color:oklch(0.765 0.177 163.223);border-color:rgba(255,255,255,.12)"><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:oklch(0.596 0.145 163.225);border:1px solid oklch(0.596 0.145 163.225)"></i>posted</span>
+<span class="chip" style="color:oklch(0.72 0.02 260);border-color:rgba(255,255,255,.12)"><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:oklch(0.704 0.04 256.788);border:1px solid oklch(0.704 0.04 256.788)"></i>skipped</span>
+<span class="chip" style="color:oklch(0.712 0.194 13.428);border-color:rgba(255,255,255,.12)"><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:oklch(0.586 0.253 17.585);border:1px solid oklch(0.586 0.253 17.585)"></i>failed</span>
+<span class="chip" style="color:oklch(0.74 0.238 322.16);border-color:rgba(255,255,255,.12)"><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:oklch(0.591 0.293 322.896);border:1px solid oklch(0.591 0.293 322.896)"></i>unknown</span>
+</div></div>
+<h2>Provider health — dot + word, never dot alone</h2><div class="card chips">
+<span style="color:oklch(0.765 0.177 163.223)"><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:oklch(0.596 0.145 163.225);margin-right:6px"></i>ok <span class="grade">9.2 AAA</span></span>
+<span style="color:oklch(0.828 0.189 84.429)"><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:oklch(0.769 0.188 70.08);margin-right:6px"></i>degraded <span class="grade">10.3 AAA</span></span>
+<span style="color:oklch(0.712 0.194 13.428)"><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:oklch(0.586 0.253 17.585);margin-right:6px"></i>invalid <span class="grade">6.2 AA</span></span>
+<span style="color:oklch(0.712 0.194 13.428)"><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:oklch(0.586 0.253 17.585);margin-right:6px"></i>missing <span class="grade">6.2 AA</span></span>
+<span style="color:oklch(0.704 0.04 256.788)"><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:oklch(0.704 0.04 256.788);margin-right:6px"></i>not-required <span class="grade">6.7 AA</span></span>
+<span style="color:oklch(0.712 0.194 13.428)"><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:oklch(0.586 0.253 17.585);margin-right:6px"></i>stopped <span class="grade">6.2 AA</span></span>
+</div>
+<h2>Thread identity — 12 hues, then lap 2 (darker + hatched), then grey with name only</h2><div class="card" style="max-width:900px">
+<div class="band"><span style="color:oklch(0.78 0.1402 0);font-size:12px">#1 retrieval split <span class="grade">8.3</span></span><div class="cells"><i style="background:oklch(0.78 0.1402 0);opacity:0.3"></i><i style="background:oklch(0.78 0.1402 0);opacity:0.08"></i><i style="background:oklch(0.78 0.1402 0);opacity:0.5"></i><i style="background:oklch(0.78 0.1402 0);opacity:1"></i><i style="background:oklch(0.78 0.1402 0);opacity:0.08"></i><i style="background:oklch(0.78 0.1402 0);opacity:0.08"></i><i style="background:oklch(0.78 0.1402 0);opacity:0.75"></i><i style="background:oklch(0.78 0.1402 0);opacity:0.08"></i><i style="background:oklch(0.78 0.1402 0);opacity:0.3"></i><i style="background:oklch(0.78 0.1402 0);opacity:0.75"></i><i style="background:oklch(0.78 0.1402 0);opacity:0.08"></i><i style="background:oklch(0.78 0.1402 0);opacity:0.75"></i><i style="background:oklch(0.78 0.1402 0);opacity:0.08"></i><i style="background:oklch(0.78 0.1402 0);opacity:0.08"></i><i style="background:oklch(0.78 0.1402 0);opacity:0.08"></i><i style="background:oklch(0.78 0.1402 0);opacity:0.5"></i><i style="background:oklch(0.78 0.1402 0);opacity:0.5"></i><i style="background:oklch(0.78 0.1402 0);opacity:0.08"></i><i style="background:oklch(0.78 0.1402 0);opacity:0.08"></i><i style="background:oklch(0.78 0.1402 0);opacity:0.08"></i><i style="background:oklch(0.78 0.1402 0);opacity:0.75"></i><i style="background:oklch(0.78 0.1402 0);opacity:0.5"></i><i style="background:oklch(0.78 0.1402 0);opacity:0.08"></i><i style="background:oklch(0.78 0.1402 0);opacity:0.75"></i></div></div>
+<div class="band"><span style="color:oklch(0.78 0.1291 30);font-size:12px">#2 publish gate <span class="grade">8.4</span></span><div class="cells"><i style="background:oklch(0.78 0.1291 30);opacity:0.08"></i><i style="background:oklch(0.78 0.1291 30);opacity:0.08"></i><i style="background:oklch(0.78 0.1291 30);opacity:1"></i><i style="background:oklch(0.78 0.1291 30);opacity:1"></i><i style="background:oklch(0.78 0.1291 30);opacity:0.75"></i><i style="background:oklch(0.78 0.1291 30);opacity:0.08"></i><i style="background:oklch(0.78 0.1291 30);opacity:0.75"></i><i style="background:oklch(0.78 0.1291 30);opacity:0.75"></i><i style="background:oklch(0.78 0.1291 30);opacity:0.5"></i><i style="background:oklch(0.78 0.1291 30);opacity:0.08"></i><i style="background:oklch(0.78 0.1291 30);opacity:0.08"></i><i style="background:oklch(0.78 0.1291 30);opacity:0.08"></i><i style="background:oklch(0.78 0.1291 30);opacity:0.75"></i><i style="background:oklch(0.78 0.1291 30);opacity:0.08"></i><i style="background:oklch(0.78 0.1291 30);opacity:0.3"></i><i style="background:oklch(0.78 0.1291 30);opacity:0.5"></i><i style="background:oklch(0.78 0.1291 30);opacity:0.08"></i><i style="background:oklch(0.78 0.1291 30);opacity:0.75"></i><i style="background:oklch(0.78 0.1291 30);opacity:0.08"></i><i style="background:oklch(0.78 0.1291 30);opacity:0.75"></i><i style="background:oklch(0.78 0.1291 30);opacity:0.3"></i><i style="background:oklch(0.78 0.1291 30);opacity:0.75"></i><i style="background:oklch(0.78 0.1291 30);opacity:1"></i><i style="background:oklch(0.78 0.1291 30);opacity:0.08"></i></div></div>
+<div class="band"><span style="color:oklch(0.78 0.15 60);font-size:12px">#3 speaker naming <span class="grade">8.5</span></span><div class="cells"><i style="background:oklch(0.78 0.15 60);opacity:0.08"></i><i style="background:oklch(0.78 0.15 60);opacity:0.75"></i><i style="background:oklch(0.78 0.15 60);opacity:0.75"></i><i style="background:oklch(0.78 0.15 60);opacity:1"></i><i style="background:oklch(0.78 0.15 60);opacity:0.08"></i><i style="background:oklch(0.78 0.15 60);opacity:0.3"></i><i style="background:oklch(0.78 0.15 60);opacity:0.08"></i><i style="background:oklch(0.78 0.15 60);opacity:0.75"></i><i style="background:oklch(0.78 0.15 60);opacity:1"></i><i style="background:oklch(0.78 0.15 60);opacity:0.08"></i><i style="background:oklch(0.78 0.15 60);opacity:0.75"></i><i style="background:oklch(0.78 0.15 60);opacity:0.08"></i><i style="background:oklch(0.78 0.15 60);opacity:0.75"></i><i style="background:oklch(0.78 0.15 60);opacity:0.08"></i><i style="background:oklch(0.78 0.15 60);opacity:0.5"></i><i style="background:oklch(0.78 0.15 60);opacity:1"></i><i style="background:oklch(0.78 0.15 60);opacity:0.75"></i><i style="background:oklch(0.78 0.15 60);opacity:0.5"></i><i style="background:oklch(0.78 0.15 60);opacity:0.3"></i><i style="background:oklch(0.78 0.15 60);opacity:0.5"></i><i style="background:oklch(0.78 0.15 60);opacity:0.75"></i><i style="background:oklch(0.78 0.15 60);opacity:0.5"></i><i style="background:oklch(0.78 0.15 60);opacity:0.3"></i><i style="background:oklch(0.78 0.15 60);opacity:0.3"></i></div></div>
+<div class="band"><span style="color:oklch(0.78 0.15 90);font-size:12px">#4 eval harness <span class="grade">8.8</span></span><div class="cells"><i style="background:oklch(0.78 0.15 90);opacity:0.08"></i><i style="background:oklch(0.78 0.15 90);opacity:0.08"></i><i style="background:oklch(0.78 0.15 90);opacity:1"></i><i style="background:oklch(0.78 0.15 90);opacity:0.08"></i><i style="background:oklch(0.78 0.15 90);opacity:0.08"></i><i style="background:oklch(0.78 0.15 90);opacity:0.75"></i><i style="background:oklch(0.78 0.15 90);opacity:0.3"></i><i style="background:oklch(0.78 0.15 90);opacity:0.75"></i><i style="background:oklch(0.78 0.15 90);opacity:0.5"></i><i style="background:oklch(0.78 0.15 90);opacity:0.3"></i><i style="background:oklch(0.78 0.15 90);opacity:1"></i><i style="background:oklch(0.78 0.15 90);opacity:0.5"></i><i style="background:oklch(0.78 0.15 90);opacity:0.3"></i><i style="background:oklch(0.78 0.15 90);opacity:0.75"></i><i style="background:oklch(0.78 0.15 90);opacity:0.08"></i><i style="background:oklch(0.78 0.15 90);opacity:0.08"></i><i style="background:oklch(0.78 0.15 90);opacity:0.75"></i><i style="background:oklch(0.78 0.15 90);opacity:0.5"></i><i style="background:oklch(0.78 0.15 90);opacity:0.08"></i><i style="background:oklch(0.78 0.15 90);opacity:0.3"></i><i style="background:oklch(0.78 0.15 90);opacity:0.08"></i><i style="background:oklch(0.78 0.15 90);opacity:0.5"></i><i style="background:oklch(0.78 0.15 90);opacity:0.5"></i><i style="background:oklch(0.78 0.15 90);opacity:0.08"></i></div></div>
+<div class="band"><span style="color:oklch(0.78 0.15 120);font-size:12px">#5 YouTube intake <span class="grade">9.1</span></span><div class="cells"><i style="background:oklch(0.78 0.15 120);opacity:1"></i><i style="background:oklch(0.78 0.15 120);opacity:0.08"></i><i style="background:oklch(0.78 0.15 120);opacity:0.75"></i><i style="background:oklch(0.78 0.15 120);opacity:0.75"></i><i style="background:oklch(0.78 0.15 120);opacity:0.3"></i><i style="background:oklch(0.78 0.15 120);opacity:0.3"></i><i style="background:oklch(0.78 0.15 120);opacity:1"></i><i style="background:oklch(0.78 0.15 120);opacity:0.3"></i><i style="background:oklch(0.78 0.15 120);opacity:0.75"></i><i style="background:oklch(0.78 0.15 120);opacity:0.5"></i><i style="background:oklch(0.78 0.15 120);opacity:0.75"></i><i style="background:oklch(0.78 0.15 120);opacity:0.5"></i><i style="background:oklch(0.78 0.15 120);opacity:0.08"></i><i style="background:oklch(0.78 0.15 120);opacity:0.08"></i><i style="background:oklch(0.78 0.15 120);opacity:0.3"></i><i style="background:oklch(0.78 0.15 120);opacity:0.5"></i><i style="background:oklch(0.78 0.15 120);opacity:1"></i><i style="background:oklch(0.78 0.15 120);opacity:1"></i><i style="background:oklch(0.78 0.15 120);opacity:0.08"></i><i style="background:oklch(0.78 0.15 120);opacity:0.08"></i><i style="background:oklch(0.78 0.15 120);opacity:1"></i><i style="background:oklch(0.78 0.15 120);opacity:1"></i><i style="background:oklch(0.78 0.15 120);opacity:0.3"></i><i style="background:oklch(0.78 0.15 120);opacity:1"></i></div></div>
+<div class="band"><span style="color:oklch(0.78 0.15 150);font-size:12px">#6 config catalog <span class="grade">9.4</span></span><div class="cells"><i style="background:oklch(0.78 0.15 150);opacity:0.75"></i><i style="background:oklch(0.78 0.15 150);opacity:1"></i><i style="background:oklch(0.78 0.15 150);opacity:0.5"></i><i style="background:oklch(0.78 0.15 150);opacity:0.3"></i><i style="background:oklch(0.78 0.15 150);opacity:1"></i><i style="background:oklch(0.78 0.15 150);opacity:0.5"></i><i style="background:oklch(0.78 0.15 150);opacity:1"></i><i style="background:oklch(0.78 0.15 150);opacity:0.3"></i><i style="background:oklch(0.78 0.15 150);opacity:0.08"></i><i style="background:oklch(0.78 0.15 150);opacity:0.5"></i><i style="background:oklch(0.78 0.15 150);opacity:0.3"></i><i style="background:oklch(0.78 0.15 150);opacity:0.08"></i><i style="background:oklch(0.78 0.15 150);opacity:0.75"></i><i style="background:oklch(0.78 0.15 150);opacity:0.08"></i><i style="background:oklch(0.78 0.15 150);opacity:0.5"></i><i style="background:oklch(0.78 0.15 150);opacity:0.08"></i><i style="background:oklch(0.78 0.15 150);opacity:0.08"></i><i style="background:oklch(0.78 0.15 150);opacity:0.3"></i><i style="background:oklch(0.78 0.15 150);opacity:0.08"></i><i style="background:oklch(0.78 0.15 150);opacity:1"></i><i style="background:oklch(0.78 0.15 150);opacity:0.08"></i><i style="background:oklch(0.78 0.15 150);opacity:0.5"></i><i style="background:oklch(0.78 0.15 150);opacity:0.5"></i><i style="background:oklch(0.78 0.15 150);opacity:0.5"></i></div></div>
+<div class="band"><span style="color:oklch(0.78 0.1417 180);font-size:12px">#7 drop schema <span class="grade">9.4</span></span><div class="cells"><i style="background:oklch(0.78 0.1417 180);opacity:0.08"></i><i style="background:oklch(0.78 0.1417 180);opacity:0.08"></i><i style="background:oklch(0.78 0.1417 180);opacity:0.5"></i><i style="background:oklch(0.78 0.1417 180);opacity:0.5"></i><i style="background:oklch(0.78 0.1417 180);opacity:0.75"></i><i style="background:oklch(0.78 0.1417 180);opacity:0.3"></i><i style="background:oklch(0.78 0.1417 180);opacity:0.08"></i><i style="background:oklch(0.78 0.1417 180);opacity:0.5"></i><i style="background:oklch(0.78 0.1417 180);opacity:0.75"></i><i style="background:oklch(0.78 0.1417 180);opacity:0.3"></i><i style="background:oklch(0.78 0.1417 180);opacity:1"></i><i style="background:oklch(0.78 0.1417 180);opacity:0.5"></i><i style="background:oklch(0.78 0.1417 180);opacity:0.3"></i><i style="background:oklch(0.78 0.1417 180);opacity:1"></i><i style="background:oklch(0.78 0.1417 180);opacity:0.5"></i><i style="background:oklch(0.78 0.1417 180);opacity:0.08"></i><i style="background:oklch(0.78 0.1417 180);opacity:0.08"></i><i style="background:oklch(0.78 0.1417 180);opacity:0.08"></i><i style="background:oklch(0.78 0.1417 180);opacity:0.08"></i><i style="background:oklch(0.78 0.1417 180);opacity:0.08"></i><i style="background:oklch(0.78 0.1417 180);opacity:0.08"></i><i style="background:oklch(0.78 0.1417 180);opacity:1"></i><i style="background:oklch(0.78 0.1417 180);opacity:0.08"></i><i style="background:oklch(0.78 0.1417 180);opacity:0.08"></i></div></div>
+<div class="band"><span style="color:oklch(0.78 0.1351 210);font-size:12px">#8 moment identity <span class="grade">9.3</span></span><div class="cells"><i style="background:oklch(0.78 0.1351 210);opacity:0.5"></i><i style="background:oklch(0.78 0.1351 210);opacity:0.75"></i><i style="background:oklch(0.78 0.1351 210);opacity:0.08"></i><i style="background:oklch(0.78 0.1351 210);opacity:0.3"></i><i style="background:oklch(0.78 0.1351 210);opacity:0.3"></i><i style="background:oklch(0.78 0.1351 210);opacity:0.08"></i><i style="background:oklch(0.78 0.1351 210);opacity:0.08"></i><i style="background:oklch(0.78 0.1351 210);opacity:0.5"></i><i style="background:oklch(0.78 0.1351 210);opacity:0.75"></i><i style="background:oklch(0.78 0.1351 210);opacity:0.3"></i><i style="background:oklch(0.78 0.1351 210);opacity:0.75"></i><i style="background:oklch(0.78 0.1351 210);opacity:0.75"></i><i style="background:oklch(0.78 0.1351 210);opacity:0.3"></i><i style="background:oklch(0.78 0.1351 210);opacity:0.08"></i><i style="background:oklch(0.78 0.1351 210);opacity:1"></i><i style="background:oklch(0.78 0.1351 210);opacity:0.75"></i><i style="background:oklch(0.78 0.1351 210);opacity:0.75"></i><i style="background:oklch(0.78 0.1351 210);opacity:1"></i><i style="background:oklch(0.78 0.1351 210);opacity:1"></i><i style="background:oklch(0.78 0.1351 210);opacity:1"></i><i style="background:oklch(0.78 0.1351 210);opacity:0.08"></i><i style="background:oklch(0.78 0.1351 210);opacity:0.5"></i><i style="background:oklch(0.78 0.1351 210);opacity:1"></i><i style="background:oklch(0.78 0.1351 210);opacity:0.75"></i></div></div>
+<div class="band"><span style="color:oklch(0.78 0.1251 240);font-size:12px">#9 screen lineage <span class="grade">9.0</span></span><div class="cells"><i style="background:oklch(0.78 0.1251 240);opacity:0.5"></i><i style="background:oklch(0.78 0.1251 240);opacity:0.5"></i><i style="background:oklch(0.78 0.1251 240);opacity:0.5"></i><i style="background:oklch(0.78 0.1251 240);opacity:0.5"></i><i style="background:oklch(0.78 0.1251 240);opacity:0.08"></i><i style="background:oklch(0.78 0.1251 240);opacity:0.5"></i><i style="background:oklch(0.78 0.1251 240);opacity:1"></i><i style="background:oklch(0.78 0.1251 240);opacity:0.5"></i><i style="background:oklch(0.78 0.1251 240);opacity:0.08"></i><i style="background:oklch(0.78 0.1251 240);opacity:0.08"></i><i style="background:oklch(0.78 0.1251 240);opacity:0.08"></i><i style="background:oklch(0.78 0.1251 240);opacity:0.08"></i><i style="background:oklch(0.78 0.1251 240);opacity:0.5"></i><i style="background:oklch(0.78 0.1251 240);opacity:0.08"></i><i style="background:oklch(0.78 0.1251 240);opacity:0.08"></i><i style="background:oklch(0.78 0.1251 240);opacity:0.3"></i><i style="background:oklch(0.78 0.1251 240);opacity:0.75"></i><i style="background:oklch(0.78 0.1251 240);opacity:0.08"></i><i style="background:oklch(0.78 0.1251 240);opacity:0.08"></i><i style="background:oklch(0.78 0.1251 240);opacity:0.08"></i><i style="background:oklch(0.78 0.1251 240);opacity:0.75"></i><i style="background:oklch(0.78 0.1251 240);opacity:0.08"></i><i style="background:oklch(0.78 0.1251 240);opacity:0.75"></i><i style="background:oklch(0.78 0.1251 240);opacity:0.08"></i></div></div>
+<div class="band"><span style="color:oklch(0.78 0.1112 270);font-size:12px">#10 worker restarts <span class="grade">8.7</span></span><div class="cells"><i style="background:oklch(0.78 0.1112 270);opacity:0.3"></i><i style="background:oklch(0.78 0.1112 270);opacity:0.75"></i><i style="background:oklch(0.78 0.1112 270);opacity:0.08"></i><i style="background:oklch(0.78 0.1112 270);opacity:0.08"></i><i style="background:oklch(0.78 0.1112 270);opacity:0.08"></i><i style="background:oklch(0.78 0.1112 270);opacity:0.75"></i><i style="background:oklch(0.78 0.1112 270);opacity:0.5"></i><i style="background:oklch(0.78 0.1112 270);opacity:0.08"></i><i style="background:oklch(0.78 0.1112 270);opacity:1"></i><i style="background:oklch(0.78 0.1112 270);opacity:0.3"></i><i style="background:oklch(0.78 0.1112 270);opacity:0.3"></i><i style="background:oklch(0.78 0.1112 270);opacity:0.75"></i><i style="background:oklch(0.78 0.1112 270);opacity:0.3"></i><i style="background:oklch(0.78 0.1112 270);opacity:0.5"></i><i style="background:oklch(0.78 0.1112 270);opacity:0.08"></i><i style="background:oklch(0.78 0.1112 270);opacity:0.08"></i><i style="background:oklch(0.78 0.1112 270);opacity:0.5"></i><i style="background:oklch(0.78 0.1112 270);opacity:0.5"></i><i style="background:oklch(0.78 0.1112 270);opacity:0.5"></i><i style="background:oklch(0.78 0.1112 270);opacity:0.5"></i><i style="background:oklch(0.78 0.1112 270);opacity:0.3"></i><i style="background:oklch(0.78 0.1112 270);opacity:0.08"></i><i style="background:oklch(0.78 0.1112 270);opacity:0.08"></i><i style="background:oklch(0.78 0.1112 270);opacity:0.08"></i></div></div>
+<div class="band"><span style="color:oklch(0.78 0.1319 300);font-size:12px">#11 search synonyms <span class="grade">8.5</span></span><div class="cells"><i style="background:oklch(0.78 0.1319 300);opacity:1"></i><i style="background:oklch(0.78 0.1319 300);opacity:0.3"></i><i style="background:oklch(0.78 0.1319 300);opacity:1"></i><i style="background:oklch(0.78 0.1319 300);opacity:0.3"></i><i style="background:oklch(0.78 0.1319 300);opacity:0.5"></i><i style="background:oklch(0.78 0.1319 300);opacity:1"></i><i style="background:oklch(0.78 0.1319 300);opacity:0.08"></i><i style="background:oklch(0.78 0.1319 300);opacity:0.75"></i><i style="background:oklch(0.78 0.1319 300);opacity:0.08"></i><i style="background:oklch(0.78 0.1319 300);opacity:0.08"></i><i style="background:oklch(0.78 0.1319 300);opacity:0.75"></i><i style="background:oklch(0.78 0.1319 300);opacity:0.3"></i><i style="background:oklch(0.78 0.1319 300);opacity:0.08"></i><i style="background:oklch(0.78 0.1319 300);opacity:1"></i><i style="background:oklch(0.78 0.1319 300);opacity:0.75"></i><i style="background:oklch(0.78 0.1319 300);opacity:0.08"></i><i style="background:oklch(0.78 0.1319 300);opacity:0.75"></i><i style="background:oklch(0.78 0.1319 300);opacity:0.3"></i><i style="background:oklch(0.78 0.1319 300);opacity:1"></i><i style="background:oklch(0.78 0.1319 300);opacity:0.08"></i><i style="background:oklch(0.78 0.1319 300);opacity:1"></i><i style="background:oklch(0.78 0.1319 300);opacity:0.3"></i><i style="background:oklch(0.78 0.1319 300);opacity:0.75"></i><i style="background:oklch(0.78 0.1319 300);opacity:0.3"></i></div></div>
+<div class="band"><span style="color:oklch(0.78 0.15 330);font-size:12px">#12 demo script <span class="grade">8.3</span></span><div class="cells"><i style="background:oklch(0.78 0.15 330);opacity:0.08"></i><i style="background:oklch(0.78 0.15 330);opacity:0.3"></i><i style="background:oklch(0.78 0.15 330);opacity:0.08"></i><i style="background:oklch(0.78 0.15 330);opacity:0.75"></i><i style="background:oklch(0.78 0.15 330);opacity:0.75"></i><i style="background:oklch(0.78 0.15 330);opacity:0.75"></i><i style="background:oklch(0.78 0.15 330);opacity:0.3"></i><i style="background:oklch(0.78 0.15 330);opacity:1"></i><i style="background:oklch(0.78 0.15 330);opacity:0.08"></i><i style="background:oklch(0.78 0.15 330);opacity:0.75"></i><i style="background:oklch(0.78 0.15 330);opacity:0.08"></i><i style="background:oklch(0.78 0.15 330);opacity:0.08"></i><i style="background:oklch(0.78 0.15 330);opacity:0.5"></i><i style="background:oklch(0.78 0.15 330);opacity:1"></i><i style="background:oklch(0.78 0.15 330);opacity:0.08"></i><i style="background:oklch(0.78 0.15 330);opacity:0.08"></i><i style="background:oklch(0.78 0.15 330);opacity:0.75"></i><i style="background:oklch(0.78 0.15 330);opacity:0.5"></i><i style="background:oklch(0.78 0.15 330);opacity:0.3"></i><i style="background:oklch(0.78 0.15 330);opacity:1"></i><i style="background:oklch(0.78 0.15 330);opacity:0.08"></i><i style="background:oklch(0.78 0.15 330);opacity:0.08"></i><i style="background:oklch(0.78 0.15 330);opacity:0.3"></i><i style="background:oklch(0.78 0.15 330);opacity:0.5"></i></div></div>
+<div class="band"><span style="color:oklch(0.61 0.11 0);font-size:12px">#13 lap 2 (hatched)</span><div class="cells" style="background:repeating-linear-gradient(135deg,oklch(0.61 0.11 0) 0,oklch(0.61 0.11 0) 3px,transparent 3px,transparent 7px);opacity:.9"></div></div>
+<div class="band"><span style="color:oklch(0.72 0.02 260);font-size:12px">#25 beyond palette</span><div class="cells" style="background:oklch(0.72 0.02 260);opacity:.35"></div></div>
+<div style="margin-top:8px"><span class="chip" style="background:oklch(0.78 0.1402 0);color:oklch(0.15 0 0)">on-band label 9.2</span></div></div>
+<h2>Moment card (Moments view)</h2><div class="card">
+<div class="shot" style="background:linear-gradient(180deg,oklch(0.27 0.014 260),oklch(0.16 0.012 260))"><span class="mono" style="font-size:11px;background:rgba(0,0,0,.6);padding:2px 6px;border-radius:4px">slide · 12:40</span></div>
+<div style="margin-top:10px;font-weight:600">Retrieval bake-off review <span class="mono" style="font-weight:400;opacity:.75">· 2026-08-14 · 12:40–14:05</span></div>
+<div class="chips" style="margin:8px 0"><span class="chip" style="background:oklch(0.8 0.1056 249);color:oklch(0.18 0.03 249);border-color:oklch(0.8 0.1056 249)">◆ decision at 12:40</span><span class="chip" style="background:oklch(0.8 0.15 96);color:oklch(0.18 0.03 96);border-color:oklch(0.8 0.15 96)">☐ 2 action items · due 2026-09-04</span><span class="chip" style="color:oklch(0.78 0.1402 0);border-color:oklch(0.78 0.1402 0)">#retrieval split</span></div>
+<div style="font-size:13px;opacity:.9">“BM25 stays first-class; hybrid only on paraphrase — we split retrieval by query shape.”</div>
+<div style="margin-top:10px;display:flex;gap:8px"><span class="chip" style="background:oklch(0.82 0.13 200);color:oklch(0.18 0.02 200);font-weight:600">▶ Replay 12:40</span><span class="chip" style="border-color:rgba(255,255,255,.2)">Open moment</span><span class="chip" style="border-color:rgba(255,255,255,.2)">Open on YouTube at 12:40 ↗</span></div>
+</div>
+<h2>Measured contrast — every pair DESIGN.md will quote</h2><table><tr><th>pair</th><th>ratio</th><th>grade</th></tr>
+<tr class="ok"><td class="mono">foreground / background</td><td class="mono">18.59</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">foreground / card</td><td class="mono">16.97</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">muted-foreground / background</td><td class="mono">7.83</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">muted-foreground / card</td><td class="mono">7.15</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">primary-foreground / primary</td><td class="mono">11.26</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">ring / background (non-text)</td><td class="mono">11.67</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">kind-decision-text / kind-decision-fill</td><td class="mono">10.13</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">kind-decision-as-text / card</td><td class="mono">9.55</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">kind-decision-border / card (non-text)</td><td class="mono">9.55</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">kind-adr-text / kind-adr-fill</td><td class="mono">9.75</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">kind-adr-as-text / card</td><td class="mono">9.14</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">kind-adr-border / card (non-text)</td><td class="mono">9.14</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">kind-action-item-text / kind-action-item-fill</td><td class="mono">10.09</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">kind-action-item-as-text / card</td><td class="mono">9.51</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">kind-action-item-border / card (non-text)</td><td class="mono">9.51</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">kind-story-text / kind-story-fill</td><td class="mono">10.57</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">kind-story-as-text / card</td><td class="mono">10.01</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">kind-story-border / card (non-text)</td><td class="mono">10.01</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">kind-requirement-text / kind-requirement-fill</td><td class="mono">10.54</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">kind-requirement-as-text / card</td><td class="mono">9.99</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">kind-requirement-border / card (non-text)</td><td class="mono">9.99</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">kind-bug-fix-text / kind-bug-fix-fill</td><td class="mono">9.54</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">kind-bug-fix-as-text / card</td><td class="mono">8.92</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">kind-bug-fix-border / card (non-text)</td><td class="mono">8.92</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">kind-change-request-text / kind-change-request-fill</td><td class="mono">9.73</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">kind-change-request-as-text / card</td><td class="mono">9.13</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">kind-change-request-border / card (non-text)</td><td class="mono">9.13</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">state-running-bar / background (non-text)</td><td class="mono">9.05</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">state-running-text / card</td><td class="mono">10.32</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">state-done-bar / background (non-text)</td><td class="mono">5.30</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">state-posted-bar / background (non-text)</td><td class="mono">5.30</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">state-posted-text / card</td><td class="mono">9.17</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">state-skipped-bar / background (non-text)</td><td class="mono">7.39</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">state-failed-bar / background (non-text)</td><td class="mono">4.30</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">state-failed-text / card</td><td class="mono">6.20</td><td>AA</td></tr>
+<tr class="ok"><td class="mono">state-unknown-bar / background (non-text)</td><td class="mono">4.17</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">state-unknown-text / card</td><td class="mono">6.86</td><td>AA</td></tr>
+<tr class="ok"><td class="mono">health-ok-dot / card (non-text)</td><td class="mono">4.83</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">health-ok-text / card</td><td class="mono">9.17</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">health-degraded-dot / card (non-text)</td><td class="mono">8.26</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">health-degraded-text / card</td><td class="mono">10.32</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">health-invalid-dot / card (non-text)</td><td class="mono">3.93</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">health-invalid-text / card</td><td class="mono">6.20</td><td>AA</td></tr>
+<tr class="ok"><td class="mono">health-missing-dot / card (non-text)</td><td class="mono">3.93</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">health-missing-text / card</td><td class="mono">6.20</td><td>AA</td></tr>
+<tr class="ok"><td class="mono">health-not-required-dot / card (non-text)</td><td class="mono">6.74</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">health-not-required-text / card</td><td class="mono">6.74</td><td>AA</td></tr>
+<tr class="ok"><td class="mono">health-stopped-dot / card (non-text)</td><td class="mono">3.93</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">health-stopped-text / card</td><td class="mono">6.20</td><td>AA</td></tr>
+<tr class="ok"><td class="mono">thread-1-band / background (non-text)</td><td class="mono">9.10</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">thread-1-on-band / thread-1-band</td><td class="mono">9.22</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">thread-1-band as text / card</td><td class="mono">8.30</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">thread-1-band-lap2 / background (non-text)</td><td class="mono">4.83</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">thread-2-band / background (non-text)</td><td class="mono">9.22</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">thread-2-on-band / thread-2-band</td><td class="mono">9.35</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">thread-2-band as text / card</td><td class="mono">8.42</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">thread-2-band-lap2 / background (non-text)</td><td class="mono">4.87</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">thread-3-band / background (non-text)</td><td class="mono">9.35</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">thread-3-on-band / thread-3-band</td><td class="mono">9.48</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">thread-3-band as text / card</td><td class="mono">8.53</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">thread-3-band-lap2 / background (non-text)</td><td class="mono">4.97</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">thread-4-band / background (non-text)</td><td class="mono">9.66</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">thread-4-on-band / thread-4-band</td><td class="mono">9.79</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">thread-4-band as text / card</td><td class="mono">8.82</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">thread-4-band-lap2 / background (non-text)</td><td class="mono">5.11</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">thread-5-band / background (non-text)</td><td class="mono">10.00</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">thread-5-on-band / thread-5-band</td><td class="mono">10.13</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">thread-5-band as text / card</td><td class="mono">9.13</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">thread-5-band-lap2 / background (non-text)</td><td class="mono">5.26</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">thread-6-band / background (non-text)</td><td class="mono">10.27</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">thread-6-on-band / thread-6-band</td><td class="mono">10.41</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">thread-6-band as text / card</td><td class="mono">9.37</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">thread-6-band-lap2 / background (non-text)</td><td class="mono">5.38</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">thread-7-band / background (non-text)</td><td class="mono">10.31</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">thread-7-on-band / thread-7-band</td><td class="mono">10.45</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">thread-7-band as text / card</td><td class="mono">9.41</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">thread-7-band-lap2 / background (non-text)</td><td class="mono">5.41</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">thread-8-band / background (non-text)</td><td class="mono">10.15</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">thread-8-on-band / thread-8-band</td><td class="mono">10.29</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">thread-8-band as text / card</td><td class="mono">9.26</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">thread-8-band-lap2 / background (non-text)</td><td class="mono">5.34</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">thread-9-band / background (non-text)</td><td class="mono">9.85</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">thread-9-on-band / thread-9-band</td><td class="mono">9.99</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">thread-9-band as text / card</td><td class="mono">8.99</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">thread-9-band-lap2 / background (non-text)</td><td class="mono">5.20</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">thread-10-band / background (non-text)</td><td class="mono">9.58</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">thread-10-on-band / thread-10-band</td><td class="mono">9.71</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">thread-10-band as text / card</td><td class="mono">8.75</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">thread-10-band-lap2 / background (non-text)</td><td class="mono">5.04</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">thread-11-band / background (non-text)</td><td class="mono">9.30</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">thread-11-on-band / thread-11-band</td><td class="mono">9.42</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">thread-11-band as text / card</td><td class="mono">8.49</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">thread-11-band-lap2 / background (non-text)</td><td class="mono">4.91</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">thread-12-band / background (non-text)</td><td class="mono">9.09</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">thread-12-on-band / thread-12-band</td><td class="mono">9.21</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">thread-12-band as text / card</td><td class="mono">8.29</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">thread-12-band-lap2 / background (non-text)</td><td class="mono">4.85</td><td>ok</td></tr>
+<tr class="ok"><td class="mono">accent-foreground / accent</td><td class="mono">11.26</td><td>AAA</td></tr>
+<tr class="ok"><td class="mono">accent as text / background</td><td class="mono">11.67</td><td>AAA</td></tr>
+</table></div></body></html>

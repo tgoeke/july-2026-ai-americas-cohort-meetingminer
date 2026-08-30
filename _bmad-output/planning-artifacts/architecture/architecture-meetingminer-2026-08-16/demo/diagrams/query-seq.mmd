@@ -1,0 +1,23 @@
+sequenceDiagram
+    autonumber
+    actor U as User (web)
+    participant A as API
+    participant N as Neo4j
+    participant M as Meilisearch
+    participant L as LLM (chat port)
+    participant PG as Postgres
+
+    U->>A: POST /chat — "What did we decide about X?"
+    A->>A: classify question → traversal template
+    A->>N: parameterized Cypher (deterministic)
+    A->>M: hybrid full-text + vector query
+    N-->>A: graph moments
+    M-->>A: ranked moments
+    A->>L: synthesize answer over retrieved moments
+    L-->>A: draft with [[moment:uuid]] markers
+    A->>PG: citation validator resolves EVERY marker
+    alt all markers resolve
+        A-->>U: streamed answer + citations → video replay at startMs
+    else any claim uncited
+        A-->>U: rejected — no citation, no answer
+    end

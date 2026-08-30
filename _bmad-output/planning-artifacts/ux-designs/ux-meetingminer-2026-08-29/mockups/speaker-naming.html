@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Speaker naming — key screens</title>
+<style>
+/* Governing spine sections:
+   DESIGN.md    — frontmatter colors/typography/spacing/rounded tokens (copied below as hex custom properties);
+                  § Layout & Spacing (reading-max-width 1024px, speaker naming 280px / flexible / 280px grid, mono-dense density);
+                  § Components: chrome, section-header, speaker-row, clip-button, state-bar, state-word, refusal-box, focus-ring.
+   EXPERIENCE.md — § Component Patterns: Speaker row, Clip button, Name field;
+                  § State Patterns: No diarization, Selected tag, Saving, Rerun landed, Resolved by source;
+                  § Accessibility Floor: focus order for the chrome and for Speaker naming;
+                  § Data Traceability › Speaker naming (data-field attributes below name the backing GET/PUT operations);
+                  § Key Flows › Flow 3 — Name the voices.
+
+   Base tokens copied from DESIGN.md frontmatter (hex, sRGB rendering of the oklch source):
+   background #0D0B09 · card/popover #1B1715 · foreground #FBF8F6 · muted #292623 · muted-foreground #A7A09A
+   border rgba(255,255,255,.10) · ring #FF8F4B · primary #FF8F4B / primary-foreground #1C0D06
+   state-running #FE9A00 / text #FFB900 · state-done/posted #009966 / text #00D492 · state-failed #EC003F / text #FF637E
+   health hues reuse the state hues; the queued state is a dashed muted-foreground border, no fill.
+*/
+:root{
+  --bg:#0D0B09;
+  --card:#1B1715;
+  --popover:#1B1715;
+  --fg:#FBF8F6;
+  --muted:#292623;
+  --muted-fg:#A7A09A;
+  --border:rgba(255,255,255,0.10);
+  --border-hover:rgba(255,255,255,0.20);
+  --ring:#FF8F4B;
+  --primary:#FF8F4B;
+  --primary-fg:#1C0D06;
+
+  --state-running:#FE9A00;
+  --state-running-text:#FFB900;
+  --state-done:#009966;
+  --state-queued-border:rgba(161,161,161,0.4);
+  --state-queued-text:rgba(161,161,161,0.6);
+
+  --health-ok-dot:#009966;
+  --health-ok-text:#00D492;
+
+  --font-sans:'Geist Variable', ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  --fs-title:18px;
+  --fs-section:14px;
+  --fs-body:14px;
+  --fs-body-sm:12px;
+  --fs-mono-sm:12px;
+  --fs-mono-xs:11px;
+  --fs-stat:14px;
+
+  --r-sm:6px;
+  --r-md:8px;
+  --r-lg:10px;
+  --r-full:9999px;
+
+  --sp-3:12px;
+  --sp-4:16px;
+  --sp-6:24px;
+  --sp-8:32px;
+  --page-padding:32px;
+  --chrome-height:56px;
+  --card-gap:20px;
+  --rail-width:280px;
+  --reading-max-width:1024px;
+  --shell-max-width:1600px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--font-sans);font-size:var(--fs-body);line-height:1.5;-webkit-font-smoothing:antialiased}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+a{color:inherit}
+button{font-family:inherit;cursor:pointer}
+:focus-visible{outline:none;box-shadow:0 0 0 1px var(--background),0 0 0 3px var(--ring)}
+
+/* Chrome — DESIGN.md § Components › chrome; EXPERIENCE.md § Accessibility Floor focus order */
+.chrome{position:sticky;top:0;z-index:10;height:var(--chrome-height);background:var(--bg);border-bottom:1px solid var(--border)}
+.chrome-inner{height:100%;display:flex;align-items:center;gap:24px;padding:0 24px;max-width:var(--shell-max-width);margin:0 auto}
+.brand{font-weight:600;font-size:18px;letter-spacing:-0.01em;white-space:nowrap}
+.nav{display:flex;gap:4px;font-size:var(--fs-body)}
+.nav a{color:var(--muted-fg);text-decoration:none;padding:6px 2px;border-bottom:2px solid transparent;white-space:nowrap}
+.nav a.active{color:var(--fg);border-bottom-color:var(--primary)}
+.chrome-center{flex:1;display:flex;gap:8px;max-width:520px}
+.search-field{flex:1;background:var(--card);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted-fg);padding:6px 10px;font-size:var(--fs-body-sm)}
+.ask-field{flex:1;background:var(--card);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted-fg);padding:6px 10px;font-size:var(--fs-body-sm)}
+.chrome-right{display:flex;align-items:center;gap:16px;white-space:nowrap}
+.btn-primary{background:var(--primary);color:var(--primary-fg);border:none;border-radius:var(--r-sm);padding:7px 14px;font-size:var(--fs-body-sm);font-weight:600}
+.health{display:flex;align-items:center;gap:6px;font-size:var(--fs-body-sm)}
+.health-dot{width:8px;height:8px;border-radius:var(--r-full);display:inline-block}
+.health-dot.ok{background:var(--health-ok-dot)}
+.health-word.ok{color:var(--health-ok-text)}
+
+/* Reading column — DESIGN.md § Layout & Spacing, reading-max-width 1024px */
+.reading{max-width:var(--reading-max-width);margin:0 auto;padding:var(--sp-8) var(--page-padding)}
+.page-head{margin-bottom:var(--sp-6)}
+.back-link{display:inline-block;font-size:var(--fs-body-sm);color:var(--muted-fg);text-decoration:none;margin-bottom:var(--sp-3)}
+.back-link:hover{color:var(--fg)}
+.page-title{font-size:var(--fs-title);font-weight:600;letter-spacing:-0.01em;margin:0 0 4px}
+.page-title .count{color:var(--fg);font-family:var(--font-mono)}
+.page-title .dim{color:var(--muted-fg);font-weight:400;font-size:var(--fs-body)}
+.meeting-sub{margin:0;font-size:var(--fs-body-sm);color:var(--muted-fg)}
+
+/* State bar + word — DESIGN.md § Components › state-bar, state-word */
+.rerun-strip{display:flex;gap:var(--sp-6);align-items:center;padding:var(--sp-3) var(--sp-4);background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);margin-bottom:var(--sp-6)}
+.state-item{display:flex;align-items:center;gap:8px}
+.state-name{color:var(--muted-fg);font-family:var(--font-mono);font-size:var(--fs-mono-xs);min-width:50px}
+.state-bar{width:56px;height:6px;border-radius:var(--r-sm);display:inline-block}
+.state-bar.done{background:var(--state-done)}
+.state-bar.running{background:var(--state-running);animation:pulse 2s ease-in-out infinite}
+.state-bar.queued{background:transparent;border:1px dashed var(--state-queued-border)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.state-word{font-family:var(--font-mono);font-size:var(--fs-mono-xs)}
+.state-word.done{color:var(--fg)}
+.state-word.running{color:var(--state-running-text)}
+.state-word.queued{color:var(--state-queued-text)}
+
+/* Speaker naming three-column grid — DESIGN.md § Layout & Spacing, rail-width 280px */
+.speakers-layout{display:grid;grid-template-columns:var(--rail-width) 1fr var(--rail-width);gap:var(--card-gap)}
+.rail h3,.panel-naming h3{font-size:var(--fs-section);font-weight:500;color:var(--muted-fg);margin:0 0 10px}
+
+/* Speaker row — DESIGN.md § Components › speaker-row; EXPERIENCE.md § Component Patterns › Speaker row */
+.rail-speakers{display:flex;flex-direction:column;gap:4px}
+.speaker-row-wrap{border:1px solid transparent;border-radius:var(--r-md);padding:10px}
+.speaker-row-wrap.selected{background:var(--card);border-color:var(--border-hover)}
+.row-select{all:unset;display:block;width:100%;cursor:pointer}
+.row-top{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.speaker-tag{font-family:var(--font-mono);font-size:var(--fs-mono-sm)}
+.resolved-name{font-size:var(--fs-body-sm);color:var(--fg);margin-left:6px}
+.share-bar-track{height:6px;background:var(--muted);border-radius:var(--r-sm);margin:8px 0 6px;overflow:hidden}
+.share-bar-fill{height:100%;background:rgba(229,229,229,0.7)}
+.row-bottom{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.share-stat{font-family:var(--font-mono);font-size:var(--fs-stat);color:var(--fg)}
+.row-meta{font-family:var(--font-mono);font-size:var(--fs-mono-xs);color:var(--muted-fg)}
+.row-footer{display:flex;align-items:center;justify-content:space-between;margin-top:6px;gap:8px}
+.btn-outline{background:transparent;border:1px solid var(--border);color:var(--fg);border-radius:var(--r-sm);padding:4px 10px;font-size:var(--fs-body-sm)}
+.btn-outline:hover{border-color:var(--border-hover)}
+.resolved-source{font-size:var(--fs-body-sm);color:var(--muted-fg)}
+
+/* Center panel — EXPERIENCE.md § Component Patterns › Clip button, Name field */
+.panel-naming{display:flex;flex-direction:column;gap:var(--sp-4)}
+.clip-row{display:flex;gap:8px}
+.clip-btn{background:transparent;border:1px solid var(--border);color:var(--fg);border-radius:var(--r-sm);padding:6px 12px;font-family:var(--font-mono);font-size:var(--fs-mono-sm)}
+.clip-btn.playing{border-color:var(--ring)}
+.player-box{aspect-ratio:16/9;background:linear-gradient(160deg,#1c1c1c,#0D0B09);border:1px solid var(--border);border-radius:var(--r-md);display:flex;align-items:center;justify-content:center;position:relative}
+.player-play{width:0;height:0;border-top:10px solid transparent;border-bottom:10px solid transparent;border-left:16px solid var(--fg)}
+.player-time{position:absolute;bottom:8px;right:10px;font-family:var(--font-mono);font-size:var(--fs-mono-xs);color:var(--muted-fg)}
+
+.name-field-block label{display:block;font-size:var(--fs-body-sm);color:var(--muted-fg);margin-bottom:6px}
+.combobox{position:relative}
+.name-input{width:100%;background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);color:var(--fg);padding:8px 10px;font-size:var(--fs-body)}
+.suggestions{list-style:none;margin:4px 0 0;padding:4px;background:var(--popover);border:1px solid var(--border);border-radius:var(--r-md)}
+.suggestions li{padding:6px 8px;border-radius:var(--r-sm);font-size:var(--fs-body-sm);color:var(--muted-fg)}
+.suggestions li.highlighted{background:var(--muted);color:var(--fg)}
+.helper-text{font-size:var(--fs-body-sm);color:var(--muted-fg);margin:6px 0 0}
+
+.choice-row{display:flex;gap:10px;align-items:center;margin-top:4px;flex-wrap:wrap}
+.btn-primary-choice{background:var(--primary);color:var(--primary-fg);border:none;border-radius:var(--r-sm);padding:8px 16px;font-size:var(--fs-body-sm);font-weight:600}
+.btn-primary-choice[disabled]{opacity:0.45;cursor:not-allowed}
+.btn-outline-choice{background:transparent;border:1px solid var(--border);color:var(--fg);border-radius:var(--r-sm);padding:8px 16px;font-size:var(--fs-body-sm)}
+.save-hint{font-size:var(--fs-mono-xs);color:var(--muted-fg);margin:2px 0 0;width:100%}
+
+/* Right rail — tag-filtered transcript */
+.rail-transcript{display:flex;flex-direction:column;gap:0}
+.transcript-list{display:flex;flex-direction:column;gap:10px}
+.segment{display:flex;gap:8px}
+.segment .offset{font-family:var(--font-mono);font-size:var(--fs-mono-xs);color:var(--muted-fg);min-width:44px}
+.segment .text{font-size:var(--fs-body-sm);color:var(--fg)}
+
+/* Standalone state demonstrations — Rerun landed / No diarization */
+.state-demo{max-width:var(--reading-max-width);margin:0 auto var(--sp-8);padding:0 var(--page-padding);border-top:1px solid var(--border);padding-top:var(--sp-6)}
+.state-demo-label{font-family:var(--font-mono);font-size:var(--fs-mono-xs);text-transform:uppercase;letter-spacing:.06em;color:var(--muted-fg);margin:0 0 12px}
+.rerun-landed-sentence{font-size:var(--fs-body);color:var(--fg);background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-3) var(--sp-4);margin-top:var(--sp-4)}
+.absence-note{font-size:var(--fs-body);color:var(--muted-fg);background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-3) var(--sp-4)}
+@media (max-width:900px){
+  html,body{max-width:100%;overflow-x:hidden}
+  .chrome{height:auto}.chrome-inner{width:100%;height:auto;min-height:56px;flex-wrap:wrap;padding:10px 12px;gap:8px}.nav{flex:1 1 160px;min-width:0;flex-wrap:wrap}.chrome-center{order:3;flex:1 1 100%;max-width:none;min-width:0}.chrome-right{order:4;flex:1 1 100%;min-width:0;flex-wrap:wrap;white-space:normal}.search-field,.ask-field{min-width:0;overflow-wrap:anywhere}
+  .reading,.state-demo{padding-left:12px;padding-right:12px;min-width:0}.rerun-strip,.clip-row{flex-wrap:wrap}.speakers-layout{grid-template-columns:1fr}.speakers-layout>*{min-width:0}.speaker-list,.transcript{max-height:none}.segment .text,.absence-note,.rerun-landed-sentence{min-width:0;overflow-wrap:anywhere}.naming-actions{align-items:flex-start;flex-direction:column}.naming-actions>*{width:100%}
+}
+</style>
+</head>
+<body>
+
+<header class="chrome">
+  <div class="chrome-inner">
+    <div class="brand">MeetingMiner</div>
+    <nav class="nav" aria-label="Primary">
+      <a href="#">Moments</a>
+      <a href="#">Threads</a>
+      <a href="#" class="active" aria-current="page">Meetings</a>
+      <a href="#">Participants</a>
+      <a href="#">Status</a>
+      <a href="#">Settings</a>
+    </nav>
+    <div class="chrome-center">
+      <span class="search-field" role="searchbox" aria-label="Search">Search the corpus</span>
+      <span class="ask-field" aria-label="Ask">Ask a question of the corpus</span>
+    </div>
+    <div class="chrome-right">
+      <button class="btn-primary">+ Add meeting</button>
+      <span class="health"><span class="health-dot ok"></span><span class="health-word ok mono">all systems healthy</span></span>
+    </div>
+  </div>
+</header>
+
+<main class="reading">
+  <div class="page-head">
+    <a href="#" class="back-link" aria-label="Back to meeting view">← Back</a>
+    <h2 class="page-title">Speakers <span class="count">4</span> <span class="dim">· <span class="mono">58m 12s</span> of speech</span></h2>
+    <p class="meeting-sub" data-field="GET /meetings/{id}.startedAt">Weekly community sync — <span class="mono">2026-08-21</span></p>
+  </div>
+
+  <div class="rerun-strip" role="group" aria-label="Rerun progress for SPEAKER_00, Priya Natarajan" data-field="GET /jobs/events (align, moments, extract stages)">
+    <div class="state-item">
+      <span class="state-name">align</span>
+      <span class="state-bar done"></span>
+      <span class="state-word done">done</span>
+    </div>
+    <div class="state-item">
+      <span class="state-name">moments</span>
+      <span class="state-bar running"></span>
+      <span class="state-word running">running</span>
+    </div>
+    <div class="state-item">
+      <span class="state-name">extract</span>
+      <span class="state-bar queued"></span>
+      <span class="state-word queued">queued</span>
+    </div>
+  </div>
+
+  <div class="speakers-layout">
+
+    <section class="rail rail-speakers" aria-label="Speakers, sorted by talk share">
+      <h3>Speakers</h3>
+
+      <div class="speaker-row-wrap">
+        <button class="row-select" aria-label="SPEAKER_00, resolved to Priya Natarajan, 41 percent talk share">
+          <div class="row-top">
+            <span class="speaker-tag" data-field="GET /meetings/{id}/speakers[].tag">SPEAKER_00</span>
+            <span class="resolved-name" data-field="GET /meetings/{id}/speakers[].displayName">Priya Natarajan</span>
+          </div>
+          <div class="share-bar-track">
+            <div class="share-bar-fill" style="width:41%" data-field="GET /meetings/{id}/speakers[].talkTime"></div>
+          </div>
+          <div class="row-bottom">
+            <span class="share-stat" data-field="talkTime / Σ talkTime (client-side)">41%</span>
+            <span class="row-meta" data-field="GET /meetings/{id}/speakers[].segmentCount">23m 51s · 112 segments</span>
+          </div>
+        </button>
+        <div class="row-footer">
+          <button class="btn-outline" data-field="PUT /meetings/{id}/speakers/SPEAKER_00">Correct</button>
+          <span class="state-word queued" data-field="GET /jobs/events">rerun · queued</span>
+        </div>
+      </div>
+
+      <div class="speaker-row-wrap selected">
+        <button class="row-select" aria-pressed="true" aria-label="SPEAKER_03, selected, 27 percent talk share">
+          <div class="row-top">
+            <span class="speaker-tag" data-field="GET /meetings/{id}/speakers[].tag">SPEAKER_03</span>
+          </div>
+          <div class="share-bar-track">
+            <div class="share-bar-fill" style="width:27%" data-field="GET /meetings/{id}/speakers[].talkTime"></div>
+          </div>
+          <div class="row-bottom">
+            <span class="share-stat" data-field="talkTime / Σ talkTime (client-side)">27%</span>
+            <span class="row-meta" data-field="GET /meetings/{id}/speakers[].segmentCount">15m 43s · 61 segments</span>
+          </div>
+        </button>
+      </div>
+
+      <div class="speaker-row-wrap">
+        <button class="row-select" aria-label="SPEAKER_01, 19 percent talk share">
+          <div class="row-top">
+            <span class="speaker-tag" data-field="GET /meetings/{id}/speakers[].tag">SPEAKER_01</span>
+          </div>
+          <div class="share-bar-track">
+            <div class="share-bar-fill" style="width:19%" data-field="GET /meetings/{id}/speakers[].talkTime"></div>
+          </div>
+          <div class="row-bottom">
+            <span class="share-stat" data-field="talkTime / Σ talkTime (client-side)">19%</span>
+            <span class="row-meta" data-field="GET /meetings/{id}/speakers[].segmentCount">11m 03s · 34 segments</span>
+          </div>
+        </button>
+      </div>
+
+      <div class="speaker-row-wrap">
+        <button class="row-select" aria-label="SPEAKER_02, resolved from transcript to Tim Goeke, 13 percent talk share">
+          <div class="row-top">
+            <span class="speaker-tag" data-field="GET /meetings/{id}/speakers[].tag">SPEAKER_02</span>
+            <span class="resolved-name" data-field="GET /meetings/{id}/speakers[].displayName">Tim Goeke</span>
+          </div>
+          <div class="share-bar-track">
+            <div class="share-bar-fill" style="width:13%" data-field="GET /meetings/{id}/speakers[].talkTime"></div>
+          </div>
+          <div class="row-bottom">
+            <span class="share-stat" data-field="talkTime / Σ talkTime (client-side)">13%</span>
+            <span class="row-meta" data-field="GET /meetings/{id}/speakers[].segmentCount">7m 34s · 21 segments</span>
+          </div>
+        </button>
+        <div class="row-footer">
+          <span class="resolved-source" data-field="GET /meetings/{id}/speakers[].participantId">from transcript</span>
+          <button class="btn-outline" data-field="PUT /meetings/{id}/speakers/SPEAKER_02">Correct</button>
+        </div>
+      </div>
+
+    </section>
+
+    <section class="panel-naming" aria-label="Name SPEAKER_03">
+      <h3>SPEAKER_03 — 15m 43s, 61 segments</h3>
+
+      <div class="clip-row">
+        <button class="clip-btn" data-field="GET /meetings/{id}/speakers[].sampleOffsets[0]" aria-label="Play clip 1 of SPEAKER_03 at 4:12">▶ 4:12</button>
+        <button class="clip-btn playing" data-field="GET /meetings/{id}/speakers[].sampleOffsets[1]" aria-label="Play clip 2 of SPEAKER_03 at 19:40">▶ 19:40</button>
+        <button class="clip-btn" data-field="GET /meetings/{id}/speakers[].sampleOffsets[2]" aria-label="Play clip 3 of SPEAKER_03 at 41:07">▶ 41:07</button>
+      </div>
+
+      <div class="player-box" data-field="GET /media/recordings/{meetingId} (Range)">
+        <span class="player-play"></span>
+        <span class="player-time mono">19:40 / 1:24:06</span>
+      </div>
+
+      <div class="name-field-block">
+        <label for="name-input">Name SPEAKER_03</label>
+        <div class="combobox">
+          <input id="name-input" class="name-input" type="text" value="pri" role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls="name-suggestions" aria-activedescendant="name-suggestion-priya" autocomplete="off">
+          <ul id="name-suggestions" class="suggestions" role="listbox" data-field="GET /participants[].displayName">
+            <li id="name-suggestion-priya" role="option" aria-selected="true" class="highlighted">Priya Natarajan</li>
+          </ul>
+        </div>
+        <p class="helper-text">Suggestions are shown, never applied — pick one or type a name.</p>
+      </div>
+
+      <div class="choice-row">
+        <button class="btn-primary-choice" disabled data-field="PUT /meetings/{id}/speakers/SPEAKER_03">Save</button>
+        <button class="btn-outline-choice" data-field="PUT /meetings/{id}/speakers/SPEAKER_03 (unresolved)">Unresolved — keep the tag</button>
+        <p class="save-hint">Save is disabled until a name or Unresolved is chosen.</p>
+      </div>
+    </section>
+
+    <section class="rail rail-transcript" aria-label="Transcript filtered to SPEAKER_03" data-field="GET /meetings/{id}/drilldown segments[] filtered by speakerLabel">
+      <h3>Transcript · SPEAKER_03 · 61 segments</h3>
+      <div class="transcript-list">
+        <div class="segment">
+          <span class="offset mono">04:12</span>
+          <span class="text">The retrieval split held up through the last two weeks of traffic.</span>
+        </div>
+        <div class="segment">
+          <span class="offset mono">12:08</span>
+          <span class="text">We should confirm the diarizer config before the next drop lands.</span>
+        </div>
+        <div class="segment">
+          <span class="offset mono">19:40</span>
+          <span class="text">I can take the action item on the publish gate idempotency key.</span>
+        </div>
+        <div class="segment">
+          <span class="offset mono">26:15</span>
+          <span class="text">The config catalog walkthrough surfaced two entries with no default.</span>
+        </div>
+        <div class="segment">
+          <span class="offset mono">33:52</span>
+          <span class="text">Let's push the speaker naming review to Thursday's sync.</span>
+        </div>
+        <div class="segment">
+          <span class="offset mono">41:07</span>
+          <span class="text">Agreed — I'll have the corrected tags in before then.</span>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<section class="state-demo" aria-label="State: rerun landed">
+  <p class="state-demo-label">state — rerun landed</p>
+  <div class="rerun-strip" role="group" aria-label="Rerun progress for SPEAKER_00, complete" data-field="GET /jobs/events (align, moments, extract stages)">
+    <div class="state-item">
+      <span class="state-name">align</span>
+      <span class="state-bar done"></span>
+      <span class="state-word done">done</span>
+    </div>
+    <div class="state-item">
+      <span class="state-name">moments</span>
+      <span class="state-bar done"></span>
+      <span class="state-word done">done</span>
+    </div>
+    <div class="state-item">
+      <span class="state-name">extract</span>
+      <span class="state-bar done"></span>
+      <span class="state-word done">done</span>
+    </div>
+  </div>
+  <p class="rerun-landed-sentence" data-field="GET /meetings/{id}/drilldown segments[].speakerLabel, speakerResolution">Rerun landed 2026-08-29 14:02:11 — transcript, graph, and extractions now name SPEAKER_00 as Priya Natarajan. Moment ids and citations unchanged.</p>
+</section>
+
+<section class="state-demo" aria-label="State: no diarization">
+  <p class="state-demo-label">state — no diarization</p>
+  <p class="absence-note" data-field="GET /meetings/{id}/speakers (empty)">No speaker tags for this meeting — the transcript arrived speaker-attributed, or the diarizer is noop (config.yaml: diarizer.engine).</p>
+</section>
+
+</body>
+</html>

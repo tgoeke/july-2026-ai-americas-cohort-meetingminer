@@ -1,0 +1,246 @@
+{
+  "generatedAt": "2026-08-29T16:05:46-0600",
+  "artifacts": [
+    {
+      "path": "/Users/devopsterus/current/cohort/meetingminer-wt/6-1-review/_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/mockups/add-meeting-refusal.html",
+      "sha256": "cea7c85f5ce50e4e338b2b9dc5a4480faa2d652cc4af1689d24c5198dea3e5c4",
+      "captures": {
+        "1280": {
+          "screenshot": "add-meeting-refusal-cea7c85f5ce5-1280.png",
+          "metrics": {
+            "viewport": 1265,
+            "documentScrollWidth": 1265,
+            "bodyScrollWidth": 1265,
+            "offenders": [],
+            "scrollports": [],
+            "controlsInsideScrollport": false
+          }
+        },
+        "320": {
+          "screenshot": "add-meeting-refusal-cea7c85f5ce5-320.png",
+          "metrics": {
+            "viewport": 305,
+            "documentScrollWidth": 305,
+            "bodyScrollWidth": 305,
+            "offenders": [],
+            "scrollports": [],
+            "controlsInsideScrollport": false
+          }
+        }
+      }
+    },
+    {
+      "path": "/Users/devopsterus/current/cohort/meetingminer-wt/6-1-review/_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/mockups/add-meeting-youtube.html",
+      "sha256": "7a07ec18c6b9c8383e6a968bbb1832297ef90188f333af9dd5f6fe362381c397",
+      "captures": {
+        "1280": {
+          "screenshot": "add-meeting-youtube-7a07ec18c6b9-1280.png",
+          "metrics": {
+            "viewport": 1265,
+            "documentScrollWidth": 1265,
+            "bodyScrollWidth": 1265,
+            "offenders": [],
+            "scrollports": [],
+            "controlsInsideScrollport": false
+          }
+        },
+        "320": {
+          "screenshot": "add-meeting-youtube-7a07ec18c6b9-320.png",
+          "metrics": {
+            "viewport": 305,
+            "documentScrollWidth": 305,
+            "bodyScrollWidth": 305,
+            "offenders": [],
+            "scrollports": [],
+            "controlsInsideScrollport": false
+          }
+        }
+      }
+    },
+    {
+      "path": "/Users/devopsterus/current/cohort/meetingminer-wt/6-1-review/_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/mockups/ask-box-model-select.html",
+      "sha256": "62b8f5bf1f2b384b88953c9a40437f5055eaffaf43ea14e9ca087f4ffef61607",
+      "captures": {
+        "1280": {
+          "screenshot": "ask-box-model-select-62b8f5bf1f2b-1280.png",
+          "metrics": {
+            "viewport": 1265,
+            "documentScrollWidth": 1265,
+            "bodyScrollWidth": 1265,
+            "offenders": [],
+            "scrollports": [],
+            "controlsInsideScrollport": false
+          }
+        },
+        "320": {
+          "screenshot": "ask-box-model-select-62b8f5bf1f2b-320.png",
+          "metrics": {
+            "viewport": 305,
+            "documentScrollWidth": 305,
+            "bodyScrollWidth": 305,
+            "offenders": [],
+            "scrollports": [],
+            "controlsInsideScrollport": false
+          }
+        }
+      }
+    },
+    {
+      "path": "/Users/devopsterus/current/cohort/meetingminer-wt/6-1-review/_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/mockups/moments.html",
+      "sha256": "b291572db943f4e21319a70ea70f96583db8d4773edd6d2932ffaeeddd1750d8",
+      "captures": {
+        "1280": {
+          "screenshot": "moments-b291572db943-1280.png",
+          "metrics": {
+            "viewport": 1265,
+            "documentScrollWidth": 1265,
+            "bodyScrollWidth": 1265,
+            "offenders": [],
+            "scrollports": [],
+            "controlsInsideScrollport": false
+          }
+        },
+        "320": {
+          "screenshot": "moments-b291572db943-320.png",
+          "metrics": {
+            "viewport": 305,
+            "documentScrollWidth": 305,
+            "bodyScrollWidth": 305,
+            "offenders": [],
+            "scrollports": [],
+            "controlsInsideScrollport": false
+          }
+        }
+      }
+    },
+    {
+      "path": "/Users/devopsterus/current/cohort/meetingminer-wt/6-1-review/_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/mockups/speaker-naming.html",
+      "sha256": "d0ccb76c68472106e3fc7586a2ed3a63b842b4419aa923005d96c8af7355e7a8",
+      "captures": {
+        "1280": {
+          "screenshot": "speaker-naming-d0ccb76c6847-1280.png",
+          "metrics": {
+            "viewport": 1265,
+            "documentScrollWidth": 1265,
+            "bodyScrollWidth": 1265,
+            "offenders": [],
+            "scrollports": [],
+            "controlsInsideScrollport": false
+          }
+        },
+        "320": {
+          "screenshot": "speaker-naming-d0ccb76c6847-320.png",
+          "metrics": {
+            "viewport": 305,
+            "documentScrollWidth": 305,
+            "bodyScrollWidth": 305,
+            "offenders": [],
+            "scrollports": [],
+            "controlsInsideScrollport": false
+          }
+        }
+      }
+    },
+    {
+      "path": "/Users/devopsterus/current/cohort/meetingminer-wt/6-1-review/_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/mockups/threads-bands.html",
+      "sha256": "7e03aa5c9bcdbf360bcbd5456a1f19cead91c887b6241252f0309c279aec83cc",
+      "captures": {
+        "1280": {
+          "screenshot": "threads-bands-7e03aa5c9bcd-1280.png",
+          "metrics": {
+            "viewport": 1265,
+            "documentScrollWidth": 1265,
+            "bodyScrollWidth": 1265,
+            "offenders": [],
+            "scrollports": [
+              {
+                "clientWidth": 887,
+                "scrollWidth": 887,
+                "overflowX": "visible",
+                "label": "Scrollable Threads timeline data"
+              }
+            ],
+            "controlsInsideScrollport": false
+          }
+        },
+        "320": {
+          "screenshot": "threads-bands-7e03aa5c9bcd-320.png",
+          "metrics": {
+            "viewport": 305,
+            "documentScrollWidth": 305,
+            "bodyScrollWidth": 305,
+            "offenders": [],
+            "scrollports": [
+              {
+                "clientWidth": 281,
+                "scrollWidth": 980,
+                "overflowX": "auto",
+                "label": "Scrollable Threads timeline data"
+              }
+            ],
+            "controlsInsideScrollport": false
+          }
+        }
+      }
+    },
+    {
+      "path": "/Users/devopsterus/current/cohort/meetingminer-wt/6-1-review/_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/mockups/threads-moments.html",
+      "sha256": "62c88898cdfdc3409e8cbefa29445ccec37615195542ce360f003f11d1476e79",
+      "captures": {
+        "1280": {
+          "screenshot": "threads-moments-62c88898cdfd-1280.png",
+          "metrics": {
+            "viewport": 1265,
+            "documentScrollWidth": 1265,
+            "bodyScrollWidth": 1265,
+            "offenders": [],
+            "scrollports": [
+              {
+                "clientWidth": 887,
+                "scrollWidth": 887,
+                "overflowX": "visible",
+                "label": "Scrollable Threads timeline data"
+              }
+            ],
+            "controlsInsideScrollport": false
+          }
+        },
+        "320": {
+          "screenshot": "threads-moments-62c88898cdfd-320.png",
+          "metrics": {
+            "viewport": 305,
+            "documentScrollWidth": 305,
+            "bodyScrollWidth": 305,
+            "offenders": [],
+            "scrollports": [
+              {
+                "clientWidth": 266,
+                "scrollWidth": 980,
+                "overflowX": "auto",
+                "label": "Scrollable Threads timeline data"
+              }
+            ],
+            "controlsInsideScrollport": false
+          }
+        }
+      }
+    },
+    {
+      "path": "/Users/devopsterus/current/cohort/meetingminer/_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/.working/color-system-c-ember.html",
+      "sha256": "cd8c56e18f57a82d4954f0ca6748ab156d995db15475fc0c8ec4e9ea17e8bcd1",
+      "captures": {
+        "1280": {
+          "screenshot": "color-system-c-ember-cd8c56e18f57-1280.png",
+          "metrics": {
+            "viewport": 1265,
+            "documentScrollWidth": 1265,
+            "bodyScrollWidth": 1265,
+            "offenders": [],
+            "scrollports": [],
+            "controlsInsideScrollport": false
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,197 @@
+---
+story: "6.1"
+reviewed_branch: story/6-1
+reviewed_head: e5510c7caf385720851b199382b62aa1221f4051
+review_baseline: full-content artifact review
+review_snapshot: _bmad-output/planning-artifacts/ux-designs/.snapshots/1423-final-system-c/ux-meetingminer-2026-08-29
+reviewer_branch: story/6-1-review
+date: 2026-08-29
+status: resolved
+verdict: approved
+---
+
+# Story 6.1 Code Review
+
+## Verdict
+
+Approved after remediation. All five owner decisions were made, all nine bounded patch groups were applied, the canonical deliverables are versioned, and the final contract/ARIA/browser verification passes. No retained review finding remains open.
+
+The four required review layers completed successfully: blind adversarial review, edge-case review, verification-gap review, and acceptance audit. They produced 60 raw observations, normalized to 39 unique candidates. Fourteen were retained and are resolved below; 25 were dismissed as duplicates, contradicted by the artifacts, speculative implementation advice, or already covered by a stronger retained finding. A focused independent re-review also passed the provider-health and model-selector corrections.
+
+## Scope and cutoff
+
+- Reviewed story branch: `story/6-1` at `e5510c7caf385720851b199382b62aa1221f4051`.
+- The original story branch had no meaningful Git diff because the UX workspace was ignored. Review therefore used the complete promoted artifact set at the immutable cutoff; remediation then versioned the exact canonical boundary selected in D5.
+- Immutable review cutoff: `.snapshots/1423-final-system-c/ux-meetingminer-2026-08-29`.
+- Cutoff aggregate SHA-256, excluding `.snapshots-tmp`: `5b6ef1afec911eaf47b71bbfe6bee2ed2f25f7f425356927dace76cb7f9efffd`.
+- Spine SHA-256: `DESIGN.md` `1f1321a22c40f61b5645eb667ebcff466974471ce8986daa7edd2d3dfac65e68`; `EXPERIENCE.md` `ff4890ff528e74f1a0c8dc21555b685984d90aa800564707c2c10f28b53b027a`.
+
+## Verification performed
+
+- Both spine frontmatters parse as YAML and declare `status: final`.
+- The System C `colors` block contains 76 hex values.
+- The contrast table contains 116 measured rows: 49 AAA, 14 AA, and 53 non-text pairs at or above 3.0:1; no row declares a failure.
+- All seven promoted HTML mockups open in headless Chromium and have hash-bound desktop/320px screenshots.
+- A reference scan found no simple missing internal section target in `EXPERIENCE.md`.
+- No application test suite was run because this story delivers UX documents and standalone HTML mockups, not application code. Purpose-built YAML, token, contrast, HTML/ARIA, and Chromium checks were run instead.
+
+## Owner decisions resolved
+
+The finding text below preserves the original decision context; each **Owner resolution** is now implemented in the final artifacts and owning source stories.
+
+### D1 — Contract ownership for designed data and endpoints
+
+**Severity:** High
+**Root cause:** specification
+**Route:** `decision_needed`
+
+The traceability claim in Story 6.1 requires every element to map to an existing field or a named future story, but the design still labels material contracts as assumptions or open findings: feed item/reason/paging fields (F-3), thread/evidence fields (F-5), the acquisition probe endpoint (F-6), named refusal and `exists` outcomes (F-7/F-8), upload metadata (F-9), provider/binding fields (F-14), provenance, and risk/question kinds (F-4). The source stories do not yet own all of these shapes.
+
+**Decision:** either amend the named source stories to own the proposed contracts, simplify the UX to contracts already owned, or decide each contract separately. Until then, the “every element backed” acceptance criterion is knowingly unmet.
+
+**Owner resolution — 2026-08-29:** Amend the named source stories. The proposed UX contracts remain in scope; remediation must add the fields, result shapes, problem types, and endpoints to the stories that own their implementation. No contract may remain traceable only through an assumption tag.
+
+### D2 — Stable thread-color identity
+
+**Severity:** High
+**Root cause:** specification
+**Route:** `decision_needed`
+
+`DESIGN.md` derives thread hue from a client-computed first-mention ordinal while promising colors never change or get reused. Sorting by `firstMentionAt` and `threadId` cannot preserve that promise after imports, merges, or splits, and `EXPERIENCE.md` maps no persisted color ordinal.
+
+**Decision:** persist an immutable ordinal, use a stable identifier hash and weaken ordinal language, or explicitly weaken the non-recoloring promise.
+
+**Owner resolution — 2026-08-29:** Persist an immutable `colorOrdinal` on each thread as part of the Story 10.3 contract. Assign it once and never recycle it within the corpus. A new thread created by a split receives a new ordinal; the surviving thread in a merge retains its ordinal. The client maps the persisted ordinal through the eight-hue, two-lap palette and uses grey beyond ordinal 16.
+
+### D3 — Absolute timeline placement
+
+**Severity:** High
+**Root cause:** specification
+**Route:** `decision_needed`
+
+The multi-meeting timeline is described in wall-clock time, but mapped moment evidence supplies relative `startMs` only. The design does not define the meeting anchor/time zone or a deterministic fallback, so cross-meeting placement cannot be implemented consistently.
+
+**Decision:** expose an absolute evidence timestamp, define placement as `meeting.startedAt + startMs` with time-zone rules, or redesign the axis to avoid absolute placement.
+
+**Owner resolution — 2026-08-29:** Story 10.3 exposes a canonical `occurredAt` value for each evidence item as an RFC 3339 UTC timestamp, derived server-side from the meeting start plus `startMs`. The client uses `occurredAt` directly for cross-meeting timeline placement and does not reconstruct wall-clock time.
+
+### D4 — WCAG resize/reflow exception
+
+**Severity:** High
+**Root cause:** product decision
+**Route:** `decision_needed`
+
+`EXPERIENCE.md` records desktop-only deviations from WCAG 1.4.4 above 150% and 1.4.10, while F-21 still asks whether to keep the deviation or fund a narrow layout. The validation report describes the item as resolved even though the owner decision remains open.
+
+**Decision:** accept and clearly scope the exception, or require a narrow/reflow layout and update the component and flow specifications.
+
+**Owner resolution — 2026-08-29:** Fund and require the narrow/reflow layout. The final specification must support 200% text resize and WCAG 1.4.10 reflow and must remove the desktop-only conformance exception. Component states, key flows, mockups, and validation evidence must cover the narrow presentation.
+
+### D5 — Versioning the design of record
+
+**Severity:** High
+**Root cause:** repository policy
+**Route:** `decision_needed`
+
+The design workspace and snapshots are ignored, yet `adoption.md` directs builders to cite this dated path as the design of record. The artifact changed materially during review and has no reviewable Git history. A local snapshot helps this review but does not make the specification available to other clones or future builders.
+
+**Decision:** un-ignore and version the promoted design workspace, or promote the canonical spines/mockups into a tracked documentation path with an explicit update policy.
+
+**Owner resolution — 2026-08-29:** Track the canonical deliverables in the existing dated workspace: `DESIGN.md`, `EXPERIENCE.md`, all seven promoted mockups, both validation reports, `findings-for-epics.md`, and `adoption.md`. Keep temporary studies, rendered screenshots, working files, and snapshots ignored. Repository ignore rules must make this boundary explicit.
+
+## Patches applied after decisions
+
+The finding text below preserves the pre-remediation evidence. P1–P9 are all applied and covered by the completed re-verification section.
+
+### P1 — Finish the System C promotion and repair stale validation evidence
+
+**Severity:** High
+**Route:** `patch`
+
+The promoted set contradicts its System C declaration:
+
+- `DESIGN.md` retains both “A picked” and the later C owner decision.
+- `.working/README.md` likewise names A and C as the pick.
+- `mockups/threads-bands.html` and `mockups/threads-moments.html` retain thread 9–12 variables despite the canonical eight-hue/lap-two scheme.
+- Multiple mockups retain the rejected A-blue focus color `rgba(75,163,247,.5)`.
+- Some mockups use `#1C0D06` for a C surface where the canonical card/popover value is `#1B1715`.
+- `validation-report.html` still states the A-era 84-token/134-pair result in its detailed verification sections despite the appended C note.
+- The screenshot evidence does not cover all seven promoted mockups under System C.
+
+Regenerate the detailed validation text, normalize all mockup tokens and thread variables, and capture evidence for every promoted mockup from the final files.
+
+### P2 — Make the System C color rules internally consistent
+
+**Severity:** Medium
+**Route:** `patch`
+
+`DESIGN.md` says the seven kinds occupy “three hue families” but lists four: records, actions, backlog, and corrections. It also says color has exactly five meanings and refuses a sixth while System C adds ember as brand/action/focus, and a do/don’t example says not to color the button although the canonical primary button is ember. Two prose contrast values (7.44 and 5.50) are stale against the C table (8.72 and 5.42). Reconcile the taxonomy and replace stale examples and ratios.
+
+### P3 — Make the add-meeting flows obey the probe state machine
+
+**Severity:** High
+**Route:** `patch`
+
+The component states require a pre-submit URL probe, but Key Flow 1 enables/submits after shape validation and Key Flow 2 sends a long URL directly into refusal handling. Once D1 resolves the endpoint, route both flows through idle/debouncing/probing/supported-or-refused states and define how probe results gate submission.
+
+### P4 — Replace path-addressed media with ID-addressed media
+
+**Severity:** High
+**Route:** `patch`
+
+`EXPERIENCE.md` maps `screenshotPath` to `GET /media/{path}`, conflicting with architecture AD-17’s ID-only media boundary. Map screenshot/replay affordances to an opaque media/evidence identifier and an ID-addressed endpoint, then update F-3 and affected mockup annotations.
+
+### P5 — Specify safe source deep-link construction
+
+**Severity:** Medium
+**Route:** `patch`
+
+The design appends `&t=` to `sourceDeepLink`. That fails for URLs without a query string and can duplicate an existing time parameter. Require URL parsing and replacement/insertion of the provider-specific time parameter, with an unavailable-link fallback.
+
+### P6 — Make feed-reason rendering total
+
+**Severity:** Medium
+**Route:** `patch`
+
+F-3 includes a `due` reason that has no matching token/glyph, and the renderer permits an empty `reasons` array even though UX-DR17 requires a stated reason for every item. Add the missing branch and specify whether an empty/unknown reason causes item omission, an explicit “reason unavailable” state, or a contract error.
+
+### P7 — Replace the obsolete model-selection mock interaction
+
+**Severity:** Medium
+**Route:** `patch`
+
+`mockups/ask-box-model-select.html` presents a radio group and tells the user to edit configuration and restart, contradicting the final experience specification’s persisted `PUT` selector. Rebuild the promoted mockup around the final interaction, including save, failure, and restored-selection behavior.
+
+### P8 — Define stale-response handling for asynchronous controls
+
+**Severity:** Medium
+**Route:** `patch`
+
+The probe, timeline zoom/fetch, and rapid model-selection interactions can resolve out of order. Add a shared invariant that superseded work is aborted when possible and that responses are applied only when their request generation/key still matches current UI state.
+
+### P9 — Repair mockup accessibility semantics and target sizes
+
+**Severity:** Medium
+**Route:** `patch`
+
+The thread mockups declare `role="grid"` without the required row/gridcell hierarchy; add-meeting progress bars are hidden from assistive technology despite the spine requiring announced progress; and file-removal controls are 22×22 rather than the documented 24×24 minimum. Align the promoted HTML with the Accessibility Floor and rerun the focused checks.
+
+## Dismissed observations
+
+Twenty-five normalized candidates were dismissed. The main dismissal reasons were duplicate manifestations of the retained System C or contract findings; unsupported assumptions about diarization, clustering, paging implementation, or replay internals; implementation-level preferences not required by the story; and claims disproved by the final spines. Dismissal does not certify future implementation behavior beyond Story 6.1’s design scope.
+
+## Re-verification completed
+
+1. All four review layers ran against the immutable cutoff; focused acceptance and evidence re-reviews passed after remediation.
+2. Both frontmatters parse and declare `status: final`; the complete System C block contains 76 hexadecimal color tokens.
+3. The contrast table independently totals 116 pairs: 49 AAA, 14 AA, and 53 non-text pairs at or above 3.0:1, with no failures.
+4. Every traceability row has a source; amended source stories and `findings-for-epics.md` own the accepted probe, acquisition, upload, speaker, model, thread, time, media, and feed contracts.
+5. Focused HTML checks pass for ids, ARIA references, named progress graphics, grid row/cell/rowheader structure, combobox/listbox ownership, provider groups, and the native switch.
+6. Headless Chromium rendered all seven final mocks at 1280 and 320 CSS pixels. Every document has zero non-timeline overflow; at 320 the two named timeline-data regions alone scroll over their 980px canvases, and timeline controls remain outside the scrollports.
+7. Screenshot names are bound to source SHA-256 values and recorded in `.working/screens/final-verification-manifest.json`; the seven full hashes are also recorded in `validation-report.md`.
+8. The Markdown and HTML reports agree on System C, the token/pair counts, the accepted decisions, and the final browser verdict.
+9. The exact D5 canonical boundary is tracked; working studies, screenshots, memlogs, and snapshots remain ignored.
+
+## Remediation outcome
+
+The persisted `colorOrdinal` allocation is transactional and never recycled; equal-time/day-precision placement has a deterministic server rule; feed reasons are validated before pagination; timeline cache identity includes pinned threads; focus has a no-cell fallback; model health joins through `GET /status providers[]`; upload metadata requires a complete RFC 3339 timestamp with offset; and the promoted mockups implement the resulting accessible states. Story 6.1 is ready to land.

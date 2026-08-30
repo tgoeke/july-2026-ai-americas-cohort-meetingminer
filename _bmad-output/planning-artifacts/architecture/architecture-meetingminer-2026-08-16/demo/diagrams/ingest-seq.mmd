@@ -1,0 +1,21 @@
+sequenceDiagram
+    autonumber
+    participant P as Puller (Teams)
+    participant D as Drops folder
+    participant A as API
+    participant W as Worker
+    participant PG as Postgres
+    participant PR as Projections
+
+    P->>D: write-once source drop<br/>(recording + transcript + metadata.json)
+    P->>A: POST /ingests (drop path)
+    A->>A: validate drop against JSON Schema
+    A->>PG: insert job row
+    W->>PG: claim job · mint Meeting row
+    W->>W: probe → frames → ocr → screens →<br/>transcribe → align → moments → extract
+    Note over W: checkpoint after every stage —<br/>each stage idempotent, restartable
+    W->>PG: evidence rows (moments, segments,<br/>screenshots) + derived artifacts
+    W->>PR: ingest-complete
+    PR->>PR: compute embeddings (1024-dim port)
+    PR-->>PG: read evidence
+    Note over PR: sole writer projects to<br/>Neo4j + Meilisearch

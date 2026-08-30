@@ -42,9 +42,10 @@ web/dist/
 .dist/
 
 # BMad working output (specs, prompts, reviews, tracking, design workspace) is
-# local process record and is never pushed: the repository is shared with the
-# cohort. Worktrees reach it through the main checkout. Never `git add -f` here.
-_bmad-output/
+# tracked (owner decision 2026-08-30) so every worktree and review lane commits
+# its artifacts like any other file. Only harness scratch under it is ignored.
+.cc-writes/
+.snapshots-tmp
 
 # Vendored agent skill trees (per-machine copies; the installer regenerates them).
 # The hand-written `integrate` skill is not vendored and is tracked.

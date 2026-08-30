@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Threads — bands tier — MeetingMiner</title>
+<style>
+/* Governing spine sections for this screen (key-threads-bands.html):
+   DESIGN.md   — Colors › Base, Threads (8 hues, lap-1 name + lap swatch rule, density alpha
+                 steps); Typography; Layout & Spacing (Shell 1600px, thread-list-width 280px,
+                 band-height 24px, band-gap 4px); Components › chrome, section-header, thread-band,
+                 thread-chip, timeline-axis, timeline-controls, focus-ring.
+   EXPERIENCE.md — Information Architecture (chrome, Threads route, nav underline);
+                 Component Patterns › Thread band, Timeline canvas (role="grid", 24px bands),
+                 Thread list (Rename / Merge into… / Split… triggers); State Patterns › Threads
+                 rows drawn here: Search no match, Renaming · merging, Beyond palette;
+                 Semantic Zoom › bands tier row of the table, Focus across tiers (grid accessible
+                 name); Accessibility Floor (focus order, color never sole carrier); Data
+                 Traceability › Threads; Key Flows › Flow 6, steps 1-2 (Home, bands tier, dense
+                 May/August, quiet June).
+*/
+
+:root{
+  /* base — DESIGN.md frontmatter colors, byte-identical to web/src/index.css .dark */
+  --background:#0D0B09;
+  --card:#1C0D06;
+  --popover:#1C0D06;
+  --foreground:#FBF8F6;
+  --muted:#292623;
+  --muted-foreground:#A7A09A;
+  --border:rgba(255,255,255,0.10);
+  --ring:#FF8F4B;
+  --primary:#FF8F4B;
+  --primary-foreground:#1C0D06;
+  --destructive:#FF6467;
+
+  /* moment kinds (used on the evidence card family; kept for token completeness) */
+  --k-decision-fill:#292440; --k-decision-text:#D0C9FF; --k-decision-border:#7A6FB1;
+  --k-adr-fill:#292440; --k-adr-text:#D0C9FF; --k-adr-border:#7A6FB1;
+  --k-action-fill:#3C220F; --k-action-text:#FFC299; --k-action-border:#A7693C;
+  --k-story-fill:#00302E; --k-story-text:#6EE8E1; --k-story-border:#018D87;
+  --k-requirement-fill:#00302E; --k-requirement-text:#6EE8E1; --k-requirement-border:#018D87;
+  --k-bugfix-fill:#3A1E2E; --k-bugfix-text:#FFB8DF; --k-bugfix-border:#A46188;
+  --k-change-fill:#3A1E2E; --k-change-text:#FFB8DF; --k-change-border:#A46188;
+
+  /* ingestion / acquisition states */
+  --state-running:#FE9A00; --state-running-text:#FFB900;
+  --state-done:#009966; --state-posted:#009966; --state-posted-text:#00D492;
+  --state-skipped:#90A1B9;
+  --state-failed:#EC003F; --state-failed-text:#FF637E;
+  --state-unknown:#C800DE; --state-unknown-text:#ED6AFF;
+
+  /* health */
+  --health-ok:#009966; --health-ok-text:#00D492;
+  --health-degraded:#FE9A00; --health-degraded-text:#FFB900;
+  --health-invalid:#EC003F; --health-invalid-text:#FF637E;
+  --health-not-required:#90A1B9;
+
+  /* thread identity — 8 hues, 45deg apart, L .75 C .12; lap2 = L .58 C .08 hatched (system C) */
+  --thread-1-band:#EC8DAB;  --thread-1-band-lap2:#A26678;
+  --thread-2-band:#ED946C;  --thread-2-band-lap2:#A26B52;
+  --thread-3-band:#CBAA4B;  --thread-3-band-lap2:#8D783F;
+  --thread-4-band:#8CBF70;  --thread-4-band-lap2:#668554;
+  --thread-5-band:#3DC6B1;  --thread-5-band-lap2:#3C8A7C;
+  --thread-6-band:#45BDE7;  --thread-6-band-lap2:#3F849E;
+  --thread-7-band:#90AAFA;  --thread-7-band-lap2:#6878AA;
+  --thread-8-band:#CB96E2;  --thread-8-band-lap2:#8C6C9B;
+  --thread-9-band:#EC8DAB;  --thread-9-band-lap2:#A26678;
+  --thread-10-band:#ED946C; --thread-10-band-lap2:#A26B52;
+  --thread-11-band:#CBAA4B; --thread-11-band-lap2:#8D783F;
+  --thread-12-band:#8CBF70; --thread-12-band-lap2:#668554;
+  --thread-on-band:#0B0B0B;
+
+  /* typography */
+  --sans:'Geist Variable', ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --fs-title:18px; --fs-section:14px; --fs-body:14px; --fs-body-sm:12px; --fs-label:10px;
+  --fs-mono-sm:12px; --fs-mono-xs:11px;
+
+  /* spacing (Tailwind 4px scale, named per DESIGN.md) */
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:20px; --sp-6:24px; --sp-8:32px;
+  --page-padding:32px; --chrome-height:56px; --card-padding:16px;
+  --chip-gap:6px; --thread-list-width:280px; --band-height:24px; --band-gap:4px;
+  --shell-max-width:1600px;
+  --control-border:#FFFFFF57;
+
+  --r-sm:6px; --r-md:8px; --r-lg:10px; --r-full:9999px;
+}
+
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--background);color:var(--foreground);font-family:var(--sans);font-size:var(--fs-body);line-height:1.5;-webkit-font-smoothing:antialiased}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+button,input,select{font-family:inherit;color:inherit}
+a{color:inherit}
+:focus-visible{outline:3px solid color-mix(in oklab, var(--ring) 50%, transparent);outline-offset:2px;border-radius:4px}
+.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* browser frame (presentation only, not part of the app) */
+.browser-frame{max-width:1660px;margin:24px auto 60px;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--background);box-shadow:0 30px 80px rgba(0,0,0,.5)}
+.browser-bar{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--card);border-bottom:1px solid var(--border)}
+.browser-dots{display:flex;gap:6px}
+.browser-dots i{width:9px;height:9px;border-radius:50%;background:var(--muted-foreground);opacity:.35;display:block}
+.browser-addr{flex:1;text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted-foreground);background:var(--background);border:1px solid var(--border);border-radius:5px;padding:3px 10px}
+
+/* chrome — DESIGN.md components.chrome / EXPERIENCE.md IA */
+.chrome{position:sticky;top:0;z-index:5;height:var(--chrome-height);background:var(--background);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:24px;padding:0 24px}
+.brand{font-family:var(--sans);font-weight:600;font-size:16px;letter-spacing:-0.01em;white-space:nowrap}
+.nav{display:flex;gap:4px;font-size:var(--fs-body);white-space:nowrap}
+.nav a{color:var(--muted-foreground);text-decoration:none;padding:8px 2px;margin:0 8px;border-bottom:2px solid transparent}
+.nav a.active{color:var(--foreground);border-bottom-color:var(--primary)}
+.chrome-center{flex:1;display:flex;gap:10px;max-width:640px}
+.search-input,.ask-input{flex:1;background:var(--card);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--foreground);padding:7px 12px;font-size:var(--fs-body-sm)}
+.search-input::placeholder,.ask-input::placeholder{color:var(--muted-foreground)}
+.ask-wrap{flex:1.4;display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--border);border-radius:var(--r-sm);padding:4px 6px 4px 12px}
+.ask-wrap input{flex:1;background:transparent;border:none;color:var(--foreground);font-size:var(--fs-body-sm);padding:3px 0}
+.ask-wrap input::placeholder{color:var(--muted-foreground)}
+.model-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--r-sm);font-family:var(--mono);font-size:var(--fs-mono-xs);color:var(--muted-foreground);white-space:nowrap}
+.model-chip .dot{width:6px;height:6px;border-radius:50%;background:var(--health-ok);display:inline-block}
+.model-chip .ok-word{color:var(--health-ok-text)}
+.chrome-right{display:flex;align-items:center;gap:16px}
+.btn{font-family:var(--sans);font-size:var(--fs-body-sm);border-radius:var(--r-sm);padding:7px 14px;cursor:default;white-space:nowrap;border:1px solid transparent}
+.btn-primary{background:var(--primary);color:var(--primary-foreground);font-weight:600;border:none}
+.btn-outline{background:transparent;color:var(--foreground);border-color:var(--border)}
+.btn-xs{padding:4px 9px;font-size:var(--fs-mono-xs);font-family:var(--mono)}
+.health{display:flex;align-items:center;gap:7px;font-size:var(--fs-body-sm);white-space:nowrap}
+.health .dot{width:8px;height:8px;border-radius:50%;background:var(--health-ok);display:inline-block}
+.health .word{color:var(--health-ok-text)}
+
+/* shell */
+.shell{max-width:var(--shell-max-width);margin:0 auto;padding:var(--page-padding)}
+.page-head{margin-bottom:var(--sp-6)}
+.page-head h1{font-size:var(--fs-title);font-weight:600;letter-spacing:-0.01em;margin:0}
+
+/* layout: list column + canvas */
+.threads-layout{display:grid;grid-template-columns:var(--thread-list-width) 1fr;gap:var(--sp-8);align-items:start}
+
+/* thread list column — EXPERIENCE.md Component Patterns > Thread list */
+.thread-list{border-right:1px solid var(--border);padding-right:var(--sp-6)}
+.section-header{display:flex;align-items:baseline;gap:8px;font-size:var(--fs-section);font-weight:500;color:var(--muted-foreground);margin-bottom:var(--sp-3)}
+.section-header .count{font-family:var(--mono);font-size:var(--fs-mono-sm);color:var(--foreground)}
+.list-search{width:100%;background:var(--card);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--foreground);padding:7px 10px;font-size:var(--fs-body-sm);margin-bottom:var(--sp-3)}
+.list-search::placeholder{color:var(--muted-foreground)}
+.sort-toggle{display:flex;align-items:center;gap:6px;font-size:var(--fs-body-sm);color:var(--muted-foreground);margin-bottom:var(--sp-4)}
+.sort-toggle button{background:none;border:none;padding:2px 0;font-family:var(--sans);font-size:var(--fs-body-sm);color:var(--muted-foreground)}
+.sort-toggle button.active{color:var(--foreground);font-weight:600;text-decoration:underline;text-underline-offset:3px}
+.sort-toggle .sep{opacity:.5}
+
+.thread-rows{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.thread-row{border-radius:var(--r-sm);padding:8px 6px}
+.thread-row-link{display:block;width:100%;text-align:left;background:none;border:none;padding:0;cursor:default}
+.thread-row-main{display:flex;flex-direction:column;gap:2px}
+.thread-name{font-size:var(--fs-body);font-weight:500;display:inline-flex;align-items:center}
+.lap-swatch{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:6px;flex:none}
+.thread-meta{font-size:var(--fs-mono-sm);color:var(--muted-foreground)}
+.thread-machine{font-size:var(--fs-label);letter-spacing:.08em;text-transform:uppercase;color:var(--muted-foreground);opacity:.7;margin-top:2px}
+.thread-row--rename .rename-input{width:100%;background:var(--background);border:1px solid var(--ring);border-radius:var(--r-sm);color:var(--foreground);padding:4px 8px;font-size:var(--fs-body);margin-bottom:2px}
+.thread-row-actions{display:flex;gap:8px;margin-top:6px;align-items:center}
+.merge-select{background:var(--card);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--foreground);padding:4px 8px;font-size:var(--fs-mono-xs);max-width:150px}
+
+/* canvas — EXPERIENCE.md Component Patterns > Timeline canvas / Thread band; DESIGN.md components.timeline-axis / thread-band */
+.canvas-wrap{min-width:0}
+.canvas-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:var(--sp-4)}
+.canvas-head h2{font-size:var(--fs-section);font-weight:500;color:var(--muted-foreground);margin:0}
+.timeline-controls{display:flex;gap:6px}
+.timeline-controls button{font-family:var(--mono);font-size:var(--fs-mono-sm);padding:4px 10px;background:transparent;color:var(--foreground);border:1px solid var(--control-border);border-radius:var(--r-sm);cursor:default}
+
+.timeline-grid{position:relative;display:grid;grid-template-columns:150px 1fr;column-gap:12px;row-gap:var(--band-gap);border:1px solid var(--border);border-radius:var(--r-md);padding:14px 14px 16px;background:var(--card)}
+
+.axis-track{display:grid;grid-template-columns:repeat(26, 1fr);gap:2px;height:24px;align-items:end;border-bottom:1px solid var(--border);padding-bottom:4px}
+.axis-cell{position:relative;min-width:0}
+.axis-cell.month-start{border-left:1px solid var(--border)}
+.axis-label{font-size:var(--fs-mono-xs);color:var(--muted-foreground);padding-left:4px;white-space:nowrap}
+
+.band-label{font-size:var(--fs-body-sm);font-weight:500;display:flex;align-items:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.band-track{display:grid;grid-template-columns:repeat(26, 1fr);gap:2px;height:var(--band-height)}
+.bucket{width:100%;height:100%;min-width:0;border:none;border-radius:2px;padding:0;background:var(--tc);opacity:var(--a);cursor:default}
+.bucket.target-bucket{box-shadow:0 0 0 2px var(--ring);opacity:1}
+.lap2-track{background:none}
+.lap2-fill{grid-column:1 / -1;width:100%;height:100%;border-radius:2px;background-image:repeating-linear-gradient(135deg, var(--tc2) 0 3px, transparent 3px 7px);opacity:.9}
+
+/* overlay: gridlines, cursor line, tooltip — occupies the same grid cell as every track column */
+.overlay{position:absolute;top:14px;bottom:16px;left:calc(14px + 150px + 12px);right:14px;pointer-events:none}
+.gline{position:absolute;top:0;bottom:0;width:1px;background:var(--border)}
+.cursor-line{position:absolute;top:0;bottom:0;width:1px;background:color-mix(in oklab, var(--foreground) 40%, transparent);left:44.23%}
+.tooltip{position:absolute;left:44.23%;top:28px;transform:translate(-50%, calc(-100% - 8px));background:var(--popover);border:1px solid var(--border);border-radius:var(--r-md);box-shadow:0 8px 24px rgba(0,0,0,.5);padding:6px 10px;white-space:nowrap;font-family:var(--mono);font-size:var(--fs-mono-sm);color:var(--foreground)}
+.tooltip::after{content:"";position:absolute;left:50%;bottom:-5px;transform:translateX(-50%) rotate(45deg);width:9px;height:9px;background:var(--popover);border-right:1px solid var(--border);border-bottom:1px solid var(--border)}
+
+.canvas-caption{margin-top:var(--sp-4);display:flex;flex-direction:column;gap:6px}
+.canvas-caption .aria-desc{font-family:var(--mono);font-size:var(--fs-mono-xs);color:var(--muted-foreground)}
+.canvas-caption .lap2-note{font-size:var(--fs-body-sm);color:var(--muted-foreground)}
+
+/* State demo sections — EXPERIENCE.md State Patterns Threads rows: Beyond palette, Search no match */
+.state-section{margin-top:var(--sp-8);padding-top:var(--sp-6);border-top:1px solid var(--border)}
+.state-section h2{font-size:var(--fs-title);font-weight:600;margin:0 0 var(--sp-4)}
+.beyond-palette-demo{max-width:420px}
+.beyond-palette-band{height:var(--band-height);border-radius:2px;background:var(--muted-foreground);opacity:.6;margin-bottom:10px}
+.beyond-palette-note{font-size:var(--fs-body-sm);color:var(--muted-foreground);margin:4px 0 0}
+.search-no-match-demo{max-width:320px;display:flex;flex-direction:column;gap:8px}
+.no-match-text{font-size:var(--fs-body-sm);color:var(--foreground);margin:0}
+.no-match-note{font-size:var(--fs-body-sm);color:var(--muted-foreground);margin:0}
+</style>
+</head>
+<body>
+<div class="browser-frame">
+  <div class="browser-bar">
+    <div class="browser-dots"><i></i><i></i><i></i></div>
+    <div class="browser-addr">meetingminer.local/threads</div>
+  </div>
+
+  <header class="chrome">
+    <span class="brand">MeetingMiner</span>
+    <nav class="nav" aria-label="Primary">
+      <a href="#">Moments</a>
+      <a href="#" class="active" aria-current="page">Threads</a>
+      <a href="#">Meetings</a>
+      <a href="#">Participants</a>
+      <a href="#">Status</a>
+      <a href="#">Settings</a>
+    </nav>
+    <div class="chrome-center">
+      <input class="search-input" type="text" placeholder="Search" aria-label="Search">
+      <div class="ask-wrap">
+        <input type="text" placeholder="Ask a question" aria-label="Ask">
+        <span class="model-chip"><span class="dot"></span>chat &middot; claude-sonnet-5 &middot; anthropic <span class="ok-word">&#9679; ok</span></span>
+      </div>
+    </div>
+    <div class="chrome-right">
+      <button type="button" class="btn btn-primary">Add meeting</button>
+      <span class="health"><span class="dot"></span><span class="word">ok</span></span>
+    </div>
+  </header>
+
+  <main class="shell">
+    <div class="page-head">
+      <h1>Threads</h1>
+    </div>
+
+    <div class="threads-layout">
+      <aside class="thread-list" aria-label="Threads">
+        <div class="section-header">Threads <span class="count mono">11</span></div>
+        <input class="list-search" type="text" placeholder="Search threads by name" aria-label="Search threads by name">
+        <div class="sort-toggle" role="group" aria-label="Sort threads">
+          <button type="button" class="active" aria-pressed="true">activity</button>
+          <span class="sep">&middot;</span>
+          <button type="button" aria-pressed="false">recency</button>
+        </div>
+        <ul class="thread-rows">
+<li class="thread-row">
+  <button type="button" class="thread-row-main thread-row-link">
+    <span class="thread-name" style="color:var(--thread-1-band)">retrieval split</span>
+    <span class="thread-meta mono">47 mentions &middot; 9 meetings &middot; last 2026-08-21</span>
+  </button>
+  <div class="thread-machine">machine-derived</div>
+</li>
+<li class="thread-row">
+  <button type="button" class="thread-row-main thread-row-link">
+    <span class="thread-name" style="color:var(--thread-4-band)">eval harness</span>
+    <span class="thread-meta mono">41 mentions &middot; 8 meetings &middot; last 2026-08-17</span>
+  </button>
+  <div class="thread-machine">machine-derived</div>
+</li>
+<li class="thread-row">
+  <button type="button" class="thread-row-main thread-row-link">
+    <span class="thread-name" style="color:var(--thread-7-band)">drop schema</span>
+    <span class="thread-meta mono">38 mentions &middot; 7 meetings &middot; last 2026-08-09</span>
+  </button>
+  <div class="thread-machine">machine-derived</div>
+</li>
+<li class="thread-row">
+  <button type="button" class="thread-row-main thread-row-link">
+    <span class="thread-name" style="color:var(--thread-3-band)">speaker naming</span>
+    <span class="thread-meta mono">35 mentions &middot; 7 meetings &middot; last 2026-08-16</span>
+  </button>
+  <div class="thread-machine">machine-derived</div>
+</li>
+<li class="thread-row">
+  <button type="button" class="thread-row-main thread-row-link">
+    <span class="thread-name" style="color:var(--thread-5-band)">YouTube intake</span>
+    <span class="thread-meta mono">33 mentions &middot; 6 meetings &middot; last 2026-08-17</span>
+  </button>
+  <div class="thread-machine">machine-derived</div>
+</li>
+<li class="thread-row thread-row--rename">
+  <div class="thread-row-main">
+    <label class="visually-hidden" for="rename-input">Rename thread moment identity</label>
+    <input id="rename-input" class="rename-input" type="text" value="moment identity" aria-label="Rename thread moment identity">
+    <span class="thread-meta mono">30 mentions &middot; 6 meetings &middot; last 2026-08-09</span>
+  </div>
+  <div class="thread-row-actions">
+    <button type="button" class="btn btn-primary btn-xs">Save</button>
+    <button type="button" class="btn btn-outline btn-xs">Cancel</button>
+    <button type="button" class="btn btn-outline btn-xs">Split&hellip;</button>
+  </div>
+  <div class="thread-machine">machine-derived</div>
+</li>
+<li class="thread-row">
+  <button type="button" class="thread-row-main thread-row-link">
+    <span class="thread-name" style="color:var(--thread-6-band)">config catalog</span>
+    <span class="thread-meta mono">26 mentions &middot; 5 meetings &middot; last 2026-08-09</span>
+  </button>
+  <div class="thread-machine">machine-derived</div>
+</li>
+<li class="thread-row">
+  <button type="button" class="thread-row-main thread-row-link">
+    <span class="thread-name" style="color:var(--thread-2-band)">publish gate</span>
+    <span class="thread-meta mono">22 mentions &middot; 5 meetings &middot; last 2026-08-17</span>
+  </button>
+  <div class="thread-machine">machine-derived</div>
+</li>
+<li class="thread-row">
+  <button type="button" class="thread-row-main thread-row-link">
+    <span class="thread-name" style="color:var(--thread-9-band)"><span class="lap-swatch" style="background-image:repeating-linear-gradient(135deg, var(--thread-9-band-lap2) 0 2px, transparent 2px 4px);border:1px solid var(--thread-9-band-lap2)"></span>screen lineage</span>
+    <span class="thread-meta mono">15 mentions &middot; 3 meetings &middot; last 2026-07-26</span>
+  </button>
+  <div class="thread-machine">machine-derived</div>
+</li>
+<li class="thread-row thread-row--merge">
+  <div class="thread-row-main">
+    <span class="thread-name" style="color:var(--thread-10-band)"><span class="lap-swatch" style="background-image:repeating-linear-gradient(135deg, var(--thread-10-band-lap2) 0 2px, transparent 2px 4px);border:1px solid var(--thread-10-band-lap2)"></span>worker restarts</span>
+    <span class="thread-meta mono">11 mentions &middot; 3 meetings &middot; last 2026-07-12</span>
+  </div>
+  <div class="thread-row-actions">
+    <select class="merge-select" aria-label="Merge worker restarts into&hellip;">
+      <option value="">Merge into&hellip;</option>
+      <option>retrieval split</option><option>eval harness</option><option>drop schema</option><option>speaker naming</option><option>YouTube intake</option><option>moment identity</option><option>config catalog</option><option>publish gate</option><option>screen lineage</option><option>search synonyms</option>
+    </select>
+    <button type="button" class="btn btn-outline btn-xs">Merge</button>
+    <button type="button" class="btn btn-outline btn-xs">Split&hellip;</button>
+  </div>
+  <div class="thread-machine">machine-derived</div>
+</li>
+<li class="thread-row">
+  <button type="button" class="thread-row-main thread-row-link">
+    <span class="thread-name" style="color:var(--thread-11-band)"><span class="lap-swatch" style="background-image:repeating-linear-gradient(135deg, var(--thread-11-band-lap2) 0 2px, transparent 2px 4px);border:1px solid var(--thread-11-band-lap2)"></span>search synonyms</span>
+    <span class="thread-meta mono">8 mentions &middot; 2 meetings &middot; last 2026-06-14</span>
+  </button>
+  <div class="thread-machine">machine-derived</div>
+</li>
+        </ul>
+      </aside>
+
+      <section class="canvas-wrap" aria-label="Threads timeline">
+        <div class="canvas-head">
+          <h2>Bands tier &middot; 2026-03-01 to 2026-08-29</h2>
+          <div class="timeline-controls" role="group" aria-label="Timeline zoom and pan">
+            <button type="button" title="Zoom out (&minus;)">&minus;</button>
+            <button type="button" title="Zoom in (+)">+</button>
+            <button type="button" title="Fit (Home)">Fit</button>
+            <button type="button" title="Pan left (Shift+&larr;)">&lsaquo;</button>
+            <button type="button" title="Pan right (Shift+&rarr;)">&rsaquo;</button>
+          </div>
+        </div>
+
+        <div class="timeline-grid" role="grid" aria-label="Threads timeline &mdash; bands tier, 2026-03-01 to 2026-08-29" tabindex="0">
+          <div></div>
+          <div class="axis-track">
+<div class="axis-cell month-start"><span class="axis-label mono">2026-03</span></div><div class="axis-cell"></div><div class="axis-cell"></div><div class="axis-cell"></div><div class="axis-cell"></div><div class="axis-cell month-start"><span class="axis-label mono">2026-04</span></div><div class="axis-cell"></div><div class="axis-cell"></div><div class="axis-cell"></div><div class="axis-cell month-start"><span class="axis-label mono">2026-05</span></div><div class="axis-cell"></div><div class="axis-cell"></div><div class="axis-cell"></div><div class="axis-cell"></div><div class="axis-cell month-start"><span class="axis-label mono">2026-06</span></div><div class="axis-cell"></div><div class="axis-cell"></div><div class="axis-cell"></div><div class="axis-cell"></div><div class="axis-cell month-start"><span class="axis-label mono">2026-07</span></div><div class="axis-cell"></div><div class="axis-cell"></div><div class="axis-cell"></div><div class="axis-cell month-start"><span class="axis-label mono">2026-08</span></div><div class="axis-cell"></div><div class="axis-cell"></div>
+          </div>
+
+<span class="band-label" style="color:var(--thread-1-band)">retrieval split</span>
+<div class="band-track" style="--tc:var(--thread-1-band)"><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="retrieval split, 2026-03-01 to 2026-03-07, 4 mentions" data-count="4" data-from="2026-03-01" data-to="2026-03-07"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="retrieval split, 2026-03-08 to 2026-03-14, 5 mentions" data-count="5" data-from="2026-03-08" data-to="2026-03-14"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="retrieval split, 2026-03-15 to 2026-03-21, 3 mentions" data-count="3" data-from="2026-03-15" data-to="2026-03-21"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="retrieval split, 2026-03-22 to 2026-03-28, 5 mentions" data-count="5" data-from="2026-03-22" data-to="2026-03-28"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="retrieval split, 2026-03-29 to 2026-04-04, 2 mentions" data-count="2" data-from="2026-03-29" data-to="2026-04-04"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="retrieval split, 2026-04-05 to 2026-04-11, 5 mentions" data-count="5" data-from="2026-04-05" data-to="2026-04-11"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="retrieval split, 2026-04-12 to 2026-04-18, 4 mentions" data-count="4" data-from="2026-04-12" data-to="2026-04-18"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="retrieval split, 2026-04-19 to 2026-04-25, 6 mentions" data-count="6" data-from="2026-04-19" data-to="2026-04-25"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="retrieval split, 2026-04-26 to 2026-05-02, 5 mentions" data-count="5" data-from="2026-04-26" data-to="2026-05-02"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="retrieval split, 2026-05-03 to 2026-05-09, 11 mentions" data-count="11" data-from="2026-05-03" data-to="2026-05-09"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="retrieval split, 2026-05-10 to 2026-05-10, 8 mentions" data-count="8" data-from="2026-05-10" data-to="2026-05-10"></button><button type="button" class="bucket target-bucket" style="--a:1.00" tabindex="-1" aria-label="retrieval split, 2026-05-11 to 2026-05-17, 14 mentions" data-count="14" data-from="2026-05-11" data-to="2026-05-17"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="retrieval split, 2026-05-18 to 2026-05-24, 10 mentions" data-count="10" data-from="2026-05-18" data-to="2026-05-24"></button><button type="button" class="bucket" style="--a:1.00" tabindex="-1" aria-label="retrieval split, 2026-05-25 to 2026-05-31, 14 mentions" data-count="14" data-from="2026-05-25" data-to="2026-05-31"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="retrieval split, 2026-06-01 to 2026-06-07, 0 mentions" data-count="0" data-from="2026-06-01" data-to="2026-06-07"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="retrieval split, 2026-06-08 to 2026-06-14, 0 mentions" data-count="0" data-from="2026-06-08" data-to="2026-06-14"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="retrieval split, 2026-06-15 to 2026-06-21, 0 mentions" data-count="0" data-from="2026-06-15" data-to="2026-06-21"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="retrieval split, 2026-06-22 to 2026-06-28, 4 mentions" data-count="4" data-from="2026-06-22" data-to="2026-06-28"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="retrieval split, 2026-06-29 to 2026-07-05, 3 mentions" data-count="3" data-from="2026-06-29" data-to="2026-07-05"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="retrieval split, 2026-07-06 to 2026-07-12, 5 mentions" data-count="5" data-from="2026-07-06" data-to="2026-07-12"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="retrieval split, 2026-07-13 to 2026-07-19, 3 mentions" data-count="3" data-from="2026-07-13" data-to="2026-07-19"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="retrieval split, 2026-07-20 to 2026-07-26, 6 mentions" data-count="6" data-from="2026-07-20" data-to="2026-07-26"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="retrieval split, 2026-07-27 to 2026-08-02, 12 mentions" data-count="12" data-from="2026-07-27" data-to="2026-08-02"></button><button type="button" class="bucket" style="--a:1.00" tabindex="-1" aria-label="retrieval split, 2026-08-03 to 2026-08-09, 17 mentions" data-count="17" data-from="2026-08-03" data-to="2026-08-09"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="retrieval split, 2026-08-10 to 2026-08-16, 11 mentions" data-count="11" data-from="2026-08-10" data-to="2026-08-16"></button><button type="button" class="bucket" style="--a:1.00" tabindex="-1" aria-label="retrieval split, 2026-08-17 to 2026-08-29, 16 mentions" data-count="16" data-from="2026-08-17" data-to="2026-08-29"></button></div>
+
+<span class="band-label" style="color:var(--thread-4-band)">eval harness</span>
+<div class="band-track" style="--tc:var(--thread-4-band)"><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="eval harness, 2026-03-01 to 2026-03-07, 4 mentions" data-count="4" data-from="2026-03-01" data-to="2026-03-07"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="eval harness, 2026-03-08 to 2026-03-14, 0 mentions" data-count="0" data-from="2026-03-08" data-to="2026-03-14"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="eval harness, 2026-03-15 to 2026-03-21, 9 mentions" data-count="9" data-from="2026-03-15" data-to="2026-03-21"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="eval harness, 2026-03-22 to 2026-03-28, 6 mentions" data-count="6" data-from="2026-03-22" data-to="2026-03-28"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="eval harness, 2026-03-29 to 2026-04-04, 7 mentions" data-count="7" data-from="2026-03-29" data-to="2026-04-04"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="eval harness, 2026-04-05 to 2026-04-11, 9 mentions" data-count="9" data-from="2026-04-05" data-to="2026-04-11"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="eval harness, 2026-04-12 to 2026-04-18, 6 mentions" data-count="6" data-from="2026-04-12" data-to="2026-04-18"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="eval harness, 2026-04-19 to 2026-04-25, 8 mentions" data-count="8" data-from="2026-04-19" data-to="2026-04-25"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="eval harness, 2026-04-26 to 2026-05-02, 6 mentions" data-count="6" data-from="2026-04-26" data-to="2026-05-02"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="eval harness, 2026-05-03 to 2026-05-09, 2 mentions" data-count="2" data-from="2026-05-03" data-to="2026-05-09"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="eval harness, 2026-05-10 to 2026-05-10, 13 mentions" data-count="13" data-from="2026-05-10" data-to="2026-05-10"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="eval harness, 2026-05-11 to 2026-05-17, 9 mentions" data-count="9" data-from="2026-05-11" data-to="2026-05-17"></button><button type="button" class="bucket" style="--a:1.00" tabindex="-1" aria-label="eval harness, 2026-05-18 to 2026-05-24, 17 mentions" data-count="17" data-from="2026-05-18" data-to="2026-05-24"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="eval harness, 2026-05-25 to 2026-05-31, 13 mentions" data-count="13" data-from="2026-05-25" data-to="2026-05-31"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="eval harness, 2026-06-01 to 2026-06-07, 11 mentions" data-count="11" data-from="2026-06-01" data-to="2026-06-07"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="eval harness, 2026-06-08 to 2026-06-14, 3 mentions" data-count="3" data-from="2026-06-08" data-to="2026-06-14"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="eval harness, 2026-06-15 to 2026-06-21, 2 mentions" data-count="2" data-from="2026-06-15" data-to="2026-06-21"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="eval harness, 2026-06-22 to 2026-06-28, 7 mentions" data-count="7" data-from="2026-06-22" data-to="2026-06-28"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="eval harness, 2026-06-29 to 2026-07-05, 0 mentions" data-count="0" data-from="2026-06-29" data-to="2026-07-05"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="eval harness, 2026-07-06 to 2026-07-12, 9 mentions" data-count="9" data-from="2026-07-06" data-to="2026-07-12"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="eval harness, 2026-07-13 to 2026-07-19, 11 mentions" data-count="11" data-from="2026-07-13" data-to="2026-07-19"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="eval harness, 2026-07-20 to 2026-07-26, 12 mentions" data-count="12" data-from="2026-07-20" data-to="2026-07-26"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="eval harness, 2026-07-27 to 2026-08-02, 13 mentions" data-count="13" data-from="2026-07-27" data-to="2026-08-02"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="eval harness, 2026-08-03 to 2026-08-09, 9 mentions" data-count="9" data-from="2026-08-03" data-to="2026-08-09"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="eval harness, 2026-08-10 to 2026-08-16, 0 mentions" data-count="0" data-from="2026-08-10" data-to="2026-08-16"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="eval harness, 2026-08-17 to 2026-08-29, 11 mentions" data-count="11" data-from="2026-08-17" data-to="2026-08-29"></button></div>
+
+<span class="band-label" style="color:var(--thread-7-band)">drop schema</span>
+<div class="band-track" style="--tc:var(--thread-7-band)"><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="drop schema, 2026-03-01 to 2026-03-07, 10 mentions" data-count="10" data-from="2026-03-01" data-to="2026-03-07"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="drop schema, 2026-03-08 to 2026-03-14, 0 mentions" data-count="0" data-from="2026-03-08" data-to="2026-03-14"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="drop schema, 2026-03-15 to 2026-03-21, 9 mentions" data-count="9" data-from="2026-03-15" data-to="2026-03-21"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="drop schema, 2026-03-22 to 2026-03-28, 12 mentions" data-count="12" data-from="2026-03-22" data-to="2026-03-28"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="drop schema, 2026-03-29 to 2026-04-04, 7 mentions" data-count="7" data-from="2026-03-29" data-to="2026-04-04"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="drop schema, 2026-04-05 to 2026-04-11, 0 mentions" data-count="0" data-from="2026-04-05" data-to="2026-04-11"></button><button type="button" class="bucket" style="--a:1.00" tabindex="-1" aria-label="drop schema, 2026-04-12 to 2026-04-18, 15 mentions" data-count="15" data-from="2026-04-12" data-to="2026-04-18"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="drop schema, 2026-04-19 to 2026-04-25, 4 mentions" data-count="4" data-from="2026-04-19" data-to="2026-04-25"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="drop schema, 2026-04-26 to 2026-05-02, 10 mentions" data-count="10" data-from="2026-04-26" data-to="2026-05-02"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="drop schema, 2026-05-03 to 2026-05-09, 9 mentions" data-count="9" data-from="2026-05-03" data-to="2026-05-09"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="drop schema, 2026-05-10 to 2026-05-10, 9 mentions" data-count="9" data-from="2026-05-10" data-to="2026-05-10"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="drop schema, 2026-05-11 to 2026-05-17, 0 mentions" data-count="0" data-from="2026-05-11" data-to="2026-05-17"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="drop schema, 2026-05-18 to 2026-05-24, 3 mentions" data-count="3" data-from="2026-05-18" data-to="2026-05-24"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="drop schema, 2026-05-25 to 2026-05-31, 8 mentions" data-count="8" data-from="2026-05-25" data-to="2026-05-31"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="drop schema, 2026-06-01 to 2026-06-07, 0 mentions" data-count="0" data-from="2026-06-01" data-to="2026-06-07"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="drop schema, 2026-06-08 to 2026-06-14, 7 mentions" data-count="7" data-from="2026-06-08" data-to="2026-06-14"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="drop schema, 2026-06-15 to 2026-06-21, 4 mentions" data-count="4" data-from="2026-06-15" data-to="2026-06-21"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="drop schema, 2026-06-22 to 2026-06-28, 7 mentions" data-count="7" data-from="2026-06-22" data-to="2026-06-28"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="drop schema, 2026-06-29 to 2026-07-05, 0 mentions" data-count="0" data-from="2026-06-29" data-to="2026-07-05"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="drop schema, 2026-07-06 to 2026-07-12, 5 mentions" data-count="5" data-from="2026-07-06" data-to="2026-07-12"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="drop schema, 2026-07-13 to 2026-07-19, 5 mentions" data-count="5" data-from="2026-07-13" data-to="2026-07-19"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="drop schema, 2026-07-20 to 2026-07-26, 4 mentions" data-count="4" data-from="2026-07-20" data-to="2026-07-26"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="drop schema, 2026-07-27 to 2026-08-02, 11 mentions" data-count="11" data-from="2026-07-27" data-to="2026-08-02"></button><button type="button" class="bucket" style="--a:1.00" tabindex="-1" aria-label="drop schema, 2026-08-03 to 2026-08-09, 19 mentions" data-count="19" data-from="2026-08-03" data-to="2026-08-09"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="drop schema, 2026-08-10 to 2026-08-16, 7 mentions" data-count="7" data-from="2026-08-10" data-to="2026-08-16"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="drop schema, 2026-08-17 to 2026-08-29, 0 mentions" data-count="0" data-from="2026-08-17" data-to="2026-08-29"></button></div>
+
+<span class="band-label" style="color:var(--thread-3-band)">speaker naming</span>
+<div class="band-track" style="--tc:var(--thread-3-band)"><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="speaker naming, 2026-03-01 to 2026-03-07, 5 mentions" data-count="5" data-from="2026-03-01" data-to="2026-03-07"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="speaker naming, 2026-03-08 to 2026-03-14, 6 mentions" data-count="6" data-from="2026-03-08" data-to="2026-03-14"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="speaker naming, 2026-03-15 to 2026-03-21, 3 mentions" data-count="3" data-from="2026-03-15" data-to="2026-03-21"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="speaker naming, 2026-03-22 to 2026-03-28, 3 mentions" data-count="3" data-from="2026-03-22" data-to="2026-03-28"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="speaker naming, 2026-03-29 to 2026-04-04, 12 mentions" data-count="12" data-from="2026-03-29" data-to="2026-04-04"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="speaker naming, 2026-04-05 to 2026-04-11, 5 mentions" data-count="5" data-from="2026-04-05" data-to="2026-04-11"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="speaker naming, 2026-04-12 to 2026-04-18, 6 mentions" data-count="6" data-from="2026-04-12" data-to="2026-04-18"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="speaker naming, 2026-04-19 to 2026-04-25, 7 mentions" data-count="7" data-from="2026-04-19" data-to="2026-04-25"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="speaker naming, 2026-04-26 to 2026-05-02, 7 mentions" data-count="7" data-from="2026-04-26" data-to="2026-05-02"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="speaker naming, 2026-05-03 to 2026-05-09, 2 mentions" data-count="2" data-from="2026-05-03" data-to="2026-05-09"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="speaker naming, 2026-05-10 to 2026-05-10, 0 mentions" data-count="0" data-from="2026-05-10" data-to="2026-05-10"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="speaker naming, 2026-05-11 to 2026-05-17, 11 mentions" data-count="11" data-from="2026-05-11" data-to="2026-05-17"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="speaker naming, 2026-05-18 to 2026-05-24, 3 mentions" data-count="3" data-from="2026-05-18" data-to="2026-05-24"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="speaker naming, 2026-05-25 to 2026-05-31, 0 mentions" data-count="0" data-from="2026-05-25" data-to="2026-05-31"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="speaker naming, 2026-06-01 to 2026-06-07, 6 mentions" data-count="6" data-from="2026-06-01" data-to="2026-06-07"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="speaker naming, 2026-06-08 to 2026-06-14, 8 mentions" data-count="8" data-from="2026-06-08" data-to="2026-06-14"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="speaker naming, 2026-06-15 to 2026-06-21, 8 mentions" data-count="8" data-from="2026-06-15" data-to="2026-06-21"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="speaker naming, 2026-06-22 to 2026-06-28, 7 mentions" data-count="7" data-from="2026-06-22" data-to="2026-06-28"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="speaker naming, 2026-06-29 to 2026-07-05, 0 mentions" data-count="0" data-from="2026-06-29" data-to="2026-07-05"></button><button type="button" class="bucket" style="--a:1.00" tabindex="-1" aria-label="speaker naming, 2026-07-06 to 2026-07-12, 14 mentions" data-count="14" data-from="2026-07-06" data-to="2026-07-12"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="speaker naming, 2026-07-13 to 2026-07-19, 2 mentions" data-count="2" data-from="2026-07-13" data-to="2026-07-19"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="speaker naming, 2026-07-20 to 2026-07-26, 11 mentions" data-count="11" data-from="2026-07-20" data-to="2026-07-26"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="speaker naming, 2026-07-27 to 2026-08-02, 4 mentions" data-count="4" data-from="2026-07-27" data-to="2026-08-02"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="speaker naming, 2026-08-03 to 2026-08-09, 8 mentions" data-count="8" data-from="2026-08-03" data-to="2026-08-09"></button><button type="button" class="bucket" style="--a:1.00" tabindex="-1" aria-label="speaker naming, 2026-08-10 to 2026-08-16, 18 mentions" data-count="18" data-from="2026-08-10" data-to="2026-08-16"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="speaker naming, 2026-08-17 to 2026-08-29, 7 mentions" data-count="7" data-from="2026-08-17" data-to="2026-08-29"></button></div>
+
+<span class="band-label" style="color:var(--thread-5-band)">YouTube intake</span>
+<div class="band-track" style="--tc:var(--thread-5-band)"><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="YouTube intake, 2026-03-01 to 2026-03-07, 8 mentions" data-count="8" data-from="2026-03-01" data-to="2026-03-07"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="YouTube intake, 2026-03-08 to 2026-03-14, 9 mentions" data-count="9" data-from="2026-03-08" data-to="2026-03-14"></button><button type="button" class="bucket" style="--a:1.00" tabindex="-1" aria-label="YouTube intake, 2026-03-15 to 2026-03-21, 14 mentions" data-count="14" data-from="2026-03-15" data-to="2026-03-21"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="YouTube intake, 2026-03-22 to 2026-03-28, 3 mentions" data-count="3" data-from="2026-03-22" data-to="2026-03-28"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="YouTube intake, 2026-03-29 to 2026-04-04, 6 mentions" data-count="6" data-from="2026-03-29" data-to="2026-04-04"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="YouTube intake, 2026-04-05 to 2026-04-11, 3 mentions" data-count="3" data-from="2026-04-05" data-to="2026-04-11"></button><button type="button" class="bucket" style="--a:1.00" tabindex="-1" aria-label="YouTube intake, 2026-04-12 to 2026-04-18, 19 mentions" data-count="19" data-from="2026-04-12" data-to="2026-04-18"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="YouTube intake, 2026-04-19 to 2026-04-25, 8 mentions" data-count="8" data-from="2026-04-19" data-to="2026-04-25"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="YouTube intake, 2026-04-26 to 2026-05-02, 5 mentions" data-count="5" data-from="2026-04-26" data-to="2026-05-02"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="YouTube intake, 2026-05-03 to 2026-05-09, 2 mentions" data-count="2" data-from="2026-05-03" data-to="2026-05-09"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="YouTube intake, 2026-05-10 to 2026-05-10, 3 mentions" data-count="3" data-from="2026-05-10" data-to="2026-05-10"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="YouTube intake, 2026-05-11 to 2026-05-17, 7 mentions" data-count="7" data-from="2026-05-11" data-to="2026-05-17"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="YouTube intake, 2026-05-18 to 2026-05-24, 8 mentions" data-count="8" data-from="2026-05-18" data-to="2026-05-24"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="YouTube intake, 2026-05-25 to 2026-05-31, 0 mentions" data-count="0" data-from="2026-05-25" data-to="2026-05-31"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="YouTube intake, 2026-06-01 to 2026-06-07, 5 mentions" data-count="5" data-from="2026-06-01" data-to="2026-06-07"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="YouTube intake, 2026-06-08 to 2026-06-14, 0 mentions" data-count="0" data-from="2026-06-08" data-to="2026-06-14"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="YouTube intake, 2026-06-15 to 2026-06-21, 7 mentions" data-count="7" data-from="2026-06-15" data-to="2026-06-21"></button><button type="button" class="bucket" style="--a:1.00" tabindex="-1" aria-label="YouTube intake, 2026-06-22 to 2026-06-28, 14 mentions" data-count="14" data-from="2026-06-22" data-to="2026-06-28"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="YouTube intake, 2026-06-29 to 2026-07-05, 2 mentions" data-count="2" data-from="2026-06-29" data-to="2026-07-05"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="YouTube intake, 2026-07-06 to 2026-07-12, 4 mentions" data-count="4" data-from="2026-07-06" data-to="2026-07-12"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="YouTube intake, 2026-07-13 to 2026-07-19, 11 mentions" data-count="11" data-from="2026-07-13" data-to="2026-07-19"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="YouTube intake, 2026-07-20 to 2026-07-26, 2 mentions" data-count="2" data-from="2026-07-20" data-to="2026-07-26"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="YouTube intake, 2026-07-27 to 2026-08-02, 12 mentions" data-count="12" data-from="2026-07-27" data-to="2026-08-02"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="YouTube intake, 2026-08-03 to 2026-08-09, 0 mentions" data-count="0" data-from="2026-08-03" data-to="2026-08-09"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="YouTube intake, 2026-08-10 to 2026-08-16, 6 mentions" data-count="6" data-from="2026-08-10" data-to="2026-08-16"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="YouTube intake, 2026-08-17 to 2026-08-29, 5 mentions" data-count="5" data-from="2026-08-17" data-to="2026-08-29"></button></div>
+
+<span class="band-label" style="color:var(--thread-8-band)">moment identity</span>
+<div class="band-track" style="--tc:var(--thread-8-band)"><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="moment identity, 2026-03-01 to 2026-03-07, 6 mentions" data-count="6" data-from="2026-03-01" data-to="2026-03-07"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="moment identity, 2026-03-08 to 2026-03-14, 8 mentions" data-count="8" data-from="2026-03-08" data-to="2026-03-14"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="moment identity, 2026-03-15 to 2026-03-21, 2 mentions" data-count="2" data-from="2026-03-15" data-to="2026-03-21"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="moment identity, 2026-03-22 to 2026-03-28, 0 mentions" data-count="0" data-from="2026-03-22" data-to="2026-03-28"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="moment identity, 2026-03-29 to 2026-04-04, 9 mentions" data-count="9" data-from="2026-03-29" data-to="2026-04-04"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="moment identity, 2026-04-05 to 2026-04-11, 12 mentions" data-count="12" data-from="2026-04-05" data-to="2026-04-11"></button><button type="button" class="bucket" style="--a:1.00" tabindex="-1" aria-label="moment identity, 2026-04-12 to 2026-04-18, 17 mentions" data-count="17" data-from="2026-04-12" data-to="2026-04-18"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="moment identity, 2026-04-19 to 2026-04-25, 0 mentions" data-count="0" data-from="2026-04-19" data-to="2026-04-25"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="moment identity, 2026-04-26 to 2026-05-02, 0 mentions" data-count="0" data-from="2026-04-26" data-to="2026-05-02"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="moment identity, 2026-05-03 to 2026-05-09, 7 mentions" data-count="7" data-from="2026-05-03" data-to="2026-05-09"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="moment identity, 2026-05-10 to 2026-05-10, 10 mentions" data-count="10" data-from="2026-05-10" data-to="2026-05-10"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="moment identity, 2026-05-11 to 2026-05-17, 11 mentions" data-count="11" data-from="2026-05-11" data-to="2026-05-17"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="moment identity, 2026-05-18 to 2026-05-24, 0 mentions" data-count="0" data-from="2026-05-18" data-to="2026-05-24"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="moment identity, 2026-05-25 to 2026-05-31, 12 mentions" data-count="12" data-from="2026-05-25" data-to="2026-05-31"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="moment identity, 2026-06-01 to 2026-06-07, 6 mentions" data-count="6" data-from="2026-06-01" data-to="2026-06-07"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="moment identity, 2026-06-08 to 2026-06-14, 6 mentions" data-count="6" data-from="2026-06-08" data-to="2026-06-14"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="moment identity, 2026-06-15 to 2026-06-21, 0 mentions" data-count="0" data-from="2026-06-15" data-to="2026-06-21"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="moment identity, 2026-06-22 to 2026-06-28, 7 mentions" data-count="7" data-from="2026-06-22" data-to="2026-06-28"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="moment identity, 2026-06-29 to 2026-07-05, 4 mentions" data-count="4" data-from="2026-06-29" data-to="2026-07-05"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="moment identity, 2026-07-06 to 2026-07-12, 6 mentions" data-count="6" data-from="2026-07-06" data-to="2026-07-12"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="moment identity, 2026-07-13 to 2026-07-19, 0 mentions" data-count="0" data-from="2026-07-13" data-to="2026-07-19"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="moment identity, 2026-07-20 to 2026-07-26, 7 mentions" data-count="7" data-from="2026-07-20" data-to="2026-07-26"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="moment identity, 2026-07-27 to 2026-08-02, 10 mentions" data-count="10" data-from="2026-07-27" data-to="2026-08-02"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="moment identity, 2026-08-03 to 2026-08-09, 12 mentions" data-count="12" data-from="2026-08-03" data-to="2026-08-09"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="moment identity, 2026-08-10 to 2026-08-16, 2 mentions" data-count="2" data-from="2026-08-10" data-to="2026-08-16"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="moment identity, 2026-08-17 to 2026-08-29, 4 mentions" data-count="4" data-from="2026-08-17" data-to="2026-08-29"></button></div>
+
+<span class="band-label" style="color:var(--thread-6-band)">config catalog</span>
+<div class="band-track" style="--tc:var(--thread-6-band)"><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="config catalog, 2026-03-01 to 2026-03-07, 4 mentions" data-count="4" data-from="2026-03-01" data-to="2026-03-07"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="config catalog, 2026-03-08 to 2026-03-14, 0 mentions" data-count="0" data-from="2026-03-08" data-to="2026-03-14"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="config catalog, 2026-03-15 to 2026-03-21, 3 mentions" data-count="3" data-from="2026-03-15" data-to="2026-03-21"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="config catalog, 2026-03-22 to 2026-03-28, 5 mentions" data-count="5" data-from="2026-03-22" data-to="2026-03-28"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="config catalog, 2026-03-29 to 2026-04-04, 0 mentions" data-count="0" data-from="2026-03-29" data-to="2026-04-04"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="config catalog, 2026-04-05 to 2026-04-11, 4 mentions" data-count="4" data-from="2026-04-05" data-to="2026-04-11"></button><button type="button" class="bucket" style="--a:1.00" tabindex="-1" aria-label="config catalog, 2026-04-12 to 2026-04-18, 14 mentions" data-count="14" data-from="2026-04-12" data-to="2026-04-18"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="config catalog, 2026-04-19 to 2026-04-25, 7 mentions" data-count="7" data-from="2026-04-19" data-to="2026-04-25"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="config catalog, 2026-04-26 to 2026-05-02, 4 mentions" data-count="4" data-from="2026-04-26" data-to="2026-05-02"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="config catalog, 2026-05-03 to 2026-05-09, 5 mentions" data-count="5" data-from="2026-05-03" data-to="2026-05-09"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="config catalog, 2026-05-10 to 2026-05-10, 0 mentions" data-count="0" data-from="2026-05-10" data-to="2026-05-10"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="config catalog, 2026-05-11 to 2026-05-17, 10 mentions" data-count="10" data-from="2026-05-11" data-to="2026-05-17"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="config catalog, 2026-05-18 to 2026-05-24, 2 mentions" data-count="2" data-from="2026-05-18" data-to="2026-05-24"></button><button type="button" class="bucket" style="--a:1.00" tabindex="-1" aria-label="config catalog, 2026-05-25 to 2026-05-31, 17 mentions" data-count="17" data-from="2026-05-25" data-to="2026-05-31"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="config catalog, 2026-06-01 to 2026-06-07, 7 mentions" data-count="7" data-from="2026-06-01" data-to="2026-06-07"></button><button type="button" class="bucket" style="--a:1.00" tabindex="-1" aria-label="config catalog, 2026-06-08 to 2026-06-14, 15 mentions" data-count="15" data-from="2026-06-08" data-to="2026-06-14"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="config catalog, 2026-06-15 to 2026-06-21, 10 mentions" data-count="10" data-from="2026-06-15" data-to="2026-06-21"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="config catalog, 2026-06-22 to 2026-06-28, 4 mentions" data-count="4" data-from="2026-06-22" data-to="2026-06-28"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="config catalog, 2026-06-29 to 2026-07-05, 8 mentions" data-count="8" data-from="2026-06-29" data-to="2026-07-05"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="config catalog, 2026-07-06 to 2026-07-12, 0 mentions" data-count="0" data-from="2026-07-06" data-to="2026-07-12"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="config catalog, 2026-07-13 to 2026-07-19, 6 mentions" data-count="6" data-from="2026-07-13" data-to="2026-07-19"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="config catalog, 2026-07-20 to 2026-07-26, 0 mentions" data-count="0" data-from="2026-07-20" data-to="2026-07-26"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="config catalog, 2026-07-27 to 2026-08-02, 4 mentions" data-count="4" data-from="2026-07-27" data-to="2026-08-02"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="config catalog, 2026-08-03 to 2026-08-09, 9 mentions" data-count="9" data-from="2026-08-03" data-to="2026-08-09"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="config catalog, 2026-08-10 to 2026-08-16, 0 mentions" data-count="0" data-from="2026-08-10" data-to="2026-08-16"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="config catalog, 2026-08-17 to 2026-08-29, 2 mentions" data-count="2" data-from="2026-08-17" data-to="2026-08-29"></button></div>
+
+<span class="band-label" style="color:var(--thread-2-band)">publish gate</span>
+<div class="band-track" style="--tc:var(--thread-2-band)"><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="publish gate, 2026-03-01 to 2026-03-07, 5 mentions" data-count="5" data-from="2026-03-01" data-to="2026-03-07"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="publish gate, 2026-03-08 to 2026-03-14, 7 mentions" data-count="7" data-from="2026-03-08" data-to="2026-03-14"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="publish gate, 2026-03-15 to 2026-03-21, 4 mentions" data-count="4" data-from="2026-03-15" data-to="2026-03-21"></button><button type="button" class="bucket" style="--a:1.00" tabindex="-1" aria-label="publish gate, 2026-03-22 to 2026-03-28, 18 mentions" data-count="18" data-from="2026-03-22" data-to="2026-03-28"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="publish gate, 2026-03-29 to 2026-04-04, 2 mentions" data-count="2" data-from="2026-03-29" data-to="2026-04-04"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="publish gate, 2026-04-05 to 2026-04-11, 0 mentions" data-count="0" data-from="2026-04-05" data-to="2026-04-11"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="publish gate, 2026-04-12 to 2026-04-18, 0 mentions" data-count="0" data-from="2026-04-12" data-to="2026-04-18"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="publish gate, 2026-04-19 to 2026-04-25, 3 mentions" data-count="3" data-from="2026-04-19" data-to="2026-04-25"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="publish gate, 2026-04-26 to 2026-05-02, 7 mentions" data-count="7" data-from="2026-04-26" data-to="2026-05-02"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="publish gate, 2026-05-03 to 2026-05-09, 0 mentions" data-count="0" data-from="2026-05-03" data-to="2026-05-09"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="publish gate, 2026-05-10 to 2026-05-10, 5 mentions" data-count="5" data-from="2026-05-10" data-to="2026-05-10"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="publish gate, 2026-05-11 to 2026-05-17, 5 mentions" data-count="5" data-from="2026-05-11" data-to="2026-05-17"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="publish gate, 2026-05-18 to 2026-05-24, 7 mentions" data-count="7" data-from="2026-05-18" data-to="2026-05-24"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="publish gate, 2026-05-25 to 2026-05-31, 0 mentions" data-count="0" data-from="2026-05-25" data-to="2026-05-31"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="publish gate, 2026-06-01 to 2026-06-07, 13 mentions" data-count="13" data-from="2026-06-01" data-to="2026-06-07"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="publish gate, 2026-06-08 to 2026-06-14, 3 mentions" data-count="3" data-from="2026-06-08" data-to="2026-06-14"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="publish gate, 2026-06-15 to 2026-06-21, 5 mentions" data-count="5" data-from="2026-06-15" data-to="2026-06-21"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="publish gate, 2026-06-22 to 2026-06-28, 0 mentions" data-count="0" data-from="2026-06-22" data-to="2026-06-28"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="publish gate, 2026-06-29 to 2026-07-05, 2 mentions" data-count="2" data-from="2026-06-29" data-to="2026-07-05"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="publish gate, 2026-07-06 to 2026-07-12, 3 mentions" data-count="3" data-from="2026-07-06" data-to="2026-07-12"></button><button type="button" class="bucket" style="--a:0.88" tabindex="-1" aria-label="publish gate, 2026-07-13 to 2026-07-19, 11 mentions" data-count="11" data-from="2026-07-13" data-to="2026-07-19"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="publish gate, 2026-07-20 to 2026-07-26, 0 mentions" data-count="0" data-from="2026-07-20" data-to="2026-07-26"></button><button type="button" class="bucket" style="--a:0.60" tabindex="-1" aria-label="publish gate, 2026-07-27 to 2026-08-02, 3 mentions" data-count="3" data-from="2026-07-27" data-to="2026-08-02"></button><button type="button" class="bucket" style="--a:0.08" tabindex="-1" aria-label="publish gate, 2026-08-03 to 2026-08-09, 0 mentions" data-count="0" data-from="2026-08-03" data-to="2026-08-09"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="publish gate, 2026-08-10 to 2026-08-16, 5 mentions" data-count="5" data-from="2026-08-10" data-to="2026-08-16"></button><button type="button" class="bucket" style="--a:0.75" tabindex="-1" aria-label="publish gate, 2026-08-17 to 2026-08-29, 8 mentions" data-count="8" data-from="2026-08-17" data-to="2026-08-29"></button></div>
+
+<span class="band-label" style="color:var(--thread-9-band)"><span class="lap-swatch" style="background-image:repeating-linear-gradient(135deg, var(--thread-9-band-lap2) 0 2px, transparent 2px 4px);border:1px solid var(--thread-9-band-lap2)"></span>screen lineage</span>
+<div class="band-track lap2-track" role="img" aria-label="screen lineage, shown in lap-2 texture for illustration, 15 mentions total"><div class="lap2-fill" style="--tc2:var(--thread-9-band-lap2)"></div></div>
+<span class="band-label" style="color:var(--thread-10-band)"><span class="lap-swatch" style="background-image:repeating-linear-gradient(135deg, var(--thread-10-band-lap2) 0 2px, transparent 2px 4px);border:1px solid var(--thread-10-band-lap2)"></span>worker restarts</span>
+<div class="band-track lap2-track" role="img" aria-label="worker restarts, shown in lap-2 texture for illustration, 11 mentions total"><div class="lap2-fill" style="--tc2:var(--thread-10-band-lap2)"></div></div>
+<span class="band-label" style="color:var(--thread-11-band)"><span class="lap-swatch" style="background-image:repeating-linear-gradient(135deg, var(--thread-11-band-lap2) 0 2px, transparent 2px 4px);border:1px solid var(--thread-11-band-lap2)"></span>search synonyms</span>
+<div class="band-track lap2-track" role="img" aria-label="search synonyms, shown in lap-2 texture for illustration, 8 mentions total"><div class="lap2-fill" style="--tc2:var(--thread-11-band-lap2)"></div></div>
+
+          <div class="overlay" aria-hidden="true">
+            <span class="gline" style="left:19.23%"></span>
+            <span class="gline" style="left:34.62%"></span>
+            <span class="gline" style="left:53.85%"></span>
+            <span class="gline" style="left:73.08%"></span>
+            <span class="gline" style="left:88.46%"></span>
+            <span class="cursor-line"></span>
+            <div class="tooltip">14 mentions &middot; 2026-05-11 &rarr; 2026-05-17</div>
+          </div>
+        </div>
+
+        <div class="canvas-caption">
+          <p class="lap2-note">Bands for screen lineage, worker restarts, and search synonyms are drawn in the lap-2 texture (hue at L 0.55, hatched 135&deg; 3px/7px) ; threads 9–11 are ordinals 9–11 and so lap 2 of the eight-hue palette.</p>
+          <p class="aria-desc">role="grid" aria-label="Threads timeline &mdash; bands tier, 2026-03-01 to 2026-08-29"</p>
+        </div>
+      </section>
+    </div>
+
+    <section class="state-section" aria-label="State: beyond palette">
+      <h2>State &mdash; beyond palette</h2>
+      <div class="beyond-palette-demo">
+        <div class="beyond-palette-band" aria-hidden="true" title="beyond-palette band, grey at 60%"></div>
+        <div class="thread-row">
+          <div class="thread-row-main">
+            <span class="thread-name" style="color:var(--muted-foreground)"><span class="lap-swatch" style="background:var(--muted-foreground)"></span>latency budget</span>
+            <span class="thread-meta mono">5 mentions &middot; 2 meetings &middot; last 2026-04-30</span>
+          </div>
+          <div class="thread-machine">machine-derived</div>
+          <p class="beyond-palette-note">beyond the palette (8 hues &times; 2 laps) &mdash; identified by name</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="state-section" aria-label="State: search no match">
+      <h2>State &mdash; search no match</h2>
+      <div class="search-no-match-demo">
+        <input class="list-search" type="text" value="publ" aria-label="Search threads by name" readonly>
+        <p class="no-match-text">No threads match "publ".</p>
+        <button type="button" class="btn btn-outline btn-xs">Clear</button>
+        <p class="no-match-note">The canvas keeps every band.</p>
+      </div>
+    </section>
+  </main>
+</div>
+</body>
+</html>

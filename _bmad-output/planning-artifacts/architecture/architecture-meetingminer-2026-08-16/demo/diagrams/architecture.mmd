@@ -1,0 +1,41 @@
+graph LR
+    subgraph clients[" CLIENTS "]
+        web["web<br/>React SPA"]
+        puller["puller<br/>Teams acquisition CLI"]
+    end
+
+    subgraph services[" SERVICES — macOS host "]
+        api["api<br/>FastAPI + SSE"]
+        worker["worker<br/>ingest pipeline"]
+    end
+
+    subgraph stores[" DATA STORES — Docker "]
+        pg[("Postgres<br/><b>database of record</b>")]
+        neo[("Neo4j<br/>graph projection")]
+        meili[("Meilisearch<br/>hybrid search projection")]
+    end
+
+    subgraph fs[" FILESYSTEM "]
+        drops[/"source drops<br/>(write-once evidence)"/]
+        content[/"content root<br/>(frames · screenshots)"/]
+    end
+
+    providers["MODEL PROVIDERS<br/>MLX · Ollama · LAN GPU · Anthropic"]
+
+    web -->|"HTTP + SSE"| api
+    puller -->|"drops + POST /ingests"| api
+    puller --> drops
+    api --> pg
+    api -->|"queries"| neo
+    api -->|"queries"| meili
+    worker --> drops
+    worker --> pg
+    worker -->|"projections<br/>(one writer)"| neo
+    worker -->|"projections<br/>(one writer)"| meili
+    worker --> content
+    api & worker -->|"via config-bound ports"| providers
+
+    style pg fill:#1e5a8a,color:#fff,stroke:#0d3a5c
+    style neo fill:#2e7d32,color:#fff,stroke:#1b5e20
+    style meili fill:#c2185b,color:#fff,stroke:#880e4f
+    style providers fill:#5e35b1,color:#fff,stroke:#4527a0
