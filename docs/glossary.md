@@ -299,11 +299,13 @@ replay button on a transcript-only moment. Explicitly temporary: augmentation re
 
 ## Infrastructure
 
-**Store-backed suites** — the test suites requiring Postgres, Neo4j or Meilisearch. Git worktrees do
-*not* isolate these, so only one agent runs them at a time.
+**Store-backed suites** — the test suites requiring Postgres, Neo4j or Meilisearch. They run against
+the checkout's own compose stack, so suites in two worktrees never contend; two in one checkout queue
+on the endpoint-keyed projection lock.
 
-**Worktree** — a separate checkout for one work item (`make worktree STORY=<slug>`). Isolates files,
-not the Docker stores.
+**Worktree** — a separate checkout for one work item (`make worktree STORY=<slug>`) with its own branch
+and its own Docker stack: compose project `meetingminer-<slug>` on ports written to the worktree's
+generated `.env.worktree`. The api and web ports are still the same in every checkout.
 
 **LAN model hosts** — on-prem inference machines: an Ollama host (embeddings) and VM 120 `cuda-asr`
 (an RTX 4080 serving `nvidia/parakeet-tdt-0.6b-v3` for speech recognition). Operator-scheduled and

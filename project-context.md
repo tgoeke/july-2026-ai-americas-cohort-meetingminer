@@ -18,7 +18,9 @@ companions its frontmatter lists, plus the per-story frozen contracts in
   work another agent can destroy, and a tree-wide reset has destroyed it here.
 - Never run `git checkout -- .`, `git reset --hard`, a whole-tree `git stash`,
   or `git clean` outside a worktree you created. For a clean baseline, run
-  `make worktree STORY=<slug>`.
+  `make worktree STORY=<slug>`, which also gives the worktree its own Docker
+  stack (compose project `meetingminer-<slug>`, ports in its generated
+  `.env.worktree`); the main checkout's stack holds the live corpus.
 - Never `git add -A` or `git add .`. Stage the paths you changed, after reading
   `git status --short`.
 - Never commit secrets. `.env` is gitignored; `.env.example` is the tracked
@@ -94,11 +96,16 @@ companions its frontmatter lists, plus the per-story frozen contracts in
 - `make test` is the gate, not the loop: it needs the stores up, passes
   `-m ""` so the `slow` modules run, runs four suites, and builds the web app.
 - The puller runs under `npm`; the web app uses `pnpm`.
-- `make migrate` writes the shared dev database, not a private one. Announce it.
+- `make migrate` writes this checkout's own dev database: a worktree's private
+  stack, or — in the main checkout — the live one, so announce it there.
 - Run `make evals-run` one at a time — it takes no lock.
-- Server suites may overlap. Projection tests queue on a cross-worktree file
-  lock, so a slow one is waiting rather than hanging, and `make test-db-prune`
-  clears databases a killed run left behind.
+- Server suites in different worktrees never share a store: each worktree's
+  stack is its own (about 2 GiB idle per stack against a 23.5 GiB Docker VM;
+  `docker stats --no-stream`). Two suites in one checkout queue on the
+  endpoint-keyed projection file lock, so a slow one is waiting rather than
+  hanging. `make test-db-prune` clears databases a killed run left behind and
+  tears down stacks whose worktree directory is gone. The api and web ports
+  are still fixed, so `make up` collides across checkouts.
 
 ## Conventions that differ from defaults
 

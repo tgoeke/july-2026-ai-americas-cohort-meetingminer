@@ -175,6 +175,11 @@ make up               # stores (Docker) + migrations, then api/worker/web on the
 | Neo4j | `127.0.0.1:7474` browser, `7687` Bolt |
 | Meilisearch | `127.0.0.1:7700` |
 
+Those are the main checkout's addresses. A git worktree (`make worktree`) runs
+its own stack — compose project `meetingminer-<slug>` — on ports written to the
+worktree's generated `.env.worktree` (read it there for the numbers); the api
+and web ports are the same in every checkout.
+
 `make up` backgrounds all three host processes with pidfiles and logs under
 `.logs/`; it does **not** enable uvicorn's `--reload`, so code edits need a
 restart. Run `make api`, `make worker`, or `make web` to hold a single process
@@ -210,7 +215,7 @@ every target to [`infra/Makefile`](infra/Makefile), where the logic lives.
 | `make bootstrap` | check tools, create `.env`, install all three dependency sets, register the merge driver |
 | `make up` / `make down` | start / stop the whole stack |
 | `make api` / `make worker` / `make web` | run one process in the foreground |
-| `make migrate` | apply pending migrations from `server/meetingminer/migrations/` — writes the **shared** dev database, so announce it |
+| `make migrate` | apply pending migrations from `server/meetingminer/migrations/` — writes this checkout's dev database; in the main checkout that is the live one, so announce it |
 | `make mint-drop MINT_ARGS='...'` | mint a drop from a local recording and/or transcript and POST it |
 | `make ingest-drop DROP=<dir>` | ingest a drop finalized elsewhere and already copied under `MM_DROPS_ROOT` |
 | `make rebuild` | regenerate the Neo4j + Meilisearch projections from Postgres + `config.yaml` |
@@ -219,14 +224,14 @@ every target to [`infra/Makefile`](infra/Makefile), where the logic lives.
 | `make backfill-drop-paths` | anchor pre-2.1a drop paths to `MM_DROPS_ROOT`; run once after `make migrate` |
 | `make test` | the full gate — see [Testing and evaluation](#testing-and-evaluation) |
 | `make evals-run` | one eval run against the ingested scripted corpus |
-| `make test-db-prune` | drop leaked, unowned `meetingminer_test_*` databases |
-| `make worktree STORY=<slug>` | an isolated checkout and branch for one piece of work (`worktree-list`, `worktree-remove`, `worktree-prune`) |
+| `make test-db-prune` | drop leaked, unowned `meetingminer_test_*` databases, and tear down worktree stacks whose checkout is gone |
+| `make worktree STORY=<slug>` | an isolated checkout, branch and private Docker stack for one piece of work (`worktree-list`; `worktree-remove` and `worktree-prune` tear the stack down with the checkout) |
 
-Two targets need care when more than one checkout shares the stores.
-`make rebuild` takes a cross-worktree file lock, queues on whoever holds it, and
-then refuses by name — never run two rebuilds at once. `make evals-run` takes
-**no** lock at all and holds the stores and the api for its whole duration, so
-serialize it yourself.
+Two targets still need care. `make rebuild` is single-flight per stack: it
+takes the same endpoint-keyed file lock the projection tests take, queues on
+whoever holds it, and then refuses by name — never run two rebuilds against one
+stack at once. `make evals-run` takes **no** lock at all and holds the stores
+and the api for its whole duration, so serialize it yourself.
 
 ## Repository layout
 
@@ -278,13 +283,18 @@ Two files, split by whether the value is a secret:
   Python loader and `docker compose --env-file`, so `.env.example` documents
   exactly which constructs mean the same thing to both.
 
-Those two files are not the whole surface. Store host ports are fixed in
-[`infra/docker-compose.yml`](infra/docker-compose.yml), the api and web ports in
+Those two files are not the whole surface. Store host ports default in
+[`infra/docker-compose.yml`](infra/docker-compose.yml) and are set per worktree
+by its generated `.env.worktree` (`MM_STACK_NAME`, `MM_POSTGRES_PORT`,
+`MM_NEO4J_HTTP_PORT`, `MM_NEO4J_BOLT_PORT`, `MM_MEILI_PORT` and the three
+test-twin ports), which the Makefile, compose and the loader all read after
+`.env` — the loader applies the three store ports to `config.yaml`'s endpoints,
+so ports never live in the tracked file. The api and web ports are fixed in
 `infra/Makefile`, and a few runtime and test overrides
-(`MM_PROJECTION_LOCK_TIMEOUT_SECONDS`, `MM_REQUIRE_TEST_STORES`,
-`MM_TEST_NEO4J_URI`, `MM_TEST_MEILI_URL`, and `MM_REQUIRE_DROP_SCHEMA` — which
-only the exact value `1` arms) are read from the environment without appearing
-in `.env.example`. `MM_PULLER_ARCHIVE` names the puller's working archive for
+(`MM_PROJECTION_LOCK_TIMEOUT_SECONDS`, `MM_PROJECTION_LOCK_KEY`,
+`MM_REQUIRE_TEST_STORES`, `MM_TEST_NEO4J_URI`, `MM_TEST_MEILI_URL`, and
+`MM_REQUIRE_DROP_SCHEMA` — which only the exact value `1` arms) are read from
+the environment without appearing in `.env.example`. `MM_PULLER_ARCHIVE` names the puller's working archive for
 `make puller-sync` and `make puller-archive-check`; it has no default because
 the archive is per-machine.
 
@@ -338,12 +348,16 @@ uv run --project server pytest server/tests/test_x.py
 
 Bare `pytest` runs outside it and will not resolve the dependencies.
 
-The stores are shared across git worktrees even though the code is not. Server
-suites take a per-run Postgres database; projection tests queue on a bounded
-cross-worktree file lock (a slow one is waiting, not hanging), and
-`make test-db-prune` clears databases a killed run left behind. Neo4j and
-Meilisearch have disposable test twins on ports `7475`/`7688` and `7701` so a
-suite's `drop_all` can never empty the corpus you are demoing.
+Each git worktree has its own stores: `make worktree` provisions a private
+compose stack (`meetingminer-<slug>`, its ports in the worktree's
+`.env.worktree`; about 2 GiB idle per stack inside a 23.5 GiB Docker VM), so
+suites in two worktrees never contend. Server suites take a per-run Postgres
+database; two suites in one checkout queue on a bounded endpoint-keyed file
+lock (a slow one is waiting, not hanging); `make test-db-prune` clears
+databases a killed run left behind and tears down stacks whose worktree is
+gone. Neo4j and Meilisearch have disposable test twins (`7475`/`7688` and
+`7701` in the main checkout) so a suite's `drop_all` can never empty the corpus
+you are demoing.
 
 Beyond unit tests, [`evals/README.md`](evals/README.md) documents the harness
 that measures the system against scripted meetings with YAML ground truth —

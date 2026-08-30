@@ -37,89 +37,106 @@ The working tree is shared unless you are in your own worktree (below).
 
 ## Work in a git worktree
 
-Each concurrent piece of work gets its own worktree and its own branch, so two
-agents can never share a checkout.
+Each concurrent piece of work gets its own worktree, its own branch, and its
+own Docker stack, so two agents never share a checkout or a store.
 
 ```bash
-make worktree STORY=1-12          # ../meetingminer-wt/1-12 on branch story/1-12
+make worktree STORY=1-12          # ../meetingminer-wt/1-12, branch story/1-12, stack meetingminer-1-12
 cd ../meetingminer-wt/1-12
 make bootstrap                    # per-worktree venv + node_modules (one-time)
 ```
 
-When the work is done and pushed, remove it:
+`make worktree` also writes the worktree's `.env.worktree` — its compose
+project name and the seven host ports allocated for it — and brings that
+stack up before it returns (Docker down: the worktree and the file stay, and
+the error names `cd <worktree> && make infra-up`). `BASE=<ref>` branches
+from something other than `main`. When the work is done and pushed, remove
+it:
 
 ```bash
-make worktree-remove STORY=1-12
+make worktree-remove STORY=1-12   # removes the checkout, then its stack and volumes
 ```
 
-`make worktree-list` shows what exists. Worktrees live in
-`../meetingminer-wt/` — a sibling of the repo, deliberately outside it, so no
-`.gitignore` entry is needed and no tooling walks into them.
+`make worktree-list` shows what exists; `make worktree-prune` removes every
+clean worktree already merged into `origin/main`, stack included. Worktrees
+live in `../meetingminer-wt/` — a sibling of the main repo, deliberately
+outside it, so no `.gitignore` entry is needed and no tooling walks into
+them; `make worktree` run from inside a worktree places its siblings there
+too.
 
 Notes that matter:
 
 - `config.yaml` is tracked, so it comes with the worktree. `.env` is not — the
   target symlinks the main checkout's `.env` so secrets and both storage roots
   — `MM_CONTENT_ROOT` and `MM_DROPS_ROOT` — are shared rather than re-entered.
+- `.env.worktree` is generated, gitignored (the `.env.*` rule), and never
+  hand-edited. Three readers take its `KEY=value` lines: `infra/Makefile`
+  (`-include`), `docker compose` (a second `--env-file`, which wins over
+  `.env`) and the config loader (`merged_env`: `.env`, then `.env.worktree`,
+  then the process environment, with a blank process value never masking a
+  file value). Delete the file and the checkout is back on the main
+  checkout's stack, which is the collision it exists to prevent.
 - `server/.venv` and `web/node_modules` are gitignored, so each worktree needs
   its own `make bootstrap`. That is the price of isolation; pay it once.
 - The worker's pidfile is already keyed on the checkout path, so a worker
   started in a worktree does not collide with one started in the main checkout.
+  The api (`:8000`) and web (`:5173`) ports are still fixed in `infra/Makefile`,
+  so `make up` in a worktree collides with another checkout's api and web
+  (backlog B-35). Stores are private; the host processes are not yet.
 
-## What worktrees do NOT isolate: the data stores
+## Each worktree has its own stores; what is still shared
 
-This is the sharp edge. A worktree isolates *code*. It does not isolate the
-Docker stores, which are a single shared stack on fixed ports with fixed
-container names: the three dev stores (Postgres 5433, Neo4j 7687,
-Meilisearch 7700) plus two disposable **test-store twins** (neo4j-test on
-7475/7688, meilisearch-test on 7701) that exist so the projection test
-suites can wipe stores without emptying the developer's live corpus.
+Every checkout has its own compose stack: the three dev stores (Postgres,
+Neo4j, Meilisearch) plus the two disposable **test-store twins** (neo4j-test,
+meilisearch-test) that exist so the projection test suites can wipe stores
+without emptying the developer's live corpus. The main checkout's stack is
+compose project `meetingminer` on the fixed ports (5433, 7474/7687, 7700;
+twins on 7475/7688 and 7701) with container names `meetingminer-<service>` —
+unchanged, and its corpus volumes are never renamed, recreated or removed. A
+worktree's stack is project `meetingminer-<slug>`: containers
+`meetingminer-<slug>-<service>`, volumes `meetingminer-<slug>_<volume>`, on
+seven ports allocated from 20000–23999 (`infra/worktree_stack.py`: a base
+hashed from the slug, stepping to the next base when a port is bound or
+declared by a sibling's `.env.worktree`). One compose file serves every
+stack: its project name, container names and host ports interpolate
+`MM_STACK_NAME` and the `MM_*_PORT` variables with today's values as the
+defaults.
 
-**Consequence: the server suite is now safe to run concurrently; one eval run
-at a time.** Story 2.7 fixed the suite; the remaining limit is `make evals-run`.
+**Consequence: server suites, rebuilds and workers in different worktrees
+never contend; one eval run at a time.**
 
-- `server/tests/conftest.py` names its database per run (`RUN_ID`), so two
-  suites own different databases and each drops only its own on the way out.
-  `test_migrations.py`'s two extra databases follow the same rule. A run killed
-  with `SIGKILL` cannot clean up after itself — `make test-db-prune` sweeps
-  what is left, and refuses any database with a live backend, so it is safe to
-  run while another suite is going.
-- The projection suites cannot be namespaced the same way: Neo4j Community
-  serves exactly one database, and AD-4 fixes the Meilisearch index names, so
-  `projection_stores` wipes whatever is there. They therefore run against the
-  **dedicated test containers** — the session `app_config` in
-  `server/tests/conftest.py` repoints the Neo4j and Meilisearch endpoints at
-  `bolt://localhost:7688` / `http://localhost:7701` (env-overridable via
-  `MM_TEST_NEO4J_URI` / `MM_TEST_MEILI_URL`) — so a suite run never touches
-  the dev stores' content. When the test twins are down the store-backed
-  tests skip with a named reason; they never fall back to the dev endpoints.
-  Concurrent suites still share the two test twins, so those tests take a
-  **cross-process file lock** and queue instead of interleaving. The lock
-  lives in the system temp dir keyed by the store URLs, not in the repo —
-  worktrees have different roots but share one compose stack, so a
-  repo-relative lock would give each worktree its own file and no mutual
-  exclusion at all. The URL keying also means test suites and dev-store
-  writers (rebuild, the worker) hold *different* lock files now: the lock
-  only serializes writers of the same endpoints, which is exactly the
-  contention that remains. Waiting is bounded (configurable through
-  `MM_PROJECTION_LOCK_TIMEOUT_SECONDS`) and a timeout names the path and
-  current holder metadata.
-- **`make rebuild` is single-flight across every worktree sharing the stores.**
-  The same file lock is not test-only: every server entrypoint that writes
-  Neo4j or Meilisearch — `rebuild`, the worker's per-meeting projection, the
-  embeddings-only pass, and meeting retirement
-  (`server/meetingminer/projections/locks.py`) — takes it first, then the
-  Postgres advisory lock. Two rebuilds, or two projection-test suites in
-  different worktrees, therefore queue on the same file instead of racing.
-  (A rebuild and a test suite no longer contend at all: the suite's lock is
-  keyed by the test-twin URLs, the rebuild's by the dev-store URLs, and each
-  writes only the stores its lock covers.) The loser of a timed-out wait
-  gets a named `ProjectionLockedError`,
-  never a torn store. For the worker this means a projection that lands while
-  a rebuild or another dev-store writer holds the lock queues for up to
-  `MM_PROJECTION_LOCK_TIMEOUT_SECONDS` (default 300s), then fails that
-  meeting with the named refusal rather than writing anyway. Do not start a
-  rebuild expecting it to interleave with anything that writes the stores.
+- A store-backed suite runs against its own checkout's stack. The loader
+  applies the private Postgres port; the session `app_config` in
+  `server/tests/conftest.py` repoints Neo4j and Meilisearch at the twins
+  named by `MM_TEST_NEO4J_URI` / `MM_TEST_MEILI_URL` from `.env.worktree`
+  (the process environment still wins; the main checkout defaults to
+  `bolt://localhost:7688` / `http://localhost:7701`); Postgres tests keep
+  their per-run database (`RUN_ID`). When the twins are down the store-backed
+  tests skip with a named reason that includes the resolved URLs; they never
+  fall back to the dev endpoints.
+- The projection file lock (`server/meetingminer/projections/locks.py`) lives
+  in the system temp dir keyed by the store URLs, so two checkouts on
+  different ports hold different locks and never wait on each other. Two
+  writers of the same endpoints — two sessions in one checkout, or a rebuild
+  and the worker — still queue on one file, bounded by
+  `MM_PROJECTION_LOCK_TIMEOUT_SECONDS` (default 300s); the loser of a
+  timed-out wait gets a named `ProjectionLockedError`, never a torn store.
+  `MM_PROJECTION_LOCK_KEY` replaces the derived key with a named one
+  (`[A-Za-z0-9._-]{1,64}`, else a `ConfigError`). It is process-wide — a
+  shell that exports it re-keys `rebuild` and the worker too — and exists
+  only for `test_parallel_store_safety`'s lock-timeout test, which must own
+  a lock nobody else can hold (B-14, closed).
+- **`make rebuild` is single-flight per stack.** It takes the same file lock
+  first, then the Postgres advisory lock. Never start two rebuilds against
+  one stack expecting them to interleave.
+- `make test-db-prune` sweeps what a `SIGKILL`ed run or a hand-deleted
+  worktree left: per-run databases with no live owner (it refuses any with a
+  live backend), then worktree stacks — `meetingminer-<slug>` projects whose
+  checkout directory no longer exists get `down -v`, volumes included. A
+  stack whose directory exists is reported `skipped owned`; `meetingminer`
+  is never a candidate. Safe to run while another suite is going.
+- `make migrate`, `make rebuild`, `make purge` and the worker write the
+  checkout's own stores. In the main checkout that is the live corpus, so
 - **`make evals-run` is still one at a time.** Story 11.3 gives every run an
   immutable folder and a run-owned check-2.11 probe, coordinates probes that
   share a subject moment, waits for raced projection, and erases under the
@@ -132,10 +149,14 @@ at a time.** Story 2.7 fixed the suite; the remaining limit is `make evals-run`.
   passes, announce an eval run, run it alone, and release it. It may overlap
   test suites, but not another eval run or a dev-store writer.
 
-Note what the projection lock means in practice: concurrent server suites will
-serialize on the handful of projection tests and run in parallel everywhere
-else. That is a throughput property, not a correctness one — nothing fails, it
-waits.
+Memory is the bound, and it is the Docker VM's, not the host's. Measured
+2026-08-30 with `docker stats`, one stack idle after a full `make test`:
+neo4j-test 1.21 GiB, neo4j 578 MiB, meilisearch-test 111 MiB, postgres 89 MiB,
+meilisearch 43 MiB — about 2.0 GiB per stack. OrbStack's VM reports 23.5 GiB
+against the host's 128 GB, and every other project's containers share it, so
+a handful of stacks fit and a dozen idle ones would fill it; nothing in
+compose caps Neo4j or Meilisearch. `docker stats --no-stream` shows the
+current figure. The port range (400 bases) is not the limit.
 
 Store-free suites are always safe to run concurrently — `make web-test`
 (vitest, no stores), `make puller-test`, and `make evals-test` (the eval

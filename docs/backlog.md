@@ -155,15 +155,17 @@ than a false story-4.4 regression.
 
 ## Robustness and hygiene
 
-### B-14 · Make the projection-lock timeout test independent — S
+### B-35 · Per-worktree api and web ports — S
 
-`test_projection_lock_times_out_with_holder_details_then_releases` manipulates the
-real endpoint-keyed shared lock, so a concurrent holder from another worktree
-makes its holder-queue and metadata assertions see the wrong holder. It has
-already failed mid-run for this reason and passed on re-run.
+`API_PORT` (8000) and `WEB_PORT` (5173) are fixed in `infra/Makefile`, so
+`make up` in a worktree collides with another checkout's api and web even
+though the stores are private since story 11.2 (`.env.worktree`). The
+committed TS client bakes `http://localhost:8000` in as its default `baseUrl`
+(`CLIENT_URL`), so the api port is more than a Makefile variable.
 
-**Do:** point the test at its own lock via an env override for the lock key,
-rather than the shared one.
+**Do:** allocate the two ports in `.env.worktree` beside the store ports and
+have the Makefile, the web dev server and the client's base URL read them;
+keep the main checkout on 8000/5173.
 
 ### B-15 · Stop embed-only projection from opening Neo4j — S
 
@@ -342,7 +344,7 @@ archive-index job, whose plist was never installed and whose archive is no
 longer a corpus source; and several documentation items already corrected in
 place.
 
-One item was done rather than retired. B-1 (split the test suite so a routine
+Two items were done rather than retired. B-1 (split the test suite so a routine
 run takes seconds) closed with story 11.1 on measured numbers, not its own
 estimate. At `e5510c7` on 2026-08-29 the full server run was 1,683 tests in
 9m17s (554s in pytest), not ~33 minutes, and 471 of its 527 test-seconds sat in
@@ -414,3 +416,13 @@ endpoint is operator-scheduled infrastructure, deliberately *not* a
 best-effort dependency (spine, 2026-08-19). A stage bound to it fails by name
 when it is down rather than falling back silently. GPU headroom is the other
 limit: ASR alone peaked at 11,208 MiB of 16,376 in the handoff benchmark.
+
+B-14 (make the projection-lock timeout test independent) closed with story
+11.2. `server/meetingminer/projections/locks.py` honours
+`MM_PROJECTION_LOCK_KEY` — a named key, `[A-Za-z0-9._-]{1,64}`, in place of the
+URL-derived one; unset, the derivation is byte-identical — and
+`test_projection_lock_times_out_with_holder_details_then_releases` sets
+`b14-<run id>` for its holder, its waiter and its own path assertions, so no
+other process can be the holder it sees. The same story gave every worktree a
+private compose stack on its own ports, so a holder from another worktree is on
+another lock anyway; the key is what makes the test's own assertions exact.
