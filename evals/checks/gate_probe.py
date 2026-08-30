@@ -474,6 +474,36 @@ def _membership(search: Any, graph: Any, artifact_id: str) -> dict[str, StorePre
     }
 
 
+def _projection_wait_seconds() -> float:
+    """Bound a winning request by the same wait budget its writer receives."""
+    raw = os.environ.get(_PROJECTION_LOCK_TIMEOUT_ENV, "300")
+    try:
+        timeout = float(raw)
+    except ValueError:
+        raise RuntimeError(
+            f"{_PROJECTION_LOCK_TIMEOUT_ENV} must be a positive finite number"
+        ) from None
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise RuntimeError(
+            f"{_PROJECTION_LOCK_TIMEOUT_ENV} must be a positive finite number"
+        )
+    return timeout + 10.0
+
+
+def _wait_for_winning_projection(
+    search: Any, graph: Any, artifact_id: str
+) -> dict[str, StorePresence]:
+    """Wait until a raced approval's post-commit projection reaches both stores."""
+    deadline = time.monotonic() + _projection_wait_seconds()
+    while True:
+        observed = _membership(search, graph, artifact_id)
+        if all(presence.present for presence in observed.values()):
+            return observed
+        if time.monotonic() >= deadline:
+            return observed
+        time.sleep(0.05)
+
+
 def run_gate_probe(
     *,
     run_id: str,
@@ -630,7 +660,11 @@ def run_gate_probe(
                     conn,
                     transport,
                 )
-            post = _membership(search, graph, artifact_id)
+            post = (
+                _wait_for_winning_projection(search, graph, artifact_id)
+                if raced
+                else _membership(search, graph, artifact_id)
+            )
         except StoreAssertError as exc:
             problem = (
                 f"the probe was interrupted mid-sequence: {exc} — the gate"

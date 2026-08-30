@@ -665,6 +665,53 @@ def test_a_409_race_resolves_by_rereading_the_probe_row(tmp_path: Path) -> None:
     assert probe.cleanup is not None and probe.cleanup.verified
 
 
+def test_a_409_waits_for_the_winning_projection_before_post_read(
+    tmp_path: Path,
+) -> None:
+    """F3: Postgres publishes before the winning request finishes stores."""
+    search = ProbeSearchClient()
+    graph = ProbeGraphDriver()
+    connection = FakeConnection(row_state=None)
+    reads = 0
+    original = gate_probe.stores.artifact_in_search
+
+    def delayed(client: Any, artifact_id: str) -> Any:
+        nonlocal reads
+        reads += 1
+        if reads == 3:
+            search.published = True
+            graph.published = True
+        return original(client, artifact_id)
+
+    def raced(request: httpx.Request) -> httpx.Response:
+        connection.row_state = "published"
+        write_export(tmp_path)
+        return httpx.Response(
+            409,
+            json={
+                "type": "urn:meetingminer:problem:nothing-to-approve",
+                "detail": "no extracted artifacts to approve",
+            },
+        )
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(gate_probe.stores, "artifact_in_search", delayed)
+        probe = run_probe(
+            tmp_path,
+            corpus=FakeCorpus(),
+            search=search,
+            graph=graph,
+            connection=connection,
+            transport=httpx.MockTransport(raced),
+        )
+
+    assert reads >= 3
+    assert probe.post is not None
+    assert probe.post["meilisearch"].present
+    assert probe.post["neo4j"].present
+    assert probe.cleanup is not None and probe.cleanup.verified
+
+
 def test_a_409_with_an_unpublished_row_is_a_real_refusal(tmp_path: Path) -> None:
     search = ProbeSearchClient()
     graph = ProbeGraphDriver()
