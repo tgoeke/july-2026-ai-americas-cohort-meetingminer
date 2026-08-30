@@ -467,11 +467,17 @@ def _writable_conninfo(config: Any) -> str:
     )
 
 
-def _membership(search: Any, graph: Any, artifact_id: str) -> dict[str, StorePresence]:
-    return {
-        checks.SEARCH_STORE: stores.artifact_in_search(search, artifact_id),
-        checks.GRAPH_STORE: stores.artifact_in_graph(graph, artifact_id),
-    }
+def _membership(
+    search: Any,
+    graph: Any,
+    artifact_id: str,
+    recorded: dict[str, StorePresence] | None = None,
+) -> dict[str, StorePresence]:
+    """Accumulate each completed store read before attempting the next."""
+    observed = recorded if recorded is not None else {}
+    observed[checks.SEARCH_STORE] = stores.artifact_in_search(search, artifact_id)
+    observed[checks.GRAPH_STORE] = stores.artifact_in_graph(graph, artifact_id)
+    return observed
 
 
 def _projection_wait_seconds() -> float:
@@ -737,7 +743,8 @@ def _execute_probe(
 
         raced = False
         try:
-            pre = _membership(search, graph, artifact_id)
+            pre = {}
+            _membership(search, graph, artifact_id, pre)
             if any(presence.present for presence in pre.values()):
                 # A sibling run may have approved the shared moment between
                 # this run's mint and its pre-read, publishing this probe
@@ -771,11 +778,11 @@ def _execute_probe(
                     conn,
                     transport,
                 )
-            post = (
-                _wait_for_winning_projection(search, graph, artifact_id)
-                if raced
-                else _membership(search, graph, artifact_id)
-            )
+            if raced:
+                post = _wait_for_winning_projection(search, graph, artifact_id)
+            else:
+                post = {}
+                _membership(search, graph, artifact_id, post)
         except StoreAssertError as exc:
             problem = (
                 f"the probe was interrupted mid-sequence: {exc} — the gate"

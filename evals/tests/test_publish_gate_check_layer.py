@@ -234,3 +234,54 @@ def test_the_happy_path_wires_membership_and_the_probe_with_the_runs_id(
     assert probe_calls and probe_calls[0]["run_id"] == RecordingRun.run_id
     assert probe_calls[0]["manifest_id"] == "demo-001"
     assert probe_calls[0]["meeting_id"] == MEETING
+
+
+def test_a_later_subject_store_error_preserves_the_first_defect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """F7: subject observations and their read error reach assembly together."""
+    driver = ClosableDriver()
+    monkeypatch.setattr(
+        test_publish_gate.stores, "search_client", lambda config: object()
+    )
+    monkeypatch.setattr(
+        test_publish_gate.stores, "graph_driver", lambda config: driver
+    )
+    monkeypatch.setattr(
+        test_publish_gate.stores,
+        "artifact_in_search",
+        lambda client, artifact_id: StorePresence(present=False),
+    )
+    monkeypatch.setattr(
+        test_publish_gate.stores,
+        "artifact_in_graph",
+        lambda client, artifact_id: (_ for _ in ()).throw(
+            StoreAssertError("Neo4j failed after Meilisearch answered")
+        ),
+    )
+    monkeypatch.setattr(
+        gate_probe,
+        "run_gate_probe",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("a partial subject read must not mint a probe")
+        ),
+    )
+    subject_artifact = SimpleNamespace(
+        id="22222222-2222-7222-8222-222222222222",
+        moment_id=MOMENT,
+        state="published",
+    )
+    corpus = SimpleNamespace(
+        meeting_corpus=lambda meeting_id: "scripted",
+        artifacts_for=lambda meeting_id: (subject_artifact,),
+    )
+    run = RecordingRun()
+
+    with pytest.raises(AssertionError):
+        run_gate(run, a_subject(), corpus, object(), LocalConfig())
+
+    result = run.results[0]
+    assert result.applicable
+    assert any("absent from meilisearch" in problem for problem in result.problems)
+    assert any("Neo4j failed after" in problem for problem in result.problems)
+    assert driver.closed

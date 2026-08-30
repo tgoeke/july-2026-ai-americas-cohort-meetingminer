@@ -39,7 +39,7 @@ import pytest
 
 from evals.checks import gate_probe
 from evals.harness import checks, retrieval, stores
-from evals.harness.checks import CheckResult, StorePresence
+from evals.harness.checks import CheckResult, GateProbe, StorePresence
 from evals.harness.corpus import Corpus, CorpusQueryError
 from evals.harness.run import Run
 from evals.harness.stores import StoreAssertError
@@ -172,28 +172,24 @@ def test_publish_gate_projection(
 
     try:
         # The subject halves: one membership read per artifact, no mutation.
+        membership: dict[str, dict[str, StorePresence]] = {}
+        membership_problem: str | None = None
         try:
-            membership: dict[str, dict[str, StorePresence]] = {
-                str(artifact.id): {
-                    checks.SEARCH_STORE: stores.artifact_in_search(
-                        search, str(artifact.id)
-                    ),
-                    checks.GRAPH_STORE: stores.artifact_in_graph(
-                        graph, str(artifact.id)
-                    ),
-                }
-                for artifact in artifacts
-            }
+            for artifact in artifacts:
+                artifact_id = str(artifact.id)
+                recorded = membership.setdefault(artifact_id, {})
+                recorded[checks.SEARCH_STORE] = stores.artifact_in_search(
+                    search, artifact_id
+                )
+                recorded[checks.GRAPH_STORE] = stores.artifact_in_graph(
+                    graph, artifact_id
+                )
         except StoreAssertError as exc:
-            result = _not_applicable(
-                run,
-                subject,
-                name,
+            membership_problem = (
                 f"the subject membership read failed for meeting"
-                f" {meeting_id}: {exc}",
+                f" {meeting_id}: {exc}"
             )
-            assert result.passed, result.summary()
-            return
+            run.note(membership_problem)
 
         # The probe and the assembly, inside the record-and-reraise shape:
         # the probe layer names its own refusals and interruptions on the
@@ -208,15 +204,19 @@ def test_publish_gate_projection(
                 meeting_id,
                 artifacts,
                 membership,
-                gate_probe.run_gate_probe(
-                    run_id=run.run_id,
-                    manifest_id=subject.manifest.id,
-                    meeting_id=meeting_id,
-                    base_url=base_url,
-                    config=app_config,
-                    corpus=corpus,
-                    search=search,
-                    graph=graph,
+                (
+                    GateProbe(problem=membership_problem)
+                    if membership_problem is not None
+                    else gate_probe.run_gate_probe(
+                        run_id=run.run_id,
+                        manifest_id=subject.manifest.id,
+                        meeting_id=meeting_id,
+                        base_url=base_url,
+                        config=app_config,
+                        corpus=corpus,
+                        search=search,
+                        graph=graph,
+                    )
                 ),
             ),
         )

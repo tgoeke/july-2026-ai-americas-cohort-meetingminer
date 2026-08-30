@@ -977,6 +977,38 @@ def test_a_store_failure_mid_probe_still_cleans_up(
     assert connection.row_state is None, "the minted row must still be erased"
 
 
+def test_a_later_probe_store_error_preserves_the_first_violation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F7: the second read cannot erase evidence completed by the first."""
+    search = ProbeSearchClient()
+    graph = ProbeGraphDriver()
+
+    monkeypatch.setattr(
+        gate_probe.stores,
+        "artifact_in_search",
+        lambda client, artifact_id: gate_probe.StorePresence(present=True),
+    )
+    monkeypatch.setattr(
+        gate_probe.stores,
+        "artifact_in_graph",
+        lambda client, artifact_id: (_ for _ in ()).throw(
+            gate_probe.StoreAssertError("Neo4j read failed second")
+        ),
+    )
+    probe = run_probe(
+        tmp_path,
+        corpus=FakeCorpus(),
+        search=search,
+        graph=graph,
+        connection=FakeConnection(row_state="extracted"),
+    )
+
+    assert probe.problem is not None and "Neo4j read failed second" in probe.problem
+    assert probe.pre is not None
+    assert probe.pre["meilisearch"].present
+
+
 def test_an_unexpected_exception_mid_probe_keeps_the_cleanup_verdict(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
