@@ -385,6 +385,7 @@ worktree-list:
 # as before, and its stack stays intact for the work still in it.
 worktree-remove:
 	@[ -n "$(STORY)" ] || { echo "error: STORY is required, e.g. 'make worktree-remove STORY=1-12'"; exit 1; }
+	@printf '%s' "$(STORY)" | grep -Eq '^$(SLUG_RULE)$$' || { echo "error: STORY must match $(SLUG_RULE): got '$(STORY)'"; exit 1; }
 	@wt="$(WT_ROOT)/$(STORY)"; f="$(WT_ROOT)/$(STORY)/.env.worktree"; \
 	if [ -e "$$f" ]; then python3 $(INFRA)/worktree_stack.py check --worktree "$$wt" || exit 1; fi; \
 	name=$$(sed -n 's/^MM_STACK_NAME=//p' "$$f" 2>/dev/null | tail -1); \
