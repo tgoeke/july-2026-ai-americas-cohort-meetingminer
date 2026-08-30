@@ -424,11 +424,15 @@ worktree-prune:
 			name=$$(sed -n 's/^MM_STACK_NAME=//p' "$$f" 2>/dev/null | tail -1); \
 			stack_id=$$(sed -n 's/^MM_STACK_ID=//p' "$$f" 2>/dev/null | tail -1); \
 			name=$${name:-meetingminer-$$(basename "$$wt")}; \
+			removed=0; \
 			if git -C $(ROOT) worktree remove "$$wt"; then \
+				removed=1; \
 				echo "pruned $$wt (merged into origin/main)"; \
 				$(call stack_down,$$name,$$wt,$$stack_id) || rc=1; \
+			else \
+				echo "keep $$wt — Git could not remove the worktree; its branch and stack are left intact"; rc=1; \
 			fi; \
-			if [ "$$branch" != "HEAD" ]; then git -C $(ROOT) branch -D "$$branch" >/dev/null 2>&1 && echo "deleted branch $$branch" || true; fi; \
+			if [ "$$removed" -eq 1 ] && [ "$$branch" != "HEAD" ]; then git -C $(ROOT) branch -D "$$branch" >/dev/null 2>&1 && echo "deleted branch $$branch" || true; fi; \
 		else \
 			echo "keep $$wt — not merged into origin/main"; \
 		fi; \

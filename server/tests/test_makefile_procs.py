@@ -2160,6 +2160,6 @@ exec "{real_git}" "$@"
     output = proc.stdout + proc.stderr
     assert proc.returncode != 0, output
     assert worktree.is_dir(), output
-    assert _git(repo, "branch", "--list", "story/probe") == "story/probe"
+    assert _git(repo, "branch", "--list", "story/probe").endswith("story/probe")
     assert "could not remove" in output
     assert not any(" down -v " in line for line in _argv_lines(argv_log))
