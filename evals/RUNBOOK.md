@@ -126,11 +126,13 @@ a surprise.
 **One check in this pass mutates state — deliberately, and only what the run
 owns (story 11.3).** Check 2.11 never approves a subject's `extracted`
 artifacts: it asserts subject membership read-only, then measures the
-approve→project transition on one probe artifact the run mints onto an
-eligible projected subject moment, approves through the public
-`POST /moments/{id}/approve` (the harness's one sanctioned mutation, AD-16),
-and erases with per-target verification — the Postgres row, the publish-root
-export, the Meilisearch document, the Neo4j node. The probe is minted only
+approve→project transition on one probe artifact. The Story 11.3 AD-16
+exception is exact: direct SQL inserts one run-marked `extracted` row and
+receives its Postgres-minted UUID; the public API
+`POST /moments/{id}/approve` performs the lifecycle mutation; then locked,
+delete-only cleanup removes only that UUID from the Postgres row, publish-root
+export, Meilisearch document, and Neo4j node. Per-target verification goes
+through the read-only store helpers. The probe is minted only
 after re-reading the meeting's `corpus: scripted` tag from Postgres — a
 non-scripted meeting is a named refusal with no store handle and no row —
 and its title carries the run id, so a row stranded by a killed process

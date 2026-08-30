@@ -556,6 +556,20 @@ def test_operational_docs_keep_evals_single_flight_until_live_acceptance() -> No
     assert "do not contend" not in runbook
 
 
+def test_ad16_docs_name_the_probe_exception_exactly() -> None:
+    """F12: the reference describes the code's sanctioned SQL/delete width."""
+    readme = (EVALS_ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (EVALS_ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+
+    for text in (readme, runbook):
+        assert "direct SQL" in text
+        assert "public API" in text
+        assert "delete-only" in text
+        assert "Postgres-minted UUID" in text
+    assert "minted through\n                             the public api" not in readme
+    assert "minted through the public api" not in runbook
+
+
 def test_the_probe_pin_leaves_the_erasure_vocabulary_alone() -> None:
     for benign in (
         "index.delete_document(doc_id)",

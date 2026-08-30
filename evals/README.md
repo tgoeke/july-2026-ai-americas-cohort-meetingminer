@@ -6,11 +6,17 @@ artifacts. Design lives in
 operating half — what a manifest declares, how to author one, and how to run
 the suite.
 
-**AD-16 — the harness is a client, never a housemate.** It mutates the system
-only through the public API and asserts through API reads, read-only store
-queries, and run artifacts. That rule is what makes the publish-gate check
-meaningful, so it is enforced by an AST walk in
-`tests/test_harness_boundary.py` rather than left to convention.
+**AD-16 — the harness is a client, never a housemate.** Its normal mutation
+surface is the public API, and it asserts through API reads, read-only store
+queries, and run artifacts. Story 11.3 adds one explicit, deferred-architecture
+exception for check 2.11: `checks/gate_probe.py` uses direct SQL to insert one
+run-marked `extracted` row and receive its Postgres-minted UUID, calls the
+public API to approve the moment, then performs delete-only cleanup of that
+same UUID in Postgres, Meilisearch, Neo4j, and the publish root under projection
+writer exclusion. Store verification still delegates to the read-only helpers
+in `harness/stores.py`; the probe cannot create or reshape retrieval-store
+state. That exact width is enforced by the AST/query-shape walk in
+`tests/test_harness_boundary.py`, not left to convention.
 
 It imports exactly **two** server modules: `meetingminer.config` (from
 `conftest.py`, `harness/judge.py` and `harness/bakeoff.py`), so a run's
@@ -22,10 +28,12 @@ including `meetingminer.db`, whose `conninfo` helper is the shape
 `harness/corpus.py` mirrors, because that module's job is opening write
 pools. The guard tests pin the allowances to those exact modules and
 importers, so widening them is a deliberate act rather than a drift. The
-same suite pins the store drivers: `httpx` to `subjects.py`/`judge.py`/
-`retrieval.py`, `psycopg` to `corpus.py`, and `meilisearch`/`neo4j` to
-`stores.py` — which is additionally pinned to read-only usage (no store
-write-method reference survives the guard).
+The same suite pins the normal store boundaries and the Story 11.3 exception:
+`harness/corpus.py` owns the read-only Postgres connection;
+`harness/stores.py` owns all Meilisearch/Neo4j reads; and
+`checks/gate_probe.py` alone may open the writable probe connection and carry
+the exact mint/delete query shapes plus one-ID driver deletes. No other store
+write-method reference survives the guard.
 
 Shipped so far: the ground-truth schema, its validating loader, eval-subject
 selection and one fixture per archetype (story 5.1); the four deterministic
@@ -64,9 +72,10 @@ evals/
                              the only module importing either driver
   harness/run.py             the run folder, the config snapshot, the report
   checks/                    the store-backed tier-1 checks — one eval run
-  checks/gate_probe.py       the run-owned publish-gate probe: minted through
-                             the public api, erased with cleanup verified —
-                             the one delete-only store sanction (story 11.3)
+  checks/gate_probe.py       the run-owned publish-gate probe: direct SQL mint
+                             receives the Postgres-minted UUID; public API
+                             approval; locked delete-only cleanup verified
+                             through harness/stores.py (story 11.3)
   runs/<run-id>/             one run's immutable artifacts (committed)
   tests/__init__.py
   tests/conftest.py          valid-manifest builders every negative test
