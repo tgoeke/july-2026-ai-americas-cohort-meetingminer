@@ -619,6 +619,22 @@ def test_linked_worktree_refusal_semantics(tmp_path: Path) -> None:
     assert message is not None and "main checkout" in message
 
 
+def test_linked_worktree_refusal_cannot_be_masked_by_a_process_name_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Process precedence may select endpoints, but it cannot turn a copied
+    ownership record into proof that the file belongs to this directory."""
+    from conftest import linked_worktree_refusal
+
+    linked = _linked(tmp_path, "probe", good_stack_text("other"))
+    monkeypatch.setenv("MM_STACK_NAME", "meetingminer-probe")
+
+    message = linked_worktree_refusal(linked)
+    assert message is not None
+    assert "MM_STACK_NAME" in message
+    assert "meetingminer-other" in message
+
+
 def test_provision_publication_is_atomic(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
