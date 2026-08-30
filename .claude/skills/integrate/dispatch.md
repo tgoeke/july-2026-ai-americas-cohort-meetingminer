@@ -2,14 +2,25 @@
 
 ## The standing rule
 
-**Standing user direction, 2026-08-19.** Stories are recommended for parallel
-work ONLY when they are completely caveat-free and completely independent.
+**Standing user direction, amended 2026-08-30** (supersedes the 2026-08-19
+no-caveat rule): parallel is the default. Merge conflicts between stories are
+integrate's routine work — union per `conflict-playbook.md`, then re-run both
+stories' suites — not a reason to serialize. Sequence only for:
 
-A recommendation carrying a condition — "coordinate the store-backed suites",
-"the files are mostly disjoint", "whoever merges second resolves it" — is **not
-a parallel recommendation**. Give it as a sequence instead. The conditions are
-what get dropped when the work is handed off, and the cost lands on whoever
-merges second.
+1. **Disagreement risk** — two stories rewriting the *same statement* (the
+   same AD paragraph, the same policy line, the same function's semantics),
+   where a union is not a resolution.
+2. **Contract dependency** — one story's acceptance criteria reference the
+   other's deliverable.
+3. **Operational gate** — paid roles, the shared worker, `make evals-run`.
+
+Decide on measured regions, not filenames: `_bmad/scripts/branch_conflicts.py`
+prints the pairwise conflict matrix of every `story/*` branch against `main`
+(`--hunks <branch>` shows one branch's changed regions in `main` line
+numbers). Write each dispatched story's footprint — exact files and anchors,
+new tests in new files, never `server/tests/conftest.py` — into its build
+prompt; a footprint in the prompt is contract the builder is held to, which is
+how proximity conflicts stay rare enough for integrate to absorb.
 
 ## How to test a candidate pair
 

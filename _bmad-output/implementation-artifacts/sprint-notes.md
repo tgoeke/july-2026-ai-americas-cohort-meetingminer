@@ -2702,3 +2702,14 @@ after the epics they demo.
 worktree without `.env.worktree`; after rebasing onto a `main` that contains
 11-2, each lane runs `make worktree-provision` once. Six private stacks at
 ~1.9 GiB idle each sit inside the 23.5 GiB OrbStack VM bound 11-2 measured.
+
+## Second amendment, 2026-08-30 ~14:00 — merge conflicts are integrate's job
+
+Owner: "if we launch a bunch of stories in parallel, the integrate skill
+should be able to merge them all together" — correct, and now doctrine. The
+2026-08-19 no-caveat rule is superseded in `dispatch.md`: parallel is the
+default; proximity conflicts are unioned at integrate per the playbook with
+both suites re-run; sequence only for same-statement disagreement risk,
+contract dependency, or an operational gate. Footprints in build prompts keep
+conflicts rare; `branch_conflicts.py` keeps them visible. Wave A launched as
+six unattended lanes (11-2 remediation, 6-2, 10-1, 7-1, 11-3, 11-4) at ~14:00.
