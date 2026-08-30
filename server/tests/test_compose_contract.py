@@ -291,11 +291,11 @@ def test_make_test_fast_runs_the_whole_server_fast_set() -> None:
 # is one command, the fast set:
 # test_make_test_fast_recipe_is_the_one_whole_server_pytest_command holds it
 # to that, so nothing rides in the recipe past this list.
-TEST_FAST_PREREQUISITES = ("check-client", "puller-test", "web-test", "evals-test")
+TEST_FAST_PREREQUISITES = ("check-client", "lint", "typecheck", "puller-test", "web-test", "evals-test")
 
 
 def test_make_test_fast_runs_check_client_then_every_store_free_suite_before_the_fast_set() -> None:
-    """The loop's effective sequence, from make itself: check-client first (a missing client fails with its named message, not as a Vite import error inside web-test), then exactly the three store-free suites, and the one whole-server pytest command last, under test-fast. Dropping a prerequisite from the rule line, adding one, or moving check-client fails here."""
+    """The loop's effective sequence, from make itself: check-client first (a missing client fails with its named message, not as a Vite import error inside web-test), then lint, typecheck and the three store-free suites, and the one whole-server pytest command last, under test-fast. Dropping a prerequisite from the rule line, adding one, or moving check-client fails here."""
     steps = _dry_run_steps("test-fast")
     targets = [target for target, _ in steps]
     edit = "the `test-fast:` rule line and TEST_FAST_PREREQUISITES in test_compose_contract.py"

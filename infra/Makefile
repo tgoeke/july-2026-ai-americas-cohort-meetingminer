@@ -279,6 +279,20 @@ test: check-client puller-test web-test evals-test infra-up check-dev-stores che
 	cd $(ROOT) && MM_REQUIRE_TEST_STORES=1 uv run --project $(ROOT)/server pytest -m "" $(ROOT)/server/tests
 	pnpm --dir $(WEB) run build
 
+# Lint (story 11.4, backlog B-4): ruff over the whole server tree — sources
+# and tests — with its configuration and dated baseline committed in
+# server/pyproject.toml. In the loop it runs right after check-client, so an
+# unused import or a blind except fails in seconds, before any pytest starts.
+lint:
+	cd $(ROOT) && uv run --project $(ROOT)/server ruff check $(ROOT)/server
+
+# Typecheck (story 11.4): mypy over the decision-core modules named by
+# `[tool.mypy] files` in server/pyproject.toml. Run from server/ so a bare
+# invocation discovers that config and the cache lands under
+# server/.mypy_cache (gitignored).
+typecheck:
+	cd $(ROOT)/server && uv run --project $(ROOT)/server python -m mypy
+
 # The iteration loop (story 11.1): check-client first, so a missing client
 # fails with its named message rather than as a Vite import error inside
 # web-test; then the three store-free suites; then the server suite under
@@ -292,7 +306,7 @@ test: check-client puller-test web-test evals-test infra-up check-dev-stores che
 # outage produces no skips; `make test` is the gate that requires the twins
 # (check-test-stores). Skips never set the exit code; failures and collection
 # errors do.
-test-fast: check-client puller-test web-test evals-test
+test-fast: check-client lint typecheck puller-test web-test evals-test
 	cd $(ROOT) && uv run --project $(ROOT)/server pytest -q -rs $(ROOT)/server/tests
 
 # The eval harness half of `make test` (story 5.1). Joins puller-test and
