@@ -53,3 +53,11 @@ Review of the Story 6.2 YouTube Acquisition Command implementation, limited to t
 - **Finding:** The frozen contract requires `channel`, `ytDlpVersion`, and `formatId`, but the mapper omits blank/missing channel and format ID, while `yt_dlp_version()` accepts empty stdout. These inputs still produce schema-valid drops because provenance is intentionally open in the shared schema.
 - **Evidence:** `provenance_extra_from_info({}, "aB3dEfGhIj0", "")` returns only `tool`, `url`, and an empty `ytDlpVersion`. The conditional assignments at lines 391-399 have no later guard, and the successful acquisition path sends that partial map directly to `mint()`.
 - **Suggested direction:** Validate every story-required provenance value as non-empty (and of the expected type) before minting. Refuse with a named metadata error rather than silently producing a contract-incomplete drop.
+
+### F6 — The preflight checks `ffmpeg` but omits the `ffprobe` binary actually used by minting
+
+- **Location:** `server/meetingminer/youtube.py:166-179`, `server/meetingminer/mintdrop.py:326-345`
+- **Severity:** medium
+- **Finding:** `ensure_tools()` declares the tool gate complete after finding `yt-dlp` and `ffmpeg`, but `mint()` independently requires `ffprobe`. PATH installations are not guaranteed to contain both names. With `ffmpeg` present and `ffprobe` absent, the full media download occurs before the late mint refusal, contradicting the promised pre-download tool gate.
+- **Evidence:** A targeted run stubbed `yt-dlp` and `ffmpeg` as present and `ffprobe` as absent. `download()` ran and wrote media into the temporary directory; only then did `_assert_is_a_video()` raise `MintError: ffprobe is not on PATH`. The offline tests stub `probe_media` and never exercise this dependency ordering.
+- **Suggested direction:** Include `ffprobe` in the acquisition preflight (with the existing `brew install ffmpeg` remediation), and cover the split-PATH case so no media download begins when the actual validation binary is missing.
