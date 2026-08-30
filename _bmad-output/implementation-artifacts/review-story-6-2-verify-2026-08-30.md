@@ -44,7 +44,7 @@ Location: `server/meetingminer/youtube.py:316` · Severity: high · Finding: The
 
 ### F13 — The duration threshold silently falls back to a code default
 
-Location: `server/meetingminer/config.py:698` · Severity: high · Finding: `YoutubeAcquisitionConfig.max_duration_minutes` defaulted to `180`, while its parent models also default-created the acquisition block. A config missing the declared threshold therefore remained valid and the command silently acquired under a code-owned value, contrary to AD-10's single versioned `config.yaml` authority. · Evidence: Red `test_main_refuses_when_duration_cap_setting_is_missing` deleted the exact YAML key `acquisition.youtube.max_duration_minutes`; against the defaulted implementation it failed by reaching the sentinel `AssertionError: api resolution after missing duration cap must not be invoked`. Existing mutation 18 independently pins forwarding: exact mutation `max_duration_minutes=config.settings.acquisition.youtube.max_duration_minutes` → `max_duration_minutes=180` produced 2 failures (`180 != 37`). · Resolution: In progress under owner ruling (2026-08-30): keep the cap at 180 minutes, make `config.yaml` its sole declaration, remove every code default, and make the command refuse by the full setting name when absent.
+Location: `server/meetingminer/config.py:697` · Severity: high · Finding: `YoutubeAcquisitionConfig.max_duration_minutes` defaulted to `180`, while its parent models also default-created the acquisition block. A config missing the declared threshold therefore remained valid and the command silently acquired under a code-owned value, contrary to AD-10's single versioned `config.yaml` authority. · Evidence: Red `test_main_refuses_when_duration_cap_setting_is_missing` deleted the exact YAML key `acquisition.youtube.max_duration_minutes`; against the defaulted implementation it failed by reaching the sentinel `AssertionError: api resolution after missing duration cap must not be invoked`. Existing mutation 18 independently pins forwarding: exact mutation `max_duration_minutes=config.settings.acquisition.youtube.max_duration_minutes` → `max_duration_minutes=180` produced 2 failures (`180 != 37`), both before and after the owner-ruling patch. · Resolution: Resolved (F13) under owner ruling dated 2026-08-30. The cap remains 180 minutes in `config.yaml`, the sole runtime declaration. All three Pydantic defaults were removed, fixture configs declare their own value, and a missing leaf setting now produces `fatal: youtube-drop refused:` naming `acquisition.youtube.max_duration_minutes` before API resolution or drops-root handling. Focused missing-setting, config-loader, and forwarding tests pass restored.
 
 ## Mutation evidence
 
@@ -77,23 +77,28 @@ All mutations were made in the isolated review worktree, run in the foreground, 
 25. Existing started-at-source claim, original tests: source/precision guard → `if False:`. Five prior existing-path regressions still passed, producing VF6. The new source regression then failed with `DID NOT RAISE YoutubeError` under the same mutation and passed restored.
 26. Refusal-timing documentation: `It refuses before any permanent write` → the original blanket `Like mint-drop, it refuses before writing anything` wording. After correcting three VF2 test fixtures to create their configured roots, the full module still passed (`102 passed, 1 skipped`), producing VF7. The new documentation contract test failed under the same mutation and passed restored.
 27. VF8 video-stream fix: strict non-blank string codec predicate → `entry.get("vcodec") not in (None, "none")`. All 6 malformed-codec cases failed by reaching the forbidden download; restored: 6 passed.
+28. F13 required duration setting: deleted the exact YAML key `acquisition.youtube.max_duration_minutes` while retaining both parent mappings. Against the defaulted implementation, the regression failed by reaching `AssertionError: api resolution after missing duration cap must not be invoked`; after removal of the model defaults, the command refused by the full key before API resolution. Mutation 18 was then repeated verbatim against the owner-ruling patch and still produced 2 failures (`180 != 37`); restored selection: 3 passed.
 
 VF2 used the pre-fix implementation directly rather than an artificial mutation: `test_main_defers_the_drops_root_write_probe_until_acquisition_accepts` failed because the resolver created `.staging` before the simulated probe refusal, then passed after the deferred-probe patch.
 
 ## Verification
 
-- `uv run --project server pytest server/tests/test_youtube.py -q` — 109 passed, 1 skipped by the named `MM_YOUTUBE_NETWORK_TEST` gate, 1 dependency deprecation warning.
-- `make test-fast` — puller 128 passed; web 291 passed; eval harness 549 passed; server 1,510 passed, 1 named YouTube network skip, 326 slow tests deselected, 1 dependency deprecation warning.
+- `uv run --project server pytest server/tests/test_youtube.py -q` — 110 passed, 1 skipped by the named `MM_YOUTUBE_NETWORK_TEST` gate, 1 dependency deprecation warning.
+- `uv run --project server pytest server/tests/test_config.py -q` (run with the created/exists forwarding cases during the F13 loop) — 57 passed, 1 dependency deprecation warning.
+- `make test-fast` — puller 128 passed; web 291 passed; eval harness 549 passed; server 1,511 passed, 1 named YouTube network skip, 326 slow tests deselected, 1 dependency deprecation warning.
 - `make check-reviews` — `check-reviews: every dispatched review has a committed report`.
 - `make evals-run` was not run.
 
 ## Open items
 
-- **F13 — owner architecture/spec decision, intentionally untouched:** decide whether `acquisition.youtube.max_duration_minutes` may retain code defaults or must be required in versioned `config.yaml` under AD-10.
-- **Known integration item, not a finding:** `server/meetingminer/mintdrop.py` has an already-rehearsed union with `story/6-3`. That builder took the `mint()` / `build_metadata()` override hunk verbatim from `7625b79`, so the branches were clean at that shared change. Story 6.3 also executed and tested the exact later merge resolution with this lane's `provenance_extra` mint-owned-key refusal; `transcriptDialect` is not a mint-owned key. Integrate still owns the union, but no speculative reconciliation belongs on this branch.
+None. All review findings and owner decisions are resolved on this lane.
+
+## Integration note
+
+`server/meetingminer/mintdrop.py` has a known, already-rehearsed union with `story/6-3`; this is not a finding. That builder took the `mint()` / `build_metadata()` override hunk verbatim from `7625b79`, so the branches were clean at that shared change. Story 6.3 also executed and tested the exact later merge resolution with this lane's `provenance_extra` mint-owned-key refusal; `transcriptDialect` is not a mint-owned key. Integrate still owns the union, but no speculative reconciliation belongs on this branch.
 
 ## Verdict
 
-The remediation behavior and its added fixes pass verification: F1-F12 and VF2-VF8 are mutation-backed and green. The lane does **not** receive an unconditional pass because VF1 and prior F13 remain owner decisions. There are no open code patches from this verification round, the branch was not merged, and `main` was not touched.
+**Pass.** F1-F13 and VF2-VF8 are mutation-backed and green; VF1 is closed by the accepted merge-baseline disposition. There are no open findings or owner decisions, the branch was not merged, and `main` was not touched.
 
-Verified implementation head before this report-only closeout: `8d557327d43cbb3713696ba8ee88e2d065ddbc18`.
+Verified implementation head before this report-only closeout: `a0266aa`.
