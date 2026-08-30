@@ -1617,6 +1617,32 @@ def test_worktree_prune_tears_down_the_pruned_worktrees_stack_only(tmp_path: Pat
     assert "keep" in output and "not merged into origin/main" in output
 
 
+def test_worktree_prune_refuses_a_target_file_that_names_another_stack(
+    tmp_path: Path,
+) -> None:
+    """The batch removal path must not trust a copied ownership record either."""
+    repo, docker_bin, argv_log = _throwaway_repo(tmp_path, origin=True)
+    assert _make_at(repo, docker_bin, ["worktree"], {"STORY": "probe"}).returncode == 0
+    assert _make_at(repo, docker_bin, ["worktree"], {"STORY": "victim"}).returncode == 0
+    probe = tmp_path / "meetingminer-wt" / "probe"
+    stack_file = probe / ".env.worktree"
+    stack_file.write_text(
+        stack_file.read_text(encoding="utf-8").replace(
+            "MM_STACK_NAME=meetingminer-probe",
+            "MM_STACK_NAME=meetingminer-victim",
+        ),
+        encoding="utf-8",
+    )
+    argv_log.write_text("", encoding="utf-8")
+
+    proc = _make_at(repo, docker_bin, ["worktree-prune"])
+    output = proc.stdout + proc.stderr
+    assert proc.returncode != 0, output
+    assert probe.is_dir(), output
+    assert "MM_STACK_NAME" in output
+    assert not any("compose -p meetingminer-victim down -v" in line for line in _argv_lines(argv_log))
+
+
 def test_worktree_branches_from_base_when_given(tmp_path: Path) -> None:
     repo, docker_bin, _argv_log = _throwaway_repo(tmp_path)
     _git(repo, "checkout", "-q", "-b", "other")
