@@ -188,6 +188,22 @@ def test_a_broken_install_probes_as_unavailable_not_as_a_crash(
     assert diarize_binding._pyannote_available() is False
 
 
+def test_a_discoverable_but_unimportable_extra_fails_at_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("importlib.util.find_spec", lambda _name: object())
+
+    def broken_import(name: str):
+        assert name == "pyannote.audio"
+        raise RuntimeError("torch runtime is ABI-incompatible")
+
+    monkeypatch.setattr("importlib.import_module", broken_import)
+    monkeypatch.setenv(TOKEN_ENV, "hf_unit_test_token")
+
+    with pytest.raises(DiarizerError, match="not bundled"):
+        build_diarizer(Binding())
+
+
 def test_the_real_probe_answers_without_raising() -> None:
     # No monkeypatch: whatever venv runs this, the probe must return a bool
     # rather than raise. In this wave's extra-free venv that answer is False,

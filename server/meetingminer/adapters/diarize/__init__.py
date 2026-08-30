@@ -46,14 +46,18 @@ PYANNOTE_UNAVAILABLE = (
 
 
 def _pyannote_available() -> bool:
-    """Whether `pyannote.audio` is importable — the extra-installed probe."""
+    """Whether the exact provider symbol needed at runtime is importable."""
     try:
-        return importlib.util.find_spec("pyannote.audio") is not None
-    except (ImportError, ValueError):
+        if importlib.util.find_spec("pyannote.audio") is None:
+            return False
+        module = importlib.import_module("pyannote.audio")
+        return getattr(module, "Pipeline", None) is not None
+    except Exception:
         # find_spec imports the parent package first: no `pyannote`
         # distribution at all raises ModuleNotFoundError, a broken parent
-        # package raises plain ImportError, and a module whose __spec__ is
-        # None raises ValueError. Every one of them means "unavailable".
+        # can raise while resolving its spec, and a partial provider install
+        # can fail while importing torch/native dependencies. Every one means
+        # the configured engine is unavailable at the build boundary.
         return False
 
 
