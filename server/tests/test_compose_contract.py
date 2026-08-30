@@ -111,11 +111,13 @@ def _dry_run(target: str, *flags: str) -> str:
     being spawned. A nested make must not inherit the outer one's flags, or
     running this under `make test` would change what is printed. A multi-line
     recipe is printed with its backslash-newline continuations; they are
-    joined so each command is one line.
+    joined so each command is one line. `--no-print-directory`: GNU make 4.x
+    turns `-w` on with `-C`, and its "Entering directory" lines are not
+    commands.
     """
     env = {k: v for k, v in os.environ.items() if k not in {"MAKEFLAGS", "MFLAGS", "MAKELEVEL"}}
     proc = subprocess.run(
-        ["make", "-n", *flags, "-C", str(REPO_ROOT / "infra"), target],
+        ["make", "-n", "--no-print-directory", *flags, "-C", str(REPO_ROOT / "infra"), target],
         capture_output=True,
         text=True,
         env=env,
@@ -171,6 +173,21 @@ def _dry_run_steps(target: str) -> list[tuple[str, list[str]]]:
         + "\n".join(output.splitlines()[:8])
     )
     return steps
+
+
+def _direct_commands(target: str) -> list[str]:
+    """The recipe commands `target` itself owns, in order, from make: the lines printed while remaking it (`_dry_run_steps`) that a plain `make -n` prints too.
+
+    A prerequisite's commands sit under its own announcement, and make's trace
+    lines (`Must remake…`, `Successfully remade…`, the 3.81 banner) never
+    appear in a plain dry run, so what is left is this target's recipe —
+    `@`-prefixed lines included, which `-n` prints as well.
+    """
+    steps = _dry_run_steps(target)
+    lines = [printed for announced, printed in steps if announced == target]
+    assert len(lines) == 1, f"{target} was remade {len(lines)} times in {[t for t, _ in steps]}"
+    plain = set(_dry_run(target).splitlines())
+    return [line for line in lines[0] if line in plain]
 
 
 def _pytest_argv(words: list[str]) -> list[str]:
@@ -256,7 +273,9 @@ def test_make_test_fast_runs_the_whole_server_fast_set() -> None:
 # client check and the three store-free suites. Anything more (an `infra-up`,
 # a store check) would make the loop need Docker; anything less drops a suite
 # from it with no failure. Adding or removing one is a deliberate edit of
-# both places — the `test-fast:` rule line and this tuple.
+# both places — the `test-fast:` rule line and this tuple. The recipe itself
+# is one command, the fast set: the contract after the next holds it to that,
+# so nothing rides in the recipe past this list.
 TEST_FAST_PREREQUISITES = ("check-client", "puller-test", "web-test", "evals-test")
 
 
@@ -277,6 +296,18 @@ def test_make_test_fast_runs_check_client_then_every_store_free_suite_before_the
         target for target, lines in steps if any(_server_pytest_words(line) for line in lines)
     ]
     assert with_server_pytest == ["test-fast"], with_server_pytest
+
+
+def test_make_test_fast_recipe_is_the_one_whole_server_pytest_command() -> None:
+    """The commands the `test-fast` recipe owns, from make: exactly one, the whole-server pytest command — so it is last, and nothing before or after it (a `docker compose`, a store check, a second suite) rides in the recipe past the prerequisite contract above. Everything else the loop runs is a prerequisite target; adding one is an edit of TEST_FAST_PREREQUISITES."""
+    commands = _direct_commands("test-fast")
+    server = [command for command in commands if _server_pytest_words(command)]
+    assert len(server) == 1, f"test-fast's recipe has {len(server)} whole-server pytest commands: {commands}"
+    assert commands == server, (
+        f"test-fast's recipe runs {commands}; it may own only its whole-server pytest command — "
+        "anything more belongs in a prerequisite target, an edit of both the `test-fast:` rule "
+        "line and TEST_FAST_PREREQUISITES in test_compose_contract.py"
+    )
 
 
 def test_a_cli_empty_marker_expression_clears_the_addopts_default(
@@ -399,9 +430,12 @@ def test_the_module_level_slow_set_is_exactly_the_measured_twelve() -> None:
 
 
 # The measured per-test slow set (story 11.1): the four tests in otherwise
-# fast modules bound by a timer or the twins, as `module::test` (a test in a
-# class would be `module::Class::test`). Adding a per-test mark or removing
-# one is a deliberate edit of both places — the decorator and this list.
+# fast modules bound by a timer or the twins, as `module::test`. A test in a
+# class would be `module::Class::test`; a mark on the class itself — a
+# decorator or a class-body `pytestmark` — is `module::Class` and pins every
+# test collected under it, nested classes included. Adding a per-test mark or
+# removing one is a deliberate edit of both places — the decorator and this
+# list.
 SLOW_TESTS = (
     "test_api_events::test_a_slow_configured_heartbeat_is_not_overridden_by_a_faster_default",
     "test_api_events::test_configured_poll_cadence_is_honored",
@@ -456,13 +490,99 @@ def test_the_per_test_slow_set_is_exactly_the_measured_four() -> None:
     _both_ways(marked, SLOW_TESTS, "SLOW_TESTS")
 
 
-def _pinned(nodeid: str) -> bool:
-    """Whether a slow-marked node id is accounted for: its module is in SLOW_MODULES, or its `module::[Class::]test` (parametrization stripped) is in SLOW_TESTS."""
+def _pinned(
+    nodeid: str,
+    slow_modules: tuple[str, ...] = SLOW_MODULES,
+    slow_tests: tuple[str, ...] = SLOW_TESTS,
+) -> bool:
+    """Whether a slow-marked node id is accounted for: its module is in `slow_modules`, or `slow_tests` holds its `module::[Class::]test` (parametrization stripped) or the `module::Class` of a class enclosing it — the syntax inventory's name for a class-level mark, which pins every test collected under the class."""
     path, _, rest = nodeid.partition("::")
     stem = Path(path).stem
-    if stem in SLOW_MODULES:
+    if stem in slow_modules:
         return True
-    return f"{stem}::{rest.partition('[')[0]}" in SLOW_TESTS
+    parts = rest.partition("[")[0].split("::")
+    return any(f"{stem}::{'::'.join(parts[:depth])}" in slow_tests for depth in range(len(parts), 0, -1))
+
+
+# A class-level `slow` mark in both syntactic forms, over methods pytest
+# collects as `module::Class::test[param]` and under a nested class; a
+# decorated method beside them keeps a pin of its own, and an unmarked one
+# needs none.
+CLASS_MARKED_SOURCE = '''
+import pytest
+
+
+class TestGroup:
+    pytestmark = pytest.mark.slow(reason="probe: class body")
+
+    def test_one(self):
+        pass
+
+    @pytest.mark.parametrize("n", [1, 2])
+    def test_two(self, n):
+        pass
+
+    class TestNested:
+        def test_three(self):
+            pass
+
+
+@pytest.mark.slow(reason="probe: class decorator")
+class TestDecorated:
+    def test_four(self):
+        pass
+
+
+class TestPlain:
+    @pytest.mark.slow(reason="probe: one method")
+    def test_five(self):
+        pass
+
+    def test_six(self):
+        pass
+'''
+
+
+def test_a_class_level_slow_mark_pins_the_class_by_syntax_and_by_collection(
+    pytester: pytest.Pytester,
+) -> None:
+    """One representation for a class-level mark, `module::Class`, from the syntax inventory and accepted by the collected-node guard for every test pytest collects under the class — parametrized, nested — while a decorated method keeps its own `module::Class::test` pin and an unmarked method is pinned by neither. Without its pin, the class's tests are named as unpinned."""
+    pytester.makeini("[pytest]")
+    path = pytester.makepyfile(test_slow_class_source=CLASS_MARKED_SOURCE)
+    pins = _decorated_slow_definitions(path)
+    assert pins == {
+        "test_slow_class_source::TestGroup",
+        "test_slow_class_source::TestDecorated",
+        "test_slow_class_source::TestPlain::test_five",
+    }
+    items, recorder = pytester.inline_genitems(
+        "-p", "fast_budget", "-p", "no:cacheprovider", "-o", "markers=slow: probe", str(path)
+    )
+    collected = {item.nodeid for item in items}
+    assert collected == {
+        "test_slow_class_source.py::TestGroup::test_one",
+        "test_slow_class_source.py::TestGroup::test_two[1]",
+        "test_slow_class_source.py::TestGroup::test_two[2]",
+        "test_slow_class_source.py::TestGroup::TestNested::test_three",
+        "test_slow_class_source.py::TestDecorated::test_four",
+        "test_slow_class_source.py::TestPlain::test_five",
+        "test_slow_class_source.py::TestPlain::test_six",
+    }
+    # What the plugin recorded for the pinned-set guard: every collected item
+    # but the unmarked method.
+    (modifyitems,) = recorder.getcalls("pytest_collection_modifyitems")
+    recorded = modifyitems.config.stash[_SLOW_NODEIDS]
+    assert recorded == collected - {"test_slow_class_source.py::TestPlain::test_six"}
+    unpinned = sorted(n for n in recorded if not _pinned(n, slow_modules=(), slow_tests=tuple(pins)))
+    assert unpinned == [], unpinned
+    assert not _pinned("test_slow_class_source.py::TestPlain::test_six", (), tuple(pins))
+    without_the_class = tuple(pins - {"test_slow_class_source::TestGroup"})
+    assert sorted(n for n in recorded if not _pinned(n, (), without_the_class)) == [
+        "test_slow_class_source.py::TestGroup::TestNested::test_three",
+        "test_slow_class_source.py::TestGroup::test_one",
+        "test_slow_class_source.py::TestGroup::test_two[1]",
+        "test_slow_class_source.py::TestGroup::test_two[2]",
+    ]
 
 
 def test_every_slow_marked_item_this_session_collected_is_pinned(
