@@ -41,13 +41,22 @@ def seed_meeting_with_moment(
         " false, '{}'::jsonb) RETURNING id",
         (job_id, source_id, STARTED_AT),
     ).fetchone()[0]
-    moment_id = conn.execute(
+    return meeting_id, add_moment(conn, meeting_id, start_ms)
+
+
+def add_moment(conn: Connection, meeting_id: UUID, start_ms: int) -> UUID:
+    return conn.execute(
         "INSERT INTO moment (meeting_id, identity_key, derived_from, start_ms,"
         " end_ms, started_at, started_at_precision)"
         " VALUES (%s, %s, 'transcript', %s, %s, %s, 'second') RETURNING id",
-        (meeting_id, f"transcript:{start_ms}", start_ms, start_ms + 10_000, STARTED_AT),
+        (
+            meeting_id,
+            f"transcript:{start_ms}",
+            start_ms,
+            start_ms + 10_000,
+            STARTED_AT,
+        ),
     ).fetchone()[0]
-    return meeting_id, moment_id
 
 
 def add_topic(conn: Connection, meeting_id: UUID, name: str = "Vendor feed") -> UUID:
@@ -164,17 +173,31 @@ def test_deleting_a_meeting_cascades_topics_and_mentions(pool: ConnectionPool) -
         assert count(conn, "topic_mention") == 0
 
 
-def test_deleting_a_moment_cascades_mentions_but_not_topics(
+def test_deleting_a_topics_last_mentioned_moment_deletes_the_topic(
     pool: ConnectionPool,
 ) -> None:
-    # Unlike `artifact` (whose moment FK deliberately refuses the delete),
-    # a mention is navigation metadata and goes with its moment.
     with pool.connection() as conn:
         meeting_id, moment_id = seed_meeting_with_moment(conn, "mig-topics-moment")
         topic_id = add_topic(conn, meeting_id)
         add_mention(conn, topic_id, moment_id, meeting_id)
         conn.execute("DELETE FROM moment WHERE id = %s", (moment_id,))
         assert count(conn, "topic_mention") == 0
+        assert count(conn, "topic") == 0
+
+
+def test_deleting_one_of_two_mentioned_moments_preserves_the_topic(
+    pool: ConnectionPool,
+) -> None:
+    with pool.connection() as conn:
+        meeting_id, first_moment = seed_meeting_with_moment(
+            conn, "mig-topics-two-moments"
+        )
+        second_moment = add_moment(conn, meeting_id, 20_000)
+        topic_id = add_topic(conn, meeting_id)
+        add_mention(conn, topic_id, first_moment, meeting_id)
+        add_mention(conn, topic_id, second_moment, meeting_id, anchor_ms=20_000)
+        conn.execute("DELETE FROM moment WHERE id = %s", (first_moment,))
+        assert count(conn, "topic_mention") == 1
         assert count(conn, "topic") == 1
 
 

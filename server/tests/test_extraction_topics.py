@@ -29,6 +29,7 @@ from test_worker_runner import (
     meetings,
     set_job_status,
     set_stage,
+    stage_statuses,
     stage_error,
 )
 
@@ -709,6 +710,65 @@ def test_topics_attach_to_moments_with_approved_artifacts(
 
     [topic] = topic_rows(pool, meeting["id"])
     assert mention_rows(pool, topic["id"]) == [(moments[0], 10_000)]
+
+
+def test_a_moment_only_augmentation_deletes_a_topic_left_without_mentions(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_extraction_drop: Callable[[str], Any],
+    fake_llm: Callable[..., FakeLlm],
+) -> None:
+    engine = fake_llm(replies=(TOPICS_DOC,))
+    job_id = enqueue(
+        pool,
+        make_extraction_drop("source-orphan-augmentation"),
+        "source-orphan-augmentation",
+    )
+    assert runner.run_once(pool, app_config, content_root) is True
+    [meeting] = meetings(pool, job_id)
+    assert stage_statuses(pool, job_id)["extract"] == "done"
+
+    with pool.connection() as conn:
+        conn.execute("DELETE FROM topic WHERE meeting_id = %s", (meeting["id"],))
+        screen_moment = conn.execute(
+            "INSERT INTO moment (meeting_id, identity_key, derived_from, start_ms,"
+            " end_ms, started_at, started_at_precision, provenance)"
+            " SELECT id, 'screen:10000000', 'screen', 10000000, 10010000,"
+            " started_at + interval '10000 seconds', started_at_precision,"
+            " '{}'::jsonb FROM meeting WHERE id = %s RETURNING id",
+            (meeting["id"],),
+        ).fetchone()[0]
+        topic_id = conn.execute(
+            "INSERT INTO topic (meeting_id, name, gist)"
+            " VALUES (%s, 'Temporary screen topic', 'Only on removed evidence')"
+            " RETURNING id",
+            (meeting["id"],),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO topic_mention (topic_id, moment_id, meeting_id, anchor_ms)"
+            " VALUES (%s, %s, %s, 10000000)",
+            (topic_id, screen_moment, meeting["id"]),
+        )
+
+    # This is the augmentation checkpoint shape: moments re-runs while extract
+    # remains settled, so only the database invariant can remove the orphan.
+    set_stage(pool, job_id, "moments", "queued")
+    set_job_status(pool, job_id, "queued")
+    assert runner.run_once(pool, app_config, content_root) is True
+    assert stage_statuses(pool, job_id)["extract"] == "done"
+    assert len(engine.calls) == 1, "augmentation must leave extract settled"
+
+    with pool.connection() as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM moment WHERE id = %s", (screen_moment,)
+        ).fetchone()[0] == 0
+        assert conn.execute(
+            "SELECT count(*) FROM topic_mention WHERE topic_id = %s", (topic_id,)
+        ).fetchone()[0] == 0
+        assert conn.execute(
+            "SELECT count(*) FROM topic WHERE id = %s", (topic_id,)
+        ).fetchone()[0] == 0
 
 
 def test_superseded_mentions_are_skipped_and_an_unmentioned_topic_dropped(

@@ -57,6 +57,28 @@ CREATE TABLE topic_mention (
         REFERENCES moment (id, meeting_id) ON DELETE CASCADE
 );
 
+-- A topic without a mention is navigation to nowhere. Enforce that invariant
+-- at the record, not in one pipeline stage: a moment cascade can happen while
+-- extract remains settled during augmentation. Locking the topic serializes
+-- concurrent removals of different mentions so two transactions cannot each
+-- observe the other's still-present edge and leave an orphan after both commit.
+CREATE FUNCTION delete_topic_when_last_mention_removed() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    PERFORM 1 FROM topic WHERE id = OLD.topic_id FOR UPDATE;
+    DELETE FROM topic
+    WHERE id = OLD.topic_id
+      AND NOT EXISTS (
+          SELECT 1 FROM topic_mention WHERE topic_id = OLD.topic_id
+      );
+    RETURN OLD;
+END;
+$$;
+
+CREATE TRIGGER topic_mention_delete_orphan_topic
+    AFTER DELETE ON topic_mention
+    FOR EACH ROW EXECUTE FUNCTION delete_topic_when_last_mention_removed();
+
 -- The 10.2 projection and the moment views read mentions by moment.
 CREATE INDEX topic_mention_moment_id_idx ON topic_mention (moment_id);
 
