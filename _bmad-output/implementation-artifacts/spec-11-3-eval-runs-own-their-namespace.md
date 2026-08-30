@@ -3,7 +3,7 @@ title: 'Eval Runs Own Their Namespace'
 type: 'chore'
 created: '2026-08-30'
 baseline_revision: '5cdfce72813d68c2d81f5e02f715b8863f8492af'
-status: 'review'
+status: 'in-progress'
 review_loop_iteration: 0
 followup_review_recommended: true
 context: ['{project-root}/AGENTS.md']
