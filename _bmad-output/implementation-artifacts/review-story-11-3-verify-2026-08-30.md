@@ -43,3 +43,11 @@
 - Finding: After the probe insert commits, `conn.autocommit = True` runs before the cleanup-protected `try/finally`. An exception from that driver state transition escapes `_execute_probe` with a committed probe row and no cleanup attempt or recorded cleanup verdict.
 - Evidence: The known `artifact_id` is committed at lines 702–703. The autocommit assignment at line 731 is outside the `try` beginning at line 734 and the `finally` invoking `cleanup_probe` at lines 790–803. Existing interruption tests inject failures only after that protected region begins.
 - Resolution: Fixed in this review. The fake-connection regression first raised out of `_execute_probe` with no result. The autocommit transition now occurs inside the interruption-catching `try/finally`; its failure is named on the returned probe and the known id is erased with a verified cleanup. The full probe file passes (`38 passed`).
+
+### Finding 5 — Publish-gate module guidance still grants unaccepted eval overlap
+
+- Location: `evals/checks/test_publish_gate.py:16`
+- Severity: medium
+- Finding: F11 restores the single-flight rule in AGENTS, dispatch, and RUNBOOK, but the store-mutating publish-gate module still says it is safe while another eval run is running. That contradicts the owner-acceptance hold and can mislead someone running or composing this check directly.
+- Evidence: Lines 16–21 claim subject safety and conclude, `safe to run while another eval run or any suite is running.` The F11 docs-contract test reads only AGENTS, dispatch, and RUNBOOK, so this contradictory in-scope check documentation remains invisible.
+- Resolution: Open — extend the F11 contract test red-first to include the publish-gate header, then replace the overlap grant with the same pending-live-acceptance boundary while preserving the narrower truth that store-free suites may overlap.
