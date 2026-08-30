@@ -213,6 +213,21 @@ re-measures it.
   (`TEST_FAST_PREREQUISITES`) and its recipe, which is the one fast-set
   command: adding a mark, a prerequisite or a recipe line is an edit of both
   places.
+- **Lint and typecheck are in the loop** (story 11.4, backlog B-4).
+  `make lint` runs ruff over the whole server tree — sources and tests —
+  and `make typecheck` runs mypy over the decision-core modules named by
+  `[tool.mypy] files`; both read only committed configuration in
+  `server/pyproject.toml`. The rule set is ruff's default at the pinned
+  minor, kept green on main by a dated baseline (2026-08-30: a seven-code
+  global ignore plus per-file entries), never a source sweep — violations
+  live at measurement are filed for per-module retirement in
+  `_bmad-output/implementation-artifacts/deferred-work.md`, and new files
+  get the full rule set. `make test-fast` runs both directly after
+  `check-client`, so an unused import or a type error in a decision core
+  fails the loop before any pytest starts. The targets, the loop membership,
+  the baseline and the mypy scope are pinned by
+  `server/tests/test_lint_contract.py` alongside `TEST_FAST_PREREQUISITES`:
+  dropping either target from the rule line is an edit of both places.
 
 ## Branch and merge
 

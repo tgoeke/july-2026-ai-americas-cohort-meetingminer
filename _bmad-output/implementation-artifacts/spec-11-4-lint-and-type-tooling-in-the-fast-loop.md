@@ -2,7 +2,7 @@
 title: 'Lint and Type Tooling in the Fast Loop'
 type: 'chore'
 created: '2026-08-30'
-status: 'in-progress'
+status: 'review'
 baseline_revision: '0da88e5ca064f66ecc347eabfb47279f8799f314'
 review_loop_iteration: 0
 followup_review_recommended: false

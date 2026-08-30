@@ -2838,3 +2838,24 @@ last — 11-4 puts lint/typecheck inside `test-fast` and would fail later
 branches for unrelated tidiness; 11-2 switches every worktree to a private
 stack and each existing worktree then owes `make worktree-provision`), 8-1
 (built, review not yet dispatched; its AD-10 edit unions with 11-2's).
+
+
+## 11-4-lint-and-type-tooling-in-the-fast-loop — 2026-08-30, build complete (review)
+
+Pinned ruff 0.16.5 and mypy 2.3.1 in the server dev group with committed
+configuration green on main untouched: ruff's default rule set held still by
+the `<0.17` pin (plus `required-version`), a dated seven-code global ignore,
+49 per-file baseline entries; mypy over the 13 decision-core modules with
+`check_untyped_defs` and one jsonschema override. `make lint` and
+`make typecheck` join `test-fast` directly after `check-client`, pinned by
+the extended `TEST_FAST_PREREQUISITES` and the new self-contained
+`server/tests/test_lint_contract.py`. Build deltas from the spec, all in its
+change log: the "51 remaining pairs" recounted to 49 (ruff's two summary
+lines had been tallied as pairs), and UP017 joined the global ignore as a
+seventh code — it fires only under the committed config, whose
+target-version comes from `requires-python` (py312) rather than the isolated
+baseline's default. Retirement plan filed in `deferred-work.md`.
+Integration note: `branch_conflicts.py` is clean everywhere except the
+excepted story/11-2-review pairs and story/7-1 x story/11-4 on
+`server/uv.lock` — the spec's named merge surface; take either side and
+re-run `uv sync --project server` after the merge.
