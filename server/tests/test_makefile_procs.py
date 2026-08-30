@@ -52,11 +52,18 @@ NEAR_MISS = {
 
 
 def _tree_vars(tmp_path: Path) -> dict[str, str]:
-    """VENV/WEB pointed at the scratch tree the decoys live in."""
+    """VENV/WEB pointed at the scratch tree the decoys live in.
+
+    `WT_ENVFILE` points there too, so the checkout's own `.env.worktree`
+    (story 11.2) can never leak into a test: absent, the Makefile is the
+    main checkout's (project `meetingminer`, default ports); a test that
+    writes the file gets a worktree's.
+    """
     return {
         "VENV": str(tmp_path / "venv"),
         "WEB": str(tmp_path / "web"),
         "WORKER_OWNER": TEST_WORKER_OWNER,
+        "WT_ENVFILE": str(tmp_path / ".env.worktree"),
     }
 
 
@@ -750,6 +757,49 @@ def test_down_falls_back_when_env_file_interpolation_fails(tmp_path: Path) -> No
     assert any(line.startswith("compose --env-file") for line in invocations)
     # The fallback actually ran, without --env-file interpolation.
     assert "compose -p meetingminer down" in invocations
+
+
+# --- row: a worktree's private stack (story 11.2) ---------------------------
+
+
+def test_down_tears_down_the_worktree_stack_named_in_env_worktree(tmp_path: Path) -> None:
+    """A checkout with a `.env.worktree` passes it to compose as the second
+    --env-file and names ITS project — on the fallback path too, so a broken
+    .env can never tear down the main checkout's stack instead."""
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    envfile = tmp_path / ".env"
+    envfile.write_text("POSTGRES_PASSWORD=x\n", encoding="utf-8")
+    worktree_env = tmp_path / ".env.worktree"
+    worktree_env.write_text(
+        "MM_STACK_NAME=meetingminer-probe\nMM_POSTGRES_PORT=20001\n", encoding="utf-8"
+    )
+    docker_bin = tmp_path / "path"
+    argv_log = tmp_path / "docker-argv.txt"
+    _write_script(
+        docker_bin / "docker",
+        DOCKER_BODY.replace("__ARGV__", str(argv_log))
+        .replace("__EVENTS__", str(tmp_path / "events.txt"))
+        .replace("__ENVFILE_EXIT__", "1"),
+    )
+
+    proc = _make(
+        ["down"],
+        {"ENVFILE": str(envfile)},
+        logs=logs,
+        tmp_path=tmp_path,
+        env=_path_env(docker_bin),
+    )
+    output = proc.stdout + proc.stderr
+    assert proc.returncode == 0, output
+
+    invocations = argv_log.read_text(encoding="utf-8").splitlines()
+    prefix = f"compose --env-file {envfile} --env-file {worktree_env} -p meetingminer-probe "
+    assert any(
+        line.startswith(prefix) and line.endswith(" down") for line in invocations
+    ), invocations
+    assert "compose -p meetingminer-probe down" in invocations
+    assert "compose -p meetingminer down" not in invocations
 
 
 # --- row: foreign service on :8000 ----------------------------------------

@@ -8,6 +8,27 @@ ROOT    := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)
 INFRA   := $(ROOT)/infra
 LOGS    := $(ROOT)/.logs
 ENVFILE := $(ROOT)/.env
+# A git worktree's private compose stack (story 11.2): `make worktree` writes
+# .env.worktree beside .env — the compose project name and the seven host
+# ports — and three readers take its KEY=value lines: this include, compose
+# (a second --env-file, which wins over .env) and the config loader. Absent,
+# every default below reproduces the main checkout's stack exactly.
+WT_ENVFILE := $(ROOT)/.env.worktree
+STACK_VARS := MM_STACK_NAME MM_POSTGRES_PORT MM_NEO4J_HTTP_PORT MM_NEO4J_BOLT_PORT MM_MEILI_PORT MM_NEO4J_TEST_HTTP_PORT MM_NEO4J_TEST_BOLT_PORT MM_MEILI_TEST_PORT
+DEFAULT_MM_STACK_NAME := meetingminer
+DEFAULT_MM_POSTGRES_PORT := 5433
+DEFAULT_MM_NEO4J_HTTP_PORT := 7474
+DEFAULT_MM_NEO4J_BOLT_PORT := 7687
+DEFAULT_MM_MEILI_PORT := 7700
+DEFAULT_MM_NEO4J_TEST_HTTP_PORT := 7475
+DEFAULT_MM_NEO4J_TEST_BOLT_PORT := 7688
+DEFAULT_MM_MEILI_TEST_PORT := 7701
+# Precedence, the same as compose's and the loader's: a non-blank process
+# environment value, then .env.worktree, then the default. The environment is
+# snapshotted first because an included file's assignment would replace it.
+$(foreach v,$(STACK_VARS),$(eval _ENV_$(v) := $(strip $($(v)))))
+-include $(WT_ENVFILE)
+$(foreach v,$(STACK_VARS),$(eval $(v) := $(or $(_ENV_$(v)),$(strip $($(v))),$(DEFAULT_$(v)))))
 VENV    := $(ROOT)/server/.venv
 WEB     := $(ROOT)/web
 # The Teams puller (AD-1 black box). It shares no server code; the only reason
@@ -28,7 +49,10 @@ DIARIZE_EXTRA_TEST_MODULES := \
 # it is bound here only as an override rather than a constant.
 PULLER_ARCHIVE ?= $(MM_PULLER_ARCHIVE)
 
-COMPOSE := docker compose --env-file $(ENVFILE) -f $(INFRA)/docker-compose.yml
+# The second --env-file is present only when the worktree file is; `-p` names
+# the project explicitly so the Makefile, compose and the fallback teardown in
+# `down` can never disagree about which stack this checkout owns.
+COMPOSE := docker compose --env-file $(ENVFILE) $(if $(wildcard $(WT_ENVFILE)),--env-file $(WT_ENVFILE),) -p $(MM_STACK_NAME) -f $(INFRA)/docker-compose.yml
 
 # Host process bind targets, in one place so each launch line, its readiness
 # poll, and the messages we print can never drift apart.
@@ -87,7 +111,7 @@ export COREPACK_ENABLE_DOWNLOAD_PROMPT := 0
         rebuild purge digest backfill-drop-paths mint-drop test-db-prune check-reviews check-tools check-docker check-env check-client check-stores check-dev-stores check-test-stores check-api \
         infra-up start-api start-worker start-web \
         stop-api stop-worker stop-web \
-        worktree worktree-list worktree-remove
+        worktree worktree-list worktree-remove worktree-prune
 
 help:
 	@echo "MeetingMiner targets:"
@@ -108,7 +132,8 @@ help:
 	@echo "                     It fails today by design: both ground-truth fixtures still carry"
 	@echo "                     placeholder source_ids, so the run has no subjects to measure."
 	@echo "  make migrate     - apply pending database migrations (server/meetingminer/migrations/)"
-	@echo "  make test-db-prune - drop leaked, unowned idle meetingminer_test_* databases"
+	@echo "  make test-db-prune - drop leaked, unowned idle meetingminer_test_* databases, and tear down"
+	@echo "                     worktree stacks (meetingminer-<slug>) whose checkout directory is gone"
 	@echo "  make check-reviews - verify every dispatched code review has a committed report"
 	@echo "  make purge       - delete every meeting outside a keep-set, with its evidence, produced"
 	@echo "                     content and published documents. REPORTS ONLY by default; deleting"
@@ -133,18 +158,20 @@ help:
 	@echo "  make worker      - run the worker in the foreground"
 	@echo "  make web         - run the Vite dev server in the foreground (:$(WEB_PORT))"
 	@echo "  make client      - regenerate the typed TS client from the live OpenAPI schema"
-	@echo "  make worktree STORY=<slug>        - isolated checkout + branch for one piece of work"
+	@echo "  make worktree STORY=<slug> [BASE=main] - isolated checkout + branch + a private Docker stack:"
+	@echo "                     compose project meetingminer-<slug> on its own ports, written to the"
+	@echo "                     worktree's .env.worktree and brought up before the target returns"
 	@echo "  make worktree-list                - show every worktree"
-	@echo "  make worktree-remove STORY=<slug> - remove one when its work has landed"
-	@echo "  make worktree-prune               - remove every clean worktree already merged into origin/main"
-	@echo "                     Worktrees isolate CODE, not the Docker stores: server suites use"
-	@echo "                     per-run Postgres databases; projection tests queue on a shared lock;"
-	@echo "                     make evals-run remains serial (see AGENTS.md)."
+	@echo "  make worktree-remove STORY=<slug> - remove one when its work has landed; tears its stack and volumes down"
+	@echo "  make worktree-prune               - remove every clean worktree already merged into origin/main, with its stack"
+	@echo "                     Each worktree owns its five stores, so server suites and rebuilds in"
+	@echo "                     two worktrees never contend. The api (:$(API_PORT)) and web (:$(WEB_PORT)) ports"
+	@echo "                     are still fixed, and make evals-run remains serial (see AGENTS.md)."
 	@echo "  make rebuild     - regenerate the Neo4j + Meilisearch projections from Postgres + config.yaml"
-	@echo "                     SINGLE-FLIGHT across every worktree sharing the stores: it takes the"
-	@echo "                     same cross-worktree file lock as the projection tests before writing,"
-	@echo "                     queues on a holder up to MM_PROJECTION_LOCK_TIMEOUT_SECONDS, then"
-	@echo "                     refuses by name. Never run two rebuilds at once."
+	@echo "                     SINGLE-FLIGHT per stack: it takes the same endpoint-keyed file lock as"
+	@echo "                     the projection tests before writing, queues on a holder up to"
+	@echo "                     MM_PROJECTION_LOCK_TIMEOUT_SECONDS, then refuses by name. Never run"
+	@echo "                     two rebuilds against one stack at once."
 	@echo "                     Run it after an embedder swap or a chunking retune in config.yaml,"
 	@echo "                     after wiping a store volume, or whenever a store's content is suspect."
 	@echo "                     Routine ingestion needs none of this - the worker projects as it goes."
@@ -205,30 +232,75 @@ check-client:
 
 # --- worktrees (AGENTS.md) --------------------------------------------------
 # Isolated checkouts so two agents never share a working tree. Placed beside
-# the repo rather than inside it: no .gitignore entry to maintain, and no
+# the main repo rather than inside it: no .gitignore entry to maintain, and no
 # tooling walks into them. `.env` is symlinked rather than copied so secrets
-# and MM_CONTENT_ROOT have one source of truth.
-WT_ROOT := $(abspath $(ROOT)/../meetingminer-wt)
+# and the storage roots have one source of truth; `.env.worktree` is generated
+# beside it and gives the worktree a private compose stack (story 11.2), so
+# two worktrees' store-backed suites never share a store.
+#
+# WT_ROOT hangs off the git common dir rather than $(ROOT), so a worktree's
+# own Makefile places siblings beside the main repo too. Lazy (`=`): only the
+# worktree targets and test-db-prune run git for it.
+WT_ROOT = $(abspath $(shell git -C $(ROOT) rev-parse --path-format=absolute --git-common-dir)/../../meetingminer-wt)
+BASE ?= main
+# A slug names the branch, the directory and the compose project, so it is
+# held to characters none of git, the filesystem or compose rewrites (the
+# same rule infra/worktree_stack.py applies).
+SLUG_RULE := [a-z0-9][a-z0-9._-]*
+
+# stack_down(name): tear one worktree stack and its volumes down; already
+# gone is a note, Docker being off is a note (test-db-prune sweeps later).
+# Only a meetingminer-<slug> name is ever torn down here — never
+# `meetingminer`, the main checkout's stack, whose corpus volumes this must
+# not reach.
+define stack_down
+	case "$(1)" in meetingminer-?*) ;; *) echo "error: refusing to tear down stack '$(1)' — only meetingminer-<slug> stacks belong to worktrees"; exit 1 ;; esac; \
+	if ! docker info >/dev/null 2>&1; then \
+		echo "note: Docker daemon not running — stack $(1) left in place; 'make test-db-prune' sweeps it once its worktree is gone"; \
+	elif [ -n "$$(docker ps -aq --filter label=com.docker.compose.project=$(1) 2>/dev/null)" ] \
+	  || [ -n "$$(docker volume ls -q --filter label=com.docker.compose.project=$(1) 2>/dev/null)" ]; then \
+		docker compose -p "$(1)" down -v --remove-orphans && echo "removed stack $(1)"; \
+	else \
+		echo "note: stack $(1) was already gone"; \
+	fi
+endef
 
 worktree:
 	@[ -n "$(STORY)" ] || { echo "error: STORY is required, e.g. 'make worktree STORY=1-12'"; exit 1; }
+	@printf '%s' "$(STORY)" | grep -Eq '^$(SLUG_RULE)$$' || { echo "error: STORY must match $(SLUG_RULE) (it names the branch, the directory and the compose project): got '$(STORY)'"; exit 1; }
 	@[ ! -e "$(WT_ROOT)/$(STORY)" ] || { echo "error: $(WT_ROOT)/$(STORY) already exists — 'make worktree-list', or pick another STORY."; exit 1; }
 	@mkdir -p "$(WT_ROOT)"
-	@git -C $(ROOT) show-ref --verify --quiet refs/heads/story/$(STORY) 		&& git -C $(ROOT) worktree add "$(WT_ROOT)/$(STORY)" story/$(STORY) 		|| git -C $(ROOT) worktree add -b story/$(STORY) "$(WT_ROOT)/$(STORY)" main
-	@[ -r "$(ENVFILE)" ] && ln -sfn "$(ENVFILE)" "$(WT_ROOT)/$(STORY)/.env" 		|| echo "note: no readable $(ENVFILE) to link — run 'make bootstrap' in the worktree."
+	@git -C $(ROOT) show-ref --verify --quiet refs/heads/story/$(STORY) \
+		&& git -C $(ROOT) worktree add "$(WT_ROOT)/$(STORY)" story/$(STORY) \
+		|| git -C $(ROOT) worktree add -b story/$(STORY) "$(WT_ROOT)/$(STORY)" $(BASE)
+	@[ -r "$(ENVFILE)" ] && ln -sfn "$$(readlink -f "$(ENVFILE)" 2>/dev/null || echo "$(ENVFILE)")" "$(WT_ROOT)/$(STORY)/.env" \
+		|| echo "note: no readable $(ENVFILE) to link — run 'make bootstrap' in the worktree."
+	@python3 $(INFRA)/worktree_stack.py provision --slug "$(STORY)" --worktree "$(WT_ROOT)/$(STORY)" --worktree-root "$(WT_ROOT)"
 	@echo ""
-	@echo "worktree ready: $(WT_ROOT)/$(STORY)  (branch story/$(STORY))"
+	@echo "worktree ready: $(WT_ROOT)/$(STORY)  (branch story/$(STORY) from $(BASE))"
 	@echo "  cd $(WT_ROOT)/$(STORY) && make bootstrap"
-	@echo "  .env is symlinked from the main checkout; config.yaml came with the branch."
-	@echo "  The Docker stores are SHARED — hold them one agent at a time (AGENTS.md)."
+	@echo "  .env is symlinked from the main checkout; config.yaml came with the branch;"
+	@echo "  .env.worktree (above) names this worktree's private Docker stack. Starting it..."
+	@$(MAKE) --no-print-directory -C "$(WT_ROOT)/$(STORY)/infra" infra-up \
+		|| { echo "error: the stack for $(STORY) did not come up. The worktree and its .env.worktree are in place; start it with:"; \
+		     echo "  cd $(WT_ROOT)/$(STORY) && make infra-up"; exit 1; }
+	@echo "  stack meetingminer-$(STORY) is up. The api (:$(API_PORT)) and web (:$(WEB_PORT)) ports are still"
+	@echo "  fixed, so 'make up' here collides with another checkout's api/web (AGENTS.md)."
 
 worktree-list:
 	@git -C $(ROOT) worktree list
 
+# The stack name is read from the worktree's file BEFORE the checkout goes,
+# and torn down only AFTER git has removed it: a dirty tree makes git refuse
+# as before, and its stack stays intact for the work still in it.
 worktree-remove:
 	@[ -n "$(STORY)" ] || { echo "error: STORY is required, e.g. 'make worktree-remove STORY=1-12'"; exit 1; }
-	@git -C $(ROOT) worktree remove "$(WT_ROOT)/$(STORY)" || { echo "note: uncommitted changes present — commit them, or re-run with 'git worktree remove --force'."; exit 1; }
-	@echo "removed $(WT_ROOT)/$(STORY) — branch story/$(STORY) is kept; delete it once merged."
+	@name=$$(sed -n 's/^MM_STACK_NAME=//p' "$(WT_ROOT)/$(STORY)/.env.worktree" 2>/dev/null | tail -1); \
+	name=$${name:-meetingminer-$(STORY)}; \
+	git -C $(ROOT) worktree remove "$(WT_ROOT)/$(STORY)" \
+		|| { echo "note: uncommitted changes present — commit them, or re-run with 'git worktree remove --force'. Stack $$name is left intact."; exit 1; }; \
+	echo "removed $(WT_ROOT)/$(STORY) — branch story/$(STORY) is kept; delete it once merged."; \
+	$(call stack_down,$$name)
 
 # Sweep worktrees whose work has landed. Builder and reviewer sessions end
 # without cleaning up (their context is spent by then), so leftover worktrees
@@ -237,8 +309,8 @@ worktree-remove:
 # or with every commit patch-equivalent (`git cherry`), because a reviewer who
 # rebases the story onto main lands the content without the ref. Anything
 # dirty, unpushed, or unmerged is kept and named. The landed branch is deleted
-# with the worktree — its content is fully contained in main. Safe to run any
-# time.
+# with the worktree — its content is fully contained in main — and so is the
+# worktree's compose stack, volumes included. Safe to run any time.
 worktree-prune:
 	@git -C $(ROOT) fetch --prune --quiet origin
 	@for wt in $(WT_ROOT)/*/; do \
@@ -250,7 +322,12 @@ worktree-prune:
 		if git -C $(ROOT) merge-base --is-ancestor "$$head" origin/main \
 			|| ! git -C $(ROOT) cherry origin/main "$$head" | grep -q '^+'; then \
 			branch=$$(git -C "$$wt" rev-parse --abbrev-ref HEAD); \
-			git -C $(ROOT) worktree remove "$$wt" && echo "pruned $$wt (merged into origin/main)"; \
+			name=$$(sed -n 's/^MM_STACK_NAME=//p' "$$wt.env.worktree" 2>/dev/null | tail -1); \
+			name=$${name:-meetingminer-$$(basename "$$wt")}; \
+			if git -C $(ROOT) worktree remove "$$wt"; then \
+				echo "pruned $$wt (merged into origin/main)"; \
+				$(call stack_down,$$name); \
+			fi; \
 			if [ "$$branch" != "HEAD" ]; then git -C $(ROOT) branch -D "$$branch" >/dev/null 2>&1 && echo "deleted branch $$branch" || true; fi; \
 		else \
 			echo "keep $$wt — not merged into origin/main"; \
@@ -413,14 +490,16 @@ web-test:
 # established DB-test convention.
 check-stores: check-dev-stores check-test-stores
 
+# The ports are this checkout's (.env.worktree, else the defaults), so a
+# worktree probes its own stack and never passes on the main checkout's.
 check-dev-stores:
-	@curl -sf -o /dev/null --max-time 5 http://localhost:7700/health || { echo "error: Meilisearch is not answering on :7700 — the api and worker need it; run 'make infra-up' and retry."; exit 1; }
-	@# Bolt (7687), not the HTTP browser (7474): Bolt is the protocol the
+	@curl -sf -o /dev/null --max-time 5 http://localhost:$(MM_MEILI_PORT)/health || { echo "error: Meilisearch is not answering on :$(MM_MEILI_PORT) — the api and worker need it; run 'make infra-up' and retry."; exit 1; }
+	@# Bolt ($(MM_NEO4J_BOLT_PORT)), not the HTTP browser: Bolt is the protocol the
 	@# projection module connects over, and the two can disagree. SHELL is
 	@# bash here, so /dev/tcp is a dependency-free TCP probe; a real Bolt
 	@# handshake would need a driver, and the container healthcheck already
 	@# covers "the process is up".
-	@exec 3<>/dev/tcp/localhost/7687 2>/dev/null || { echo "error: Neo4j Bolt is not answering on :7687 — the api and worker need it; run 'make infra-up' and retry."; exit 1; }
+	@exec 3<>/dev/tcp/localhost/$(MM_NEO4J_BOLT_PORT) 2>/dev/null || { echo "error: Neo4j Bolt is not answering on :$(MM_NEO4J_BOLT_PORT) — the api and worker need it; run 'make infra-up' and retry."; exit 1; }
 
 # Exercise the same validated AppConfig and authenticated clients pytest uses,
 # including MM_TEST_NEO4J_URI / MM_TEST_MEILI_URL overrides. Direct pytest
@@ -484,9 +563,16 @@ migrate: check-env | infra-up
 # every un-backfilled job it claims, and this command puts exactly those jobs
 # back to `queued` as it converts them. Running it late costs a second
 # invocation, not the jobs.
+# Two sweeps: the databases (the PRUNE_TEST_DBS block below, which
+# test_parallel_store_safety execs with fakes — keep its shape), then the
+# worktree stacks whose checkout directory no longer exists
+# (infra/worktree_stack.py prune: only meetingminer-<slug> projects, never
+# `meetingminer`, and anything whose directory exists is reported as owned).
 test-db-prune: check-env | infra-up
 	@echo "pruning leaked, unowned idle meetingminer_test_* databases..."
 	@cd $(ROOT) && $(VENV)/bin/python -c "$$PRUNE_TEST_DBS"
+	@echo "pruning worktree stacks whose checkout is gone..."
+	@python3 $(INFRA)/worktree_stack.py prune --worktree-root "$(WT_ROOT)"
 
 # Four reviews were completed in a session's terminal and never filed; naming
 # the required file in the review prompt did not prevent the fourth. This
@@ -835,7 +921,7 @@ down: stop-web stop-worker stop-api
 			:; \
 		else \
 			echo "down: compose down via --env-file failed or .env unreadable — falling back to project-name teardown"; \
-			docker compose -p meetingminer down; \
+			docker compose -p $(MM_STACK_NAME) down; \
 		fi; \
 	else \
 		echo "down: Docker daemon not running — skipped compose down"; \
