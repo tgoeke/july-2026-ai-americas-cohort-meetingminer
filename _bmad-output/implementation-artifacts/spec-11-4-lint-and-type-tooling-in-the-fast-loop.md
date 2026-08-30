@@ -2,13 +2,27 @@
 title: 'Lint and Type Tooling in the Fast Loop'
 type: 'chore'
 created: '2026-08-30'
-status: 'in-review'
+status: 'review'
 baseline_revision: '0da88e5ca064f66ecc347eabfb47279f8799f314'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context: ['{project-root}/AGENTS.md', '{project-root}/_bmad-output/implementation-artifacts/wave-2026-08-30-rules.md', '{project-root}/_bmad-output/implementation-artifacts/build-prompt-story-11-4-2026-08-30.md']
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      The full gate `make test` runs neither lint nor typecheck, so the loop is now a strict superset of the gate; a gate-only merge can land a lint-red main that breaks `make test-fast` in every other worktree.
+    evidence: |-
+      infra/Makefile `test:` prerequisite line gained nothing — the `test-fast:` rule line was 11-4's only permitted Makefile edit site besides the two new targets. Confirmed by the verification-gap reviewer: no gate prerequisite executes ruff or mypy, and the contract tests assert only Makefile/TOML text. Filed in deferred-work.md with the fix shape (add `lint typecheck` to the rule line plus a `make -n test` dry-run assertion).
+    location: >-
+      infra/Makefile:279
+    severity: medium
+  - summary: >-
+      `lint` and `typecheck` are missing from `.PHONY`; a file or directory named `lint` or `typecheck` under infra/ would satisfy the target silently.
+    evidence: |-
+      The `.PHONY` line was outside 11-4's footprint ("no other Makefile line"). One-word fix at integration; filed in deferred-work.md.
+    location: >-
+      infra/Makefile:82
+    severity: low
 ---
 
 <intent-contract>
@@ -89,6 +103,27 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-08-30 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 14: (high 0, medium 4, low 10)
+- defer: 2: (high 0, medium 1, low 1)
+- reject: 6: (high 0, medium 0, low 6)
+- addressed_findings:
+  - `[medium]` `[patch]` "new files get the full rule set" was false for the seven-code global ignore (it exempts every file, new ones included) — reworded at the three real occurrences: pyproject per-file comment, AGENTS.md bullet, one deferred-work entry.
+  - `[medium]` `[patch]` `[tool.ruff]` key set was unpinned — `extend-exclude` was demonstrated live to exempt whole trees while every contract test stayed green; now pinned to exactly {required-version, lint}.
+  - `[medium]` `[patch]` the per-file-ignores table could gain entries silently — the 49 dated pairs are now pinned shrink-only via BASELINE_PER_FILE (retirement stays a one-line deletion; any added path or code fails).
+  - `[medium]` `[patch]` `[tool.mypy]` key set was unpinned — `ignore_errors = true` was demonstrated live to make `make typecheck` vacuous while green; now pinned to exactly {files, check_untyped_defs, overrides}, and each override to {module, ignore_missing_imports}.
+  - `[low]` `[patch]` `required-version` was checked for presence only — it must now equal the dev-group ruff pin's range.
+  - `[low]` `[patch]` the "162 of the measured pairs" comment conflated the isolated measurement with the committed-config surface — reconciled as 200 measured = 151 six-code + 49 per-file, with UP017's 11 config-only pairs on top.
+  - `[low]` `[patch]` deferred-work.md misquoted `requires-python` as ">=3.12" — fixed to ">=3.12,<3.13".
+  - `[low]` `[patch]` `_tool_commands` crashed (ValueError) on a recipe line without `--project` — named assertion added.
+  - `[low]` `[patch]` empty-pytest `min()` and bare `["check_untyped_defs"]`/`["overrides"]` indexing crashed instead of asserting — named assertions added.
+  - `[low]` `[patch]` `GNUMAKEFLAGS` was not stripped from the nested `make -n` environment — added to the filter.
+  - `[low]` `[patch]` the compose ordering test's name (line 297, in the permitted window) still said only store-free suites — renamed to name lint and typecheck.
+  - `[low]` `[patch]` the review prompt's commit list was incomplete by its own standard and the baseline verification named no revision — reviewers now enumerate the range themselves, with the measurement revisions (5cdfce7 measured, 211857c re-verified) stated.
+- Patch commits: ad7e10c (tests), 26212b3 (docs). Rejected as noise or stronger-reading divergences the intent does not mandate: adjacency-prose vs set-comparison ordering, pin-shape strictness (an `==` pin failing the floor-and-ceiling assert), execution-surface greenness and .gitignore clauses untested (the AC states run-time properties the Make targets themselves establish), TOML-decode and make-timeout crash paths.
+
 - 2026-08-30 review pass: 14 patch findings, all applied on-branch. Prose:
   the "new files get the full rule set" claim was false for the seven-code
   global ignore (three real occurrences fixed — pyproject, AGENTS.md,
@@ -121,3 +156,12 @@ deferred: []
 - `make test-fast` -- expected: green; lint+typecheck visible in the sequence.
 - `uv run --project server pytest server/tests/test_compose_contract.py server/tests/test_lint_contract.py -m "" -q` -- expected: all pass.
 - `python3 _bmad/scripts/branch_conflicts.py --against story/11-4` -- expected: clean against main and every story/* except story/11-2-review pairs.
+
+## Auto Run Result
+
+- **Implemented:** pinned ruff 0.16.5 / mypy 2.3.1 in the server dev group; committed config green on main untouched (dated seven-code global ignore + 49-pair per-file baseline; mypy over the 13 decision-core files with check_untyped_defs and one jsonschema override); `make lint` and `make typecheck` join `make test-fast` directly after check-client; contract-pinned.
+- **Files changed:** `server/pyproject.toml` (deps + four tool tables), `server/uv.lock` (mechanical), `infra/Makefile` (two targets + rule line), `server/tests/test_compose_contract.py` (lines 294–308 only), NEW `server/tests/test_lint_contract.py`, `AGENTS.md` (one bullet), process files (this spec, sprint-status, sprint-notes, deferred-work, review prompt).
+- **Review breakdown:** 14 patched (0 high, 4 medium, 10 low), 2 deferred (gate gap medium, .PHONY low), 6 rejected. Four reviewers (blind hunter, edge-case, verification-gap, intent-alignment).
+- **Follow-up review:** recommended — score 3×4 medium + 10 low = 22 ≥ 5 (no high). Patched counts: high 0, medium 4, low 10.
+- **Verification (run by the orchestrator after patches):** `make lint` exit 0; `make typecheck` → "Success: no issues found in 13 source files"; contract files → 36 passed in 0.56s; `make test-fast` → 1407 passed, 326 deselected, 51.95s of pytest; `git status --porcelain` empty; branch in sync with origin (0/0).
+- **Residual risks:** `server/uv.lock` conflicts with story/7-1 (spec-named merge surface; integration takes either side and re-runs `uv sync --project server`); the full gate `make test` does not run the tools (deferred, medium); two out-of-footprint stale comments (deferred-work).
