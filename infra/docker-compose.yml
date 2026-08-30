@@ -3,23 +3,28 @@
 # api, worker, and the Vite dev server run as macOS host processes — see infra/Makefile.
 # Passwords come from the root .env (the Makefile passes --env-file).
 
-name: meetingminer
+# Project name, container names and host ports interpolate the eight
+# MM_* stack variables (story 11.2): unset, every default reproduces the
+# main checkout's stack exactly; a worktree's generated .env.worktree (passed
+# as a second --env-file by the Makefile) gives it a private stack on its own
+# ports. Volume names are left bare — compose prefixes them with the project.
+name: ${MM_STACK_NAME:-meetingminer}
 
 services:
   postgres:
     # Digest-pinned (story 1.10, finding 21): a mutable tag like pg18 can
     # silently move; the digest cannot. Bump deliberately, never implicitly.
     image: pgvector/pgvector:pg18@sha256:2ba9ca5f2e7daa0f0e7723cba1ee9167bab54efd3640516a44ac1a928dd67e7a
-    container_name: meetingminer-postgres
+    container_name: ${MM_STACK_NAME:-meetingminer}-postgres
     environment:
       POSTGRES_DB: meetingminer
       POSTGRES_USER: meetingminer
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD missing — copy .env.example to .env}
     ports:
-      # Host port 5433: 5432 is held by another project's postgres on this machine.
+      # Default host port 5433: 5432 is held by another project's postgres on this machine.
       # 127.0.0.1 only (finding 20): nothing off-host needs the stores (AD-9),
       # and the dev passwords are committed defaults.
-      - "127.0.0.1:5433:5432"
+      - "127.0.0.1:${MM_POSTGRES_PORT:-5433}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql
     healthcheck:
@@ -31,12 +36,12 @@ services:
 
   neo4j:
     image: neo4j:2026.07-community@sha256:dca31d0d938dd8bb199c8846abedd897c3a07ddb629eca46a8009ac9e87aece2
-    container_name: meetingminer-neo4j
+    container_name: ${MM_STACK_NAME:-meetingminer}-neo4j
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD missing — copy .env.example to .env}
     ports:
-      - "127.0.0.1:7474:7474" # HTTP browser
-      - "127.0.0.1:7687:7687" # Bolt
+      - "127.0.0.1:${MM_NEO4J_HTTP_PORT:-7474}:7474" # HTTP browser
+      - "127.0.0.1:${MM_NEO4J_BOLT_PORT:-7687}:7687" # Bolt
     volumes:
       - neo4j-data:/data
       - neo4j-logs:/logs
@@ -49,13 +54,13 @@ services:
 
   meilisearch:
     image: getmeili/meilisearch:v1.53@sha256:8d6643d86d71fad6ad3cba92cde7ccfce9e4d6c384bda67598eb553571c32431
-    container_name: meetingminer-meilisearch
+    container_name: ${MM_STACK_NAME:-meetingminer}-meilisearch
     environment:
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY missing — copy .env.example to .env}
       MEILI_ENV: development
       MEILI_NO_ANALYTICS: "true"
     ports:
-      - "127.0.0.1:7700:7700"
+      - "127.0.0.1:${MM_MEILI_PORT:-7700}:7700"
     volumes:
       - meilisearch-data:/meili_data
     healthcheck:
@@ -80,12 +85,12 @@ services:
 
   neo4j-test:
     image: neo4j:2026.07-community@sha256:dca31d0d938dd8bb199c8846abedd897c3a07ddb629eca46a8009ac9e87aece2
-    container_name: meetingminer-neo4j-test
+    container_name: ${MM_STACK_NAME:-meetingminer}-neo4j-test
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD missing — copy .env.example to .env}
     ports:
-      - "127.0.0.1:7475:7474" # HTTP browser
-      - "127.0.0.1:7688:7687" # Bolt
+      - "127.0.0.1:${MM_NEO4J_TEST_HTTP_PORT:-7475}:7474" # HTTP browser
+      - "127.0.0.1:${MM_NEO4J_TEST_BOLT_PORT:-7688}:7687" # Bolt
     volumes:
       - neo4j-test-data:/data
       - neo4j-test-logs:/logs
@@ -98,13 +103,13 @@ services:
 
   meilisearch-test:
     image: getmeili/meilisearch:v1.53@sha256:8d6643d86d71fad6ad3cba92cde7ccfce9e4d6c384bda67598eb553571c32431
-    container_name: meetingminer-meilisearch-test
+    container_name: ${MM_STACK_NAME:-meetingminer}-meilisearch-test
     environment:
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY missing — copy .env.example to .env}
       MEILI_ENV: development
       MEILI_NO_ANALYTICS: "true"
     ports:
-      - "127.0.0.1:7701:7700"
+      - "127.0.0.1:${MM_MEILI_TEST_PORT:-7701}:7700"
     volumes:
       - meilisearch-test-data:/meili_data
     healthcheck:

@@ -10,6 +10,7 @@ closed.
 from __future__ import annotations
 
 import ast
+import importlib.util
 import math
 import os
 import re
@@ -41,6 +42,24 @@ STORE_CHECK_NODE_ID = (
 )
 COMPOSE: dict[str, Any] = yaml.safe_load(COMPOSE_PATH.read_text(encoding="utf-8"))
 SERVICES: dict[str, Any] = COMPOSE["services"]
+
+
+def _worktree_stack() -> Any:
+    """infra/worktree_stack.py, loaded by path (stdlib-only, not a package)."""
+    spec = importlib.util.spec_from_file_location(
+        "worktree_stack", REPO_ROOT / "infra" / "worktree_stack.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+WORKTREE_STACK = _worktree_stack()
+#: How the compose file spells the project name (story 11.2): a worktree's
+#: `.env.worktree` sets MM_STACK_NAME; unset, it is today's `meetingminer`.
+STACK_NAME = "${MM_STACK_NAME:-meetingminer}"
+_HOST_PORT = re.compile(r"^127\.0\.0\.1:\$\{(MM_[A-Z0-9_]+_PORT):-(\d+)\}:\d+$")
 
 
 def test_compose_defines_only_the_five_stores() -> None:
@@ -79,6 +98,33 @@ def test_every_service_has_a_healthcheck(service: str) -> None:
     """`up -d --wait` is the gate host processes start behind, and it only
     waits for services that declare health."""
     assert "test" in SERVICES[service].get("healthcheck", {})
+
+
+def test_compose_project_name_interpolates_the_stack_name_with_todays_default() -> None:
+    """One compose file serves every stack: `-p`/MM_STACK_NAME picks the project, and unset it is the main checkout's."""
+    assert COMPOSE["name"] == STACK_NAME
+
+
+@pytest.mark.parametrize("service", sorted(SERVICES))
+def test_container_names_follow_the_stack_name(service: str) -> None:
+    """`meetingminer-<service>` in the main checkout, `meetingminer-<slug>-<service>` in a worktree."""
+    assert SERVICES[service]["container_name"] == f"{STACK_NAME}-{service}"
+
+
+def test_every_published_host_port_is_a_stack_variable_with_the_allocators_default() -> None:
+    """Each host port is `${MM_<X>_PORT:-<default>}`, each variable is used once, and
+    the defaults are exactly what infra/worktree_stack.py allocates around."""
+    seen: dict[str, int] = {}
+    for service in sorted(SERVICES):
+        for published in SERVICES[service].get("ports", []):
+            match = _HOST_PORT.match(published)
+            assert match, (
+                f"{service}: {published!r} is not 127.0.0.1:${{MM_<X>_PORT:-<default>}}:<container port>"
+            )
+            name, default = match.group(1), int(match.group(2))
+            assert name not in seen, f"{name} published twice"
+            seen[name] = default
+    assert seen == WORKTREE_STACK.DEFAULT_PORTS
 
 
 def _recipe(target: str) -> str:
