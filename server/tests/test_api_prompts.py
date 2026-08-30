@@ -26,12 +26,14 @@ def test_extraction_prompts_returns_both_kinds_verbatim(
     assert response.status_code == 200, response.text
     body = response.json()
     assert set(body) == RESPONSE_FIELDS
-    assert len(body["prompts"]) == 2
+    assert len(body["prompts"]) == 3
     for entry in body["prompts"]:
         assert set(entry) == PROMPT_FIELDS
 
     by_kind = {entry["kind"]: entry["promptText"] for entry in body["prompts"]}
-    assert set(by_kind) == {"adr", "action-item"}
+    # Story 10.1 adds `topic`; its text is pinned verbatim in
+    # test_api_extraction_prompts_topics.py.
+    assert set(by_kind) == {"adr", "action-item", "topic"}
     assert by_kind["adr"] == binding.arch_summary_prompt
     assert by_kind["action-item"] == binding.action_items_prompt
     # The committed default's load-bearing parser shape (AD-10 comment in

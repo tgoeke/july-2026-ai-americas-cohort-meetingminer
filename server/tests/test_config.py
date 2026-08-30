@@ -38,6 +38,7 @@ llm:
       fallback: ollama/qwen3:32b
       arch_summary_prompt: "Summarize the architecture decisions."
       action_items_prompt: "Extract the action items."
+      topics_prompt: "List the topics discussed."
     chat: {model: claude-sonnet-5, fallback: ollama/qwen3:32b}
     judge: {model: claude-sonnet-5, fallback: ollama/qwen3:32b}
 embedder:

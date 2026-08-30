@@ -94,6 +94,11 @@ deferred: []
 
 ## Spec Change Log
 
+- 2026-08-30 (build): three more consequential test edits outside the frozen footprint, each mechanically forced by the story's own AC (a third always-generated document changes counts existing tests pin) and each minimal:
+  - `server/tests/test_config.py` — one line: `topics_prompt` added to the `VALID_CONFIG` fixture (a required binding field fails all 35 minimal-config tests without it). 11-2's edits are EOF-appended; this is mid-file.
+  - `server/tests/test_worker_extract.py` — expectation updates only: call counts +1 for the topics pass, `extraction_source` set/count 2 → 3, `generated` 0 → 1, adoption's zero-call asserts now name the one topics call. No test logic changed.
+  - `server/tests/test_api_prompts.py` — `len == 2` → `3`, kind set gains `topic` (verbatim pin lives in the new 10.1 file).
+  All verified clean against every in-flight `story/*` branch with `branch_conflicts.py` before the final push.
 - 2026-08-30 (planning): `server/tests/conftest.py` `EVIDENCE_TABLES` append recorded as a deliberate, named footprint deviation — mechanical necessity (Postgres TRUNCATE FK rule), pinned in Code Map, conflict-checked against every in-flight branch. Wave rule "do not widen quietly" satisfied by this entry + review-prompt callout.
 
 ## Design Notes
