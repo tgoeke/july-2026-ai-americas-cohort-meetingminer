@@ -91,3 +91,11 @@
 - **Red regression:** `test_loader_refuses_another_worktrees_record_at_a_linked_checkout_root` failed with `Failed: DID NOT RAISE ConfigError`: the loader accepted the complete `meetingminer-other` record beside `probe/.env` even though `probe/.git` identified a linked checkout.
 - **Resolution:** Fixed on the review branch. The application-side ownership-record reader now binds a record to a linked checkout's directory name and refuses any record beside a main-checkout `.git` directory; env paths outside a checkout root retain the frozen external-path semantics.
 - **Green verification:** The red regression and the complete config module passed: 118 tests.
+
+### Finding 8 — `worktree-prune` reports success when Git cannot remove a candidate
+
+- **Location:** `infra/Makefile:428`
+- **Severity:** medium
+- **Finding:** The prune loop sets `rc=1` for invalid ownership and failed Docker teardown, but the `git worktree remove` branch has no failure arm. If Git refuses after the earlier clean snapshot, the target continues, may attempt branch deletion, and finally exits 0 even though the checkout and its stack remain.
+- **Evidence:** For a clean, landed `probe` candidate, an injected `git worktree remove <probe>` exit 1 leaves the checkout present. The recipe's `if ...; then` body is skipped, no statement changes `rc`, and `done; exit $rc` returns success; this can occur without injection when the tree changes or Git metadata becomes unavailable between the status check and removal.
+- **Suggested direction:** Treat a failed Git removal as a named non-zero candidate failure, leave both its branch and stack intact, continue sweeping other candidates, and propagate the aggregate status at the end.
