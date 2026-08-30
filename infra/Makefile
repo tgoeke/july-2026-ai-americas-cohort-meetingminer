@@ -297,10 +297,11 @@ typecheck:
 # The full gate's packaging smoke for Story 7.1. It uses a disposable uv
 # environment so the torch-sized optional dependency never contaminates the
 # default fast-loop venv, and imports only the package — no model or network
-# inference. A broken optional-dependency declaration or platform lock now
-# fails `make test` instead of turning the provider contract test into a skip.
+# inference. `--locked` refuses to repair drift in the committed lock. A broken
+# optional-dependency declaration or platform lock now fails `make test` instead
+# of turning the provider contract test into a skip.
 diarize-extra-test:
-	cd $(ROOT) && uv run --isolated --project $(ROOT)/server --extra diarize python -c "import pyannote.audio"
+	cd $(ROOT) && uv run --locked --isolated --project $(ROOT)/server --extra diarize python -c "import pyannote.audio"
 
 # The iteration loop (story 11.1): check-client first, so a missing client
 # fails with its named message rather than as a Vite import error inside

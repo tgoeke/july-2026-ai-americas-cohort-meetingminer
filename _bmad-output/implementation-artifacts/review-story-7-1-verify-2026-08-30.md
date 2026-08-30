@@ -47,7 +47,7 @@
 - **Severity:** Medium
 - **Finding:** The packaging smoke uses an isolated environment but omits `--locked`. `uv` may update `uv.lock` while preparing the command, allowing the gate to pass after repairing drift instead of rejecting an inconsistent committed pyproject/lock pair. The prior report's statement that the target installed “166 locked packages” is therefore not supported by the command it records.
 - **Evidence:** Local `uv run --help` defines `--isolated` only as “Run the command in an isolated virtual environment” and separately defines `--locked` as “Assert that the `uv.lock` will remain unchanged.” The target runs `uv run --isolated --project ... --extra diarize` with no `--locked`; its contract test pins that omission exactly.
-- **Resolution:** **OWNER-AUTHORIZED REMEDIATION IN PROGRESS — 2026-08-30.** The V1 ruling removes the only blocker: add `--locked` to the isolated extra gate and pin it red-first in the contract regression. The two edited paths remain a known union for integrate with Stories 11-3 and 11-4.
+- **Resolution:** **RESOLVED BY OWNER DECISION AND PATCH — 2026-08-30.** The owner ruling removed the footprint blocker. The contract expectation was changed first to require `--locked`; against the unfixed Makefile it failed at argument index 2 (`--isolated` observed, `--locked` expected). The gate now runs `uv run --locked --isolated ...`, its focused regression passes, and the two edited paths remain a known union for integrate with Stories 11-3 and 11-4.
 
 ## Mutation Audit
 
@@ -62,6 +62,7 @@ The five claimed fixes were tested in remediation-commit order. Every restored f
 | Finding 5 — telemetry disable | Removed `set_telemetry_metrics(False)` | Failed as required: event trace began with `load`, with no preceding telemetry event | Passed |
 | Finding 1 follow-up — lower boundary | `MAX_PLACEHOLDER_SPEAKERS = 1000` → `MAX_PLACEHOLDER_SPEAKERS = 999` | Original overflow regression survived (`1 passed`), confirming V2. After the new boundary regression was added, the same mutation failed with `more than 999 distinct speakers` | New boundary regression passed after restoration |
 | Finding 2 follow-up — exact symbol branch | `return getattr(module, "Pipeline", None) is not None` → `return True`, retaining the import call | All four relevant existing probe cases survived (`4 passed`), confirming V3 | New unusable-factory regression failed on the old predicate and passed after callable validation |
+| V5 follow-up — immutable lock gate | Added `"--locked"` to the expected command while leaving the Makefile unfixed | Failed as required at argument index 2: actual `--isolated`, expected `--locked` | Passed after the Makefile command gained `--locked` |
 
 V4 used the actual unfixed cross-fix state rather than a synthetic mutation: a valid `Pipeline.from_pretrained` plus a missing telemetry module returned an engine, so the new regression failed with `DID NOT RAISE DiarizerError`; it passed after the build probe began validating `set_telemetry_metrics`.
 
@@ -69,7 +70,7 @@ V4 used the actual unfixed cross-fix state rather than a synthetic mutation: a v
 
 - The remediation range changes eight paths. `infra/Makefile` and the pre-existing `server/tests/test_compose_contract.py` exceed the original frozen footprint, but the 2026-08-30 owner ruling accepts both additions and assigns their disjoint proximity conflicts with Stories 11-3 and 11-4 to integrate for union resolution under `211857c`.
 - Findings 1–3 are behaviorally supported after V2–V4 remediation.
-- Finding 4's functional claim and scope are accepted after the V1 owner ruling. Its “locked packages” evidence remains overstated until the now-authorized V5 patch lands.
+- Finding 4's functional claim and scope are accepted after the V1 owner ruling. Its “locked packages” evidence is now supported by the V5 `--locked` patch.
 - Finding 5 is supported both by the call-order regression and by the real locked provider probe below: telemetry is disabled before `Pipeline.from_pretrained`.
 
 ## Adversarial-Layer Triage

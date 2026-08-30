@@ -107,6 +107,7 @@ def test_make_test_gates_the_optional_diarizer_extra_in_an_isolated_environment(
     assert words[3:] == [
         "uv",
         "run",
+        "--locked",
         "--isolated",
         "--project",
         str(SERVER_DIR),
