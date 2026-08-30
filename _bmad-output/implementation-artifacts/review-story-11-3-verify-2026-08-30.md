@@ -83,6 +83,7 @@ Every remediation commit F1–F12 received a kill mutation in commit order. Unle
 - Focused Story 11.3 store-free suites: `242 passed`.
 - `make evals-test`: `643 passed`; the pre-existing `evals/runs/2026-08-30-left` and `...-right` folders were unchanged by the suite.
 - `make test-fast`: puller `128 passed`; web `291 passed`; eval `643 passed`; server fast set `1401 passed, 326 deselected` (one deprecation warning).
+- `make check-reviews`: passed — every dispatched review has a committed report.
 - `make evals-run`: not run, as mandated.
 - Operational disclosure: an over-broad targeted pytest command accidentally collected `evals/checks/test_publish_gate.py` directly. It did not invoke paid roles or `make evals-run`, but it created default run `2026-08-30-220321` and exercised check 2.11 against two live subjects. Both recorded `cleanup_verified: true`; the accidental folder was moved intact to `/var/folders/3c/07kth99n17g6y7zp9rwzvg500000gn/T/tmp.lWs8LD4UGq/2026-08-30-220321`. The owner's pre-existing `left`/`right` folders were not touched.
 
