@@ -123,11 +123,14 @@ at a time.** Story 2.7 fixed the suite; the remaining limit is `make evals-run`.
 - **`make evals-run` is still one at a time.** Story 11.3 gives every run an
   immutable folder and a run-owned check-2.11 probe, coordinates probes that
   share a subject moment, waits for raced projection, and erases under the
-  projection-writer lock. Those mechanisms are proven store-free; the owner
-  has not yet run the story spec's live two-run Verification procedure against
-  the shared stack. Until that acceptance is recorded, announce an eval run,
-  run it alone, and release it. It may overlap store-free suites, but not
-  another eval run or a dev-store writer.
+  projection-writer lock. The owner's 2026-08-30 live two-run measurement was
+  **safe for the corpus** but **unsafe for the verdict**: all four probes were
+  erased, no subject artifact changed, and the concurrent `make test` was
+  unaffected, but one run judged a sibling's in-flight probe as subject state
+  and false-reported a projection regression. The current branch excludes
+  probe-marked rows from that subject half; until a new owner remeasurement
+  passes, announce an eval run, run it alone, and release it. It may overlap
+  test suites, but not another eval run or a dev-store writer.
 
 Note what the projection lock means in practice: concurrent server suites will
 serialize on the handful of projection tests and run in parallel everywhere
@@ -140,10 +143,11 @@ harness: ground-truth validation, subject selection, the check algorithms over
 synthetic captures, and the run-artifact rules; no stores, no api, and no run
 folder created).
 
-The remaining eval-run work is live acceptance, not another namespace design:
-Story 11.3 built per-run folder/probe ownership, but the single-flight rule
-above remains until its owner-gated concurrent Verification is recorded. It
-does not limit concurrent server suites.
+The remaining eval-run work is a passing live remeasurement, not another
+namespace design: Story 11.3 built per-run folder/probe ownership and the first
+measurement confirmed corpus safety, but verdict isolation failed. The
+single-flight rule above remains until the owner-gated concurrent Verification
+passes. It does not limit concurrent server suites.
 
 ## Fast loop and full gate
 

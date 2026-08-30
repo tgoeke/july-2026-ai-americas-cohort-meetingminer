@@ -32,9 +32,12 @@ how proximity conflicts stay rare enough for integrate to absorb.
 2. **Stores and suites.** Server suites may overlap since story 2.7: each run
    owns a per-run Postgres database, and projection tests queue on a bounded
    cross-worktree file lock. `make evals-run` must not overlap another eval run
-   or a dev-store writer until Story 11.3's owner-gated live concurrency
-   procedure is recorded; its folder/probe ownership is fake-proven, not yet an
-   operational permission. It may overlap store-free suites.
+   or a dev-store writer. Story 11.3's 2026-08-30 owner-gated live measurement
+   was **safe for the corpus** but **unsafe for the verdict**: probe cleanup and
+   subject ownership held, and the concurrent `make test` was unaffected, but
+   one run judged a sibling probe as subject state. The current filter needs a
+   passing owner remeasurement before the single-flight rule can be lifted.
+   Evals may overlap test suites.
 3. **Operational gates.** A story that requires the worker to run is gated by
    the paid-ops hold regardless of how clean its files are.
 4. **Contract dependency.** A story whose acceptance criteria reference an

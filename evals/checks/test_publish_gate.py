@@ -16,9 +16,11 @@ observes and delegates.
 What story 11.3 changed: **subject artifacts are never approved.** The
 shared corpus's ``extracted`` rows survive every run, and the run's one write
 lands in a namespace it owns (the probe's title carries the run id) and erases
-on the way out. The coordination mechanisms are store-free proven, but the
-owner's live overlap acceptance is still pending: this check participates in
-``make evals-run``'s single-flight lane and may overlap store-free suites only.
+on the way out. The owner's 2026-08-30 overlap was **safe for the corpus** but
+**unsafe for the verdict** because one run's subject half included a sibling
+probe. This module now excludes probe-marked rows there, but a passing owner
+remeasurement is still required: this check remains in ``make evals-run``'s
+single-flight lane and may overlap test suites only.
 
 Two standing cautions:
 

@@ -541,7 +541,7 @@ def test_the_probe_cleanup_delegates_every_store_read_to_stores() -> None:
 
 
 def test_operational_docs_keep_evals_single_flight_until_live_acceptance() -> None:
-    """F11: fake-proven concurrency is not yet an operator permission."""
+    """F11/F6: failed live acceptance is not an operator permission."""
     repo = EVALS_ROOT.parent
     agents = (repo / "AGENTS.md").read_text(encoding="utf-8")
     dispatch = (repo / ".claude/skills/integrate/dispatch.md").read_text(
@@ -559,6 +559,12 @@ def test_operational_docs_keep_evals_single_flight_until_live_acceptance() -> No
     assert "do not contend" not in runbook
     assert "safe to run while another eval run" not in publish_gate
     assert "single-flight" in publish_gate
+    for text in (agents, dispatch, publish_gate):
+        assert "safe for the corpus" in text
+        assert "unsafe for the verdict" in text
+        assert "remeasurement" in text
+    assert "owner has not yet run" not in agents
+    assert "fake-proven" not in dispatch
 
 
 def test_ad16_docs_name_the_probe_exception_exactly() -> None:
