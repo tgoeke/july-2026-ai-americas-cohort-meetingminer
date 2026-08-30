@@ -7,6 +7,10 @@ a gated Hugging Face model download — is deferred to the first
 :meth:`PyannoteDiarizer.diarize` call, through an injectable factory that is
 also the test seam (tests inject a fake pipeline and never load a model).
 
+The worker executes one stage at a time in a single thread, so the lazy
+load below needs no lock; a concurrent-`diarize` caller would be a new
+architecture, not a latent bug here.
+
 Labels are canonicalized to recording-local ``SPEAKER_NN`` tags by first
 appearance, whatever label shape pyannote's version emits (4.x community-1
 yields bare indices; 3.x already yielded ``SPEAKER_NN``). A tag is a
@@ -39,25 +43,31 @@ def _to_turns(output: Any) -> tuple[DiarizationTurn, ...]:
     """Canonicalize one pipeline result into the port's turn tuple.
 
     4.x pipelines return a result object exposing ``.speaker_diarization``;
-    3.x returned the annotation itself. Both iterate the same way.
+    3.x returned the annotation itself. Both iterate the same way. Turns that
+    collapse to nothing after rounding (``end_ms <= start_ms``) are dropped
+    before their label can claim a tag, and the result is sorted by
+    ``start_ms`` (stably) so callers see one timeline order regardless of
+    pyannote's iteration order.
     """
     annotation = getattr(output, "speaker_diarization", output)
     canonical: dict[str, str] = {}
     turns: list[DiarizationTurn] = []
     for segment, _track, label in annotation.itertracks(yield_label=True):
+        start_ms = int(round(segment.start * 1000))
+        end_ms = int(round(segment.end * 1000))
+        if end_ms <= start_ms:
+            continue
         tag = canonical.setdefault(str(label), f"SPEAKER_{len(canonical):02d}")
-        turns.append(
-            DiarizationTurn(
-                start_ms=int(round(segment.start * 1000)),
-                end_ms=int(round(segment.end * 1000)),
-                speaker=tag,
-            )
-        )
-    return tuple(turns)
+        turns.append(DiarizationTurn(start_ms=start_ms, end_ms=end_ms, speaker=tag))
+    return tuple(sorted(turns, key=lambda turn: turn.start_ms))
 
 
 class PyannoteDiarizer:
-    """In-process pyannote.audio behind the `Diarizer` port."""
+    """In-process pyannote.audio behind the `Diarizer` port.
+
+    The worker executes one stage at a time in one thread, so the lazy
+    pipeline load below needs no lock: no two ``diarize`` calls ever race.
+    """
 
     name = ENGINE_NAME
 
@@ -67,7 +77,7 @@ class PyannoteDiarizer:
         token: str,
         pipeline_factory: PipelineFactory = _load_pipeline,
     ) -> None:
-        self._model = model
+        self.model = model
         self._token = token
         self._pipeline_factory = pipeline_factory
         self._pipeline: Any = None
@@ -75,12 +85,28 @@ class PyannoteDiarizer:
     def diarize(self, path: Path) -> tuple[DiarizationTurn, ...]:
         if self._pipeline is None:
             try:
-                self._pipeline = self._pipeline_factory(self._model, self._token)
+                pipeline = self._pipeline_factory(self.model, self._token)
+            except ImportError as exc:
+                raise DiarizerError(
+                    f"the {ENGINE_NAME} diarizer's import failed mid-load — a"
+                    " broken or partial extra install. Reinstall it with"
+                    " `uv sync --project server --extra diarize`."
+                ) from exc
             except Exception as exc:
                 raise DiarizerError(
                     f"the {ENGINE_NAME} diarizer could not load model"
-                    f" {self._model!r}: {exc}"
+                    f" {self.model!r}: {exc}"
                 ) from exc
+            if pipeline is None:
+                # pyannote's from_pretrained has historically returned None
+                # instead of raising when the Hub refuses the download.
+                raise DiarizerError(
+                    f"the {ENGINE_NAME} diarizer got no pipeline for model"
+                    f" {self.model!r}: from_pretrained returned None. The"
+                    " likely cause is the gated model licence not being"
+                    " accepted on huggingface.co for the token's account."
+                )
+            self._pipeline = pipeline
         try:
             output = self._pipeline(str(path))
             return _to_turns(output)

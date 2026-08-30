@@ -22,7 +22,9 @@ diarizer:
   # pyannote is an optional extra, installed by hand:
   #   uv sync --project server --extra diarize
   # Its models are gated: accept the model licence on huggingface.co, then
-  # put that account's token in .env under the variable `token_env` names.
+  # keep that account's token in .env under the variable `token_env` names —
+  # and export it into the environment that launches the worker, because the
+  # host worker process reads its environment, not .env, today.
   model: pyannote/speaker-diarization-community-1
   token_env: HF_TOKEN
 

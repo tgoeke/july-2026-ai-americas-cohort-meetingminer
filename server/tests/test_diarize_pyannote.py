@@ -8,6 +8,7 @@ test loads (or could load) a real model.
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass
 
 import pytest
@@ -116,10 +117,15 @@ def test_build_returns_pyannote_without_loading_a_model(monkeypatch) -> None:
     # This venv does not carry the extra, so success here is itself proof
     # that build time imports nothing and downloads nothing.
     _extra_installed(monkeypatch, True)
-    monkeypatch.setenv(TOKEN_ENV, "hf_unit_test_token")
+    monkeypatch.setenv(TOKEN_ENV, "  hf_unit_test_token \n")
     diarizer = build_diarizer(Binding())
     assert isinstance(diarizer, PyannoteDiarizer)
     assert diarizer.name == "pyannote"
+    # Config values reach the engine: the binding's model, and the env token
+    # stripped of the whitespace a paste into .env or a shell leaves behind.
+    # (Private-attr read: the token deliberately has no public surface.)
+    assert diarizer.model == Binding().model
+    assert diarizer._token == "hf_unit_test_token"
 
 
 def test_missing_extra_fails_closed_naming_the_install_command(monkeypatch) -> None:
@@ -161,8 +167,44 @@ def test_the_token_env_var_name_is_config_driven(monkeypatch) -> None:
 
 
 def test_an_unknown_engine_still_names_the_valid_choices() -> None:
-    with pytest.raises(DiarizerError, match="noop"):
+    with pytest.raises(DiarizerError) as raised:
         build_diarizer(Binding(engine="whoisspeaking"))
+    message = str(raised.value)
+    assert "noop" in message
+    assert "pyannote" in message  # a typo of the real engine must reveal it
+
+
+@pytest.mark.parametrize("raised", [ImportError, ValueError])
+def test_a_broken_install_probes_as_unavailable_not_as_a_crash(
+    monkeypatch, raised
+) -> None:
+    # find_spec raises plain ImportError on a broken parent package and
+    # ValueError when a module's __spec__ is None; both must mean "not
+    # available", never an exception escaping build_diarizer.
+    def exploding_find_spec(name: str):
+        raise raised("broken install")
+
+    monkeypatch.setattr("importlib.util.find_spec", exploding_find_spec)
+    assert diarize_binding._pyannote_available() is False
+
+
+def test_the_real_probe_answers_without_raising() -> None:
+    # No monkeypatch: whatever venv runs this, the probe must return a bool
+    # rather than raise. In this wave's extra-free venv that answer is False,
+    # but the assertion deliberately accepts an operator venv with the extra.
+    assert diarize_binding._pyannote_available() in (False, True)
+
+
+def test_the_pinned_pipeline_api_accepts_token() -> None:
+    # Executes only where the diarize extra is installed (skips, with this
+    # module named, in the extra-free venv every wave gate uses): pins the
+    # 4.x `Pipeline.from_pretrained(model, token=...)` call contract the
+    # default factory relies on.
+    pyannote_audio = pytest.importorskip("pyannote.audio")
+    parameters = inspect.signature(
+        pyannote_audio.Pipeline.from_pretrained
+    ).parameters
+    assert "token" in parameters
 
 
 # --- the engine over an injected pipeline ---------------------------------
@@ -224,6 +266,47 @@ def test_a_model_load_failure_is_wrapped_in_diarizer_error(tmp_path) -> None:
         engine.diarize(tmp_path / "audio.wav")
 
 
+def test_a_half_installed_extra_is_named_as_such_at_load_time(tmp_path) -> None:
+    # Build time only proves find_spec sees pyannote.audio; a torn install
+    # surfaces as ImportError at the deferred import and must be reported as
+    # an environment problem, not a model-download one.
+    def factory(model: str, token: str):
+        raise ImportError("libtorch missing")
+
+    engine = PyannoteDiarizer(model="m", token="t", pipeline_factory=factory)
+    with pytest.raises(DiarizerError, match="uv sync --project server --extra diarize"):
+        engine.diarize(tmp_path / "audio.wav")
+
+
+def test_a_factory_returning_none_is_a_licence_shaped_error(tmp_path) -> None:
+    # pyannote's from_pretrained historically returns None — not an
+    # exception — when the gated model's licence is unaccepted; that most
+    # likely first-run failure must not surface as "'NoneType' is not
+    # callable" at inference time.
+    engine = PyannoteDiarizer(
+        model="m", token="t", pipeline_factory=lambda model, token: None
+    )
+    with pytest.raises(DiarizerError, match="licence"):
+        engine.diarize(tmp_path / "audio.wav")
+
+
+def test_degenerate_turns_are_dropped_and_output_is_sorted(tmp_path) -> None:
+    tracks = [
+        # Out of order on purpose: the port contract is ascending start_ms.
+        (FakeSegment(2.0, 3.0), "t1", "B"),
+        # Rounds to 1000..1000: no span survives the ms clock.
+        (FakeSegment(1.0, 1.0004), "t2", "C"),
+        (FakeSegment(0.0, 1.0), "t0", "A"),
+    ]
+    engine = _engine(FakePipeline(FakeAnnotation(tracks)))
+    turns = engine.diarize(tmp_path / "audio.wav")
+    assert turns == (
+        # Tags number by first *surviving* appearance: B first, then A.
+        DiarizationTurn(start_ms=0, end_ms=1000, speaker="SPEAKER_01"),
+        DiarizationTurn(start_ms=2000, end_ms=3000, speaker="SPEAKER_00"),
+    )
+
+
 # --- the tag contract through the transcribe stage ------------------------
 
 
@@ -257,3 +340,5 @@ def test_tags_ride_segments_by_longest_overlap_and_stay_placeholders(
     for entry in payload:
         assert entry["speaker"] is None or is_placeholder_label(entry["speaker"])
     assert is_placeholder_label("SPEAKER_00")
+    # Three-digit tags stay inside the never-guess pattern too.
+    assert is_placeholder_label("SPEAKER_100")

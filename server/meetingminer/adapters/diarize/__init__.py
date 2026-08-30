@@ -30,7 +30,7 @@ __all__ = [
     "build_diarizer",
 ]
 
-PYANNOTE_ENGINE = "pyannote"
+PYANNOTE_ENGINE = PyannoteDiarizer.name
 
 # Engine name in config.yaml -> zero-argument implementation. `pyannote` is
 # deliberately absent: it needs the availability and token checks plus config
@@ -49,23 +49,32 @@ def _pyannote_available() -> bool:
     """Whether `pyannote.audio` is importable — the extra-installed probe."""
     try:
         return importlib.util.find_spec("pyannote.audio") is not None
-    except ModuleNotFoundError:
-        # find_spec imports the parent package first; when no `pyannote`
-        # distribution is installed at all, the probe lands here.
+    except (ImportError, ValueError):
+        # find_spec imports the parent package first: no `pyannote`
+        # distribution at all raises ModuleNotFoundError, a broken parent
+        # package raises plain ImportError, and a module whose __spec__ is
+        # None raises ValueError. Every one of them means "unavailable".
         return False
 
 
 def _pyannote_token_missing(token_env: str) -> str:
     return (
         f"the {PYANNOTE_ENGINE} diarizer needs a Hugging Face token:"
-        f" {token_env} is unset or empty. Accept the gated model licence on"
-        f" huggingface.co, then put that account's token in .env as"
-        f" {token_env} — or bind diarizer.engine to 'noop' in config.yaml."
+        f" {token_env} is unset or empty in the worker's process environment."
+        " Accept the gated model licence on huggingface.co, store that"
+        f" account's token in .env as {token_env}, and export the variable in"
+        " the shell that launches the worker — the host worker does not load"
+        " .env into its process environment today. Or bind diarizer.engine to"
+        " 'noop' in config.yaml."
     )
 
 
 class DiarizerBinding(Protocol):
-    """Structural stand-in for :class:`meetingminer.config.DiarizerConfig`."""
+    """Structural mirror of :class:`meetingminer.config.DiarizerConfig`, whole.
+
+    All three fields are always present on the real config object; the
+    ``noop`` branch simply ignores ``model`` and ``token_env``.
+    """
 
     engine: str
     model: str
@@ -83,14 +92,14 @@ def build_diarizer(diarizer_config: DiarizerBinding) -> Diarizer:
     if engine_name == PYANNOTE_ENGINE:
         if not _pyannote_available():
             raise DiarizerError(PYANNOTE_UNAVAILABLE)
-        token = os.environ.get(diarizer_config.token_env) or ""
-        if not token.strip():
+        token = (os.environ.get(diarizer_config.token_env) or "").strip()
+        if not token:
             raise DiarizerError(_pyannote_token_missing(diarizer_config.token_env))
         return PyannoteDiarizer(model=diarizer_config.model, token=token)
     engine = ENGINES.get(engine_name)
     if engine is None:
         raise DiarizerError(
             f"unknown diarizer engine {engine_name!r} in config.yaml —"
-            f" choose one of {', '.join(sorted(ENGINES))}"
+            f" choose one of {', '.join(sorted([*ENGINES, PYANNOTE_ENGINE]))}"
         )
     return engine()
