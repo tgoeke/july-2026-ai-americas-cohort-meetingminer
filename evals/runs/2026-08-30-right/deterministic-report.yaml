@@ -1,0 +1,549 @@
+run:
+  id: 2026-08-30-right
+  label: right
+  started_at: '2026-08-30T21:55:09+00:00'
+  finished_at: '2026-08-30T21:55:13+00:00'
+story: 5.2 + 5.3 — deterministic capture, retrieval and publish-gate checks (eval-design
+  §2.1-2.4, §2.10-2.11)
+config_snapshot: config-snapshot.yaml
+passed: false
+problems: []
+subjects:
+- manifest: demo-001
+  source_id: https://contoso-my.sharepoint.com/personal/58231_contoso_com/_layouts/15/stream.aspx?id=%2Fpersonal%2F58231_contoso_com%2FDocuments%2FRecordings%2FScripted%20UI%20Demo%20%E2%80%94%20Orders%20Module-20260820_190537-Meeting%20Recording.mp4
+  meeting_id: 01a04938-db21-7d02-a398-ccae92270853
+  job_id: 01a04938-d8e9-7a54-831f-8c900d65bb61
+  title: Scripted UI Demo — Orders Module
+  status: done
+  checks:
+  - check: ground-truth duration agreement
+    passed: true
+    blocking: true
+    applicable: true
+    thresholds:
+      tolerance_minutes: 1.0
+    metrics:
+      manifest_minutes: 5.0
+      recording_minutes: 4.117
+      delta_minutes: 0.883
+    detail: []
+    problems: []
+  - check: 2.1 capture recall
+    passed: true
+    blocking: true
+    applicable: true
+    thresholds:
+      recall: 1.0
+      anchor_match: 0.8
+      token_similarity: 0.85
+    metrics:
+      recall: 1.0
+      matched: 6
+      expected: 6
+      captures: 6
+      ocr_defects: 0
+      double_assigned_captures: 0
+    detail:
+    - entry: SC1
+      section: screens
+      anchor: order search results
+      expected_view: ui-screen
+      matched: true
+      score: 1.0
+      capture_ordinal: 2
+      capture_view: ui-screen
+    - entry: SC2
+      section: screens
+      anchor: line items and tax breakdown
+      expected_view: ui-screen
+      matched: true
+      score: 1.0
+      capture_ordinal: 3
+      capture_view: ui-screen
+    - entry: SC3
+      section: screens
+      anchor: tax table mapping editor
+      expected_view: ui-screen
+      matched: true
+      score: 1.0
+      capture_ordinal: 4
+      capture_view: ui-screen
+    - entry: SC4
+      section: screens
+      anchor: fulfillment queue pending pick
+      expected_view: ui-screen
+      matched: true
+      score: 1.0
+      capture_ordinal: 5
+      capture_view: ui-screen
+    - entry: participant_segments[0] at 00:00:00
+      section: participant_segments
+      anchor: null
+      expected_view: participant-gallery
+      matched: true
+      score: 1.0
+      capture_ordinal: 1
+      capture_view: participant-gallery
+    - entry: participant_segments[1] at 00:03:36
+      section: participant_segments
+      anchor: null
+      expected_view: participant-gallery
+      matched: true
+      score: 1.0
+      capture_ordinal: 6
+      capture_view: participant-gallery
+    problems: []
+  - check: 2.2 over-capture guardrail
+    passed: true
+    blocking: true
+    applicable: true
+    thresholds:
+      max_captures: 6
+      budget_formula: max(ceil(duration_minutes), expected_screenshot_count)
+    metrics:
+      captures: 6
+      budget: 6
+      duration_minutes: 5.0
+      captures_per_minute: 1.2
+    detail: []
+    problems: []
+  - check: 2.3 view classification
+    passed: true
+    blocking: false
+    applicable: true
+    thresholds: {}
+    metrics:
+      accuracy: 1.0
+      correct: 6
+      scored: 6
+    detail: []
+    problems: []
+  - check: 2.4 dedup quality
+    passed: true
+    blocking: false
+    applicable: true
+    thresholds:
+      similarity: 0.9
+    metrics:
+      candidates: 0
+      captures: 6
+    detail: []
+    problems: []
+  - check: 2.11 publish-gate projection
+    passed: true
+    blocking: true
+    applicable: true
+    thresholds:
+      gate: non-published artifacts appear in neither store; published artifacts appear
+        in both (meilisearch, neo4j) citing their source moment
+      probe: the gate transition is measured on one run-owned probe artifact — minted,
+        approved and erased by the run, with cleanup verified; subject artifacts are
+        read-only and never approved
+      approvable_corpus: scripted
+    metrics:
+      artifacts: 4
+      states:
+        extracted: 4
+      probe_minted: true
+      approve_attempted: true
+      cleanup_verified: true
+    detail:
+    - artifact: 01a0493a-cf02-78a1-9719-427e46be97bd
+      moment: 01a04939-763a-7390-a0e5-b89b79b07a8a
+      state: extracted
+      membership:
+        meilisearch:
+          present: false
+          cited_moment_ids: []
+          note: null
+        neo4j:
+          present: false
+          cited_moment_ids: []
+          note: null
+    - artifact: 01a0493a-cf09-7262-b749-e74a8d3e69a4
+      moment: 01a04939-763a-7390-a0e5-b89b79b07a8a
+      state: extracted
+      membership:
+        meilisearch:
+          present: false
+          cited_moment_ids: []
+          note: null
+        neo4j:
+          present: false
+          cited_moment_ids: []
+          note: null
+    - artifact: 01a0493b-c67f-7abc-8192-af817ec0d01e
+      moment: 01a04939-763a-7390-a0e5-b89b79b07a8a
+      state: extracted
+      membership:
+        meilisearch:
+          present: false
+          cited_moment_ids: []
+          note: null
+        neo4j:
+          present: false
+          cited_moment_ids: []
+          note: null
+    - artifact: 01a0493b-c681-7307-b492-4e5df7e59552
+      moment: 01a04939-763d-7f58-8b63-a33fb61e0528
+      state: extracted
+      membership:
+        meilisearch:
+          present: false
+          cited_moment_ids: []
+          note: null
+        neo4j:
+          present: false
+          cited_moment_ids: []
+          note: null
+    - probe: true
+      artifact: 01a054ab-56b4-7485-b3fd-87c94b583d7c
+      moment: 01a04939-763c-7c22-ad28-9950dea8a842
+      problem: null
+      approve:
+        attempted: true
+        ok: true
+        detail: null
+        published_ids:
+        - 01a054ab-56b4-7485-b3fd-87c94b583d7c
+      foreign_rows: []
+      consumed_foreign_rows: []
+      pre:
+        meilisearch:
+          present: false
+          cited_moment_ids: []
+          note: null
+        neo4j:
+          present: false
+          cited_moment_ids: []
+          note: null
+      post:
+        meilisearch:
+          present: true
+          cited_moment_ids:
+          - 01a04939-763c-7c22-ad28-9950dea8a842
+          note: null
+        neo4j:
+          present: true
+          cited_moment_ids:
+          - 01a04939-763c-7c22-ad28-9950dea8a842
+          note: null
+      cleanup:
+        search_document_removed: true
+        graph_node_removed: true
+        export_file_removed: true
+        postgres_row_removed: true
+        verified: true
+        problems: []
+    problems: []
+  - check: 2.10 doc-index search recall
+    passed: true
+    blocking: true
+    applicable: true
+    thresholds:
+      k: 5
+      recall: 1.0
+    metrics:
+      recall_at_k: 1.0
+      found: 1
+      phrases: 1
+    detail:
+    - phrase: P1
+      text: purple elephant deployment window
+      rank: 1
+      ranking: hybrid
+      index_missing: false
+      hits:
+      - moment_id: 01a04939-763a-7390-a0e5-b89b79b07a8a
+        meeting_id: 01a04938-db21-7d02-a398-ccae92270853
+        score: 0.9997133625182406
+    problems: []
+- manifest: demo-002
+  source_id: https://contoso-my.sharepoint.com/personal/58231_contoso_com/_layouts/15/stream.aspx?id=%2Fpersonal%2F58231_contoso_com%2FDocuments%2FRecordings%2FQ3%20Architecture%20Review-20260820_191149-Meeting%20Recording.mp4
+  meeting_id: 01a0493b-c6a6-7caf-987e-4bff7fd46d76
+  job_id: 01a04938-d94d-72c2-ba93-0f8bb6205f22
+  title: Q3 Architecture Review
+  status: done
+  checks:
+  - check: ground-truth duration agreement
+    passed: true
+    blocking: true
+    applicable: true
+    thresholds:
+      tolerance_minutes: 1.0
+    metrics:
+      manifest_minutes: 7.0
+      recording_minutes: 7.234
+      delta_minutes: 0.234
+    detail: []
+    problems: []
+  - check: 2.1 capture recall
+    passed: false
+    blocking: true
+    applicable: true
+    thresholds:
+      recall: 1.0
+      anchor_match: 0.8
+      token_similarity: 0.85
+    metrics:
+      recall: 1.0
+      matched: 7
+      expected: 7
+      captures: 10
+      ocr_defects: 0
+      double_assigned_captures: 1
+    detail:
+    - entry: S1
+      section: slides
+      anchor: q3 architecture review
+      expected_view: slide
+      matched: true
+      score: 1.0
+      capture_ordinal: 2
+      capture_view: participant-gallery
+    - entry: S2
+      section: slides
+      anchor: evidence pipeline today
+      expected_view: slide
+      matched: true
+      score: 1.0
+      capture_ordinal: 3
+      capture_view: participant-gallery
+    - entry: S3
+      section: slides
+      anchor: retrieval split graph and document index
+      expected_view: slide
+      matched: true
+      score: 1.0
+      capture_ordinal: 4
+      capture_view: participant-gallery
+    - entry: S4
+      section: slides
+      anchor: nothing enters a store before approval
+      expected_view: slide
+      matched: true
+      score: 1.0
+      capture_ordinal: 5
+      capture_view: participant-gallery
+    - entry: S5
+      section: slides
+      anchor: q4 proposal and open risks
+      expected_view: slide
+      matched: true
+      score: 1.0
+      capture_ordinal: 6
+      capture_view: participant-gallery
+    - entry: participant_segments[0] at 00:00:00
+      section: participant_segments
+      anchor: null
+      expected_view: participant-gallery
+      matched: true
+      score: 1.0
+      capture_ordinal: 1
+      capture_view: participant-gallery
+    - entry: participant_segments[1] at 00:06:38
+      section: participant_segments
+      anchor: null
+      expected_view: participant-gallery
+      matched: true
+      score: 1.0
+      capture_ordinal: 2
+      capture_view: participant-gallery
+    problems:
+    - 'capture 2 answers for 2 manifest entries (S1, participant_segments[1] at 00:06:38)
+      — one capture cannot be two screens, so recall is counting at least one entry
+      whose screen may never have been captured. Triage as a ground-truth script error
+      first: the cheap fix is to make those anchors share fewer words'
+  - check: 2.2 over-capture guardrail
+    passed: false
+    blocking: true
+    applicable: true
+    thresholds:
+      max_captures: 7
+      budget_formula: max(ceil(duration_minutes), expected_screenshot_count)
+    metrics:
+      captures: 10
+      budget: 7
+      duration_minutes: 7.0
+      captures_per_minute: 1.429
+    detail: []
+    problems:
+    - '10 captures for 7.0 minutes exceeds the budget of 7 (max of one per minute
+      and the manifest''s 7 expected captures): 1.429 captures/min'
+  - check: 2.3 view classification
+    passed: false
+    blocking: false
+    applicable: true
+    thresholds: {}
+    metrics:
+      accuracy: 0.2857
+      correct: 2
+      scored: 7
+    detail:
+    - entry: S1
+      section: slides
+      anchor: q3 architecture review
+      expected_view: slide
+      matched: true
+      score: 1.0
+      capture_ordinal: 2
+      capture_view: participant-gallery
+    - entry: S2
+      section: slides
+      anchor: evidence pipeline today
+      expected_view: slide
+      matched: true
+      score: 1.0
+      capture_ordinal: 3
+      capture_view: participant-gallery
+    - entry: S3
+      section: slides
+      anchor: retrieval split graph and document index
+      expected_view: slide
+      matched: true
+      score: 1.0
+      capture_ordinal: 4
+      capture_view: participant-gallery
+    - entry: S4
+      section: slides
+      anchor: nothing enters a store before approval
+      expected_view: slide
+      matched: true
+      score: 1.0
+      capture_ordinal: 5
+      capture_view: participant-gallery
+    - entry: S5
+      section: slides
+      anchor: q4 proposal and open risks
+      expected_view: slide
+      matched: true
+      score: 1.0
+      capture_ordinal: 6
+      capture_view: participant-gallery
+    problems:
+    - capture 2 answering for 'S1' is classified 'participant-gallery', but its manifest
+      section implies 'slide'
+    - capture 3 answering for 'S2' is classified 'participant-gallery', but its manifest
+      section implies 'slide'
+    - capture 4 answering for 'S3' is classified 'participant-gallery', but its manifest
+      section implies 'slide'
+    - capture 5 answering for 'S4' is classified 'participant-gallery', but its manifest
+      section implies 'slide'
+    - capture 6 answering for 'S5' is classified 'participant-gallery', but its manifest
+      section implies 'slide'
+  - check: 2.4 dedup quality
+    passed: true
+    blocking: false
+    applicable: true
+    thresholds:
+      similarity: 0.9
+    metrics:
+      candidates: 0
+      captures: 10
+    detail: []
+    problems: []
+  - check: 2.11 publish-gate projection
+    passed: true
+    blocking: true
+    applicable: true
+    thresholds:
+      gate: non-published artifacts appear in neither store; published artifacts appear
+        in both (meilisearch, neo4j) citing their source moment
+      probe: the gate transition is measured on one run-owned probe artifact — minted,
+        approved and erased by the run, with cleanup verified; subject artifacts are
+        read-only and never approved
+      approvable_corpus: scripted
+    metrics:
+      artifacts: 2
+      states:
+        extracted: 2
+      probe_minted: true
+      approve_attempted: true
+      cleanup_verified: true
+    detail:
+    - artifact: 01a0493c-ac42-7410-8fe6-b6aaf7e733cb
+      moment: 01a0493c-387d-7258-bfb2-3d9d7f433c02
+      state: extracted
+      membership:
+        meilisearch:
+          present: false
+          cited_moment_ids: []
+          note: null
+        neo4j:
+          present: false
+          cited_moment_ids: []
+          note: null
+    - artifact: 01a0493c-d658-77bb-9c78-55616a9a683c
+      moment: 01a0493c-387d-7258-bfb2-3d9d7f433c02
+      state: extracted
+      membership:
+        meilisearch:
+          present: false
+          cited_moment_ids: []
+          note: null
+        neo4j:
+          present: false
+          cited_moment_ids: []
+          note: null
+    - probe: true
+      artifact: 01a054ab-5b35-7d3d-adc3-6ce905d87916
+      moment: 01a0493c-387d-7c58-a05f-a5e659b20caa
+      problem: null
+      approve:
+        attempted: true
+        ok: true
+        detail: null
+        published_ids:
+        - 01a054ab-5b35-7d3d-adc3-6ce905d87916
+      foreign_rows: []
+      consumed_foreign_rows: []
+      pre:
+        meilisearch:
+          present: false
+          cited_moment_ids: []
+          note: null
+        neo4j:
+          present: false
+          cited_moment_ids: []
+          note: null
+      post:
+        meilisearch:
+          present: true
+          cited_moment_ids:
+          - 01a0493c-387d-7c58-a05f-a5e659b20caa
+          note: null
+        neo4j:
+          present: true
+          cited_moment_ids:
+          - 01a0493c-387d-7c58-a05f-a5e659b20caa
+          note: null
+      cleanup:
+        search_document_removed: true
+        graph_node_removed: true
+        export_file_removed: true
+        postgres_row_removed: true
+        verified: true
+        problems: []
+    problems: []
+  - check: 2.10 doc-index search recall
+    passed: true
+    blocking: true
+    applicable: true
+    thresholds:
+      k: 5
+      recall: 1.0
+    metrics:
+      recall_at_k: 1.0
+      found: 1
+      phrases: 1
+    detail:
+    - phrase: P1
+      text: tangerine scaffolding checkpoint
+      rank: 1
+      ranking: hybrid
+      index_missing: false
+      hits:
+      - moment_id: 01a0493c-387d-7c58-a05f-a5e659b20caa
+        meeting_id: 01a0493b-c6a6-7caf-987e-4bff7fd46d76
+        score: 0.9996342623070734
+    problems: []

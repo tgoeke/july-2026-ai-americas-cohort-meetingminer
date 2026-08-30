@@ -1,0 +1,340 @@
+run:
+  id: 2026-08-30-left
+  label: left
+  started_at: '2026-08-30T21:55:06+00:00'
+config_path: /Users/devopsterus/current/cohort/meetingminer-wt/11-3-review/config.yaml
+settings:
+  config_version: 1
+  service: meetingminer
+  ocr:
+    engine: apple-vision
+    fallback: tesseract
+  stt:
+    engine: mlx-whisper
+    model: mlx-community/whisper-large-v3-turbo
+  diarizer:
+    engine: noop
+  llm:
+    roles:
+      extraction:
+        model: ollama/gpt-oss:120b
+        fallback: ollama/qwen3:30b
+        base_url: http://10.77.0.52:11434
+        fallback_base_url: null
+        timeout_seconds: 900.0
+        num_ctx: 65536
+        arch_summary_prompt: 'You are an enterprise-architecture analyst. Turn one
+          meeting or recorded session transcript into architecture-ready analysis.
+
+
+          The transcript is verbatim and auto-generated, in the form `[m:ss] Speaker
+          Name: text`, and covers the whole recording.
+
+
+          Ground rules, all of them binding:
+
+          - Do not invent facts. Report due dates, amounts, and counts only as stated;
+          write "not stated" where absent and "~" for an approximation. If two statements
+          conflict, report the conflict rather than silently reconciling it.
+
+          - Mark every finding Confirmed, Assumed, Open, or Risk.
+
+          - Where you go beyond what was said — a rule, default, or threshold the
+          meeting implies but nobody stated — tag it [Proposed] so it cannot be mistaken
+          for a meeting outcome.
+
+          - Anchor every item to the transcript with the [m:ss] timestamp where it
+          was discussed. An item with no timestamp cannot be cited and must not be
+          written.
+
+          - One item per row, even when it is restated later. Put every relevant timestamp
+          in that one row; never open a second row for a restatement.
+
+          - Expect speech-to-text noise: mis-heard names and technical terms ("sequel"
+          = SQL), dropped words, mid-sentence self-corrections. Normalize obvious
+          mis-hears; keep an uncertain name or term and mark it "(sp?)".
+
+
+          Produce exactly these two sections, in this order, and nothing else:
+
+
+          ## Decisions
+
+
+          A markdown table with this header row and one row per decision:
+
+
+          | ID | Decision | Context and consequences | Mark | Timestamp |
+
+          |----|----------|--------------------------|------|-----------|
+
+          | D1 | Vendor feeds move to SFTP | Replaces the shared mailbox; ops owns
+          the keys | Confirmed | [4:23] |
+
+
+          IDs run D1, D2, D3... A decision is a chosen approach, a selected tool,
+          or an agreed constraint — something the meeting settled, not merely something
+          it discussed. State the decision in the Decision cell, and the context,
+          alternatives and consequences that were actually said in the next cell.
+
+
+          ## Risks and open questions
+
+
+          The same table shape, with IDs R1, R2... for risks and O1, O2... for open
+          questions. These are recorded for the reader; they are not decisions.
+
+
+          Write nothing outside those two sections — no preamble, no closing commentary.
+          If the meeting settled nothing, write the Decisions table header with no
+          rows under it.'
+        action_items_prompt: 'You are an expert meeting analyst. Extract every action
+          item, commitment, and next step from one meeting or recorded session transcript,
+          with owners.
+
+
+          The transcript is verbatim and auto-generated, in the form `[m:ss] Speaker
+          Name: text`, and covers the whole recording.
+
+
+          Ground rules, all of them binding:
+
+          - Do not invent facts. Report due dates, amounts, and counts only as stated;
+          write "not stated" where absent and "~" for an approximation. If two statements
+          conflict, report the conflict rather than silently reconciling it.
+
+          - Mark every finding Confirmed, Assumed, Open, or Risk.
+
+          - Where you go beyond what was said — a rule, default, or threshold the
+          meeting implies but nobody stated — tag it [Proposed] so it cannot be mistaken
+          for a meeting outcome.
+
+          - Anchor every item to the transcript with the [m:ss] timestamp where it
+          was discussed. An item with no timestamp cannot be cited and must not be
+          written.
+
+          - One item per row, even when it is restated later. Put every relevant timestamp
+          in that one row; never open a second row for a restatement.
+
+          - Expect speech-to-text noise: mis-heard names and technical terms ("sequel"
+          = SQL), dropped words, mid-sentence self-corrections. Normalize obvious
+          mis-hears; keep an uncertain name or term and mark it "(sp?)".
+
+
+          More rules for this document:
+
+          - Capture explicit commitments ("I''ll send the file"), assigned requests
+          ("Kendall, can you check..."), and agreed next steps — including soft ones
+          ("we should probably..."), which you mark Tentative. A question someone
+          plans to raise later with another team is an action item too.
+
+          - Work reported as ALREADY FINISHED ("I have updated the document") is not
+          an action item. Leave it out.
+
+          - Sweep the transcript to its final second before writing. Commitments made
+          in the wrap-up minutes are the most commonly missed.
+
+          - The owner is whoever accepted or was assigned the work. Where ownership
+          is implied but never accepted, append "(inferred)" to the owner. Where nobody
+          owns it, write "unowned".
+
+          - When one statement assigns different work to different people, split it
+          into one row per owner.
+
+          - Report timing only as stated. Never convert "next week" or "after the
+          demo" into a calendar date — quote the vague phrase, or write "not stated".
+
+
+          Produce exactly this one section and nothing else:
+
+
+          ## Action items
+
+
+          A markdown table with this header row and one row per action item:
+
+
+          | ID | Action | Details and dependency | Owner | Timing (as stated) | Status
+          | Timestamp |
+
+          |----|--------|------------------------|-------|---------------------|--------|-----------|
+
+          | A1 | Set up the SFTP credentials | Needs the vendor key first | Whitmore,
+          Ellis | this week | Committed | [5:12] |
+
+
+          IDs run A1, A2, A3... Status is Committed, Assigned, or Tentative.
+
+
+          Write nothing outside that section. If the meeting produced no action items,
+          write the table header with no rows under it.'
+      chat:
+        model: openai/gpt-5.2
+        fallback: null
+        base_url: null
+        fallback_base_url: null
+        timeout_seconds: null
+        num_ctx: null
+      judge:
+        model: openai/gpt-5.2
+        fallback: null
+        base_url: null
+        fallback_base_url: null
+        timeout_seconds: null
+        num_ctx: null
+  embedder:
+    model: qwen3-embedding:0.6b
+    dimension: 1024
+  providers:
+    anthropic:
+      base_url: https://api.anthropic.com
+    openai:
+      base_url: https://api.openai.com/v1
+    openrouter:
+      base_url: https://openrouter.ai/api/v1
+    ollama:
+      base_url: http://localhost:11434
+  stores:
+    postgres:
+      host: localhost
+      port: 5433
+      database: meetingminer
+      user: meetingminer
+    neo4j:
+      uri: bolt://localhost:7687
+      user: neo4j
+    meilisearch:
+      url: http://localhost:7700
+  pipeline:
+    frames:
+      interval_seconds: 2.0
+      jpeg_quality: 3
+    screens:
+      analysis_width: 320
+      pixel_diff_threshold: 16
+      white_pixel_level: 200
+      change_threshold: 0.1
+      settled_change_threshold: 0.03
+      settled_change_frames: 3
+      settle_threshold: 0.02
+      settle_text_growth_ratio: 1.5
+      settle_timeout_seconds: 10.0
+      crop_survey_frames: 24
+      crop_column_white_max: 0.25
+      crop_min_region_width: 0.6
+      crop_row_static_range_max: 80.0
+      crop_max_bottom_strip: 0.12
+      camera_max_white_fraction: 0.118
+      camera_min_saturation: 0.212
+      lineage_threshold: 0.8
+      min_signature_tokens: '[redacted]'
+      gallery_max_blocks: 6
+      gallery_max_text_density: 0.02
+      slide_min_block_height: 0.04
+      slide_max_blocks: 25
+    align:
+      anchor_window_seconds: 2.0
+      min_match_score: 0.35
+      max_segment_ms: 60000
+    moments:
+      gap_seconds: 20.0
+      max_duration_ms: 180000
+  projections:
+    chunking:
+      chunk_max_chars: 1400
+      chunk_overlap_turns: 1
+    search:
+      moments:
+        searchable_attributes:
+        - text
+        - screenText
+        - speakers
+        - title
+        filterable_attributes:
+        - meetingId
+        - corpus
+        - hasScreenshot
+        - screenId
+        - participantIds
+        sortable_attributes:
+        - startMs
+        - startedAt
+        ranking_rules:
+        - words
+        - typo
+        - proximity
+        - attribute
+        - sort
+        - exactness
+      chunks:
+        searchable_attributes:
+        - text
+        - speakers
+        - title
+        filterable_attributes:
+        - meetingId
+        - corpus
+        - momentIds
+        - participantIds
+        sortable_attributes:
+        - startMs
+        ranking_rules:
+        - words
+        - typo
+        - proximity
+        - attribute
+        - sort
+        - exactness
+      artifacts:
+        searchable_attributes:
+        - title
+        - text
+        filterable_attributes:
+        - meetingId
+        - corpus
+        - state
+        - kind
+        sortable_attributes: []
+        ranking_rules:
+        - words
+        - typo
+        - proximity
+        - attribute
+        - sort
+        - exactness
+      synonyms:
+        sftp:
+        - ftp
+        - secure ftp
+        - file transfer
+        ftp:
+        - sftp
+        - secure ftp
+        secure ftp:
+        - sftp
+        - ftp
+        file transfer:
+        - sftp
+        po:
+        - purchase order
+        - purchase orders
+        purchase order:
+        - po
+        - purchase orders
+        purchase orders:
+        - po
+        - purchase order
+    embed_batch_size: 16
+  api:
+    job_events_poll_seconds: 1.0
+    job_events_heartbeat_seconds: 10.0
+    search:
+      default_limit: 20
+      max_limit: 100
+      semantic_ratio: 0.3
+      crop_length: 40
+      semantic_score_floor: 0.75
+    chat:
+      retrieval_limit: 30
+      traversal_row_limit: 20
+api_base_url: http://localhost:8000
