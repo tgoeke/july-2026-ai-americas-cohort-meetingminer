@@ -495,6 +495,7 @@ describe('MeetingMoments', () => {
     )
     // Another host keeps the untimed label (UX-DR12 changes YouTube only).
     expect(screen.getByTestId('drilldown-deep-link')).toHaveAccessibleName('Open in Stream')
+    expect(screen.getByTestId('drilldown-deep-link')).toHaveAttribute('rel', 'noreferrer')
     // Highlighting still works without a recording.
     await userEvent.type(screen.getByTestId('highlight-input'), 'feed')
     expect(
@@ -524,6 +525,7 @@ describe('MeetingMoments', () => {
       }),
     ).toBe(seg2)
     expect(seg2).toHaveAttribute('target', '_blank')
+    expect(seg2).toHaveAttribute('rel', 'noreferrer')
     // Replay first: the row's Replay button precedes its link.
     const replay = within(screen.getByTestId('drilldown-screenshot-shot-2')).getByRole(
       'button',
@@ -561,6 +563,8 @@ describe('MeetingMoments', () => {
     expect(link).toBe(screen.getByRole('link', { name: 'Open on YouTube' }))
     // Meeting scope: no `t`, the drop's URL verbatim.
     expect(link).toHaveAttribute('href', 'https://www.youtube.com/watch?v=abc')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noreferrer')
     expect(screen.queryByRole('button', { name: /Replay/ })).toBeNull()
     expect(screen.queryByTestId(/^drilldown-youtube-link-/)).toBeNull()
   })

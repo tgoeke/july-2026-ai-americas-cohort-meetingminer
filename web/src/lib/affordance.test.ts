@@ -10,9 +10,9 @@ const SHAREPOINT = 'https://example.sharepoint.com/stream.aspx?id=x'
 
 describe('sourceLinkOf', () => {
   it('inserts t= on a watch URL with a query and keeps other params', () => {
-    expect(sourceLinkOf(WATCH, 754_000)).toEqual({
+    expect(sourceLinkOf('https://www.youtube.com/watch?v=abc&list=x', 754_000)).toEqual({
       provider: 'youtube',
-      href: 'https://www.youtube.com/watch?v=abc&t=754',
+      href: 'https://www.youtube.com/watch?v=abc&list=x&t=754',
       offsetMs: 754_000,
     })
   })
@@ -37,6 +37,16 @@ describe('sourceLinkOf', () => {
   it('drops a #t= fragment once a t= parameter is set', () => {
     expect(sourceLinkOf('https://youtu.be/abc?si=z#t=30s', 5_000)?.href).toBe(
       'https://youtu.be/abc?si=z&t=5',
+    )
+    expect(sourceLinkOf('https://www.youtube.com/watch?v=abc#T=1m', 5_000)?.href).toBe(
+      'https://www.youtube.com/watch?v=abc&t=5',
+    )
+  })
+
+  it('keeps a fragment that is not a time on a timed URL', () => {
+    // Only `#t=` carries a time; any other fragment is the drop's to keep.
+    expect(sourceLinkOf('https://www.youtube.com/watch?v=abc#comments', 5_000)?.href).toBe(
+      'https://www.youtube.com/watch?v=abc&t=5#comments',
     )
   })
 
@@ -83,6 +93,12 @@ describe('sourceLinkOf', () => {
       expect(link?.href).toBe('https://www.youtube.com/watch?v=abc&t=0')
       expect(sourceLinkLabel(link!)).toBe('Open on YouTube at 0:00')
     }
+  })
+
+  it('floors a fractional-second offset so the name and t= agree', () => {
+    const link = sourceLinkOf(WATCH, 65_900)
+    expect(link?.href).toBe('https://www.youtube.com/watch?v=abc&t=65')
+    expect(sourceLinkLabel(link!)).toBe('Open on YouTube at 1:05')
   })
 
   it('returns another host verbatim with the existing Stream label', () => {

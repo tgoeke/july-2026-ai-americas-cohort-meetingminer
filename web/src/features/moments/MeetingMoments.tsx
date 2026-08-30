@@ -6,9 +6,10 @@ import type {
   MomentDetail,
   SnippetRunModel,
 } from '@/client/types.gen'
-import { Button, buttonVariants } from '@/components/ui/button'
+import { SourceLinkAnchor } from '@/components/SourceLinkAnchor'
+import { Button } from '@/components/ui/button'
 import { ReplayPlayer } from '@/features/replay/ReplayPlayer'
-import { affordanceOf, offsetLabel, sourceLinkLabel } from '@/lib/affordance'
+import { affordanceOf, offsetLabel } from '@/lib/affordance'
 import { API_BASE } from '@/lib/api'
 import { mediaUrl } from '@/lib/media'
 import {
@@ -350,16 +351,7 @@ export function MeetingMoments({ meetingId, onOpenMoment }: MeetingMomentsProps)
     const rowAffordance = affordanceOf(data, startMs)
     if (rowAffordance.kind !== 'replay' || rowAffordance.source === null) return null
     return (
-      <a
-        data-testid={`drilldown-youtube-link-${key}`}
-        href={rowAffordance.source.href}
-        target="_blank"
-        rel="noreferrer"
-        className={buttonVariants({ variant: 'outline', size: 'sm' })}
-      >
-        {sourceLinkLabel(rowAffordance.source)}
-        <span aria-hidden="true">↗</span>
-      </a>
+      <SourceLinkAnchor link={rowAffordance.source} testId={`drilldown-youtube-link-${key}`} />
     )
   }
 
@@ -724,22 +716,7 @@ export function MeetingMoments({ meetingId, onOpenMoment }: MeetingMomentsProps)
                 {headerAffordance?.kind === 'deepLink' && (
                   // Labelled by provider (UX-DR12). Meeting scope, so a
                   // YouTube link here is untimed: "Open on YouTube".
-                  <a
-                    data-testid="drilldown-deep-link"
-                    href={headerAffordance.source.href}
-                    target="_blank"
-                    rel="noreferrer"
-                    className={
-                      headerAffordance.source.provider === 'youtube'
-                        ? buttonVariants({ variant: 'outline', size: 'sm' })
-                        : 'text-sm underline'
-                    }
-                  >
-                    {sourceLinkLabel(headerAffordance.source)}
-                    {headerAffordance.source.provider === 'youtube' && (
-                      <span aria-hidden="true">↗</span>
-                    )}
-                  </a>
+                  <SourceLinkAnchor link={headerAffordance.source} testId="drilldown-deep-link" />
                 )}
                 {headerAffordance?.kind === 'inertLink' && (
                   <span

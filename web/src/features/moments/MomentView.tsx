@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { approveMomentArtifacts, getExtractionPrompts, getMoment } from '@/client/sdk.gen'
 import type { ExtractionPrompt, MomentDetail } from '@/client/types.gen'
-import { Button, buttonVariants } from '@/components/ui/button'
-import { affordanceOf, offsetLabel, sourceLinkLabel } from '@/lib/affordance'
+import { SourceLinkAnchor } from '@/components/SourceLinkAnchor'
+import { Button } from '@/components/ui/button'
+import { affordanceOf, offsetLabel } from '@/lib/affordance'
 import { API_BASE } from '@/lib/api'
 import { mediaUrl } from '@/lib/media'
 import { problemMessage } from '@/lib/problems'
@@ -415,18 +416,8 @@ export function MomentView({ momentId }: MomentViewProps) {
                 )}
                 {affordance?.kind === 'replay' && affordance.source !== null && (
                   // UX-DR12: replay first, the source second — the YouTube
-                  // link timed at this moment, as an outline anchor that never
-                  // competes with the default-variant Replay button.
-                  <a
-                    data-testid="moment-youtube-link"
-                    href={affordance.source.href}
-                    target="_blank"
-                    rel="noreferrer"
-                    className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                  >
-                    {sourceLinkLabel(affordance.source)}
-                    <span aria-hidden="true">↗</span>
-                  </a>
+                  // link timed at this moment, secondary to the Replay button.
+                  <SourceLinkAnchor link={affordance.source} testId="moment-youtube-link" />
                 )}
                 {affordance?.kind === 'deepLink' && (
                   // UX-DR11: the transitional source deep link, exactly where
@@ -434,22 +425,7 @@ export function MomentView({ momentId }: MomentViewProps) {
                   // real video. Labelled by provider (UX-DR12): a YouTube link
                   // is timed and named with its offset; any other host keeps
                   // the untimed "Open in Stream".
-                  <a
-                    data-testid="moment-deep-link"
-                    href={affordance.source.href}
-                    target="_blank"
-                    rel="noreferrer"
-                    className={
-                      affordance.source.provider === 'youtube'
-                        ? buttonVariants({ variant: 'outline', size: 'sm' })
-                        : 'text-sm underline'
-                    }
-                  >
-                    {sourceLinkLabel(affordance.source)}
-                    {affordance.source.provider === 'youtube' && (
-                      <span aria-hidden="true">↗</span>
-                    )}
-                  </a>
+                  <SourceLinkAnchor link={affordance.source} testId="moment-deep-link" />
                 )}
                 {affordance?.kind === 'inertLink' && (
                   <span

@@ -10,8 +10,9 @@ import type { SearchHit, SnippetRunModel } from '@/client/types.gen'
  * The replay-affordance decision (`Affordance`, `safeHref`, `affordanceOf`)
  * and the offset formatter moved to `@/lib/affordance` in story 2.2, because
  * the moment view makes the same decision and features must not deep-import
- * each other. Re-exported here so this feature's callers and tests are
- * unchanged.
+ * each other; story 6.6 added the source-link classification (`SourceLink`,
+ * `sourceLinkOf`, `sourceLinkLabel`) beside them. All re-exported here so
+ * this feature's callers and tests keep one import path.
  */
 
 export {

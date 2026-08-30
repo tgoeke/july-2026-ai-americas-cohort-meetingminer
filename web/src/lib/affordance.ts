@@ -98,10 +98,11 @@ function clampOffsetMs(offsetMs: number): number {
  * `null` when the link is empty or `safeHref` refuses its scheme — the caller
  * decides whether that is "inert text" or "nothing". The timed URL is built
  * by parsing with `URL` and `searchParams.set('t', …)`: replace-or-insert,
- * never string concatenation, so an existing `t` is replaced, a URL with or
- * without a query gets exactly one `t`, and a `#t=` fragment is dropped
- * (EXPERIENCE.md · Moment card). With `offsetMs === null` (meeting scope) or
- * an unverified path the drop's URL is returned verbatim.
+ * never string concatenation, so an existing `t` is replaced and a URL with
+ * or without a query gets exactly one `t` (UX-DR12, story 6.6). A `#t=`
+ * fragment — the only other carrier of a time — is dropped when `t` is set;
+ * any other fragment is the drop's and survives. With `offsetMs === null`
+ * (meeting scope) or an unverified path the drop's URL is returned verbatim.
  */
 export function sourceLinkOf(
   raw: string | null | undefined,
@@ -116,7 +117,7 @@ export function sourceLinkOf(
   }
   const clamped = clampOffsetMs(offsetMs)
   url.searchParams.set('t', String(Math.floor(clamped / 1000)))
-  url.hash = ''
+  if (/^#t=/i.test(url.hash)) url.hash = ''
   return { provider: 'youtube', href: url.toString(), offsetMs: clamped }
 }
 

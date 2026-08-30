@@ -1,7 +1,8 @@
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import type { CitationModel, RouteModel } from '@/client/types.gen'
-import { Button, buttonVariants } from '@/components/ui/button'
-import { offsetLabel, sourceLinkLabel, sourceLinkOf } from '@/lib/affordance'
+import { SourceLinkAnchor } from '@/components/SourceLinkAnchor'
+import { Button } from '@/components/ui/button'
+import { offsetLabel, sourceLinkOf } from '@/lib/affordance'
 import { API_BASE } from '@/lib/api'
 import { chatStream } from './chatStream'
 import { type ChatFailure, classifyFailure, questionProblem, routeSummary } from './chat'
@@ -289,16 +290,10 @@ export function ChatPanel({ onOpenMoment }: ChatPanelProps = {}) {
                       </Button>
                     )}
                     {source?.provider === 'youtube' && (
-                      <a
-                        data-testid={`chat-citation-youtube-${citation.momentId}-${index}`}
-                        href={source.href}
-                        target="_blank"
-                        rel="noreferrer"
-                        className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                      >
-                        {sourceLinkLabel(source)}
-                        <span aria-hidden="true">↗</span>
-                      </a>
+                      <SourceLinkAnchor
+                        link={source}
+                        testId={`chat-citation-youtube-${citation.momentId}-${index}`}
+                      />
                     )}
                   </span>
                 </li>

@@ -417,6 +417,9 @@ describe('CorpusSearch', () => {
       'href',
       'https://example-my.sharepoint.com/stream.aspx?id=x',
     )
+    expect(link).toHaveAccessibleName('Open in Stream')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noreferrer')
     expect(screen.queryByRole('button', { name: /Replay/ })).toBeNull()
   })
 
@@ -488,6 +491,7 @@ describe('CorpusSearch', () => {
     expect(link).toHaveAttribute('href', 'https://www.youtube.com/watch?v=abc&t=44')
     expect(new URL(link.getAttribute('href')!).searchParams.getAll('t')).toEqual(['44'])
     expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noreferrer')
     expect(replay.compareDocumentPosition(link)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
     expect(screen.queryByTestId('hit-deep-link-moment-1')).toBeNull()
     // The player still opens only from Replay.
@@ -530,6 +534,8 @@ describe('CorpusSearch', () => {
     const link = await screen.findByTestId('hit-deep-link-moment-5')
     expect(link).toBe(screen.getByRole('link', { name: 'Open on YouTube at 0:44' }))
     expect(link).toHaveAttribute('href', 'https://youtu.be/abc?t=44')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noreferrer')
     expect(screen.queryByTestId('hit-youtube-link-moment-5')).toBeNull()
     expect(screen.queryByRole('button', { name: /Replay/ })).toBeNull()
   })

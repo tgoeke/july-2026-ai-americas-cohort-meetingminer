@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { searchCorpus } from '@/client/sdk.gen'
 import type { SearchHit, SearchResponse } from '@/client/types.gen'
-import { Button, buttonVariants } from '@/components/ui/button'
+import { SourceLinkAnchor } from '@/components/SourceLinkAnchor'
+import { Button } from '@/components/ui/button'
 import { ReplayPlayer } from '@/features/replay/ReplayPlayer'
 import { API_BASE } from '@/lib/api'
 import {
@@ -15,7 +16,6 @@ import {
   SEARCH_TIMEOUT_MS,
   type SearchFailure,
   snippetText,
-  sourceLinkLabel,
 } from './hits'
 
 function describe(error: unknown): string {
@@ -395,39 +395,20 @@ export function CorpusSearch({ onOpenMoment }: CorpusSearchProps = {}) {
                       )}
                       {affordance.kind === 'replay' && affordance.source !== null && (
                         // UX-DR12: replay first, the source second — the
-                        // YouTube link timed at this hit, as an outline anchor
-                        // beside the default-variant Replay button.
-                        <a
-                          data-testid={`hit-youtube-link-${key}`}
-                          href={affordance.source.href}
-                          target="_blank"
-                          rel="noreferrer"
-                          className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                        >
-                          {sourceLinkLabel(affordance.source)}
-                          <span aria-hidden="true">↗</span>
-                        </a>
+                        // YouTube link timed at this hit, secondary to Replay.
+                        <SourceLinkAnchor
+                          link={affordance.source}
+                          testId={`hit-youtube-link-${key}`}
+                        />
                       )}
                       {affordance.kind === 'deepLink' && (
                         // Labelled by provider (UX-DR12): a YouTube link is
                         // timed and named with its offset; any other host
                         // keeps the untimed "Open in Stream".
-                        <a
-                          data-testid={`hit-deep-link-${key}`}
-                          href={affordance.source.href}
-                          target="_blank"
-                          rel="noreferrer"
-                          className={
-                            affordance.source.provider === 'youtube'
-                              ? buttonVariants({ variant: 'outline', size: 'sm' })
-                              : 'text-sm underline'
-                          }
-                        >
-                          {sourceLinkLabel(affordance.source)}
-                          {affordance.source.provider === 'youtube' && (
-                            <span aria-hidden="true">↗</span>
-                          )}
-                        </a>
+                        <SourceLinkAnchor
+                          link={affordance.source}
+                          testId={`hit-deep-link-${key}`}
+                        />
                       )}
                       {affordance.kind === 'inertLink' && (
                         // Shown, never offered. The drop recorded something
