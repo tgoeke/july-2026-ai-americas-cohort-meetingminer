@@ -142,6 +142,6 @@ development_status:
   epic-11: in-progress
   11-1-seconds-fast-default-suite: done
   11-2-per-run-store-isolation: in-progress
-  11-3-eval-runs-own-their-namespace: in-progress
+  11-3-eval-runs-own-their-namespace: review
   11-4-lint-and-type-tooling-in-the-fast-loop: backlog
   epic-11-retrospective: optional
