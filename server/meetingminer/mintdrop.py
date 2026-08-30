@@ -146,6 +146,14 @@ EXTENSION_TO_CANONICAL = {
     ".txt": TRANSCRIPT_TEXT_FILENAME,
 }
 
+# Producer-specific provenance may add source facts and may intentionally
+# replace ``tool``. These fields describe the evidence mint itself observed;
+# allowing a producer to replace them would make the write-once manifest lie
+# about the bytes it finalized.
+MINT_OWNED_PROVENANCE_KEYS = frozenset(
+    {"title", "mintedAt", "suppliedBy", "startedAtSource", "files"}
+)
+
 #: Containers that carry no real creation time sometimes still carry a tag, set
 #: to one of the two epoch origins (ISO base media format's 1904, Unix's 1970).
 #: Both mean "the recorder did not know", and writing one into a write-once
@@ -160,6 +168,17 @@ class MintError(RuntimeError):
 
 class IntakeError(RuntimeError):
     """The drop was finalized but the api did not accept it."""
+
+
+def _validate_provenance_extra(extra: dict[str, Any] | None) -> None:
+    collisions = sorted(MINT_OWNED_PROVENANCE_KEYS.intersection(extra or {}))
+    if collisions:
+        raise MintError(
+            "provenance_extra collides with mint-owned keys: "
+            + ", ".join(collisions)
+            + " — pass only producer-owned source facts; mint owns the evidence"
+            " manifest"
+        )
 
 
 # --- naming ----------------------------------------------------------------
@@ -569,6 +588,7 @@ def build_metadata(
     (glossary): omitted means the source did not look, and the pipeline falls
     back to transcript speaker attribution, which is the truth here.
     """
+    _validate_provenance_extra(provenance_extra)
     provenance: dict[str, Any] = {
         "tool": PROGRAM,
         "title": title,
@@ -648,6 +668,9 @@ def mint(
     ``provenance_extra`` — assembly still goes through this one
     staging → validate → atomic-rename path (story 6.2).
     """
+    # Validate producer overrides before even the identity lock can be created:
+    # a falsified evidence manifest is a refusal, not an attempted mint.
+    _validate_provenance_extra(provenance_extra)
     pairs = classify_supplied(supplied)
     recording = next((p for p, name in pairs if name == RECORDING_FILENAME), None)
     if recording is not None:

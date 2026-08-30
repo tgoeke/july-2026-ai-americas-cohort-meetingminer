@@ -474,6 +474,29 @@ def test_mint_overrides_produce_the_youtube_metadata_shape(tmp_path: Path) -> No
     assert again.path == result.path
 
 
+def test_mint_refuses_provenance_collisions_before_writing(tmp_path: Path) -> None:
+    vtt = tmp_path / "talk.vtt"
+    vtt.write_text(TRANSCRIPT_VTT, encoding="utf-8")
+    root = tmp_path / "drops"
+    root.mkdir()
+
+    with pytest.raises(
+        mintdrop.MintError,
+        match=r"provenance_extra collides with mint-owned keys: files, mintedAt",
+    ):
+        mintdrop.mint(
+            supplied=[str(vtt)],
+            corpus="real",
+            drops_root=root,
+            config_path=REPO_ROOT / "config.yaml",
+            source_id=f"youtube:{VALID_ID}",
+            started_at_override=("2026-08-12T00:00:00Z", "day", "upload_date"),
+            provenance_extra={"files": [], "mintedAt": "fabricated"},
+        )
+
+    assert list(root.iterdir()) == []
+
+
 def test_mint_without_overrides_is_todays_behaviour_unchanged(tmp_path: Path) -> None:
     """Defaults preserve today's behaviour: sha256 identity, tool mint-drop,
     no url key — every existing call site byte-identical in effect."""
