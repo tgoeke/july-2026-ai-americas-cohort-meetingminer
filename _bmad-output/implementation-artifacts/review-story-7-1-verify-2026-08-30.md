@@ -24,3 +24,11 @@
 - **Finding:** Finding 1's regression proves that 1,001 distinct speakers are rejected, but it never proves that the intended maximum of exactly 1,000 speakers succeeds and ends at `SPEAKER_999`. An off-by-one regression can therefore reject a valid placeholder tag while the claimed regression remains green.
 - **Evidence:** Exact mutation `MAX_PLACEHOLDER_SPEAKERS = 1000` → `MAX_PLACEHOLDER_SPEAKERS = 999` left `test_more_than_one_thousand_speakers_fails_before_a_tag_escapes_placeholder_protection` passing (`1 passed`). The production error promises support for “at most 1000,” and `SPEAKER_999` remains inside the downstream three-character placeholder matcher.
 - **Resolution:** **OPEN — remediation in progress.** Add a boundary regression that processes exactly 1,000 surviving labels and pins the final tag as `SPEAKER_999`; demonstrate it red against the `999` mutation and green after restoration.
+
+### V3. The provider-symbol validation branch is untested and accepts unusable objects
+
+- **Location:** `server/meetingminer/adapters/diarize/__init__.py:53-54`; `server/tests/test_diarize_pyannote.py:194-214`
+- **Severity:** Medium
+- **Finding:** Finding 2's probe checks only that `Pipeline` is non-`None`; it does not require the `from_pretrained` callable the real factory uses. Its new regression covers an exception during module import, not a successfully imported module with an absent or unusable `Pipeline` symbol. Such an installation passes `build_diarizer` and fails only after work reaches the lazy factory.
+- **Evidence:** Exact mutation `return getattr(module, "Pipeline", None) is not None` → `return True` left the discoverable-but-unimportable regression, both broken-`find_spec` cases, and the real-probe test green (`4 passed`). A module exposing `Pipeline = object()` likewise satisfies the current production predicate although `_load_pipeline` cannot call `Pipeline.from_pretrained`.
+- **Resolution:** **OPEN — remediation in progress.** Add a red-first build-boundary regression for a successfully imported provider with no usable `Pipeline.from_pretrained`, then make the probe validate that exact callable.
