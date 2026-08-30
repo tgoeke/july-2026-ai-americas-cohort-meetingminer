@@ -810,7 +810,13 @@ PORT_OVERRIDES = ("MM_POSTGRES_PORT", "MM_NEO4J_BOLT_PORT", "MM_MEILI_PORT")
 
 @pytest.fixture()
 def no_port_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in (*PORT_OVERRIDES, "MM_TEST_MEILI_URL", "MM_TEST_NEO4J_URI", "MM_STACK_NAME"):
+    for name in (
+        *PORT_OVERRIDES,
+        "MM_TEST_MEILI_URL",
+        "MM_TEST_NEO4J_URI",
+        "MM_STACK_NAME",
+        "MM_STACK_ID",
+    ):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -834,6 +840,31 @@ def test_process_env_overrides_worktree_env_file(
     monkeypatch.setenv("MM_MEILI_PORT", "20014")
     envfile = _stack_files(tmp_path, "", good_stack_text("probe"))
     assert load_config(valid_config, envfile).settings.stores.meilisearch.url == "http://localhost:20014"
+
+
+def test_process_env_cannot_override_worktree_identity(
+    tmp_path: Path, no_port_overrides: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from meetingminer.config import merged_env
+
+    monkeypatch.setenv("MM_STACK_NAME", "meetingminer-victim")
+    monkeypatch.setenv("MM_STACK_ID", "deadbeefcafe")
+    envfile = _stack_files(tmp_path, "", good_stack_text("probe"))
+    env = merged_env(envfile)
+    assert env["MM_STACK_NAME"] == "meetingminer-probe"
+    assert env["MM_STACK_ID"] == "0123456789ab"
+
+
+def test_process_env_cannot_override_main_stack_identity(
+    tmp_path: Path, no_port_overrides: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from meetingminer.config import merged_env
+
+    monkeypatch.setenv("MM_STACK_NAME", "meetingminer-victim")
+    monkeypatch.setenv("MM_STACK_ID", "deadbeefcafe")
+    env = merged_env(_stack_files(tmp_path, "", None))
+    assert env["MM_STACK_NAME"] == "meetingminer"
+    assert env["MM_STACK_ID"] == ""
 
 
 def test_blank_process_env_does_not_mask_worktree_env_file(
@@ -872,7 +903,9 @@ def test_worktree_env_file_refuses_a_key_that_is_not_a_stack_key(
         load_config(valid_config, envfile)
 
 
-@pytest.mark.parametrize("key", ["MM_STACK_NAME", "MM_POSTGRES_PORT", "MM_MEILI_TEST_PORT"])
+@pytest.mark.parametrize(
+    "key", ["MM_STACK_NAME", "MM_STACK_ID", "MM_POSTGRES_PORT", "MM_MEILI_TEST_PORT"]
+)
 def test_env_file_refuses_stack_name_and_port_keys(
     valid_config: Path, tmp_path: Path, no_port_overrides: None, key: str
 ) -> None:

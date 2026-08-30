@@ -190,7 +190,7 @@ exit 0
 # variant (simulating .env interpolation blowing up).
 DOCKER_BODY = """#!/bin/bash
 echo "$*" >> "__ARGV__"
-echo "env MM_STACK_NAME=$MM_STACK_NAME MM_POSTGRES_PORT=$MM_POSTGRES_PORT" >> "__ARGV__"
+echo "env MM_STACK_NAME=$MM_STACK_NAME MM_STACK_ID=$MM_STACK_ID MM_POSTGRES_PORT=$MM_POSTGRES_PORT" >> "__ARGV__"
 if [ "$1" = "info" ]; then exit 0; fi
 case "$*" in
   *" up "*) echo "compose-up" >> "__EVENTS__" ;;
@@ -817,10 +817,9 @@ def test_down_tears_down_the_worktree_stack_named_in_env_worktree(tmp_path: Path
     assert "compose -p meetingminer down" not in invocations
 
 
-def test_compose_receives_the_resolved_stack_values_through_the_environment(tmp_path: Path) -> None:
-    """The process environment wins over `.env.worktree` for `-p` AND for the
-    values compose interpolates; a blank exported value is unset, so the
-    file's values reach compose (compose alone would publish the default)."""
+def test_compose_receives_ports_from_process_but_identity_from_the_record(tmp_path: Path) -> None:
+    """Ports keep process precedence, but a process cannot redirect Compose
+    away from the project name/id in the validated ownership record."""
     logs = tmp_path / "logs"
     logs.mkdir()
     envfile = tmp_path / ".env"
@@ -849,14 +848,104 @@ def test_compose_receives_the_resolved_stack_values_through_the_environment(tmp_
         assert proc.returncode == 0, proc.stdout + proc.stderr
         return _argv_lines(argv_log)
 
-    lines = run_down({"MM_STACK_NAME": "meetingminer-envname", "MM_POSTGRES_PORT": "20099"})
-    assert any(line.startswith("compose --env-file") and " -p meetingminer-envname " in line for line in lines), lines
-    assert "env MM_STACK_NAME=meetingminer-envname MM_POSTGRES_PORT=20099" in lines
+    lines = run_down({"MM_POSTGRES_PORT": "20099"})
+    expected_project = f"meetingminer-{tmp_path.name}"
+    assert any(
+        line.startswith("compose --env-file") and f" -p {expected_project} " in line
+        for line in lines
+    ), lines
+    assert (
+        f"env MM_STACK_NAME={expected_project} MM_STACK_ID=0123456789ab "
+        "MM_POSTGRES_PORT=20099"
+    ) in lines
 
     lines = run_down({"MM_STACK_NAME": "", "MM_POSTGRES_PORT": ""})
-    expected_project = f"meetingminer-{tmp_path.name}"
     assert any(line.startswith("compose --env-file") and f" -p {expected_project} " in line for line in lines), lines
-    assert f"env MM_STACK_NAME={expected_project} MM_POSTGRES_PORT=20001" in lines
+    assert (
+        f"env MM_STACK_NAME={expected_project} MM_STACK_ID=0123456789ab "
+        "MM_POSTGRES_PORT=20001"
+    ) in lines
+
+
+def test_make_arguments_cannot_override_worktree_stack_identity(tmp_path: Path) -> None:
+    """Ownership identity comes only from `.env.worktree`, even though GNU
+    Make normally gives command-line assignments the highest precedence."""
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    envfile = tmp_path / ".env"
+    envfile.write_text("POSTGRES_PASSWORD=x\n", encoding="utf-8")
+    (tmp_path / ".env.worktree").write_text(
+        good_stack_text(tmp_path.name), encoding="utf-8"
+    )
+    docker_bin = tmp_path / "path"
+    argv_log = tmp_path / "docker-argv.txt"
+    _write_script(
+        docker_bin / "docker",
+        DOCKER_BODY.replace("__ARGV__", str(argv_log))
+        .replace("__EVENTS__", str(tmp_path / "events.txt"))
+        .replace("__ENVFILE_EXIT__", "0"),
+    )
+
+    proc = _make(
+        ["down"],
+        {
+            "ENVFILE": str(envfile),
+            "MM_STACK_NAME": "meetingminer-victim",
+            "MM_STACK_ID": "deadbeefcafe",
+        },
+        logs=logs,
+        tmp_path=tmp_path,
+        env=_path_env(docker_bin),
+    )
+    output = proc.stdout + proc.stderr
+    assert proc.returncode == 0, output
+    expected_project = f"meetingminer-{tmp_path.name}"
+    lines = _argv_lines(argv_log)
+    assert any(f" -p {expected_project} " in line for line in lines), lines
+    assert (
+        f"env MM_STACK_NAME={expected_project} MM_STACK_ID=0123456789ab "
+        "MM_POSTGRES_PORT=20001"
+    ) in lines
+
+
+def test_compose_refuses_if_record_identity_changes_after_make_parses_it(
+    tmp_path: Path,
+) -> None:
+    """The live record is compared with Make's effective identity immediately
+    before Compose, closing the parse/check-to-exec race."""
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    envfile = tmp_path / ".env"
+    envfile.write_text("POSTGRES_PASSWORD=x\n", encoding="utf-8")
+    worktree_env = tmp_path / ".env.worktree"
+    worktree_env.write_text(good_stack_text(tmp_path.name), encoding="utf-8")
+    docker_bin = tmp_path / "path"
+    argv_log = tmp_path / "docker-argv.txt"
+    _write_script(
+        docker_bin / "docker",
+        f"""#!/bin/bash
+echo "$*" >> "{argv_log}"
+if [ "$1" = "info" ]; then
+  sed 's/^MM_STACK_ID=.*/MM_STACK_ID=deadbeefcafe/' "{worktree_env}" > "{worktree_env}.next"
+  mv "{worktree_env}.next" "{worktree_env}"
+  exit 0
+fi
+exit 0
+""",
+    )
+
+    proc = _make(
+        ["down"],
+        {"ENVFILE": str(envfile)},
+        logs=logs,
+        tmp_path=tmp_path,
+        env=_path_env(docker_bin),
+    )
+    output = proc.stdout + proc.stderr
+    assert proc.returncode != 0, output
+    assert "MM_STACK_ID" in output
+    assert "changed after Make parsed" in output
+    assert not any(line.startswith("compose ") for line in _argv_lines(argv_log))
 
 
 def test_check_dev_stores_probes_this_checkouts_ports(tmp_path: Path) -> None:
@@ -1448,10 +1537,16 @@ def _compose_up_line(env_dir: Path, compose_file: Path, project_dir: Path, proje
 
 
 def _make_at(
-    repo: Path, docker_bin: Path, targets: list[str], variables: dict[str, str] | None = None
+    repo: Path,
+    docker_bin: Path,
+    targets: list[str],
+    variables: dict[str, str] | None = None,
+    *,
+    env_overrides: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """`make -C <repo>/infra <targets> VAR=value ...` with the decoy docker on PATH."""
     env = _path_env(docker_bin)
+    env.update(env_overrides or {})
     for key in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL"):
         env.pop(key, None)
     return subprocess.run(
@@ -2024,6 +2119,65 @@ def test_post_112_compose_failure_names_infra_up_and_the_retry_claims_first(
     ps_index = next(i for i, line in enumerate(lines) if line.startswith(PRUNE_PS_PREFIX))
     up_index = next(i for i, line in enumerate(lines) if line.endswith(" up -d --wait"))
     assert ps_index < up_index, lines
+
+
+def test_infra_up_refuses_process_stack_name_override_before_claim_or_compose(
+    tmp_path: Path,
+) -> None:
+    """A process environment cannot redirect Compose after claim proves the
+    checkout's ownership record. Refuse before either operation can run."""
+    repo, docker_bin, argv_log = _throwaway_repo(tmp_path)
+    worktree = _linked_worktree_without_stack(repo, "probe")
+    (worktree / ".env.worktree").write_text(
+        good_stack_text("probe"), encoding="utf-8"
+    )
+
+    proc = _make_at(
+        worktree,
+        docker_bin,
+        ["infra-up"],
+        env_overrides={"MM_STACK_NAME": "meetingminer-victim"},
+    )
+    output = proc.stdout + proc.stderr
+    assert proc.returncode != 0, output
+    assert "MM_STACK_NAME" in output
+    assert "effective" in output
+    assert "ownership record" in output
+    lines = _argv_lines(argv_log)
+    assert not any(line.startswith(PRUNE_PS_PREFIX) for line in lines), lines
+    assert not any(line.endswith(" up -d --wait") for line in lines), lines
+    assert not any(" -p meetingminer-victim " in f" {line} " for line in lines), lines
+    assert not any(
+        " -p meetingminer-probe " in f" {line} " and " up " in line
+        for line in lines
+    ), lines
+
+
+def test_infra_up_refuses_process_stack_id_override_before_claim_or_compose(
+    tmp_path: Path,
+) -> None:
+    """An id override cannot start an incarnation claim never proved, nor
+    create labels that make the checkout's live volumes stale next time."""
+    repo, docker_bin, argv_log = _throwaway_repo(tmp_path)
+    worktree = _linked_worktree_without_stack(repo, "probe")
+    (worktree / ".env.worktree").write_text(
+        good_stack_text("probe"), encoding="utf-8"
+    )
+
+    proc = _make_at(
+        worktree,
+        docker_bin,
+        ["infra-up"],
+        env_overrides={"MM_STACK_ID": "deadbeefcafe"},
+    )
+    output = proc.stdout + proc.stderr
+    assert proc.returncode != 0, output
+    assert "MM_STACK_ID" in output
+    assert "effective" in output
+    assert "ownership record" in output
+    lines = _argv_lines(argv_log)
+    assert not any(line.startswith(PRUNE_PS_PREFIX) for line in lines), lines
+    assert not any(line.endswith(" up -d --wait") for line in lines), lines
 
 
 def test_docker_down_creation_retry_sweeps_a_stale_incarnation(tmp_path: Path) -> None:
