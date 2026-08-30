@@ -135,7 +135,7 @@ export COREPACK_ENABLE_DOWNLOAD_PROMPT := 0
         rebuild purge digest backfill-drop-paths mint-drop test-db-prune check-reviews check-tools check-docker check-env check-client check-stores check-dev-stores check-test-stores check-api \
         infra-up start-api start-worker start-web \
         stop-api stop-worker stop-web \
-        worktree worktree-list worktree-remove worktree-prune worktree-provision
+        worktree worktree-list worktree-remove worktree-prune worktree-provision worktree-start check-stack
 
 help:
 	@echo "MeetingMiner targets:"
@@ -324,32 +324,55 @@ worktree:
 		|| git -C $(ROOT) worktree add -b story/$(STORY) "$(WT_ROOT)/$(STORY)" $(BASE)
 	@[ -r "$(ENVFILE)" ] && ln -sfn "$$(readlink -f "$(ENVFILE)" 2>/dev/null || echo "$(ENVFILE)")" "$(WT_ROOT)/$(STORY)/.env" \
 		|| echo "note: no readable $(ENVFILE) to link — run 'make bootstrap' in the worktree."
-	@python3 $(INFRA)/worktree_stack.py provision --slug "$(STORY)" --worktree "$(WT_ROOT)/$(STORY)" --worktree-root "$(WT_ROOT)" \
-		|| { echo "error: could not write $(WT_ROOT)/$(STORY)/.env.worktree. The worktree exists but has no stack, and check-env and the test session refuse to run there until it does."; \
-		     echo "  Fix the cause above, then: cd $(WT_ROOT)/$(STORY) && make worktree-provision"; exit 1; }
 	@echo ""
 	@echo "worktree ready: $(WT_ROOT)/$(STORY)  (branch story/$(STORY) from $(BASE))"
 	@echo "  cd $(WT_ROOT)/$(STORY) && make bootstrap"
-	@echo "  .env is symlinked from the main checkout; config.yaml came with the branch;"
-	@echo "  .env.worktree (above) names this worktree's private Docker stack. Starting it..."
-	@# THIS checkout's Makefile and compose file bring the new stack up — the
-	@# new worktree may be checked out from a ref older than story 11.2, whose
-	@# infra/ would start the main stack. Its own env files, its own infra/ as
-	@# the project directory, and no inherited stack variables from the shell.
-	@$(UNSET_STACK_ENV) $(MAKE) --no-print-directory -C $(INFRA) infra-up ENVFILE="$(WT_ROOT)/$(STORY)/.env" WT_ENVFILE="$(WT_ROOT)/$(STORY)/.env.worktree" COMPOSE_PROJECT_DIR="$(WT_ROOT)/$(STORY)/infra" \
-		|| { echo "error: the stack for $(STORY) did not come up. The worktree and its .env.worktree are in place; until the stack is up, store-backed tests there skip with named reasons. Start it with:"; \
-		     echo "  cd $(WT_ROOT)/$(STORY) && make infra-up"; exit 1; }
-	@echo "  stack meetingminer-$(STORY) is up. The api (:$(API_PORT)) and web (:$(WEB_PORT)) ports are still"
-	@echo "  fixed, so 'make up' here collides with another checkout's api/web (AGENTS.md)."
+	@echo "  .env is symlinked from the main checkout; config.yaml came with the branch."
+	@$(MAKE) --no-print-directory worktree-start STORY="$(STORY)"
+	@echo "  The api (:$(API_PORT)) and web (:$(WEB_PORT)) ports are still fixed, so 'make up'"
+	@echo "  here collides with another checkout's api/web (AGENTS.md)."
 
-# For a linked worktree that has no .env.worktree (provisioning failed after
-# `git worktree add`, or the file was deleted): write THIS checkout's file —
-# the slug is the directory name — and start its stack. The main checkout
-# runs the main stack and is refused.
+# The ONE start path for a worktree's stack from this checkout (findings 4,
+# 5): `worktree` calls it after `git worktree add`; `worktree-provision`
+# calls it from inside a linked worktree; the operator retries with it after
+# a provision or Docker failure. It provisions (keeping a valid file,
+# refusing a bad one by name, writing one if absent) and brings the stack up
+# through THIS checkout's Makefile and compose file — never the worktree's
+# own infra/, which may predate story 11.2 and would start the MAIN stack —
+# with the worktree's env files, its infra/ as the project directory (the
+# label the pruner keys on) and no inherited stack variables. infra-up's
+# check-stack prerequisite claims the project name first, so a stale
+# same-named stack is torn down before the first `up`, never attached to.
+# Every failure message below is executable for an old ref: it never prints
+# a command that would run an old infra/Makefile's stack logic.
+worktree-start:
+	@[ -n "$(STORY)" ] || { echo "error: STORY is required, e.g. 'make worktree-start STORY=1-12'"; exit 1; }
+	@printf '%s' "$(STORY)" | grep -Eq '^$(SLUG_RULE)$$' || { echo "error: STORY must match $(SLUG_RULE): got '$(STORY)'"; exit 1; }
+	@[ -f "$(WT_ROOT)/$(STORY)/.git" ] || { echo "error: $(WT_ROOT)/$(STORY) is not a linked git worktree — 'make worktree STORY=$(STORY)' creates one."; exit 1; }
+	@python3 $(INFRA)/worktree_stack.py provision --slug "$(STORY)" --worktree "$(WT_ROOT)/$(STORY)" --worktree-root "$(WT_ROOT)" \
+		|| { echo "error: could not write (or validate) $(WT_ROOT)/$(STORY)/.env.worktree — the worktree has no usable stack record, and check-env and the test session refuse to run there until it does."; \
+		     echo "  Fix the cause above, then retry from this checkout ($(ROOT)):"; \
+		     echo "  make worktree-start STORY=$(STORY)"; exit 1; }
+	@$(UNSET_STACK_ENV) $(MAKE) --no-print-directory -C $(INFRA) infra-up ENVFILE="$(WT_ROOT)/$(STORY)/.env" WT_ENVFILE="$(WT_ROOT)/$(STORY)/.env.worktree" COMPOSE_PROJECT_DIR="$(WT_ROOT)/$(STORY)/infra" \
+		|| { echo "error: the stack for $(STORY) did not come up. The worktree and its .env.worktree are in place; until the stack is up, store-backed tests there skip with named reasons."; \
+		     if grep -q '^worktree-start:' "$(WT_ROOT)/$(STORY)/infra/Makefile" 2>/dev/null; then \
+		       echo "  Start it with:"; \
+		       echo "  cd $(WT_ROOT)/$(STORY) && make infra-up"; \
+		     else \
+		       echo "  This worktree's own infra/Makefile predates story 11.2 — its store targets would use the main stack. Retry from this checkout ($(ROOT)) instead:"; \
+		       echo "  make worktree-start STORY=$(STORY)"; \
+		     fi; exit 1; }
+	@echo "  stack meetingminer-$(STORY) is up."
+
+# For a linked worktree whose .env.worktree is missing (provisioning failed
+# after `git worktree add`, or the file was deleted): the slug is the
+# directory name, so a worktree moved with `git worktree move` is refused —
+# every guard keys the stack name on the directory. The main checkout runs
+# the main stack and is refused too.
 worktree-provision:
 	@[ -f "$(ROOT)/.git" ] || { echo "error: $(ROOT) is the main checkout — it runs the main stack (meetingminer); worktree-provision is for a linked worktree ('make worktree STORY=<slug>' creates one with its stack)."; exit 1; }
-	@python3 $(INFRA)/worktree_stack.py provision --slug "$(notdir $(ROOT))" --worktree "$(ROOT)" --worktree-root "$(WT_ROOT)"
-	@$(UNSET_STACK_ENV) $(MAKE) --no-print-directory -C $(INFRA) infra-up
+	@[ "$(ROOT)" = "$(WT_ROOT)/$(notdir $(ROOT))" ] || { echo "error: $(ROOT) is not at $(WT_ROOT)/$(notdir $(ROOT)) — a worktree moved with 'git worktree move' is not supported with a stack; recreate it with 'make worktree STORY=<slug>' from the main checkout."; exit 1; }
+	@$(MAKE) --no-print-directory worktree-start STORY="$(notdir $(ROOT))"
 
 worktree-list:
 	@git -C $(ROOT) worktree list | while read -r path rest; do \
@@ -613,7 +636,23 @@ puller-test:
 		exit 1; \
 	fi
 
-infra-up: check-docker check-env
+# check-stack (story 11.2 remediation, findings 4, 5): when this run has a
+# stack file, `claim` inventories docker and tears down any same-named
+# project that does not carry the file's MM_STACK_ID on every container and
+# volume — a hand-deleted worktree's leavings, a pre-remediation id-less
+# stack — before compose can attach to it; a project owned by another
+# existing checkout, or one with resources this tool does not recognise, is
+# a named error. This is the one place a stack is ever started, so the
+# Docker-down retry, the compose-failure retry, an old-ref worktree's start
+# (driven through this Makefile by worktree-start) and a plain restart all
+# take the same guard. Without a stack file (the main checkout) it is a
+# no-op.
+check-stack:
+	@if [ -f "$(WT_ENVFILE)" ]; then \
+		python3 $(INFRA)/worktree_stack.py claim --worktree "$(dir $(WT_ENVFILE))" --worktree-root "$(WT_ROOT)" || exit 1; \
+	fi
+
+infra-up: check-docker check-env check-stack
 	$(COMPOSE) up -d --wait
 
 # Order-only prerequisite: migrations must never run before Postgres is

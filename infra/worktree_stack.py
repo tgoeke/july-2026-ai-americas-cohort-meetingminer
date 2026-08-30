@@ -582,6 +582,62 @@ def worktree_stacks(
     return stacks, sorted(foreign)
 
 
+def claim(
+    worktree: Path,
+    worktree_root: Path,
+    run: Run = run_docker,
+    out: Callable[[str], None] = print,
+) -> None:
+    """Make ``<worktree>``'s compose project safe to start (findings 4, 5).
+
+    Incarnation ownership: the project is *this worktree's* only when every
+    one of its containers and volumes carries the ``MM_STACK_ID`` of the
+    worktree's validated ``.env.worktree``. Anything else under that name —
+    no id (a pre-remediation or hand-deleted worktree's leavings), another
+    id, or a mix — is a stale incarnation and is torn down (``down -v``)
+    before compose starts, never attached to. A present owner other than
+    this worktree, or a layout this tool does not recognise, is an error.
+    Runs under :func:`_provision_lock` so it cannot interleave with a
+    concurrent provision or prune. ``infra-up``'s ``check-stack``
+    prerequisite runs this before every ``up`` that has a stack file, so
+    the Docker-down retry, the compose-failure retry, an old-ref worktree's
+    start and a plain restart are all the same path.
+    """
+    worktree = Path(worktree).absolute()
+    env_file = worktree / ENV_FILENAME
+    values = validate_env_file(env_file, worktree.name)
+    name = values[STACK_NAME_VAR]
+    stack_id = values[STACK_ID_VAR]
+    with _provision_lock(worktree_root):
+        stacks, _foreign = worktree_stacks(run(PS_ARGV), run(VOLUME_ARGV), worktree_root)
+        stack = stacks.get(name)
+        if stack is None:
+            out(f"no stale stack {name}")
+            return
+        target = worktree.resolve()
+        foreign_owners = sorted(
+            path for path in stack.owners
+            if path.exists() and path.resolve() != target
+        )
+        if foreign_owners:
+            raise StackError(
+                f"stack {name} belongs to the existing checkout"
+                f" {foreign_owners[0]} — remove that worktree"
+                " (make worktree-remove) or pick another STORY"
+            )
+        if stack.unknown:
+            raise StackError(
+                f"a compose project named {name} exists with containers or"
+                " volumes this tool does not recognise — inspect it and"
+                f" remove it by hand (docker compose -p {name} down -v) first"
+            )
+        if stack.ids | stack.volume_ids == {stack_id}:
+            out(f"kept stack {name} (this worktree's)")
+            return
+        run(["docker", "compose", "-p", name, "down", "-v", "--remove-orphans"])
+        out(f"removed stale stack {name} (not started from {env_file})")
+
+
 def prune(
     worktree_root: Path,
     run: Run = run_docker,
@@ -671,6 +727,11 @@ def _cmd_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_claim(args: argparse.Namespace) -> int:
+    claim(Path(args.worktree), Path(args.worktree_root), run=run_docker)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -686,6 +747,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     check_cmd.add_argument("--worktree", required=True)
     check_cmd.set_defaults(func=_cmd_check)
+    claim_cmd = commands.add_parser(
+        "claim",
+        help="tear down a stale same-named stack before this worktree's starts",
+    )
+    claim_cmd.add_argument("--worktree", required=True)
+    claim_cmd.add_argument("--worktree-root", required=True)
+    claim_cmd.set_defaults(func=_cmd_claim)
     prune_cmd = commands.add_parser(
         "prune", help="tear down worktree stacks whose checkout is gone"
     )
