@@ -312,7 +312,10 @@ def test_prune_classifies_owned_orphaned_foreign_and_main(tmp_path: Path) -> Non
             f"backend\t{tmp_path / 'elsewhere'}",
         ]
     )
-    volumes = "\n".join(
+    # noqa rationale: this is fixture data — four tab-separated `docker volume ls`
+    # rows kept one-per-line so a reader can see the columns. Collapsing them into
+    # one f-string with embedded \n would be shorter and less readable.
+    volumes = "\n".join(  # noqa: FLY002
         [
             "meetingminer-11-2_postgres-data\tmeetingminer-11-2",
             "meetingminer-gone_postgres-data\tmeetingminer-gone",
@@ -624,8 +627,6 @@ def test_bad_stack_file_is_refused_by_validate_and_provision(
 def test_bad_stack_file_is_refused_by_the_test_session_guard(
     tmp_path: Path, case: str, lines: list[str], key: str, loader_rejects: bool
 ) -> None:
-    from conftest import linked_worktree_refusal
-
     linked = _linked(tmp_path, "probe", "\n".join(lines) + "\n")
     message = linked_worktree_refusal(linked)
     assert message is not None
@@ -636,8 +637,6 @@ def test_linked_worktree_refusal_semantics(tmp_path: Path) -> None:
     """No file: refused naming worktree-provision. A rendered file for this
     directory: fine. A rendered file for another slug: refused. A main
     checkout carrying the file: refused."""
-    from conftest import linked_worktree_refusal
-
     bare = _linked(tmp_path, "linked", None)
     message = linked_worktree_refusal(bare)
     assert message is not None and "make worktree-provision" in message
@@ -662,8 +661,6 @@ def test_linked_worktree_refusal_cannot_be_masked_by_a_process_name_override(
 ) -> None:
     """Process precedence may select endpoints, but it cannot turn a copied
     ownership record into proof that the file belongs to this directory."""
-    from conftest import linked_worktree_refusal
-
     linked = _linked(tmp_path, "probe", good_stack_text("other"))
     monkeypatch.setenv("MM_STACK_NAME", "meetingminer-probe")
 
@@ -1007,8 +1004,10 @@ def test_down_with_docker_off_is_a_note_not_a_teardown(tmp_path: Path) -> None:
     ws.down("meetingminer-probe", worktree, worktree.parent, GOOD_STACK_ID, run=fake, out=lines.append)
     assert _downs(fake) == []
     assert lines == [
-        "note: Docker daemon not running — stack meetingminer-probe left in"
-        " place; 'make test-db-prune' sweeps it once its worktree is gone"
+        (
+            "note: Docker daemon not running — stack meetingminer-probe left in"
+            " place; 'make test-db-prune' sweeps it once its worktree is gone"
+        )
     ]
 
 
@@ -1153,11 +1152,13 @@ def _hold_provision_lock(root: Path, seconds: float) -> subprocess.Popen[str]:
         [
             sys.executable,
             "-c",
-            "import fcntl, sys, time\n"
-            "lock = open(sys.argv[1], 'a')\n"
-            "fcntl.flock(lock, fcntl.LOCK_EX)\n"
-            "print('held', flush=True)\n"
-            "time.sleep(float(sys.argv[2]))\n",
+            (
+                "import fcntl, sys, time\n"
+                "lock = open(sys.argv[1], 'a')\n"
+                "fcntl.flock(lock, fcntl.LOCK_EX)\n"
+                "print('held', flush=True)\n"
+                "time.sleep(float(sys.argv[2]))\n"
+            ),
             str(root / ".provision.lock"),
             str(seconds),
         ],
