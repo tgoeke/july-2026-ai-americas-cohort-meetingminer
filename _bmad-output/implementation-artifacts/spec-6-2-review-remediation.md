@@ -2,8 +2,9 @@
 title: 'Story 6.2 Review Remediation'
 type: 'bugfix'
 created: '2026-08-30'
-status: 'ready-for-dev'
+status: 'in-progress'
 review_loop_iteration: 0
+baseline_commit: '2108c2a9385528756eb78b328585c5c2611230b1'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/review-story-6-2-2026-08-30.md'
   - '{project-root}/_bmad-output/implementation-artifacts/spec-6-2-youtube-acquisition-command.md'
