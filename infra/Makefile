@@ -293,21 +293,15 @@ BASE ?= main
 # infra/worktree_stack.py applies).
 SLUG_RULE := [a-z0-9][a-z0-9_-]*
 
-# stack_down(name): tear one worktree stack and its volumes down; already
-# gone is a note, Docker being off is a note (test-db-prune sweeps later).
-# Only a meetingminer-<slug> name is ever torn down here — never
+# stack_down(name): tear one worktree stack and its volumes down through
+# worktree_stack.py `down` (finding 6): already gone is a note, Docker being
+# off is a note (test-db-prune sweeps later), but a failed inventory or a
+# failed `down -v` is a named non-zero error — never reported as success or
+# absence. Only a meetingminer-<slug> name is ever torn down — never
 # `meetingminer`, the main checkout's stack, whose corpus volumes this must
 # not reach.
 define stack_down
-	case "$(1)" in meetingminer-?*) ;; *) echo "error: refusing to tear down stack '$(1)' — only meetingminer-<slug> stacks belong to worktrees"; exit 1 ;; esac; \
-	if ! docker info >/dev/null 2>&1; then \
-		echo "note: Docker daemon not running — stack $(1) left in place; 'make test-db-prune' sweeps it once its worktree is gone"; \
-	elif [ -n "$$(docker ps -aq --filter label=com.docker.compose.project=$(1) 2>/dev/null)" ] \
-	  || [ -n "$$(docker volume ls -q --filter label=com.docker.compose.project=$(1) 2>/dev/null)" ]; then \
-		docker compose -p "$(1)" down -v --remove-orphans && echo "removed stack $(1)"; \
-	else \
-		echo "note: stack $(1) was already gone"; \
-	fi
+	python3 $(INFRA)/worktree_stack.py down --project "$(1)"
 endef
 
 worktree:
@@ -405,7 +399,7 @@ worktree-remove:
 # worktree's compose stack, volumes included. Safe to run any time.
 worktree-prune:
 	@git -C $(ROOT) fetch --prune --quiet origin
-	@for wt in $(WT_ROOT)/*/; do \
+	@rc=0; for wt in $(WT_ROOT)/*/; do \
 		[ -e "$$wt.git" ] || continue; \
 		if [ -n "$$(git -C "$$wt" status --porcelain 2>/dev/null | head -1)" ]; then \
 			echo "keep $$wt — uncommitted changes"; continue; \
@@ -418,13 +412,13 @@ worktree-prune:
 			name=$${name:-meetingminer-$$(basename "$$wt")}; \
 			if git -C $(ROOT) worktree remove "$$wt"; then \
 				echo "pruned $$wt (merged into origin/main)"; \
-				$(call stack_down,$$name); \
+				$(call stack_down,$$name) || rc=1; \
 			fi; \
 			if [ "$$branch" != "HEAD" ]; then git -C $(ROOT) branch -D "$$branch" >/dev/null 2>&1 && echo "deleted branch $$branch" || true; fi; \
 		else \
 			echo "keep $$wt — not merged into origin/main"; \
 		fi; \
-	done
+	done; exit $$rc
 
 bootstrap: check-tools
 	@command -v pnpm >/dev/null 2>&1 || corepack enable pnpm

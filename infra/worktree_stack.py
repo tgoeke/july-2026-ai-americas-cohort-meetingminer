@@ -582,6 +582,47 @@ def worktree_stacks(
     return stacks, sorted(foreign)
 
 
+def down(
+    project: str,
+    run: Run = run_docker,
+    out: Callable[[str], None] = print,
+) -> None:
+    """Tear one worktree stack and its volumes down, honestly (finding 6).
+
+    Only a ``meetingminer-<slug>`` name is ever torn down — never
+    ``meetingminer``. Docker being off is a note (``make test-db-prune``
+    sweeps later) and an absent stack is a note; but a failed *inventory*
+    (``docker ps -aq`` / ``docker volume ls -q``) or a failed ``down -v`` is
+    a named error — success is never reported over a stack that may still
+    exist. ``make worktree-remove`` and ``worktree-prune`` call this and
+    propagate its status.
+    """
+    if not _is_worktree_project(project):
+        raise StackError(
+            f"refusing to tear down stack {project!r} — only"
+            " meetingminer-<slug> stacks belong to worktrees"
+        )
+    try:
+        run(["docker", "info"])
+    except StackError:
+        out(
+            f"note: Docker daemon not running — stack {project} left in"
+            " place; 'make test-db-prune' sweeps it once its worktree is gone"
+        )
+        return
+    containers = run(
+        ["docker", "ps", "-aq", "--filter", f"label=com.docker.compose.project={project}"]
+    )
+    volumes = run(
+        ["docker", "volume", "ls", "-q", "--filter", f"label=com.docker.compose.project={project}"]
+    )
+    if containers.strip() or volumes.strip():
+        run(["docker", "compose", "-p", project, "down", "-v", "--remove-orphans"])
+        out(f"removed stack {project}")
+    else:
+        out(f"note: stack {project} was already gone")
+
+
 def claim(
     worktree: Path,
     worktree_root: Path,
@@ -732,6 +773,11 @@ def _cmd_claim(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_down(args: argparse.Namespace) -> int:
+    down(args.project, run=run_docker)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -754,6 +800,11 @@ def main(argv: list[str] | None = None) -> int:
     claim_cmd.add_argument("--worktree", required=True)
     claim_cmd.add_argument("--worktree-root", required=True)
     claim_cmd.set_defaults(func=_cmd_claim)
+    down_cmd = commands.add_parser(
+        "down", help="tear one meetingminer-<slug> stack and its volumes down"
+    )
+    down_cmd.add_argument("--project", required=True)
+    down_cmd.set_defaults(func=_cmd_down)
     prune_cmd = commands.add_parser(
         "prune", help="tear down worktree stacks whose checkout is gone"
     )
