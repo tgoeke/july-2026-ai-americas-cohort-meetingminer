@@ -23,8 +23,11 @@ import os
 import re
 import shlex
 import subprocess
+import sys
 import tomllib
 from pathlib import Path
+
+import pytest
 
 from repo_paths import REPO_ROOT
 
@@ -199,17 +202,41 @@ def _tool_commands(printed: str, tool: str) -> list[list[str]]:
     return commands
 
 
+def _uv_argv(words: list[str]) -> list[str]:
+    """Return exactly what `uv run --project <server>` would execute."""
+    uv = words.index("uv")
+    assert words[uv : uv + 3] == ["uv", "run", "--project"], words
+    assert uv + 3 < len(words), words
+    assert Path(words[uv + 3]).resolve() == SERVER_DIR, words
+    return words[uv + 4 :]
+
+
 def test_make_lint_runs_ruff_check_over_the_whole_server_tree() -> None:
     """One command, `ruff check` on server/ — sources and tests — so the rule
     set the committed baseline was measured against is what actually runs."""
     commands = _tool_commands(_dry_run("lint"), "ruff")
     assert len(commands) == 1, f"`make lint` must run exactly one ruff command, got {commands}"
     words = commands[0]
-    assert words[words.index("ruff") + 1] == "check", words
-    checked = [Path(w).resolve() for w in words[words.index("check") + 1 :] if not w.startswith("-")]
-    assert checked == [SERVER_DIR], (
-        f"`make lint` checks {checked}, expected exactly the whole server tree {SERVER_DIR}"
+    assert _uv_argv(words) == ["ruff", "check", str(SERVER_DIR)], (
+        "`make lint` must execute exactly `ruff check <server>` with no scope-changing, "
+        f"success-forcing, or intermediary command; got {words}"
     )
+
+
+@pytest.mark.parametrize(
+    "recipe",
+    (
+        f"cd {REPO_ROOT} && uv run --project {SERVER_DIR} ruff check {SERVER_DIR} --exit-zero",
+        f"cd {REPO_ROOT} && uv run --project {SERVER_DIR} echo ruff check {SERVER_DIR}",
+    ),
+)
+def test_lint_contract_rejects_non_enforcing_recipes(
+    monkeypatch: pytest.MonkeyPatch, recipe: str
+) -> None:
+    """Success-forcing flags and commands that only mention ruff are not lint."""
+    monkeypatch.setattr(sys.modules[__name__], "_dry_run", lambda target: recipe)
+    with pytest.raises(AssertionError):
+        test_make_lint_runs_ruff_check_over_the_whole_server_tree()
 
 
 def test_make_typecheck_runs_mypy_bare_from_server() -> None:
