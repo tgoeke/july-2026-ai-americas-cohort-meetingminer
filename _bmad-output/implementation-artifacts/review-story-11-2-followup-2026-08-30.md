@@ -47,3 +47,11 @@
 - **Red regression:** `test_a_stack_file_make_directive_is_refused_before_include_executes_it` failed at `assert proc.returncode != 0`: `make help` returned 0 and printed the full target list after including the injected file. The reader matrix also failed: the script did not raise for `include /tmp/override.mk`, and the loader did not raise for that line or a duplicate `MM_STACK_NAME`.
 - **Resolution:** Fixed on the review branch. Both Python readers now reject every non-comment/nonblank line that is not a data assignment and reject duplicate keys. Make runs the stdlib validator at parse time and includes the file only when that check is silent, so directives and expansions never execute first.
 - **Green verification:** The eight focused script/loader/Make regressions passed, `make help` accepted the real generated record, and the fast infrastructure/config/compose group passed with 288 tests (1 expected deselection).
+
+### Finding 4 — Same-target provisioners can publish two incarnation IDs
+
+- **Location:** `infra/worktree_stack.py:483`
+- **Severity:** medium
+- **Finding:** `provision` checks whether `.env.worktree` exists before acquiring `.provision.lock`, but does not recheck after it gets the lock. Two concurrent provisions of the same absent target both pass the outer check; the waiter then overwrites the first caller's complete record with a new stack id.
+- **Evidence:** Caller A and caller B both observe no file. A acquires the lock and atomically publishes id A; after A releases, B acquires the lock, allocates again, and `os.replace`s the record with id B because lines 492–497 contain no inside-lock existence check. Concurrent `worktree-start` calls can consequently claim/start different incarnations, with one treating the other's just-created resources as stale.
+- **Suggested direction:** Recheck for the record immediately after acquiring the provisioning lock; if present, validate it for the target slug and return it unchanged. Only the lock holder that still observes absence may allocate and publish a new id.
