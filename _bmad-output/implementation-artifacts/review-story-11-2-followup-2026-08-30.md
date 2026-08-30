@@ -123,7 +123,8 @@
 - **Suggested direction:** The project name and incarnation id used by ownership proof and Compose must be identical for every start. If process overrides of safety identity remain supported, claim the effective values and refuse main/foreign ownership before `up`; otherwise classify these two generated ownership fields as non-overridable while preserving the frozen precedence for the port/endpoint overrides.
 - **Owner decision — 2026-08-30:** Fix here. `MM_STACK_NAME` and `MM_STACK_ID` are non-overridable ownership identity read only from the checkout's `.env.worktree`; the frozen process precedence remains unchanged for ports and endpoint values. As a backstop, immediately before Compose runs, assert that its effective project name and incarnation id equal the file's values and refuse by name on any mismatch.
 - **Red regressions:** `test_infra_up_refuses_process_stack_name_override_before_claim_or_compose` and `test_infra_up_refuses_process_stack_id_override_before_claim_or_compose` both failed at `assert proc.returncode != 0`: each observed return code was exactly 0. The name case printed `no stale stack meetingminer-probe` and then ran Compose `up -d --wait` with effective `MM_STACK_NAME=meetingminer-victim` / `-p meetingminer-victim`; the id case printed the same successful claim and then ran the checkout project's Compose `up` with effective `MM_STACK_ID=deadbeefcafe`. Thus both overrides reached claim and `up` instead of being refused before either operation. The two failures were committed before production changes in `30597b1`.
-- **Status:** Accepted for red-first remediation on `story/11-2-followup-review`.
+- **Resolution:** Fixed in `0862185`. Process identity conflicts now fail during Make parsing before `claim`; Make command-line identity cannot replace the validated record; the loader always uses record/main-default identity; and a final live-record comparison runs immediately before both Compose `up` and `down`.
+- **Green verification:** The focused identity matrix passed 11 tests. The complete Story 11-2 suites then passed 299 tests (1 deselected) and 116 tests, including the two required `infra-up` regressions and unchanged port precedence.
 
 ### Finding 11 — AD-10 omits the new environment-owned incarnation identity
 
@@ -133,7 +134,8 @@
 - **Evidence:** Every generated `.env.worktree` now requires `MM_STACK_ID=<12 hex>`, Make exports it to Compose, and all five services and seven volumes interpolate it into `com.meetingminer.stack-id`; omitting it fails validation. The AD-10 sentence still ends its environment allowance at “private-stack name and the host ports its stores publish,” with no identity field.
 - **Suggested direction:** Amend AD-10's single environment allowance to include the checkout stack's generated incarnation identity, narrowly describing the label-backed safety identity without admitting general adapter bindings or a second human-authored config source.
 - **Owner decision — 2026-08-30:** Fix here. Story 11-2 owns the AD-10 private-stack amendment, so extend the same sentence to name the generated incarnation identity; the owner will union Story 8-1's separate model-binding sentence during integration.
-- **Status:** Accepted for remediation on `story/11-2-followup-review`.
+- **Resolution:** Fixed in `0862185`. AD-10 now explicitly admits a checkout's generated incarnation identity alongside its private-stack name and published host ports, without widening the environment allowance to adapter bindings.
+- **Green verification:** The documentation/spec audit and `test_compose_contract.py` passed as part of the 299-test Story 11-2 suite.
 
 ### Finding 12 — Stack identity regexes accept a trailing newline
 
@@ -146,12 +148,39 @@
 - **Resolution:** Fixed on the review branch. All slug, project-name, and incarnation-id validators in the stdlib stack tool and application loader now use full-string matching.
 - **Green verification:** The newline/CR regressions and the complete worktree-stack plus config modules passed: 253 tests.
 
+### Finding 13 — the final start check is too late to protect claim
+
+- **Location:** `infra/Makefile:654`
+- **Severity:** medium
+- **Finding:** `infra-up` compares Make's parsed identity with the live record only after `check-stack` has claimed it. If the record changes after parsing, claim can classify the checkout's parsed/live stack as stale and execute `down -v` before the mismatch is refused.
+- **Evidence:** With Make holding id `0123456789ab`, change the valid record to `deadbeefcafe` during `check-docker` while inventory reports the live project at `0123456789ab`. The current prerequisite order then calls `claim` with the new file id, which selects the old-id project for teardown; only the recipe's later `assert-identity` notices that Make still holds the old id.
+- **Suggested direction:** Compare Make's effective name/id with the live record after `check-docker` but before `check-stack`, retain the final check immediately before Compose, and regression-prove neither inventory nor teardown is reached on the mismatch.
+- **Status:** Filed before regression; patch pending on `story/11-2-followup-review`.
+
+### Finding 14 — `WT_ENVFILE` can redirect every ownership guard
+
+- **Location:** `infra/Makefile:17`
+- **Severity:** high
+- **Finding:** GNU Make command-line precedence can replace `WT_ENVFILE := $(ROOT)/.env.worktree`. A caller can therefore point validation, identity resolution, claim, the final assertion, and Compose's second env file at another checkout's valid ownership record, defeating the owner ruling that identity comes only from this checkout's file.
+- **Evidence:** In a `probe` checkout with its own valid record, pass `WT_ENVFILE=<victim>/.env.worktree make infra-up`. Every current reference derives the worktree from `$(dir $(WT_ENVFILE))`, so Make resolves and claims the victim name/id and invokes Compose with the victim project instead of refusing or using `probe`.
+- **Suggested direction:** Make `WT_ENVFILE` an override assignment derived only from `ROOT`; adapt test isolation to override a scratch `ROOT` plus the real `INFRA`, not the safety record path itself.
+- **Status:** Filed before regression; patch pending on `story/11-2-followup-review`.
+
+### Finding 15 — identity helpers misclassify missing and main-checkout records
+
+- **Location:** `infra/worktree_stack.py:910`
+- **Severity:** low
+- **Finding:** `_declared_identity` returns main identity for any directory without `.env.worktree` and accepts a private record in any directory. The new public identity/assertion subcommands therefore disagree with the established checkout-topology guards: a linked worktree missing its record can be described as main, and a main checkout can be described as private.
+- **Evidence:** `identity --worktree <linked-without-file>` currently prints `meetingminer` with a blank id and exits 0. Conversely, placing a structurally valid directory-matching record beside a `.git` directory lets `identity` print the private name/id even though `validated_worktree_env` and `check-stack-record` reject that topology.
+- **Suggested direction:** Make the shared identity reader enforce checkout topology: a `.git` file requires a valid record, a `.git` directory forbids one, and a non-git scratch directory retains main/default behavior for isolated tests.
+- **Status:** Filed before regression; patch pending on `story/11-2-followup-review`.
+
 ## Review Outcome
 
-- **Verdict:** Changes requested — not ready to integrate while Finding 10 remains an unresolved high-severity owner decision.
-- **Triage:** 12 confirmed findings: 10 patch findings fixed on this review branch; 2 decision-needed findings left open by contract/scope (`Finding 10`, high; `Finding 11`, low); no deferred findings.
-- **Prior remediation assessment:** The production fixes for the ten dispatched findings hold under the exercised adversarial cases after this lane's patches. The claimed ownership-recheck regression for prior finding 7 was not discriminating; Finding 9 replaces it with an observed mutation-red test. The new effective-identity gap in Finding 10 prevents approval even though the original ten checklist rows are otherwise closed.
-- **Story status:** `in-progress` in the spec and sprint tracker because unresolved high-severity behavior remains. No merge was performed.
+- **Verdict:** Remediation in progress — final adversarial review added three patch findings.
+- **Triage:** 15 confirmed findings: 12 fixed; Findings 13–15 filed and pending red-first remediation; no deferred findings.
+- **Prior remediation assessment:** The production fixes for the ten dispatched findings hold under the exercised adversarial cases after this lane's patches. The claimed ownership-recheck regression for prior finding 7 was not discriminating; Finding 9 replaced it with an observed mutation-red test. Owner rulings closed the remaining effective-identity and architecture-authority gaps red/green.
+- **Story status:** `review` in the spec and sprint tracker. No merge was performed.
 
 ## Final Verification
 
@@ -161,6 +190,9 @@
 - `uv run --project server pytest server/tests --co -q | tail -1` — **1612/1984 collected, 372 deselected**.
 - `make check-env` — passed for this worktree's validated ownership record.
 - `make test` — after the documented one-time `make bootstrap` installed missing worktree-local puller/web dependencies: puller **128 passed**, web **291 passed**, eval harness **549 passed**, server **1984 passed** in 579.13s, production web build succeeded.
+- Owner-ruling Story suites: `test_worktree_stack.py test_config.py test_compose_contract.py` — **299 passed, 1 deselected**; `-m "" test_makefile_procs.py test_projections_locks.py test_parallel_store_safety.py` — **116 passed**.
+- `make test-fast` after `0862185` — puller **128 passed**, web **291 passed**, eval harness **549 passed**, server fast set **1615 passed, 376 deselected**.
+- `make check-env && make check-test-stores` — passed; required twin reachability **1 passed**. Collection is **1615/1991**, 376 deselected.
 - `git diff --check` — passed.
 - `make check-reviews` — **passed:** every dispatched review has a committed report (run after commit `27804fb`).
 - `make evals-run` was not run (paid judge role, expressly excluded).
