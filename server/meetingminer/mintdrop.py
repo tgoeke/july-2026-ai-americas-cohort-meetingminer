@@ -99,6 +99,7 @@ from meetingminer.pipeline.media import (
     probe_creation_time,
     probe_media,
 )
+from meetingminer.transcripts import dialects
 
 PROGRAM = "mint-drop"
 
@@ -1039,6 +1040,20 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--transcript-dialect",
+        dest="transcript_dialect",
+        choices=dialects.DIALECTS,
+        default=dialects.DEFAULT_DIALECT,
+        help=(
+            "which export the supplied transcript is, declared and never"
+            " inferred from content. 'plain' (default) mints the files as they"
+            " are; 'teams-vtt' says so in provenance and changes nothing;"
+            " 'zoom' converts a Zoom .vtt whose cues read 'Name: text' into"
+            f" {TRANSCRIPT_TEXT_FILENAME} with its speakers plus a"
+            f" speaker-less {TRANSCRIPT_VTT_FILENAME} carrying the timing."
+        ),
+    )
+    parser.add_argument(
         "--supplied-by",
         dest="supplied_by",
         help="who supplied the file, recorded in provenance (default: $USER).",
@@ -1108,19 +1123,28 @@ def main(argv: list[str] | None = None) -> int:
         # line that cannot be run.
         api_url = resolve_api_url(args.api)
         drops_root = resolve_drops_root(args.drops, config)
-        result = mint(
-            supplied=args.files,
-            corpus=args.corpus,
-            drops_root=drops_root,
-            config_path=config.config_path,
-            title=args.title,
-            started_at_argument=args.started_at,
-            supplied_by=args.supplied_by,
-            # An explicit child root is a placement choice, not a separate
-            # intake namespace: all of MM_DROPS_ROOT shares source identity.
-            identity_root=config.secrets.mm_drops_root,
-        )
-    except (ConfigError, MintError) as exc:
+        # The converted files live only as long as the mint: `mint()` copies
+        # them into staging and verifies the copy, so the workspace has to
+        # outlive the call and nothing else. A `plain` mint converts nothing
+        # and passes its own paths straight through (story 6.3).
+        with dialects.workspace() as workspace:
+            conversion = dialects.convert_supplied(
+                args.files, dialect=args.transcript_dialect, into=workspace
+            )
+            result = mint(
+                supplied=conversion.supplied,
+                corpus=args.corpus,
+                drops_root=drops_root,
+                config_path=config.config_path,
+                title=args.title,
+                started_at_argument=args.started_at,
+                supplied_by=args.supplied_by,
+                # An explicit child root is a placement choice, not a separate
+                # intake namespace: all of MM_DROPS_ROOT shares source identity.
+                identity_root=config.secrets.mm_drops_root,
+                provenance_extra=conversion.provenance_extra,
+            )
+    except (ConfigError, MintError, dialects.DialectError) as exc:
         print(f"fatal: {PROGRAM} refused: {exc}", file=sys.stderr)
         return 1
 
