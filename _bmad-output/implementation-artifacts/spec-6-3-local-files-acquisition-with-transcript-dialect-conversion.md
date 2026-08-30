@@ -4,6 +4,7 @@ type: 'feature'
 created: '2026-08-30'
 status: 'in-progress'
 baseline_revision: 'd72c658'
+baseline_commit: 'b3bb1d09cdf19c72af46d10abbec1ba02bdfda63'
 review_loop_iteration: 1
 followup_review_recommended: true
 context:
@@ -305,3 +306,38 @@ The other two kinds of pair this run reported are not about code:
 Not run: `make evals-run` (paid), the shared api and worker (never started), any
 model call. No test posts to an api; the two mint-through-the-CLI tests pass
 `--no-post` and install a fixture that fails the test if any HTTP call is made.
+
+## Owner ruling follow-up — F6 (2026-08-30)
+
+The owner **deferred** F6. Do not amend the whole-second truncation contract and
+do not change the converter. The reproduced mechanism is real, but the corpus
+does not yet establish how often genuine Zoom exports contain sub-second
+speaker changes. Preserve the exact reproduction in `deferred-work.md` with a
+revisit trigger of real Zoom exports in the new corpus showing sub-second
+speaker changes.
+
+The only code change authorized by this ruling is observability at the existing
+fallback boundary. When alignment's existing fallback produces a zero-duration
+turn because two turn starts collide, emit a named structured warning carrying
+the meeting, the turn, and both colliding stamps. This is a log line only: no
+behavior change, no contract amendment, no retry, and no converter edit. Keep
+the pure alignment decision function unchanged and emit at the pipeline stage
+boundary where the meeting identity and structured logger are available.
+
+### Tasks & Acceptance — F6 owner ruling
+
+- [ ] Record F6 as **DEFERRED** in the review report and
+  `_bmad-output/implementation-artifacts/deferred-work.md`, retaining verbatim:
+  cues at 1.100s and 1.900s; observed
+  `merge_vtt_end_timings() -> (None, 2200)`; resulting zero-duration boundary;
+  revisit only when real Zoom exports in the new corpus show sub-second speaker
+  changes.
+- [ ] Add a red-first regression test proving the fallback emits one named
+  structured warning with the meeting, affected turn, and the two colliding
+  stamps.
+- [ ] Add the warning at the alignment stage boundary without changing
+  `resolve_end_times()`, converter output, accepted inputs, or stored timing
+  behavior. Assert the reproduced result remains the zero-duration first
+  boundary followed by 2200ms.
+- [ ] Update the owner/spec handoff so F1 is the only open decision. Do not act
+  on F1 and do not merge to `main`.
