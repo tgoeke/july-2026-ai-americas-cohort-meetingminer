@@ -148,7 +148,12 @@ def test_baseline_prose_distinguishes_pairs_from_per_file_entries() -> None:
 def test_review_handoff_uses_a_dedicated_review_worktree() -> None:
     """The report and closeout belong on the review branch, never main."""
     prompt = REVIEW_PROMPT_PATH.read_text()
-    assert "make worktree STORY=11-4-review BASE=story/11-4" in prompt
+    create_branch = "git branch story/11-4-review story/11-4"
+    attach_worktree = "make worktree STORY=11-4-review"
+    assert create_branch in prompt
+    assert attach_worktree in prompt
+    assert prompt.index(create_branch) < prompt.index(attach_worktree)
+    assert "BASE=" not in prompt, "the worktree target does not implement a BASE parameter"
     assert "/meetingminer-wt/11-4-review" in prompt
     assert "branch `story/11-4-review`" in prompt
     assert "under the main checkout" not in prompt

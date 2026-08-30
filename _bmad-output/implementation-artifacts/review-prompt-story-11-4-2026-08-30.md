@@ -30,8 +30,9 @@ review worktree before reporting completion.
 ## 2. Repository, branch, range
 
 - Repo: `/Users/devopsterus/current/cohort/meetingminer` (main checkout —
-  other agents work in it; use it only to run
-  `make worktree STORY=11-4-review BASE=story/11-4`, then do not edit it).
+  other agents work in it; use it only to create and attach the review branch:
+  `git branch story/11-4-review story/11-4`, then
+  `make worktree STORY=11-4-review`, then do not edit it).
   Review in `/Users/devopsterus/current/cohort/meetingminer-wt/11-4-review`
   on branch `story/11-4-review`, based on `story/11-4`.
 - Range: `origin/main..origin/story/11-4`, rebased onto main `211857c`.
