@@ -475,3 +475,218 @@ def test_linked_worktree_without_stack_file_is_refused_by_name(tmp_path: Path) -
     main = tmp_path / "main"
     (main / ".git").mkdir(parents=True)
     assert linked_worktree_without_stack(main) is None
+
+
+# --- remediation 2026-08-30: .env.worktree is one validated ownership record
+
+GOOD_STACK_ID = "0123456789ab"
+
+
+def good_stack_lines(slug: str = "probe", base: int = 20000) -> list[str]:
+    """The exact KEY=value lines a rendered file carries, in STACK_KEYS order."""
+    ports = ws.ports_for_base(base)
+    return [
+        f"MM_STACK_NAME=meetingminer-{slug}",
+        *(f"{name}={ports[name]}" for name in ws.PORT_NAMES),
+        f"MM_STACK_ID={GOOD_STACK_ID}",
+        f"MM_TEST_NEO4J_URI=bolt://localhost:{ports['MM_NEO4J_TEST_BOLT_PORT']}",
+        f"MM_TEST_MEILI_URL=http://localhost:{ports['MM_MEILI_TEST_PORT']}",
+    ]
+
+
+def good_stack_text(slug: str = "probe", base: int = 20000) -> str:
+    return "\n".join(good_stack_lines(slug, base)) + "\n"
+
+
+def _truncated(lines: list[str], key: str) -> list[str]:
+    index = next(n for n, line in enumerate(lines) if line.startswith(f"{key}="))
+    return lines[:index]
+
+
+def _replaced(lines: list[str], key: str, value: str) -> list[str]:
+    return [f"{key}={value}" if line.startswith(f"{key}=") else line for line in lines]
+
+
+_GOOD = good_stack_lines()
+
+#: (case id, file lines for slug `probe`, the key every refusal must name,
+#: whether the loader — which does not know the checkout directory — also
+#: rejects it; a file naming another slug is caught by the directory-keyed
+#: validators only).
+BAD_STACK_FILES: list[tuple[str, list[str], str, bool]] = [
+    ("truncated-before-id", _truncated(_GOOD, "MM_STACK_ID"), "MM_STACK_ID", True),
+    ("truncated-before-neo4j-twin", _truncated(_GOOD, "MM_TEST_NEO4J_URI"), "MM_TEST_NEO4J_URI", True),
+    ("truncated-before-meili-twin", _truncated(_GOOD, "MM_TEST_MEILI_URL"), "MM_TEST_MEILI_URL", True),
+    ("name-only", [_GOOD[0]], "MM_POSTGRES_PORT", True),
+    ("another-slugs-name", _replaced(_GOOD, "MM_STACK_NAME", "meetingminer-other"), "MM_STACK_NAME", False),
+    ("the-main-project-as-name", _replaced(_GOOD, "MM_STACK_NAME", "meetingminer"), "MM_STACK_NAME", True),
+    ("port-not-a-number", _replaced(_GOOD, "MM_POSTGRES_PORT", "abc"), "MM_POSTGRES_PORT", True),
+    ("port-zero", _replaced(_GOOD, "MM_POSTGRES_PORT", "0"), "MM_POSTGRES_PORT", True),
+    ("port-out-of-range", _replaced(_GOOD, "MM_POSTGRES_PORT", "70000"), "MM_POSTGRES_PORT", True),
+    ("port-with-sign", _replaced(_GOOD, "MM_POSTGRES_PORT", "+5"), "MM_POSTGRES_PORT", True),
+    ("port-with-underscore", _replaced(_GOOD, "MM_POSTGRES_PORT", "1_000"), "MM_POSTGRES_PORT", True),
+    ("two-equal-ports", _replaced(_GOOD, "MM_MEILI_PORT", "20001"), "MM_MEILI_PORT", True),
+    ("a-main-default-port", _replaced(_GOOD, "MM_NEO4J_TEST_BOLT_PORT", "7688"), "MM_NEO4J_TEST_BOLT_PORT", True),
+    ("bad-stack-id", _replaced(_GOOD, "MM_STACK_ID", "XYZ"), "MM_STACK_ID", True),
+    ("incoherent-neo4j-twin", _replaced(_GOOD, "MM_TEST_NEO4J_URI", "bolt://localhost:9999"), "MM_TEST_NEO4J_URI", True),
+    ("incoherent-meili-twin", _replaced(_GOOD, "MM_TEST_MEILI_URL", "http://localhost:9999"), "MM_TEST_MEILI_URL", True),
+    ("foreign-key", [*_GOOD, "POSTGRES_PASSWORD=x"], "POSTGRES_PASSWORD", True),
+    ("blank-value", _replaced(_GOOD, "MM_MEILI_PORT", ""), "MM_MEILI_PORT", True),
+]
+BAD_STACK_IDS = [case for case, _lines, _key, _loader in BAD_STACK_FILES]
+
+
+def _linked(tmp_path: Path, slug: str, text: str | None) -> Path:
+    """A directory that looks like a linked git worktree, optionally with a
+    stack file."""
+    linked = tmp_path / slug
+    linked.mkdir(parents=True, exist_ok=True)
+    (linked / ".git").write_text("gitdir: /elsewhere/.git/worktrees/x\n", encoding="utf-8")
+    if text is not None:
+        (linked / ".env.worktree").write_text(text, encoding="utf-8")
+    return linked
+
+
+def test_stack_keys_carry_the_stack_id_in_order() -> None:
+    """The incarnation identity (MM_STACK_ID) is the tenth stack key."""
+    assert ws.STACK_KEYS == (
+        "MM_STACK_NAME",
+        *ws.PORT_NAMES,
+        "MM_STACK_ID",
+        "MM_TEST_NEO4J_URI",
+        "MM_TEST_MEILI_URL",
+    )
+
+
+def test_validate_env_file_accepts_a_rendered_file(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env.worktree"
+    env_file.write_text(good_stack_text(), encoding="utf-8")
+    values = ws.validate_env_file(env_file, "probe")
+    assert values["MM_STACK_NAME"] == "meetingminer-probe"
+    assert values["MM_STACK_ID"] == GOOD_STACK_ID
+
+
+@pytest.mark.parametrize(
+    ("case", "lines", "key", "loader_rejects"), BAD_STACK_FILES, ids=BAD_STACK_IDS
+)
+def test_bad_stack_file_is_refused_by_validate_and_provision(
+    tmp_path: Path, case: str, lines: list[str], key: str, loader_rejects: bool
+) -> None:
+    """One schema: every reader refuses the same file naming the same key,
+    and provision never rewrites a bad file."""
+    text = "\n".join(lines) + "\n"
+    worktree = tmp_path / "probe"
+    worktree.mkdir()
+    env_file = worktree / ".env.worktree"
+    env_file.write_text(text, encoding="utf-8")
+    with pytest.raises(ws.StackError) as validate_error:
+        ws.validate_env_file(env_file, "probe")
+    assert key in str(validate_error.value)
+    assert "delete" in str(validate_error.value)  # the remedy is executable
+    with pytest.raises(ws.StackError) as provision_error:
+        ws.provision("probe", worktree, tmp_path, ALL_FREE)
+    assert key in str(provision_error.value)
+    assert env_file.read_text(encoding="utf-8") == text  # kept byte-identical
+
+
+@pytest.mark.parametrize(
+    ("case", "lines", "key", "loader_rejects"), BAD_STACK_FILES, ids=BAD_STACK_IDS
+)
+def test_bad_stack_file_is_refused_by_the_test_session_guard(
+    tmp_path: Path, case: str, lines: list[str], key: str, loader_rejects: bool
+) -> None:
+    from conftest import linked_worktree_refusal
+
+    linked = _linked(tmp_path, "probe", "\n".join(lines) + "\n")
+    message = linked_worktree_refusal(linked)
+    assert message is not None
+    assert key in message
+
+
+def test_linked_worktree_refusal_semantics(tmp_path: Path) -> None:
+    """No file: refused naming worktree-provision. A rendered file for this
+    directory: fine. A rendered file for another slug: refused. A main
+    checkout carrying the file: refused."""
+    from conftest import linked_worktree_refusal
+
+    bare = _linked(tmp_path, "linked", None)
+    message = linked_worktree_refusal(bare)
+    assert message is not None and "make worktree-provision" in message
+
+    good = _linked(tmp_path / "good-root", "linked", good_stack_text("linked"))
+    assert linked_worktree_refusal(good) is None
+
+    wrong = _linked(tmp_path / "wrong-root", "linked", good_stack_text("other"))
+    message = linked_worktree_refusal(wrong)
+    assert message is not None and "MM_STACK_NAME" in message
+
+    main = tmp_path / "main"
+    (main / ".git").mkdir(parents=True)
+    assert linked_worktree_refusal(main) is None
+    (main / ".env.worktree").write_text(good_stack_text("main"), encoding="utf-8")
+    message = linked_worktree_refusal(main)
+    assert message is not None and "main checkout" in message
+
+
+def test_provision_publication_is_atomic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An interrupted publication must never leave an accepted (or partial)
+    .env.worktree behind — not even a temp file."""
+    worktree = tmp_path / "probe"
+    worktree.mkdir()
+
+    def boom(_src: object, _dst: object) -> None:
+        raise OSError("simulated publication failure")
+
+    monkeypatch.setattr(ws.os, "replace", boom)
+    with pytest.raises(ws.StackError, match="cannot write"):
+        ws.provision("probe", worktree, tmp_path, ALL_FREE)
+    assert list(worktree.iterdir()) == []
+
+
+def test_provision_refuses_a_file_naming_another_slug(tmp_path: Path) -> None:
+    """A copied file must never be kept for a different worktree."""
+    worktree = tmp_path / "probe"
+    worktree.mkdir()
+    text = good_stack_text("other")
+    (worktree / ".env.worktree").write_text(text, encoding="utf-8")
+    with pytest.raises(ws.StackError, match="MM_STACK_NAME"):
+        ws.provision("probe", worktree, tmp_path, ALL_FREE)
+    assert (worktree / ".env.worktree").read_text(encoding="utf-8") == text
+
+
+def test_check_subcommand_validates_the_directorys_own_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`check --worktree <dir>`: the slug is the directory name, so a renamed
+    or moved worktree is refused by name."""
+    worktree = tmp_path / "probe"
+    worktree.mkdir()
+    (worktree / ".env.worktree").write_text(good_stack_text("probe"), encoding="utf-8")
+    assert ws.main(["check", "--worktree", str(worktree)]) == 0
+    assert capsys.readouterr().out == ""
+
+    renamed = tmp_path / "renamed"
+    worktree.rename(renamed)
+    assert ws.main(["check", "--worktree", str(renamed)]) == 1
+    assert "MM_STACK_NAME" in capsys.readouterr().err
+
+
+def test_declared_owners_counts_only_valid_worktree_stack_names(tmp_path: Path) -> None:
+    """A sibling file whose MM_STACK_NAME is not meetingminer-<slug> must not
+    grant ownership of anything."""
+    root = tmp_path / "wt"
+    good = root / "good"
+    good.mkdir(parents=True)
+    (good / ".env.worktree").write_text(good_stack_text("good"), encoding="utf-8")
+    bad = root / "bad"
+    bad.mkdir()
+    (bad / ".env.worktree").write_text(
+        "MM_STACK_NAME=meetingminer-Foo\n", encoding="utf-8"
+    )
+    main_name = root / "mainish"
+    main_name.mkdir()
+    (main_name / ".env.worktree").write_text("MM_STACK_NAME=meetingminer\n", encoding="utf-8")
+    owners = ws.declared_owners(root)
+    assert owners == {"meetingminer-good": good}

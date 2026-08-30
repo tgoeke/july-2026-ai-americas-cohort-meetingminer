@@ -966,3 +966,58 @@ def test_port_override_keeps_the_host_text_verbatim(tmp_path: Path, no_port_over
     assert load_config(config_path, envfile).settings.stores.neo4j.uri == "bolt://Neo4jHost:20003"
     config_path = _config_with(tmp_path, "uri: bolt://localhost:7687", 'uri: "bolt://[::1]:7687"')
     assert load_config(config_path, envfile).settings.stores.neo4j.uri == "bolt://[::1]:20003"
+
+
+# --- remediation 2026-08-30: the loader validates the whole worktree file ----
+# The schema is spelled twice on purpose — infra/worktree_stack.py must run
+# with the system python3 before a venv exists, and the server package cannot
+# import from infra/ — so this table pins the two implementations equal: for
+# every bad file both refuse, naming the same key.
+
+from test_worktree_stack import (  # noqa: E402
+    BAD_STACK_FILES,
+    BAD_STACK_IDS,
+    good_stack_text,
+    ws as worktree_stack,
+)
+
+
+def test_a_rendered_stack_file_passes_both_validators(
+    tmp_path: Path, no_port_overrides: None
+) -> None:
+    from meetingminer.config import merged_env
+
+    envfile = _stack_files(tmp_path, "POSTGRES_PASSWORD=x\n", good_stack_text("probe"))
+    values = worktree_stack.validate_env_file(tmp_path / ".env.worktree", "probe")
+    env = merged_env(envfile)
+    for key, value in values.items():
+        assert env[key] == value
+
+
+@pytest.mark.parametrize(
+    ("case", "lines", "key", "loader_rejects"), BAD_STACK_FILES, ids=BAD_STACK_IDS
+)
+def test_loader_and_script_refuse_the_same_files_naming_the_same_key(
+    tmp_path: Path,
+    no_port_overrides: None,
+    case: str,
+    lines: list[str],
+    key: str,
+    loader_rejects: bool,
+) -> None:
+    from meetingminer.config import merged_env
+
+    text = "\n".join(lines) + "\n"
+    envfile = _stack_files(tmp_path, "POSTGRES_PASSWORD=x\n", text)
+    with pytest.raises(worktree_stack.StackError) as script_error:
+        worktree_stack.validate_env_file(tmp_path / ".env.worktree", "probe")
+    assert key in str(script_error.value)
+    if loader_rejects:
+        with pytest.raises(ConfigError) as loader_error:
+            merged_env(envfile)
+        assert key in str(loader_error.value)
+        assert str(tmp_path / ".env.worktree") in str(loader_error.value)
+    else:
+        # The loader does not know the checkout directory; a coherent file
+        # naming another slug is the directory-keyed validators' catch.
+        assert merged_env(envfile)["MM_STACK_NAME"] == "meetingminer-other"

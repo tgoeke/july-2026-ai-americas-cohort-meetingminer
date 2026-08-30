@@ -1657,3 +1657,51 @@ def test_worktree_remove_of_a_dirty_checkout_leaves_the_stack_intact(tmp_path: P
     assert worktree.is_dir()
     assert "Stack meetingminer-probe is left intact" in output
     assert not any("down" in line for line in _argv_lines(argv_log))
+
+
+# --- remediation 2026-08-30: the stack file is a validated ownership record --
+
+from test_worktree_stack import good_stack_text  # noqa: E402
+
+
+def test_check_env_names_an_invalid_stack_file_in_a_linked_worktree(tmp_path: Path) -> None:
+    """A readable-but-wrong .env.worktree must fail check-env by name, not be
+    accepted because it exists."""
+    repo, docker_bin, _argv_log = _throwaway_repo(tmp_path)
+    worktree = _linked_worktree_without_stack(repo, "probe")
+    (worktree / ".env.worktree").write_text(
+        good_stack_text("other"), encoding="utf-8"
+    )
+    proc = _make_at(worktree, docker_bin, ["check-env"])
+    output = proc.stdout + proc.stderr
+    assert proc.returncode != 0, output
+    assert "MM_STACK_NAME" in output
+
+
+def test_check_env_in_the_main_checkout_refuses_a_stack_file(tmp_path: Path) -> None:
+    """The main checkout runs the main stack; a .env.worktree there is a
+    misplaced ownership record and must be refused by name."""
+    repo, docker_bin, _argv_log = _throwaway_repo(tmp_path)
+    (repo / ".env.worktree").write_text(good_stack_text("repo"), encoding="utf-8")
+    proc = _make_at(repo, docker_bin, ["check-env"])
+    output = proc.stdout + proc.stderr
+    assert proc.returncode != 0, output
+    assert "main checkout" in output
+    assert ".env.worktree" in output
+    (repo / ".env.worktree").unlink()
+    assert _make_at(repo, docker_bin, ["check-env"]).returncode == 0
+
+
+def test_a_stack_file_assigning_a_makefile_variable_fails_at_parse_time(tmp_path: Path) -> None:
+    """`-include .env.worktree` must never let the file assign ROOT, INFRA or
+    any other Makefile variable — refused before any target runs."""
+    repo, docker_bin, _argv_log = _throwaway_repo(tmp_path)
+    worktree = _linked_worktree_without_stack(repo, "probe")
+    (worktree / ".env.worktree").write_text(
+        good_stack_text("probe") + "ROOT=/elsewhere\n", encoding="utf-8"
+    )
+    proc = _make_at(worktree, docker_bin, ["help"])
+    output = proc.stdout + proc.stderr
+    assert proc.returncode != 0, output
+    assert "ROOT" in output
+    assert "MeetingMiner targets" not in proc.stdout  # nothing ran
