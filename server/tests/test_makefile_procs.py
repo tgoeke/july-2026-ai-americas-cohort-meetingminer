@@ -863,8 +863,11 @@ def test_check_dev_stores_probes_this_checkouts_ports(tmp_path: Path) -> None:
     """With a `.env.worktree`, the Meilisearch probe hits its port and the
     Bolt probe names its port in the error."""
     bolt_port = _free_port()
+    stack_text = good_stack_text(tmp_path.name).replace(
+        "MM_NEO4J_BOLT_PORT=20003", f"MM_NEO4J_BOLT_PORT={bolt_port}"
+    )
     (tmp_path / ".env.worktree").write_text(
-        f"MM_MEILI_PORT=20004\nMM_NEO4J_BOLT_PORT={bolt_port}\n", encoding="utf-8"
+        stack_text, encoding="utf-8"
     )
     fake_bin = tmp_path / "path"
     curl_log = tmp_path / "curl-argv.txt"
