@@ -3,10 +3,13 @@ title: 'Code Review — Story 11-1, Fourth Review'
 story: '11-1-seconds-fast-default-suite'
 date: '2026-08-29'
 reviewer: 'Codex bmad-code-review'
-status: 'in-progress'
+status: 'passed'
+completed: '2026-08-30'
 base_commit: '28ea43d4fba4510278c524e730d86c944a781181'
 reviewed_head: '2ce91b3a7834e3572a270f192b2eef892a4f53c9'
 reviewed_branch: 'story/11-1-review'
+remediated_head: '7228d70'
+remediation_branch: 'story/11-1-fourth-review'
 ---
 
 # Story 11-1 — Fourth Code Review
@@ -15,7 +18,7 @@ reviewed_branch: 'story/11-1-review'
 
 - Diff: `28ea43d4fba4510278c524e730d86c944a781181...2ce91b3a7834e3572a270f192b2eef892a4f53c9`
 - Contract: `/Users/devopsterus/current/cohort/meetingminer/_bmad-output/implementation-artifacts/spec-11-1-seconds-fast-default-suite.md`
-- Review state: adversarial layers complete; targeted verification in progress.
+- Review state: passed after inline remediation and the full gate.
 
 ## Findings
 
@@ -41,12 +44,28 @@ Red evidence against reviewed head `2ce91b3`: evaluating both token lists throug
 
 ## Triage summary
 
-- `patch`: 4 medium
+- `patch`: 4 medium, all fixed
 - `decision_needed`: 0
 - `defer`: 0
 - `dismissed`: 13 normalized layer claims
 - failed review layers: 0
 
+## Actions and evidence
+
+- Finding 1 fixed in `b66636a`: active wrapper fixture definitions inherit the twin-bound state for the lifetime of the cached value and clear it at post-finalization. The original probe was green at `2ce91b3` (`3 passed`); after the fix the unmarked cache consumer is stopped (`2 passed, 1 error`).
+- Finding 2 fixed in `484f886`: the recipe's post-`cd` argv must equal `uv run --project <server> pytest -q -rs <server/tests>`. Mutations inserting `echo` before `pytest` and appending `& true` each failed the contract before restoration.
+- Findings 3 and 4 fixed in `7228d70`: the setup/teardown probe failed when the call-phase guard was removed; weakening `_has_reason` to key presence failed six empty, whitespace and non-string cases.
+
+Verification at `7228d70`:
+
+- `test_fast_budget.py` + `test_compose_contract.py`: 60 passed.
+- `test_makefile_procs.py`: 46 passed.
+- Collection: `1401/1727 tests collected (326 deselected)`; full selection: 1727.
+- `make check-test-stores`: 1 passed. `make check-reviews`: passed.
+- `make test-fast`: rc 0, 70.66s wall; server 1401 passed, 326 deselected in 51.17s.
+- `make test`: rc 0, 568.70s wall; server 1727 passed in 546.51s, all store-free suites and the web production build green.
+- Sole warning: the pre-existing Starlette `httpx` deprecation.
+
 ## Verdict
 
-Provisional: changes requested; verification and artifact synchronization remain.
+**Pass.** All four medium findings were fixed and verified in this review. No unresolved high or medium finding remains. Story 11-1 is ready for integration; no re-review is required.
