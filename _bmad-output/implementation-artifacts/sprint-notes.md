@@ -2845,7 +2845,7 @@ stack and each existing worktree then owes `make worktree-provision`), 8-1
 Pinned ruff 0.16.5 and mypy 2.3.1 in the server dev group with committed
 configuration green on main untouched: ruff's default rule set held still by
 the `<0.17` pin (plus `required-version`), a dated seven-code global ignore,
-49 per-file baseline entries; mypy over the 13 decision-core modules with
+49 file-code pairs across 38 per-file entries; mypy over the 13 decision-core modules with
 `check_untyped_defs` and one jsonschema override. `make lint` and
 `make typecheck` join `test-fast` directly after `check-client`, pinned by
 the extended `TEST_FAST_PREREQUISITES` and the new self-contained

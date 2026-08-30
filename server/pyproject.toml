@@ -150,7 +150,7 @@ required-version = ">=0.16.5,<0.17"
 
 [tool.ruff.lint]
 # The isolated 2026-08-30 run measured 200 file-code pairs; six mechanical
-# codes carried 151 of them, leaving the 49 per-file entries below. UP017 is
+# codes carried 151 of them, leaving 49 file-code pairs across 38 per-file entries below. UP017 is
 # config-only: its 30 hits (11 more file-code pairs) appear on top of the
 # measured 200 once this file sets target-version. A per-file table for all
 # of that would drown the meaningful entries, so these seven codes are

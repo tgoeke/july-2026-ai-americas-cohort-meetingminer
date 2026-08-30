@@ -31,6 +31,9 @@ from repo_paths import REPO_ROOT
 MAKEFILE_DIR = REPO_ROOT / "infra"
 PYPROJECT_PATH = REPO_ROOT / "server" / "pyproject.toml"
 SERVER_DIR = REPO_ROOT / "server"
+SPRINT_NOTES_PATH = REPO_ROOT / "_bmad-output" / "implementation-artifacts" / "sprint-notes.md"
+
+BASELINE_SUMMARY = "49 file-code pairs across 38 per-file entries"
 
 # Dropping lint or typecheck from the loop is a deliberate edit of both
 # places, and the assertions below name them:
@@ -117,6 +120,15 @@ BASELINE_PER_FILE: dict[str, frozenset[str]] = {
 }
 
 RULE_CODE = re.compile(r"[A-Z][A-Z0-9]*[0-9]+")
+
+
+def test_baseline_prose_distinguishes_pairs_from_per_file_entries() -> None:
+    """The measured debt has two units: rule pairs and TOML path entries."""
+    for path in (PYPROJECT_PATH, SPRINT_NOTES_PATH):
+        assert BASELINE_SUMMARY in path.read_text(), (
+            f"{path.relative_to(REPO_ROOT)} must describe the dated baseline as "
+            f"{BASELINE_SUMMARY!r}"
+        )
 
 
 def _dry_run(target: str) -> str:
