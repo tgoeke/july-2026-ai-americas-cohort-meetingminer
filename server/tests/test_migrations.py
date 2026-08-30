@@ -21,7 +21,7 @@ import pytest
 import yaml
 
 from meetingminer import db
-from meetingminer.config import AppConfig
+from meetingminer.config import AppConfig, load_config
 
 from conftest import (
     RUN_ID,
@@ -55,8 +55,15 @@ def _write_config(
     raw = yaml.safe_load((REPO_ROOT / "config.yaml").read_text(encoding="utf-8"))
     if database is not None:
         raw["stores"]["postgres"]["database"] = database
-    if port is not None:
-        raw["stores"]["postgres"]["port"] = port
+    # The tracked file names the main checkout's port; the port this checkout
+    # actually uses may come from .env.worktree (story 11.2). Write the
+    # effective one, so the copy targets the same Postgres the session's
+    # per-run database was created on — unless the test asks for another.
+    raw["stores"]["postgres"]["port"] = (
+        port
+        if port is not None
+        else load_config(REPO_ROOT / "config.yaml", REPO_ROOT / ".env").settings.stores.postgres.port
+    )
     config_path = directory / "config.yaml"
     config_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
     docs_link = directory / "docs"
@@ -74,6 +81,14 @@ def _env(config_path: Path) -> dict[str, str]:
     # they would assert the migration contract against whatever the developer
     # happens to have in .env. The worker creates the directory itself.
     env["MM_CONTENT_ROOT"] = str(config_path.parent / "content")
+    # The loader applies MM_POSTGRES_PORT from the checkout's .env.worktree
+    # (story 11.2) over the config file's port, so a worktree would silently
+    # redirect the patched port — the unreachable one above included — to its
+    # private stack. The process environment wins over that file: name the
+    # port this copy of the config carries, so the subprocess targets exactly
+    # what the test wrote.
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    env["MM_POSTGRES_PORT"] = str(raw["stores"]["postgres"]["port"])
     return env
 
 
