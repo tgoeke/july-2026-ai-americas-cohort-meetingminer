@@ -16,6 +16,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import jsonschema
@@ -80,6 +81,33 @@ def acquire_kwargs(root: Path, cap_minutes: int = 180) -> dict[str, Any]:
         "config_path": REPO_ROOT / "config.yaml",
         "max_duration_minutes": cap_minutes,
     }
+
+
+def cli_config(root: Path, *, cap_minutes: int = 37) -> SimpleNamespace:
+    return SimpleNamespace(
+        config_path=REPO_ROOT / "config.yaml",
+        secrets=SimpleNamespace(mm_drops_root=root),
+        settings=SimpleNamespace(
+            acquisition=SimpleNamespace(
+                youtube=SimpleNamespace(max_duration_minutes=cap_minutes)
+            )
+        ),
+    )
+
+
+def cli_result(tmp_path: Path, *, status: str = "created") -> mintdrop.MintResult:
+    path = tmp_path / "drop"
+    return mintdrop.MintResult(
+        status=status,
+        path=path,
+        source_id=f"youtube:{VALID_ID}",
+        metadata={
+            "startedAt": "2026-08-12T15:30:19Z",
+            "startedAtPrecision": "second",
+            "corpus": "real",
+            "provenance": {"files": [{"dropFilename": "recording.mp4"}]},
+        },
+    )
 
 
 @pytest.fixture()
@@ -452,6 +480,74 @@ def test_selected_captions_must_materialize_a_vtt(
         youtube.download(WATCH_URL, VALID_ID, tmp_path, ("en", "manual"))
 
 
+@pytest.mark.parametrize(
+    "fixture_name,expected_caption_args",
+    [
+        (
+            "full",
+            ["--write-subs", "--sub-langs", "en", "--convert-subs", "vtt"],
+        ),
+        (
+            "auto-captions",
+            [
+                "--write-auto-subs",
+                "--sub-langs",
+                "en",
+                "--convert-subs",
+                "vtt",
+            ],
+        ),
+        ("no-english", []),
+    ],
+)
+def test_download_command_and_outputs_are_covered_without_network(
+    fixture_name: str,
+    expected_caption_args: list[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    info = info_fixture(fixture_name)
+    video_id = info["id"]
+    url = youtube.watch_url(video_id)
+    captions = youtube.select_captions(info)
+    expected_command = [
+        youtube.YT_DLP,
+        "--no-playlist",
+        "-f",
+        youtube.FORMAT_SELECTOR,
+        "--merge-output-format",
+        "mp4",
+        "--write-info-json",
+        "-o",
+        str(tmp_path / f"{video_id}.%(ext)s"),
+        *expected_caption_args,
+        url,
+    ]
+
+    def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        assert command == expected_command
+        (tmp_path / f"{video_id}.mp4").write_bytes(b"media")
+        (tmp_path / f"{video_id}.info.json").write_text(
+            json.dumps(info), encoding="utf-8"
+        )
+        if captions is not None:
+            (tmp_path / f"{video_id}.{captions[0]}.vtt").write_text(
+                TRANSCRIPT_VTT, encoding="utf-8"
+            )
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(youtube, "_run", fake_run)
+    recording, transcript, downloaded = youtube.download(
+        url, video_id, tmp_path, captions
+    )
+
+    assert recording == tmp_path / f"{video_id}.mp4"
+    assert transcript == (
+        tmp_path / f"{video_id}.{captions[0]}.vtt" if captions else None
+    )
+    assert downloaded == info
+
+
 # --- the exists short-circuit ------------------------------------------------
 
 
@@ -670,6 +766,151 @@ def test_acquisition_config_defaults_and_the_committed_block_agree() -> None:
     assert committed["acquisition"]["youtube"]["max_duration_minutes"] == 180
 
 
+# --- CLI parity with mint-drop ----------------------------------------------
+
+
+def test_main_classifies_an_invalid_url_before_resolving_a_writable_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "drops"
+    root.mkdir()
+    monkeypatch.setattr(youtube, "_load_cli_config", lambda: cli_config(root))
+
+    def mutating_resolver(explicit: str | None, config: object) -> Path:
+        (root / ".staging").mkdir()
+        return root
+
+    monkeypatch.setattr(youtube, "resolve_drops_root", mutating_resolver)
+    assert youtube.main(["https://example.com/not-youtube"]) == 1
+    assert list(root.iterdir()) == []
+
+
+@pytest.mark.parametrize("result_status", ["created", "exists"])
+def test_main_posts_created_and_existing_drops_with_resolver_and_cap_parity(
+    result_status: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "drops"
+    placement = root / "imports"
+    config = cli_config(root)
+    result = cli_result(tmp_path, status=result_status)
+    seen: dict[str, Any] = {}
+    monkeypatch.setattr(youtube, "_load_cli_config", lambda: config)
+
+    def resolve_api(explicit: str | None) -> str:
+        seen["api_arg"] = explicit
+        return "http://resolved.test"
+
+    def resolve_drops(explicit: str | None, received: object) -> Path:
+        seen["drops_arg"] = explicit
+        seen["config"] = received
+        return placement
+
+    def acquire(url: str, **kwargs: Any) -> mintdrop.MintResult:
+        seen["acquire_url"] = url
+        seen["acquire_kwargs"] = kwargs
+        return result
+
+    def post(api_url: str, drop_path: Path) -> tuple[str, int, str | None]:
+        seen["post"] = (api_url, drop_path)
+        return "created", 201, "job-1"
+
+    monkeypatch.setattr(youtube, "resolve_api_url", resolve_api)
+    monkeypatch.setattr(youtube, "resolve_drops_root", resolve_drops)
+    monkeypatch.setattr(youtube, "acquire", acquire)
+    monkeypatch.setattr(youtube, "post_ingest", post)
+    monkeypatch.setattr(youtube, "_report", lambda value, files: None)
+
+    assert youtube.main(
+        [WATCH_URL, "--drops", str(placement), "--api", "http://requested.test"]
+    ) == 0
+    assert seen["api_arg"] == "http://requested.test"
+    assert seen["drops_arg"] == str(placement)
+    assert seen["config"] is config
+    assert seen["acquire_url"] == WATCH_URL
+    assert seen["acquire_kwargs"] == {
+        "drops_root": placement,
+        "identity_root": root,
+        "config_path": REPO_ROOT / "config.yaml",
+        "max_duration_minutes": 37,
+    }
+    assert seen["post"] == ("http://resolved.test", result.path)
+
+
+def test_main_no_post_prints_exact_recovery_and_suppresses_intake(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = tmp_path / "drops"
+    result = cli_result(tmp_path)
+    monkeypatch.setattr(youtube, "_load_cli_config", lambda: cli_config(root))
+    monkeypatch.setattr(youtube, "resolve_api_url", lambda explicit: "http://api.test")
+    monkeypatch.setattr(youtube, "resolve_drops_root", lambda explicit, config: root)
+    monkeypatch.setattr(youtube, "acquire", lambda url, **kwargs: result)
+    monkeypatch.setattr(youtube, "_report", lambda value, files: None)
+    monkeypatch.setattr(youtube, "post_ingest", _must_not_run("post_ingest"))
+    monkeypatch.setattr(
+        youtube,
+        "ingest_command",
+        lambda api_url, path: f"REPOST {api_url} {path}",
+    )
+
+    assert youtube.main([WATCH_URL, "--no-post"]) == 0
+    assert f"REPOST http://api.test {result.path}" in capsys.readouterr().out
+
+
+def test_main_reports_duplicate_intake(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = tmp_path / "drops"
+    result = cli_result(tmp_path, status="exists")
+    monkeypatch.setattr(youtube, "_load_cli_config", lambda: cli_config(root))
+    monkeypatch.setattr(youtube, "resolve_api_url", lambda explicit: "http://api.test")
+    monkeypatch.setattr(youtube, "resolve_drops_root", lambda explicit, config: root)
+    monkeypatch.setattr(youtube, "acquire", lambda url, **kwargs: result)
+    monkeypatch.setattr(youtube, "_report", lambda value, files: None)
+    monkeypatch.setattr(
+        youtube, "post_ingest", lambda api_url, path: ("duplicate", 409, None)
+    )
+
+    assert youtube.main([WATCH_URL]) == 0
+    assert "intake already ingested (409) jobId (none)" in capsys.readouterr().out
+
+
+def test_main_intake_failure_is_nonzero_with_exact_repost_guidance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = tmp_path / "drops"
+    result = cli_result(tmp_path)
+    monkeypatch.setattr(youtube, "_load_cli_config", lambda: cli_config(root))
+    monkeypatch.setattr(youtube, "resolve_api_url", lambda explicit: "http://api.test")
+    monkeypatch.setattr(youtube, "resolve_drops_root", lambda explicit, config: root)
+    monkeypatch.setattr(youtube, "acquire", lambda url, **kwargs: result)
+    monkeypatch.setattr(youtube, "_report", lambda value, files: None)
+    monkeypatch.setattr(
+        youtube,
+        "post_ingest",
+        lambda api_url, path: (_ for _ in ()).throw(mintdrop.IntakeError("down")),
+    )
+    monkeypatch.setattr(
+        youtube,
+        "ingest_command",
+        lambda api_url, path: f"REPOST {api_url} {path}",
+    )
+
+    assert youtube.main([WATCH_URL]) == 1
+    error = capsys.readouterr().err
+    assert "intake FAILED: down" in error
+    assert "re-POST this exact drop rather than re-running youtube-drop" in error
+    assert f"REPOST http://api.test {result.path}" in error
+
+
 # --- the Makefile door -------------------------------------------------------
 
 
@@ -678,11 +919,57 @@ def test_makefile_has_the_youtube_drop_target_with_a_url_guard() -> None:
     assert "\nyoutube-drop: check-env\n" in makefile
     recipe = makefile.split("\nyoutube-drop: check-env\n", 1)[1].split("\n\n", 1)[0]
     assert 'error: URL is required' in recipe
-    assert '-m meetingminer.youtube "$(URL)" $(YT_ARGS)' in recipe
+    assert 'export MM_YOUTUBE_URL := $(value URL)' in makefile
+    assert '"$${MM_YOUTUBE_URL}" $(YT_ARGS)' in recipe
+    assert '$(URL)' not in recipe
     # Placed directly after the mint-drop recipe, as the wave footprint pins.
     assert makefile.index("\nmint-drop: check-env\n") < makefile.index(
         "\nyoutube-drop: check-env\n"
     )
+
+
+def test_makefile_passes_a_hostile_url_as_one_data_argument(
+    tmp_path: Path,
+) -> None:
+    venv = tmp_path / "venv"
+    (venv / "bin").mkdir(parents=True)
+    fake_python = venv / "bin" / "python"
+    fake_python.write_text(
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$MM_TEST_CAPTURE\"\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+    env_file = tmp_path / ".env"
+    env_file.write_text("MM_DROPS_ROOT=/tmp/drops\n", encoding="utf-8")
+    capture = tmp_path / "args.txt"
+    injected = tmp_path / "injected"
+    hostile = f'{WATCH_URL}"; touch {injected}; #'
+    env = dict(os.environ, MM_TEST_CAPTURE=str(capture))
+
+    completed = subprocess.run(
+        [
+            "make",
+            "-f",
+            str(REPO_ROOT / "infra" / "Makefile"),
+            "youtube-drop",
+            f"URL={hostile}",
+            f"ROOT={REPO_ROOT}",
+            f"VENV={venv}",
+            f"ENVFILE={env_file}",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert not injected.exists()
+    assert capture.read_text(encoding="utf-8").splitlines() == [
+        "-m",
+        "meetingminer.youtube",
+        hostile,
+    ]
 
 
 # --- the one network test ----------------------------------------------------

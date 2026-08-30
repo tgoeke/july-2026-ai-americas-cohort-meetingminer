@@ -599,6 +599,15 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
 
+    # URL classification is pure and must win the ordering race with the drops
+    # resolver: that resolver write-probes ``.staging``. A non-YouTube URL is
+    # refused before any filesystem mutation, even a temporary one.
+    try:
+        video_id_from_url(args.url)
+    except YoutubeError as exc:
+        print(f"fatal: {PROGRAM} refused: {exc}", file=sys.stderr)
+        return 1
+
     try:
         config = _load_cli_config()
     except ConfigError as exc:
