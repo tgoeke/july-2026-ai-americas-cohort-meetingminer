@@ -141,6 +141,13 @@ deferred:
   strict superset of the gate, medium — and lint/typecheck are missing from
   `.PHONY`; both fixes sit outside this story's footprint.
 
+### 2026-08-30 — Independent remediation verification findings
+
+- [x] [Review][Patch] Pin shell control and Make failure propagation, not only post-`uv` argv [`server/tests/test_lint_contract.py:209`]
+- [x] [Review][Patch] Replace the unsupported review-worktree `BASE=` command with an explicit correctly based branch [`_bmad-output/implementation-artifacts/review-prompt-story-11-4-2026-08-30.md:34`]
+- [x] [Review][Patch] Remove the remediation regression outside the frozen compose-test window [`server/tests/test_compose_contract.py:319`]
+- [x] [Review][Patch] Anchor the handoff assertion to the report-destination block [`server/tests/test_lint_contract.py:147`]
+
 ## Design Notes
 
 - Default select + version pin over an explicit 415-rule list: the pin (`<0.17`) freezes the rule set as effectively as enumerating it, without a table nobody can audit. Upgrading the pin is a deliberate act that re-runs the baseline math.
