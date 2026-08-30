@@ -55,7 +55,7 @@
 - **Severity:** High
 - **Finding:** Story 7.1's optional-extra gate imported `pyannote.audio` but did not run the test modules whose behavior changes when that extra is available. The STT adapter's structural `Binding` predates `token_env`; the worker test assumes every pyannote failure says “not bundled,” although an installed extra correctly advances to the missing-token error. Both defects stay hidden in the supported extra-free lane. A new pyannote-sensitive module could also escape the gate silently because no exact module inventory existed.
 - **Evidence:** Before fixing either test, the widened target ran `test_diarize_pyannote.py`, `test_stt_adapter.py`, and `test_worker_transcripts.py` under `--extra diarize` and failed on the reported `AttributeError`, the stale worker error assertion, and the real provider probe exceeding the ordinary 2-second fast budget (16.01 seconds in the fresh isolated environment). The gate contract was itself red before the Makefile changed, and the two-way source inventory already discovered exactly those three modules.
-- **Resolution:** **OPEN — remediation in progress.** Preserve the widened, pinned module gate; update the structural binding and both-configuration assertions without weakening the adapter; give this deliberately heavy isolated lane an explicit test-budget override; then prove installed and extra-free green.
+- **Resolution:** **RESOLVED — `0b3be4f`.** The widened target owns `check-tools` and `infra-up`, runs the exact three-module inventory under `--locked --isolated --extra diarize`, and uses a target-local 60-second budget for the measured cold import. The STT `Binding` now supplies `token_env`; both affected assertions clear a test-only token variable and accept only the valid missing-extra or missing-token fail-closed reason. Installed-extra passed `90`; locked isolated extra-free passed `89` with the one named provider skip. The adapter was not weakened.
 
 ## Mutation Audit
 
@@ -91,6 +91,8 @@ Blind Hunter, Edge Case Hunter, Verification Gap Reviewer, and Acceptance Audito
 - `uv run --project server pytest server/tests/test_stt_adapter.py -q` — `31 passed`.
 - `uv run --project server pytest server/tests/test_compose_contract.py -q` — `31 passed`.
 - `make diarize-extra-test` after V5 — passed after visibly executing `uv run --locked --isolated ...` and installing 166 packages in the disposable environment.
+- V6 installed-extra gate after widening — `90 passed` across `test_diarize_pyannote.py`, `test_stt_adapter.py`, and `test_worker_transcripts.py`; no skips.
+- V6 locked isolated extra-free mirror — `89 passed, 1 skipped`, with the skip naming absent `pyannote.audio`.
 - Real-wheel telemetry proof, run with `uv run --locked --isolated --project server --extra diarize`: locked `pyannote.audio==4.0.7` reported endpoint `https://otel.pyannote.ai/v1/traces` and metrics enabled before the adapter call; with only `Pipeline.from_pretrained` mocked to prevent a model/network operation, `_load_pipeline` made the provider's own `is_metrics_enabled()` false before that call. Output: `before=true before_load=false`.
 - `make test-fast` in the foreground — puller `128 passed`; web `291 passed`; evals `549 passed`; server `1430 passed, 1 skipped, 326 deselected`.
 - `make check-reviews` — passed: `every dispatched review has a committed report`.
@@ -98,4 +100,4 @@ Blind Hunter, Edge Case Hunter, Verification Gap Reviewer, and Acceptance Audito
 
 ## Verdict
 
-**Approved after owner ruling and remediation.** V1 is resolved by the dated owner decision to retain the dependency gate and send the disjoint proximity conflict to integrate for union resolution. V5 is resolved red-first with `--locked`. V2–V4 remain resolved, every requested suite is green, and no review finding remains open. Integrate must expect and preserve the known `infra/Makefile` and `server/tests/test_compose_contract.py` union with Stories 11-3 and 11-4.
+**Approved after owner ruling and remediation.** V1 is resolved by the dated owner decision to retain the dependency gate and send the disjoint proximity conflict to integrate for union resolution. V5 is resolved red-first with `--locked`; integration blocker V6 is resolved red-first with the pinned installed-extra module lane and dual-configuration proof. V2–V4 remain resolved, every requested suite is green, and no review finding remains open. Integrate must expect and preserve the known `infra/Makefile` and `server/tests/test_compose_contract.py` union with Stories 11-3 and 11-4.

@@ -25,18 +25,6 @@ deferred:
       server/meetingminer/config.py:716-806
     severity: high
   - summary: >-
-      test_stt_adapter.py::test_pyannote_is_documented_not_bundled pins the
-      pre-7.1 contract and fails in a venv with the diarize extra installed.
-    evidence: |-
-      With pyannote.audio importable, build_diarizer proceeds past the
-      availability probe; the test's Binding lacks model/token_env, so it
-      fails with AttributeError before any message assert. Green in every
-      extra-free venv (all wave gates run extra-free). One-line update owned
-      at integration; the file is not in this story's footprint.
-    location: >-
-      server/tests/test_stt_adapter.py:117
-    severity: medium
-  - summary: >-
       docs/owner-runbook.md section 3.1 names the 3.x gated models, but the
       shipped default is 4.x pyannote/speaker-diarization-community-1, and
       the runbook never mentions the extra install command.
@@ -133,7 +121,7 @@ deferred:
 - 2026-08-30 (owner decision, `f17b87a076a5ce679603bd2178047655f197df26`): pyannote telemetry/analytics must be disabled in code before pipeline construction. The adapter now calls the provider's telemetry switch before `Pipeline.from_pretrained`; a regression test pins call presence and ordering, and `config.yaml` states the operator-visible policy.
 - 2026-08-30 (planning): `server/uv.lock` is not in the build-prompt footprint but is tracked and mechanically relocked by the `[project.optional-dependencies]` edit; committing it is recorded here rather than widened quietly.
 - 2026-08-30 (final push): `branch_conflicts.py --against story/7-1` reports one pair outside the allowed `story/11-2-review` exception: `story/7-1 × story/11-4` conflicts on `server/uv.lock` only — both lanes' `pyproject.toml` edits (this story's `[project.optional-dependencies]`, 11-4's `[dependency-groups]`) mechanically relock the same generated file; the pyproject regions themselves merge clean. Named here per wave rules instead of narrowing (impossible: shipping the extra without its lock entry leaves the branch pyproject/lock-inconsistent and every `uv run` would relock it). Integration resolves by taking either side and regenerating with `uv lock` after the second branch lands.
-- 2026-08-30 (planning, deferred): `test_stt_adapter.py::test_pyannote_is_documented_not_bundled` pins the pre-7.1 message; it stays green only while the venv lacks the extra. With the extra installed, build proceeds to the token check and the message changes. One-line update owned at integration (file not in this story's footprint).
+- 2026-08-30 (integration blocker resolved, `0b3be4f`): the installed-extra lane now runs the exact pyannote-sensitive module list pinned in `test_compose_contract.py`; its red run caught the stale STT binding, the worker's extra-free-only error assertion, and the cold provider import exceeding the normal fast budget. The binding and assertions now support both missing-extra and installed-extra/missing-token states without weakening the adapter. `make diarize-extra-test` owns tools/stores, uses a target-local 60s budget for the measured 16.01s cold import, and passed 90 tests installed; the same modules passed extra-free with 89 passed and one named provider skip.
 
 ## Design Notes
 
@@ -147,6 +135,7 @@ deferred:
 **Commands:**
 - `uv run --project server pytest server/tests/test_diarize_pyannote.py -q` — expected: all pass.
 - `uv run --project server pytest server/tests/test_stt_adapter.py -q` — expected: all pass unchanged (extra-free venv).
+- `make diarize-extra-test` — expected: all pinned pyannote-sensitive modules pass with the extra installed.
 - `make test-fast` — expected: green (skips named).
 - `make test` — expected: green, once, before `review`.
 - `python3 _bmad/scripts/branch_conflicts.py --against story/7-1` — expected: clean against main and every `story/*` except pairs involving `story/11-2-review`.
