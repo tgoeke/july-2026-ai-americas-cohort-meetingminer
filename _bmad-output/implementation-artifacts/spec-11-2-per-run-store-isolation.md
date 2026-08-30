@@ -2,7 +2,7 @@
 title: 'Per-Run Store Isolation'
 type: 'chore'
 created: '2026-08-30'
-status: 'in-progress'
+status: 'review'
 baseline_revision: 'de0fc0816c26a8131fdc153368719e6f3808f40e'
 reviewed_head: 'fa86b864c7101e2a45d2c278a9562669c72d962c'
 review_loop_iteration: 0
@@ -240,6 +240,8 @@ The 11-2 worktree's `.env.worktree` predates `MM_STACK_ID`, so after Theme 1 lan
 
 ## Spec Change Log
 
+- 2026-08-30 (remediation build): all ten follow-up findings closed red-then-green; `## Auto Run Result` carries the remediation record. Branch rebased onto main `a011695` mid-run (main gained the harness addendum and the duplicate-lane halt note in this file; the Auto Run Result conflict was resolved by keeping both paragraphs). One deferred non-edit: the `story/7-1` × `main` conflict on `sprint-notes.md` predates this lane and is 7-1's rebase debt — not touched from here (wave rule: never edit another lane's file to make room).
+
 - 2026-08-30 ~14:30: `### Harness addendum 2026-08-30` added under the Remediation Plan — `_bmad-output` tracked on main, rebase-first, wave conflict checks, finding-10 wording; from the coordinator's addendum, intent unchanged.
 - 2026-08-30 (follow-up review): `## Remediation Plan — follow-up review 2026-08-30` added; frontmatter `reviewed_head` records the head the review read (`fa86b86`); intent-contract unchanged.
 
@@ -309,6 +311,23 @@ the file still present) and kept its old label-less metadata — which is
 exactly how `claim` recognises a stale incarnation. Probe removed with
 `down -v`; no `mm-label-probe` volumes remain.
 
+**Remediation status: done (2026-08-30, follow-up round).** All ten `### Review Findings` closed, each as a red-tests-then-fix commit pair on `story/11-2`, worktree `../meetingminer-wt/11-2`; branch rebased onto main `a011695` and pushed. Rebase mapping for the reviewer: the reviewed head `fa86b86` is the pre-rebase name of `d5e7a90`, which after the mid-run rebase onto main is `ebbcd6c` (content unchanged); the remediation commits are `04822cd`→`e3aae50` (finding 1 red/fix), `32ceb3f` (MM_STACK_ID labels + probe), `a508c2a`→`6b7b82f` (findings 2-3), `523c788`→`f972c70` (findings 4-5), `72cd10b`→`29c7762` (finding 6), `37a3bf7`→`ef0565e` (findings 7-9), `24176c8` (finding 10 + docs), then this spec update.
+
+**Red evidence (observed against the unfixed tree, per commit message).** Finding 1: 43+19+3 failures (no `validate_env_file`, no `ws.os`, no `linked_worktree_refusal`; `check-env` exited 0 on a wrong-name file, on a main-checkout file, and a file assigning `ROOT` was included at parse time). Findings 2-3: 7 failures (`_is_worktree_project` accepted any prefix; the pruner removed `meetingminer-Foo` and a foreign-volume project; no id columns). Findings 4-5: 9+4 failures (no `claim`, no `worktree-start`; old-ref retries pointed at `worktree-provision` / `cd <wt>`; no claim before `up`). Finding 6: 13+3 failures (no `down` subcommand; inventory failure read as absence; `worktree-prune` masked a failed teardown). Finding 7: prune tore down 0.45s before a held provisioning lock was released (timing test red); the recheck-before-down half had no observable red — `present_owner` was already evaluated lazily per loop iteration — so that test pins behavior and the lock is the fix with teeth. Finding 8 (verification gap): against a scratch flock-no-op mutant, two concurrent provisions of two slugs hashing to one base both published the identical seven ports (21271-21277 twice, observed); the committed test's no-op phase demands that collision, so removing the lock cannot pass silently. Finding 9: `'b14-key\n'` was accepted by the old `re.match` (observed red).
+
+**Remediation verification (2026-08-30, this worktree and its private stack).**
+- Migration: this worktree's pre-remediation stack (id-less containers and volumes) was torn down by `claim` on the first `infra-up` after the labels landed and came back fresh on the same ports 21761-21767 with `MM_STACK_ID=35b12b56fba0` stamped on every container and volume.
+- Fast trio (`test_worktree_stack` + `test_config` + `test_compose_contract`): 279 passed. `-m ""` trio (`test_makefile_procs` + `test_projections_locks` + `test_parallel_store_safety`): 106 passed in 84s. Collection split: 1595/1961 (366 deselected).
+- `make check-env`: 0 with the valid file; renamed away → refused naming `make worktree-provision`; a foreign key appended → refused at parse time naming the key; restored → 0. `make check-test-stores`: 1 passed against 21766/21767. `make check-reviews`: every dispatched review filed.
+- `make worktree STORY=11-2-probe BASE=story/11-2` → `meetingminer-11-2-probe` running(5) on 23861-23867 beside `meetingminer`, `meetingminer-11-2` and `meetingminer-11-2-review`, all on distinct ports; `docker inspect` of a probe container and a probe volume both showed `com.meetingminer.stack-id` equal to the probe file's `MM_STACK_ID`.
+- Reachability: `MM_REQUIRE_TEST_STORES=1 …test_configured_projection_stores_are_reachable` passed in the worktree (21766/21767) and in the main checkout (7688/7701); the worktree loader resolves 21761 / `bolt://localhost:21763` / `http://localhost:21764`.
+- `time make test` alone in the worktree: rc 0, **1961 passed** in 566.5s, wall 9m49s. Concurrent pair (11-2 + probe): rc 0 both, 1961 passed each, pytest 556.2s / 595.5s, wall 9m39s / 10m27s; 0 `ProjectionLockedError` in any log; the two lock paths differ (`…-73c387370d8a3719.lock` vs `…-5d43a2b4292e0f9d.lock`).
+- Memory under the two concurrent runs (`docker stats --no-stream`): 11-2 ≈1.85 GiB, probe ≈1.47 GiB, review (idle) ≈1.30 GiB, main (idle) ≈2.06 GiB; Docker (OrbStack) VM 23.5 GiB total.
+- Orphan case: probe hand-deleted (`rm -rf`, no `git worktree remove`), `make test-db-prune` → `removed stack meetingminer-11-2-probe`, `skipped owned meetingminer-11-2`, `skipped owned meetingminer-11-2-review`, no probe volumes or project left, `meetingminer` untouched; `git worktree prune` run in the main checkout afterwards.
+- Stale-incarnation case: probe recreated, `make down` there, `.env.worktree` deleted, `make worktree-provision` → `removed stale stack meetingminer-11-2-probe (not started from …/.env.worktree)`, fresh stack on the same ports with a new `MM_STACK_ID` (`037893164369` → `f7eb8b89cf46`); `make worktree-remove STORY=11-2-probe` left no project and no `meetingminer-11-2-probe_*` volume.
+
+**Remediation notes.** (1) `../meetingminer-wt/11-2-review`'s stack is still an id-less incarnation; its owner's next `make infra-up` there will run `claim`, tear it down and recreate it fresh — the same one-time migration every pre-remediation worktree stack gets (decision (i)). (2) The main checkout's containers will be recreated once by the new label at its next `up`; its corpus volumes are never touched (proven on the throwaway label probe above). (3) The main checkout keeps running label-less containers until then — `claim` never runs there (no stack file), so nothing tears it down. (4) `git worktree move` is now refused by every guard (stack name must equal `meetingminer-<directory name>`); documented in AGENTS.md. (5) `worktree-start STORY=<slug>` is the retry for every start failure and the only start path; no failure message names a command that would run a pre-11.2 `infra/Makefile`'s stack logic.
+
 **Status:** done (2026-08-30). Branch `story/11-2` at `fa86b86` in worktree `../meetingminer-wt/11-2`, pushed, `origin/story/11-2` identical (`git rev-list --left-right --count HEAD...@{u}` → `0	0`), `git status --porcelain` empty; 11 commits `b6fac36`..`fa86b86` on base `de0fc08` (= `main`).
 
 **Implemented.** Every worktree owns a private compose stack. `infra/docker-compose.yml` interpolates the project name, the five container names and the seven host ports from `MM_STACK_NAME` / `MM_*_PORT` with today's values as defaults, so the main checkout's stack, names and corpus volumes are unchanged. `make worktree STORY=<slug> [BASE=main]` validates the slug (`[a-z0-9][a-z0-9_-]*`), adds the checkout beside the main repo (`WT_ROOT` from the git common dir, so a worktree can create siblings), links `.env` to the main file, sweeps a stale project of the same name, writes `.env.worktree` (`infra/worktree_stack.py provision`: base `crc32(slug) % 400` in 20000–23999, stepping past bound or sibling-declared ports) and brings the stack up through the invoking checkout's Makefile and compose file with `--project-directory <wt>/infra` — so a worktree cut from a pre-11.2 ref still gets its own stack. `worktree-remove` / `worktree-prune` tear the stack and volumes down after git removes the checkout; `test-db-prune` adds a second sweep (`worktree_stack.py prune`) that removes `meetingminer-<slug>` projects whose checkout directory is gone and reports every owned one; `worktree-list` shows each stack's name and ports; `worktree-provision` writes the file for an existing linked worktree. Three readers take the file: the Makefile (`-include`, precedence env > file > default, values passed to compose explicitly), compose (second `--env-file`, `-p`), and the loader (`merged_env`: `.env`, then `.env.worktree`, then the process env with the blank rule; `MM_POSTGRES_PORT` / `MM_NEO4J_BOLT_PORT` / `MM_MEILI_PORT` replace only the port of the configured endpoints; stack keys only in `.env.worktree`, never in `.env`). The test session reads its twin URLs through the same merged env; a linked worktree without the file is refused by `check-env` and at conftest import. `MM_PROJECTION_LOCK_KEY` names the projection lock file (B-14); unset, the derivation is byte-identical. AD-10 restated in one sentence; AGENTS.md's store section rewritten with the measurements; CLAUDE.md, README, glossary, project-context, `.env.example`, the integrate skill's dispatch note and the backlog (B-14 closed, B-35 filed) follow.
@@ -329,13 +348,13 @@ exactly how `claim` recognises a stale incarnation. Probe removed with
 
 ### Review Findings
 
-- [ ] [Review][Patch] Incomplete or incoherent worktree metadata can silently target another stack [infra/Makefile:224]
-- [ ] [Review][Patch] The orphan pruner accepts invalid `meetingminer-*` project names as owned worktree stacks [infra/worktree_stack.py:359]
-- [ ] [Review][Patch] A container label bypasses the pruner's foreign-volume safety check [infra/worktree_stack.py:379]
-- [ ] [Review][Patch] Failure recovery for a pre-11.2 worktree either cannot run or starts the main stack [infra/Makefile:298]
-- [ ] [Review][Patch] Docker-down creation can revive stale volumes when the documented retry runs [infra/Makefile:289]
-- [ ] [Review][Patch] Worktree cleanup can return success after stack discovery or teardown failed [infra/Makefile:272]
-- [ ] [Review][Patch] Pruning races worktree creation after taking its ownership snapshot [infra/worktree_stack.py:424]
-- [ ] [Review][Patch] The provisioning lock's exclusion behavior is unverified [server/tests/test_worktree_stack.py:116]
-- [ ] [Review][Patch] The projection lock-key validator accepts a trailing newline [server/meetingminer/projections/locks.py:58]
-- [ ] [Review][Patch] Three required documents omit the concrete Docker VM bound [README.md:351]
+- [x] [Review][Patch] Incomplete or incoherent worktree metadata can silently target another stack [infra/Makefile:224]
+- [x] [Review][Patch] The orphan pruner accepts invalid `meetingminer-*` project names as owned worktree stacks [infra/worktree_stack.py:359]
+- [x] [Review][Patch] A container label bypasses the pruner's foreign-volume safety check [infra/worktree_stack.py:379]
+- [x] [Review][Patch] Failure recovery for a pre-11.2 worktree either cannot run or starts the main stack [infra/Makefile:298]
+- [x] [Review][Patch] Docker-down creation can revive stale volumes when the documented retry runs [infra/Makefile:289]
+- [x] [Review][Patch] Worktree cleanup can return success after stack discovery or teardown failed [infra/Makefile:272]
+- [x] [Review][Patch] Pruning races worktree creation after taking its ownership snapshot [infra/worktree_stack.py:424]
+- [x] [Review][Patch] The provisioning lock's exclusion behavior is unverified [server/tests/test_worktree_stack.py:116]
+- [x] [Review][Patch] The projection lock-key validator accepts a trailing newline [server/meetingminer/projections/locks.py:58]
+- [x] [Review][Patch] Three required documents omit the concrete Docker VM bound [README.md:351]
