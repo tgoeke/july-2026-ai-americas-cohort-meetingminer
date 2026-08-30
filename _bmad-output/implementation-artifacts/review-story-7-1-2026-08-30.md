@@ -84,6 +84,7 @@ Dismissed candidates included the four items already recorded in the spec frontm
 - The same extra-installed environment imported `pyannote.audio` 4.0.7 and showed `Pipeline.from_pretrained(..., token=...)` in its live signature.
 - A real `pyannote.core.Annotation` converted successfully through `_to_turns` without loading a model.
 - The combined adapter command in the extra-installed environment produced the already-recorded deferred failure in `test_stt_adapter.py` (52 passed, 1 failed); it was not re-filed as a new finding per the review handoff.
+- `make check-reviews` — passed: every dispatched review has a committed report.
 
 ## Verdict
 
