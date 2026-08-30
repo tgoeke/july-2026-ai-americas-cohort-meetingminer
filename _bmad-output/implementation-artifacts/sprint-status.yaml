@@ -108,8 +108,8 @@ development_status:
   6-7-extraction-prompt-wording-generalized: done
   epic-6-retrospective: optional
 
-  epic-7: backlog
-  7-1-diarizer-engine-behind-the-port: backlog
+  epic-7: in-progress
+  7-1-diarizer-engine-behind-the-port: review
   7-2-speaker-tags-on-the-wire: backlog
   7-3-speaker-assignment: backlog
   7-4-speaker-naming-ui: backlog

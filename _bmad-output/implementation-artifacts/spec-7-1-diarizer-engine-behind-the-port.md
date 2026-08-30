@@ -2,13 +2,60 @@
 title: 'Story 7.1: Diarizer Engine Behind the Port'
 type: 'feature'
 created: '2026-08-30'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '311f0141b720c10a045d97b1a0033705baaebe5e'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context: []
 warnings: []
-deferred: []
+deferred:
+  - summary: >-
+      HF_TOKEN is read only from the worker's process environment; the
+      .env-to-Secrets threading that would honor the documented .env storage
+      needs config.py edits (Secrets model, _load_secrets, call sites)
+      outside this story's footprint.
+    evidence: |-
+      _load_secrets (server/meetingminer/config.py:763) merges .env into
+      AppConfig.secrets and never exports into os.environ; infra/Makefile's
+      worker target sets no env-file. An operator who only writes HF_TOKEN
+      into .env gets the fail-closed token error. Mitigated in wording: the
+      error, config.yaml comment, and DiarizerConfig docstring all name the
+      process-environment requirement. Full fix owned at integration.
+    location: >-
+      server/meetingminer/config.py:716-806
+    severity: high
+  - summary: >-
+      test_stt_adapter.py::test_pyannote_is_documented_not_bundled pins the
+      pre-7.1 contract and fails in a venv with the diarize extra installed.
+    evidence: |-
+      With pyannote.audio importable, build_diarizer proceeds past the
+      availability probe; the test's Binding lacks model/token_env, so it
+      fails with AttributeError before any message assert. Green in every
+      extra-free venv (all wave gates run extra-free). One-line update owned
+      at integration; the file is not in this story's footprint.
+    location: >-
+      server/tests/test_stt_adapter.py:117
+    severity: medium
+  - summary: >-
+      docs/owner-runbook.md section 3.1 names the 3.x gated models, but the
+      shipped default is 4.x pyannote/speaker-diarization-community-1, and
+      the runbook never mentions the extra install command.
+    evidence: |-
+      Runbook lines 75-81 direct licence acceptance on
+      pyannote/speaker-diarization-3.1 and pyannote/segmentation-3.0;
+      config.yaml defaults to pyannote/speaker-diarization-community-1 under
+      pyannote.audio>=4,<5. docs/ is outside this story's footprint.
+    location: >-
+      docs/owner-runbook.md:75-86
+    severity: medium
+  - summary: >-
+      No device-placement knob (MPS) for the in-process pipeline; matters
+      when the blocked 60-minute measurement runs on the Apple-Silicon host.
+    evidence: |-
+      The default factory loads with pyannote defaults (CPU).
+      pipeline.to(torch.device(...)) is the documented speedup; a config
+      field is best shaped with real measurements in hand.
+    severity: low
 ---
 
 <intent-contract>
@@ -83,6 +130,7 @@ deferred: []
 ## Spec Change Log
 
 - 2026-08-30 (planning): `server/uv.lock` is not in the build-prompt footprint but is tracked and mechanically relocked by the `[project.optional-dependencies]` edit; committing it is recorded here rather than widened quietly.
+- 2026-08-30 (final push): `branch_conflicts.py --against story/7-1` reports one pair outside the allowed `story/11-2-review` exception: `story/7-1 × story/11-4` conflicts on `server/uv.lock` only — both lanes' `pyproject.toml` edits (this story's `[project.optional-dependencies]`, 11-4's `[dependency-groups]`) mechanically relock the same generated file; the pyproject regions themselves merge clean. Named here per wave rules instead of narrowing (impossible: shipping the extra without its lock entry leaves the branch pyproject/lock-inconsistent and every `uv run` would relock it). Integration resolves by taking either side and regenerating with `uv lock` after the second branch lands.
 - 2026-08-30 (planning, deferred): `test_stt_adapter.py::test_pyannote_is_documented_not_bundled` pins the pre-7.1 message; it stays green only while the venv lacks the extra. With the extra installed, build proceeds to the token check and the message changes. One-line update owned at integration (file not in this story's footprint).
 
 ## Design Notes
@@ -90,6 +138,7 @@ deferred: []
 - Availability checks live in `build_diarizer` (fail closed at build, per AC); model loading is deferred to first `diarize` so returning the engine never downloads anything — the injectable factory is the test seam.
 - Label canonicalization by first appearance makes the `SPEAKER_NN` contract independent of pyannote's version-specific label shape (4.x community-1 emits bare indices in its README example; 3.x emitted `SPEAKER_NN`).
 - Measurement (AC 2 of the story): BLOCKED — `HF_TOKEN` absent from `.env`; pyannote's gated models need a token with the licence accepted. Wall-clock and turn-quality numbers for a 60-minute recording remain unrecorded; run in-process in this worktree once a token exists.
+- Token surface (review finding): the engine reads the env var `token_env` names from the worker's process environment; `.env` stores the value but is not loaded into that environment today (`_load_secrets` fills `AppConfig.secrets`, nothing exports). All operator-facing wording states this; the `.env`-to-`Secrets` threading is deferred (footprint).
 
 ## Verification
 
@@ -99,3 +148,44 @@ deferred: []
 - `make test-fast` — expected: green (skips named).
 - `make test` — expected: green, once, before `review`.
 - `python3 _bmad/scripts/branch_conflicts.py --against story/7-1` — expected: clean against main and every `story/*` except pairs involving `story/11-2-review`.
+
+## Auto Run Result
+
+**Status:** in-review (per the wave contract this story terminates at review;
+it is not merged and not marked done by the builder).
+
+**Summary.** Story 7.1 ships a real in-process `pyannote.audio` engine behind
+the existing `Diarizer` port as the optional `diarize` dependency extra.
+`build_diarizer` fails closed at build time with named `DiarizerError`s
+(missing extra with the exact install command, missing/empty token naming the
+env var and licence); the returned engine loads nothing until its first
+`diarize` call through an injectable pipeline factory (the test seam). Labels
+canonicalize to `SPEAKER_NN` by first surviving appearance, seconds become int
+ms, degenerate turns are dropped, output sorts by start_ms. `noop` stays the
+default binding and the `SPEAKER_NN`/`speaker_at` tag contract is pinned end
+to end at the `_segment_payload` surface.
+
+**Files changed.**
+- `server/meetingminer/adapters/diarize/pyannote.py` — NEW engine module.
+- `server/meetingminer/adapters/diarize/__init__.py` — availability probe, token check, construction; messages.
+- `server/meetingminer/config.py` — `DiarizerConfig.model` / `.token_env` + docstring (only region touched).
+- `config.yaml` — diarizer block: model, token_env, operator comment.
+- `server/pyproject.toml` — `[project.optional-dependencies] diarize`.
+- `server/uv.lock` — mechanical relock (recorded in Spec Change Log).
+- `.env.example` — `HF_TOKEN=` in the provider-keys block.
+- `server/tests/test_diarize_pyannote.py` — NEW, 22 tests / 1 extra-gated skip.
+
+**Review findings breakdown.** 14 patched (1 high, 6 medium, 7 low), 4
+deferred (frontmatter list), 5 rejected. `followup_review_recommended: true`
+(one high-severity patched finding; score high>=1).
+
+**Verification.** `test_diarize_pyannote.py` + `test_stt_adapter.py`: 52
+passed, 1 named skip (extra-free venv), rerun after every patch batch.
+`make test-fast`: green (549-web suite + 1416 server fast set) pre-patch;
+full `make test` run on the final tree recorded in the run report.
+`branch_conflicts.py --against story/7-1`: clean except the allowed
+`story/11-2-review` pairs.
+
+**Residual risks.** The real model path (network, licence, torch runtime) has
+never executed — blocked on HF_TOKEN, by instruction. The four deferred items
+above, chiefly the process-environment token surface.

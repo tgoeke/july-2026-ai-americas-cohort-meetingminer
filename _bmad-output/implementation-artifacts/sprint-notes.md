@@ -2767,7 +2767,6 @@ committed tree with no loss. Pre-existing and not mine: `main × story/11-2`
 conflicts on 11-2's own spec file (remediation divergence; resolves at its
 integrate).
 
-
 ## `11-3-eval-runs-own-their-namespace` — review, 2026-08-30
 
 Built in worktree `11-3` on `story/11-3` (baseline `5cdfce7`, rebased onto
@@ -2838,8 +2837,6 @@ last — 11-4 puts lint/typecheck inside `test-fast` and would fail later
 branches for unrelated tidiness; 11-2 switches every worktree to a private
 stack and each existing worktree then owes `make worktree-provision`), 8-1
 (built, review not yet dispatched; its AD-10 edit unions with 11-2's).
-
-
 ## 11-4-lint-and-type-tooling-in-the-fast-loop — 2026-08-30, build complete (review)
 
 Pinned ruff 0.16.5 and mypy 2.3.1 in the server dev group with committed
@@ -2899,3 +2896,20 @@ nothing that existed; its value is preventing new problems, and B-4 is closed.
 field. `server/pyproject.toml` gained the dev-group pins, so `uv sync --project
 server` was run in the main checkout; **every other clone and worktree owes the
 same sync** before `make lint` will work there.
+## 7-1 — Diarizer engine behind the port (2026-08-30)
+
+Built to review by the wave builder. pyannote.audio rides the new optional
+`diarize` extra (`uv sync --project server --extra diarize`); `noop` stays the
+default and every unavailability is a named fail-closed `DiarizerError`. The
+60-minute measurement is BLOCKED on a Hugging Face token: `HF_TOKEN` is absent
+from `.env` (presence-only check), so no wall-clock or turn-quality numbers
+exist anywhere — by instruction, none were fabricated. Review found one high
+finding worth the owner's eye: the worker reads the token from its process
+environment, and nothing loads `.env` into that environment today — wording
+now says so everywhere, and the `.env`-to-`Secrets` threading is deferred
+because `config.py`'s secrets region sits outside this story's footprint (and
+inside 11-2's). Three more deferred items live in the spec frontmatter,
+including `test_stt_adapter.py`'s pre-7.1 pyannote pin, which fails only in an
+extra-installed venv. Integration heads-up: `story/7-1 × story/11-4` conflict
+on `server/uv.lock` alone (both relock for their disjoint pyproject regions);
+regenerate with `uv lock` when the second of the two lands.
