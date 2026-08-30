@@ -941,7 +941,14 @@ def _cmd_identity(args: argparse.Namespace) -> int:
 
 
 def _cmd_check_process_identity(args: argparse.Namespace) -> int:
-    project, stack_id = _declared_identity(Path(args.worktree))
+    worktree = Path(args.worktree).absolute()
+    # A linked checkout may legitimately invoke `worktree-provision` before
+    # its record exists. Target-level check-stack-record still refuses every
+    # consumer; the parse-time process guard must not make the repair target
+    # itself impossible to run.
+    if (worktree / ".git").is_file() and not (worktree / ENV_FILENAME).is_file():
+        return 0
+    project, stack_id = _declared_identity(worktree)
     expected = {STACK_NAME_VAR: project, STACK_ID_VAR: stack_id}
     for key, declared in expected.items():
         requested = os.environ.get(key, "").strip()
