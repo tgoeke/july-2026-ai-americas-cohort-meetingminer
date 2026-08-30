@@ -305,6 +305,20 @@ def test_a_contentful_foreign_document_is_a_named_parse_error(
         core.parse_extraction_document(document, core.DOC_TOPICS)
 
 
+def test_an_idless_contentful_foreign_table_is_a_named_parse_error() -> None:
+    document = (
+        "## Decisions\n\n"
+        "| Decision | Context | Timestamp |\n"
+        "|----------|---------|-----------|\n"
+        "| Rotate the vendor key | Required by policy | [0:10] |\n"
+    )
+    with pytest.raises(
+        core.ArtifactParseError,
+        match="contentful row.*Decisions.*topic semantics",
+    ):
+        core.parse_extraction_document(document, core.DOC_TOPICS)
+
+
 def test_the_shared_empty_document_parses_to_zero_topics() -> None:
     # The conftest default every worker test walks past: a Decisions-only
     # header must stay a successful zero-topic parse, or every existing
@@ -984,6 +998,32 @@ def test_a_contentful_foreign_topics_reply_earns_one_retry(
     )
     engine = fake_llm(replies=(foreign, TOPICS_DOC))
     job_id = enqueue(pool, make_extraction_drop("source-foreign-retry"), "source-foreign-retry")
+    assert runner.run_once(pool, app_config, content_root) is True
+    assert job_row(pool, job_id) == ("done", None)
+    assert len(engine.calls) == 2
+    [meeting] = meetings(pool, job_id)
+    assert len(topic_rows(pool, meeting["id"])) == 2
+
+
+def test_an_idless_contentful_foreign_topics_reply_earns_one_retry(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_extraction_drop: Callable[[str], Any],
+    fake_llm: Callable[..., FakeLlm],
+) -> None:
+    foreign = (
+        "## Decisions\n\n"
+        "| Decision | Context | Timestamp |\n"
+        "|----------|---------|-----------|\n"
+        "| Rotate the vendor key | Required by policy | [0:10] |\n"
+    )
+    engine = fake_llm(replies=(foreign, TOPICS_DOC))
+    job_id = enqueue(
+        pool,
+        make_extraction_drop("source-idless-foreign-retry"),
+        "source-idless-foreign-retry",
+    )
     assert runner.run_once(pool, app_config, content_root) is True
     assert job_row(pool, job_id) == ("done", None)
     assert len(engine.calls) == 2

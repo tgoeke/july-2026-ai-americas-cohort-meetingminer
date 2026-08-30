@@ -947,8 +947,27 @@ def parse_extraction_document(text: str, document_kind: str) -> ParsedDocument:
             # populated — a table with a header and no rows under it is an
             # honest "nothing here", not a silent zero.
             if layout == LAYOUT_TABLE and _is_header_row(cells):
-                headers = list(cells)
-                continue
+                # A short data row can satisfy the deliberately broad generic
+                # header heuristic. For topics, only the first row or a row
+                # that itself establishes topic semantics may replace the
+                # remembered header; otherwise a contentful foreign row would
+                # be repeatedly reclassified as another header and parse as
+                # an honest zero.
+                if (
+                    document_kind != DOC_TOPICS
+                    or headers is None
+                    or _has_topic_semantics(section, cells)
+                ):
+                    headers = list(cells)
+                    continue
+        if document_kind == DOC_TOPICS and found is None and not _has_topic_semantics(
+            section, headers if layout == LAYOUT_TABLE else None
+        ):
+            raise ArtifactParseError(
+                f"contentful row under section {section!r} in the topics document"
+                " has no topic semantics in either the heading or Topic/Gist"
+                " table columns"
+            )
         if _section_is_target(section, document_kind) and section not in populated:
             populated.append(section)
         if found is None:
