@@ -52,6 +52,22 @@
 - Evidence: Lines 16–21 claim subject safety and conclude, `safe to run while another eval run or any suite is running.` The F11 docs-contract test reads only AGENTS, dispatch, and RUNBOOK, so this contradictory in-scope check documentation remains invisible.
 - Resolution: Fixed in this review. The expanded F11 test first failed on the stale sentence. The publish-gate header now says the check participates in `make evals-run`'s single-flight lane pending owner live acceptance and may overlap only store-free suites; the contract test passes.
 
+### Finding 6 — Live overlap let a sibling probe decide another run's verdict
+
+- Location: `evals/checks/test_publish_gate.py:119`
+- Severity: high
+- Finding: The owner-run live acceptance caught check 2.11 treating a sibling run's in-flight probe as immutable subject state. The observing run then read the stores after the sibling erased its probe and emitted a false projection-on-publish regression, so the corpus stayed safe while the verdict did not.
+- Evidence: Main commit `5a9676d` records a genuine overlap against branch tip `f2ed760`. `left`/`demo-002` reported `artifacts: 3, states: {extracted: 2, published: 1}` for a two-artifact meeting; the third id was `right`'s probe `01a054ab-5b35-7d3d-adc3-6ce905d87916`, and both reported store absences followed the owner's verified cleanup. The four probes were otherwise minted, approved with their own ids, and erased with `cleanup.verified: true`; zero probe rows survived.
+- Resolution: Fix present after the measured tip, acceptance still open. The current branch excludes `eval-gate-probe-%` rows from the subject half while leaving the unfiltered corpus read to the run-owned probe coordinator. Its exact cross-run regression and mutation evidence are being rerun in this round. The single-flight rule remains until a new owner measurement passes.
+
+### Finding 7 — Approve hides a total projection refusal behind 200 OK
+
+- Location: `server/meetingminer/api/moments.py:697`
+- Severity: high
+- Finding: The approve route catches a total projection failure, logs it, and still returns 200. Check 2.11 therefore cannot distinguish a publish-gate regression from transient projection-lock contention when both retrieval stores remain absent.
+- Evidence: Main commit `5a9676d` records `artifacts.projection.failed` for probe `01a054ab-56b3-7b0e-8d7a-fe22c1bffe00` with `ProjectionLockedError`, immediately followed by `moments.approved` and `POST .../approve HTTP/1.1` `200 OK`; the probe was absent from both stores afterward. Three other probes projected successfully, so the measurement does not support a story-4-4 regression.
+- Resolution: Open and deferred. This is a server/API contract defect outside Story 11-3's frozen footprint; it will be recorded in `docs/backlog.md` and is not patched on this branch.
+
 ## Mutation Evidence
 
 Every remediation commit F1–F12 received a kill mutation in commit order. Unless noted otherwise, the named regression failed under the mutation and passed after restoration.
