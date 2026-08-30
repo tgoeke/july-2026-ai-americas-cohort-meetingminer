@@ -101,3 +101,11 @@ Review of the Story 6.2 YouTube Acquisition Command implementation, limited to t
 - **Finding:** Normal tests cover caption selection but replace `download()` wholesale. They never observe the format selector, manual/automatic subtitle flags, `--convert-subs vtt`, output naming, info-json parsing, or the mapping from actual files to `transcript.vtt`.
 - **Evidence:** The offline end-to-end test's fake manufactures an MP4, VTT, and metadata object without executing any production command-building or output-discovery code. Mutations such as changing `--write-auto-subs` to `--write-subs` or deleting `--convert-subs vtt` leave the normal suite green; the gated network test asserts only that `recording.mp4` is non-empty.
 - **Suggested direction:** Stub `_run()` rather than `download()`, inspect complete commands for manual, auto, and no-caption cases, materialize realistic yt-dlp output names, and assert the returned evidence and downloaded metadata. Confirm each regression test fails on the current defective mutation it is meant to guard.
+
+### F12 — The promised mint-drop CLI parity has no automated boundary coverage
+
+- **Location:** `server/tests/test_youtube.py:319-357`, `server/tests/test_youtube.py:501-526`, `server/meetingminer/youtube.py:506-560`
+- **Severity:** medium
+- **Finding:** No test calls `youtube.main()`. The suite therefore does not verify that an `exists` result is still POSTed, `--no-post` suppresses POST and prints recovery syntax, `--drops`/`--api` reach the shared resolvers, intake failure returns non-zero, duplicate intake is reported, or the configured duration cap is forwarded.
+- **Evidence:** The exists test stops at `acquire()` and never reaches `post_ingest()`. The Makefile test searches source text only. The duration test injects `cap_minutes=10` directly into `acquire()`, so `main()` could hard-code 180 or stop POSTing existing drops while all 43 normal tests remain green.
+- **Suggested direction:** Add focused `main()` tests with config, acquisition, and intake boundaries stubbed. Cover created/exists, POST/duplicate/rejected intake, `--no-post`, explicit resolver arguments, and a non-default configured cap.
