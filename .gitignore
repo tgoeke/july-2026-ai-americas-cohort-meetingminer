@@ -41,25 +41,10 @@ web/dist/
 # Build output.
 .dist/
 
-# BMad working output is local by default. Story 6.1's canonical UX design is
-# the one explicit exception; studies, screenshots, memlogs, and snapshots stay
-# local so the tracked surface remains the builder-facing design of record.
-_bmad-output/*
-!_bmad-output/planning-artifacts/
-_bmad-output/planning-artifacts/*
-!_bmad-output/planning-artifacts/ux-designs/
-_bmad-output/planning-artifacts/ux-designs/*
-!_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/
-_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/*
-!_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/DESIGN.md
-!_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/EXPERIENCE.md
-!_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/adoption.md
-!_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/findings-for-epics.md
-!_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/validation-report.md
-!_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/validation-report.html
-!_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/mockups/
-_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/mockups/*
-!_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/mockups/*.html
+# BMad working output (specs, prompts, reviews, tracking, design workspace) is
+# local process record and is never pushed: the repository is shared with the
+# cohort. Worktrees reach it through the main checkout. Never `git add -f` here.
+_bmad-output/
 
 # Vendored agent skill trees (per-machine copies; the installer regenerates them).
 # The hand-written `integrate` skill is not vendored and is tracked.
