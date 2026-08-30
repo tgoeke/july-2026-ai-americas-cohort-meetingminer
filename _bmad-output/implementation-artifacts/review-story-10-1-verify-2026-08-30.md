@@ -32,3 +32,11 @@
 - **Finding:** The frozen Story 10.1 footprint does not include `_bmad/custom/`, and the wave owner-decision artifact carries a Story 7.1 telemetry ruling. Both nevertheless appear in the exact remediation range, so the range widened beyond the story even though the content is independently reasonable.
 - **Evidence:** `git diff --name-status 93215b8..7d68ef4` includes both paths. `f675e2c` is a merge with first parent `e5ff7e8` and second parent the Story 10.1 head `93215b8`; the out-of-scope content came from its `main@f17b87a` integration baseline rather than from a Topic Extraction fix.
 - **Resolution:** **Open — owner disposition required.** Reverting these paths on `story/10-1-review` would undo policy already owned by `main`, while rewriting the historical remediation range is outside this review lane's authority. The owner must either accept the merge-baseline exception explicitly or redefine the review range/topology so main-owned changes are excluded.
+
+### 4. The integration-conflict check stays green when the integration fix is reverted
+
+- **Location:** `_bmad-output/implementation-artifacts/review-story-10-1-2026-08-30.md` (finding #10 resolution and verification); commit `f675e2c`
+- **Severity:** Low
+- **Finding:** `branch_conflicts.py` proves that two refs can merge; it does not prove that the review branch already contains the Story 10.1 head. Reverting the topology-only fix to its pre-merge first parent therefore leaves the claimed check green even though the implementation is absent.
+- **Evidence:** Created a temporary ref at exact pre-fix parent `e5ff7e8` and ran `python3 _bmad/scripts/branch_conflicts.py --against story/10-1-review-premerge-verify`; it reported `story/10-1-review-premerge-verify × story/10-1 clean`. The temporary ref was removed. The mutation-sensitive assertion `git merge-base --is-ancestor 93215b8 <target>` returned `1` for `e5ff7e8` and `0` for the reviewed branch.
+- **Resolution:** **Open while reported.** Amend the recorded #10 verification to require both ancestry (the story head is contained) and mergeability (relevant pairs are clean), then record the red/green ancestry evidence.
