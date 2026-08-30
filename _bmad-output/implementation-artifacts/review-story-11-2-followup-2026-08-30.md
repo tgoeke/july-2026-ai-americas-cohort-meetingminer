@@ -156,7 +156,8 @@
 - **Evidence:** With Make holding id `0123456789ab`, change the valid record to `deadbeefcafe` during `check-docker` while inventory reports the live project at `0123456789ab`. The current prerequisite order then calls `claim` with the new file id, which selects the old-id project for teardown; only the recipe's later `assert-identity` notices that Make still holds the old id.
 - **Suggested direction:** Compare Make's effective name/id with the live record after `check-docker` but before `check-stack`, retain the final check immediately before Compose, and regression-prove neither inventory nor teardown is reached on the mismatch.
 - **Red regression:** `test_infra_up_refuses_a_record_change_before_claim_can_tear_down` failed at `assert not any(line.startswith(PRUNE_PS_PREFIX) ...)`: after the fake changed the id during `docker info`, the observed calls included project and volume inventory followed by `compose -p meetingminer-probe down -v --remove-orphans`. The later identity assertion returned nonzero, but only after the destructive teardown.
-- **Status:** Red regression observed; patch pending on `story/11-2-followup-review`.
+- **Resolution:** Fixed in `4188d67`. `check-compose-identity` now runs after Docker/env checks and before `check-stack`, while the recipe retains the final pre-Compose comparison.
+- **Green verification:** The regression passed without any project inventory, `down -v`, or Compose `up`; the complete Make/process story suite passed 118 tests.
 
 ### Finding 14 — `WT_ENVFILE` can redirect every ownership guard
 
@@ -166,7 +167,8 @@
 - **Evidence:** In a `probe` checkout with its own valid record, pass `WT_ENVFILE=<victim>/.env.worktree make infra-up`. Every current reference derives the worktree from `$(dir $(WT_ENVFILE))`, so Make resolves and claims the victim name/id and invokes Compose with the victim project instead of refusing or using `probe`.
 - **Suggested direction:** Make `WT_ENVFILE` an override assignment derived only from `ROOT`; adapt test isolation to override a scratch `ROOT` plus the real `INFRA`, not the safety record path itself.
 - **Red regression:** `test_wt_envfile_argument_cannot_select_another_checkouts_identity` failed at the assertion requiring `-p meetingminer-probe`; the invocation returned 0 but the recorded Compose command selected the victim record/project instead of the probe checkout's identity.
-- **Status:** Red regression observed; patch pending on `story/11-2-followup-review`.
+- **Resolution:** Fixed in `4188d67`. `WT_ENVFILE` is derived from non-overridable `CHECKOUT_ROOT`; old-ref starts run the current Makefile from the target checkout's `infra/`, preserving the one safe start path without a public record-path override.
+- **Green verification:** The probe ignored the victim `WT_ENVFILE` argument and started only `meetingminer-probe`; old-ref, provision, retry, and complete Make/process coverage passed in the 118-test suite.
 
 ### Finding 15 — identity helpers misclassify missing and main-checkout records
 
@@ -176,14 +178,15 @@
 - **Evidence:** `identity --worktree <linked-without-file>` currently prints `meetingminer` with a blank id and exits 0. Conversely, placing a structurally valid directory-matching record beside a `.git` directory lets `identity` print the private name/id even though `validated_worktree_env` and `check-stack-record` reject that topology.
 - **Suggested direction:** Make the shared identity reader enforce checkout topology: a `.git` file requires a valid record, a `.git` directory forbids one, and a non-git scratch directory retains main/default behavior for isolated tests.
 - **Red regression:** `test_identity_reader_refuses_a_linked_worktree_without_its_record` and `test_identity_reader_refuses_a_private_record_in_the_main_checkout` both failed with `Failed: DID NOT RAISE StackError`, confirming both topology mismatches were accepted.
-- **Status:** Red regressions observed; patch pending on `story/11-2-followup-review`.
+- **Resolution:** Fixed in `4188d67` and recovery-hardened in `67baf55`. Identity commands refuse both topology mismatches, while the parse-time process guard permits a missing-record linked checkout to reach `make worktree-provision`; stack-consuming targets still refuse it.
+- **Green verification:** Both topology regressions passed. A full-suite-discovered recovery regression was then fixed and verified with `test_worktree_provision_writes_this_checkouts_file_and_starts_its_stack`; the complete Story suites passed 301 and 118 tests.
 
 ## Review Outcome
 
-- **Verdict:** Remediation in progress — final adversarial review added three patch findings.
-- **Triage:** 15 confirmed findings: 12 fixed; Findings 13–15 filed and pending red-first remediation; no deferred findings.
+- **Verdict:** Approved — ready for owner integration.
+- **Triage:** 15 confirmed findings, all fixed on `story/11-2-followup-review`; no findings remain open or deferred.
 - **Prior remediation assessment:** The production fixes for the ten dispatched findings hold under the exercised adversarial cases after this lane's patches. The claimed ownership-recheck regression for prior finding 7 was not discriminating; Finding 9 replaced it with an observed mutation-red test. Owner rulings closed the remaining effective-identity and architecture-authority gaps red/green.
-- **Story status:** `review` in the spec and sprint tracker. No merge was performed.
+- **Story status:** `done` in the spec and `review` in the sprint tracker. No merge was performed.
 
 ## Final Verification
 
@@ -193,9 +196,9 @@
 - `uv run --project server pytest server/tests --co -q | tail -1` — **1612/1984 collected, 372 deselected**.
 - `make check-env` — passed for this worktree's validated ownership record.
 - `make test` — after the documented one-time `make bootstrap` installed missing worktree-local puller/web dependencies: puller **128 passed**, web **291 passed**, eval harness **549 passed**, server **1984 passed** in 579.13s, production web build succeeded.
-- Owner-ruling Story suites: `test_worktree_stack.py test_config.py test_compose_contract.py` — **299 passed, 1 deselected**; `-m "" test_makefile_procs.py test_projections_locks.py test_parallel_store_safety.py` — **116 passed**.
-- `make test-fast` after `0862185` — puller **128 passed**, web **291 passed**, eval harness **549 passed**, server fast set **1615 passed, 376 deselected**.
-- `make check-env && make check-test-stores` — passed; required twin reachability **1 passed**. Collection is **1615/1991**, 376 deselected.
+- Final Story suites after adversarial patches: `test_worktree_stack.py test_config.py test_compose_contract.py` — **301 passed, 1 deselected**; `-m "" test_makefile_procs.py test_projections_locks.py test_parallel_store_safety.py` — **118 passed**.
+- Final `make test-fast` — puller **128 passed**, web **291 passed**, eval harness **549 passed**, server fast set **1617 passed, 378 deselected**.
+- Final `make check-env && make check-test-stores` — passed; required twin reachability **1 passed**. Collection is **1617/1995**, 378 deselected.
 - `git diff --check` — passed.
 - `make check-reviews` — **passed:** every dispatched review has a committed report (run after commit `27804fb`).
 - `make evals-run` was not run (paid judge role, expressly excluded).

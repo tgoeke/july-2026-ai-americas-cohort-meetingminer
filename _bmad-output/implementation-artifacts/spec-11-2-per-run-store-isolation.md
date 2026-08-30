@@ -2,7 +2,7 @@
 title: 'Per-Run Store Isolation'
 type: 'chore'
 created: '2026-08-30'
-status: 'in-progress'
+status: 'done'
 baseline_commit: '947b9cfcde37b312003a97237658246b50030334'
 baseline_revision: 'de0fc0816c26a8131fdc153368719e6f3808f40e'
 reviewed_head: 'fa86b864c7101e2a45d2c278a9562669c72d962c'
@@ -241,6 +241,8 @@ The 11-2 worktree's `.env.worktree` predates `MM_STACK_ID`, so after Theme 1 lan
 
 ## Spec Change Log
 
+- 2026-08-30 (final adversarial validation): three additional patch findings closed red-first. `infra-up` now checks the parsed identity before destructive claim as well as immediately before Compose; the ownership-record path is derived from the checkout working directory and cannot be replaced with `WT_ENVFILE`; the identity CLI enforces linked/main checkout topology without blocking `worktree-provision`. Generated-file and operator documentation now state the identity exception precisely.
+
 - 2026-08-30 (owner rulings on follow-up Findings 10–11): `MM_STACK_NAME` and `MM_STACK_ID` are non-overridable ownership identity read only from the checkout's `.env.worktree`; process precedence remains unchanged for ports and endpoints. Compose must also refuse immediately before execution if its effective name or id differs from the file. Story 11-2 owns the matching AD-10 amendment naming the generated incarnation identity; the owner will union Story 8-1's separate model-binding sentence during integration.
 
 - 2026-08-30 (remediation build): all ten follow-up findings closed red-then-green; `## Auto Run Result` carries the remediation record. Branch rebased onto main `a011695` mid-run (main gained the harness addendum and the duplicate-lane halt note in this file; the Auto Run Result conflict was resolved by keeping both paragraphs). One deferred non-edit: the `story/7-1` × `main` conflict on `sprint-notes.md` predates this lane and is 7-1's rebase debt — not touched from here (wave rule: never edit another lane's file to make room).
@@ -346,7 +348,7 @@ exactly how `claim` recognises a stale incarnation. Probe removed with
 
 **Round-one record (superseded by the remediation record above; kept for history).** **Status:** done (2026-08-30). Branch `story/11-2` at `fa86b86` in worktree `../meetingminer-wt/11-2`, pushed, `origin/story/11-2` identical (`git rev-list --left-right --count HEAD...@{u}` → `0	0`), `git status --porcelain` empty; 11 commits `b6fac36`..`fa86b86` on base `de0fc08` (= `main`).
 
-**Implemented.** Every worktree owns a private compose stack. `infra/docker-compose.yml` interpolates the project name, the five container names and the seven host ports from `MM_STACK_NAME` / `MM_*_PORT` with today's values as defaults, so the main checkout's stack, names and corpus volumes are unchanged. `make worktree STORY=<slug> [BASE=main]` validates the slug (`[a-z0-9][a-z0-9_-]*`), adds the checkout beside the main repo (`WT_ROOT` from the git common dir, so a worktree can create siblings), links `.env` to the main file, sweeps a stale project of the same name, writes `.env.worktree` (`infra/worktree_stack.py provision`: base `crc32(slug) % 400` in 20000–23999, stepping past bound or sibling-declared ports) and brings the stack up through the invoking checkout's Makefile and compose file with `--project-directory <wt>/infra` — so a worktree cut from a pre-11.2 ref still gets its own stack. `worktree-remove` / `worktree-prune` tear the stack and volumes down after git removes the checkout; `test-db-prune` adds a second sweep (`worktree_stack.py prune`) that removes `meetingminer-<slug>` projects whose checkout directory is gone and reports every owned one; `worktree-list` shows each stack's name and ports; `worktree-provision` writes the file for an existing linked worktree. Three readers take the file: the Makefile (`-include`, precedence env > file > default, values passed to compose explicitly), compose (second `--env-file`, `-p`), and the loader (`merged_env`: `.env`, then `.env.worktree`, then the process env with the blank rule; `MM_POSTGRES_PORT` / `MM_NEO4J_BOLT_PORT` / `MM_MEILI_PORT` replace only the port of the configured endpoints; stack keys only in `.env.worktree`, never in `.env`). The test session reads its twin URLs through the same merged env; a linked worktree without the file is refused by `check-env` and at conftest import. `MM_PROJECTION_LOCK_KEY` names the projection lock file (B-14); unset, the derivation is byte-identical. AD-10 restated in one sentence; AGENTS.md's store section rewritten with the measurements; CLAUDE.md, README, glossary, project-context, `.env.example`, the integrate skill's dispatch note and the backlog (B-14 closed, B-35 filed) follow.
+**Implemented.** Every worktree owns a private compose stack. `infra/docker-compose.yml` interpolates the project name, the five container names and the seven host ports from `MM_STACK_NAME` / `MM_*_PORT` with today's values as defaults, so the main checkout's stack, names and corpus volumes are unchanged. `make worktree STORY=<slug> [BASE=main]` validates the slug (`[a-z0-9][a-z0-9_-]*`), adds the checkout beside the main repo (`WT_ROOT` from the git common dir, so a worktree can create siblings), links `.env` to the main file, sweeps a stale project of the same name, writes `.env.worktree` (`infra/worktree_stack.py provision`: base `crc32(slug) % 400` in 20000–23999, stepping past bound or sibling-declared ports) and brings the stack up through the invoking checkout's Makefile and compose file with `--project-directory <wt>/infra` — so a worktree cut from a pre-11.2 ref still gets its own stack. `worktree-remove` / `worktree-prune` tear the stack and volumes down after git removes the checkout; `test-db-prune` adds a second sweep (`worktree_stack.py prune`) that removes `meetingminer-<slug>` projects whose checkout directory is gone and reports every owned one; `worktree-list` shows each stack's name and ports; `worktree-provision` writes the file for an existing linked worktree. Three readers take the file: the Makefile (`-include`, location precedence env > file > default, values passed to compose explicitly), compose (second `--env-file`, `-p`), and the loader (`merged_env`: `.env`, then `.env.worktree`, then the process env for location/endpoint values with the blank rule; `MM_POSTGRES_PORT` / `MM_NEO4J_BOLT_PORT` / `MM_MEILI_PORT` replace only the port of the configured endpoints). `MM_STACK_NAME` and `MM_STACK_ID` are non-overridable ownership identity from `.env.worktree` (main defaults without it); conflicting process values are refused before claim and the live record is checked again immediately before Compose. Stack keys are allowed only in `.env.worktree`, never in `.env`. The test session reads its twin URLs through the same merged env; a linked worktree without the file is refused by `check-env` and at conftest import. `MM_PROJECTION_LOCK_KEY` names the projection lock file (B-14); unset, the derivation is byte-identical. AD-10 admits the private name, ports, and generated incarnation identity; AGENTS.md's store section is rewritten with the mechanism and measurements; README, glossary, project-context, `.env.example`, the integrate skill's dispatch note and the backlog (B-14 closed, B-35 filed) follow.
 
 **Files changed (24).** `infra/docker-compose.yml` interpolation; `infra/Makefile` include/precedence, `COMPOSE`, `check-env` guard, `check-dev-stores` ports, `worktree`/`-list`/`-remove`/`-prune`/`-provision`, `test-db-prune` sweep, `down` fallback, help; `infra/worktree_stack.py` new (allocator, renderer, pruner, CLI); `server/meetingminer/config.py` `merged_env`, key rules, port overrides; `server/meetingminer/projections/locks.py` `MM_PROJECTION_LOCK_KEY`; `server/tests/conftest.py` twin binding via `twin_endpoints`, linked-worktree refusal; `server/tests/test_worktree_stack.py` new; `test_config.py`, `test_compose_contract.py`, `test_makefile_procs.py` (+17 tests: worktree provision/old-ref/Docker-down/bad slug/remove/prune/check-env/check-dev-stores/precedence), `test_projections_locks.py`, `test_parallel_store_safety.py` (B-14 test on its own key), `test_projections_search.py` (alias guard from live endpoints), `test_migrations.py` (subprocess port pinned), `test_api_search.py` docstring; docs: `AGENTS.md`, `CLAUDE.md`, `README.md`, `project-context.md`, `.env.example`, `docs/architecture.md` (AD-10), `docs/backlog.md`, `docs/glossary.md`, `.claude/skills/integrate/dispatch.md`.
 
@@ -377,8 +379,8 @@ exactly how `claim` recognises a stale incarnation. Probe removed with
 
 ### Remediation Follow-up Review Findings — 2026-08-30
 
-- [ ] [Review][Patch] Make stack name/id non-overridable and assert effective identity immediately before Compose [infra/Makefile:626] — owner decision 2026-08-30.
-- [ ] [Review][Patch] Add the generated stack incarnation identity to AD-10 [docs/architecture.md:109] — owner decision 2026-08-30; Story 11-2 owns this sentence.
+- [x] [Review][Patch] Make stack name/id non-overridable and assert effective identity immediately before Compose [infra/Makefile:626] — owner decision 2026-08-30; closed red/green on the follow-up review branch.
+- [x] [Review][Patch] Add the generated stack incarnation identity to AD-10 [docs/architecture.md:109] — owner decision 2026-08-30; Story 11-2 owns this sentence.
 - [x] [Review][Patch] Worktree removal could tear down a copied record's foreign stack [infra/Makefile:382]
 - [x] [Review][Patch] A process name override could hide a copied record from the test-session guard [server/tests/conftest.py:237]
 - [x] [Review][Patch] Make directives and duplicate assignments bypassed the ownership-record grammar [infra/Makefile:25]
@@ -389,5 +391,42 @@ exactly how `claim` recognises a stale incarnation. Probe removed with
 - [x] [Review][Patch] `worktree-prune` masked Git worktree removal failure [infra/Makefile:428]
 - [x] [Review][Patch] The ownership-recheck regression did not exercise the final recheck [server/tests/test_worktree_stack.py:1079]
 - [x] [Review][Patch] Stack slug/project/id regexes accepted a trailing newline [infra/worktree_stack.py:166]
+- [x] [Review][Patch] The final start check ran after destructive claim [infra/Makefile:654]
+- [x] [Review][Patch] `WT_ENVFILE` could redirect every ownership guard [infra/Makefile:17]
+- [x] [Review][Patch] Identity helpers misclassified missing and main-checkout records [infra/worktree_stack.py:910]
 
 Full evidence, red/green commit history, and resolutions are in `review-story-11-2-followup-2026-08-30.md`.
+
+## Suggested Review Order
+
+**Ownership entry point**
+
+- Derive identity from the active checkout and reject process conflicts before any target runs.
+  [`Makefile:7`](../../infra/Makefile#L7)
+
+- Check parsed identity before destructive claim, then recheck immediately before Compose.
+  [`Makefile:654`](../../infra/Makefile#L654)
+
+**Identity validation**
+
+- Enforce linked/main topology and compare process, parsed, and live identities centrally.
+  [`worktree_stack.py:911`](../../infra/worktree_stack.py#L911)
+
+- Keep loader identity file-owned while preserving process precedence for locations and endpoints.
+  [`config.py:938`](../../server/meetingminer/config.py#L938)
+
+**Architecture and operator contract**
+
+- Distinguish generated ownership metadata from endpoint-location overrides in AD-10.
+  [`architecture.md:109`](../../docs/architecture.md#L109)
+
+- Document the non-overridable identity and final Compose recheck for every agent.
+  [`AGENTS.md:88`](../../AGENTS.md#L88)
+
+**Regression evidence**
+
+- Exercise hostile identity, pre-claim mutation, path redirection, and recovery with fake Docker.
+  [`test_makefile_procs.py:2123`](../../server/tests/test_makefile_procs.py#L2123)
+
+- Pin loader identity precedence and reject identity keys in the shared secrets file.
+  [`test_config.py:838`](../../server/tests/test_config.py#L838)

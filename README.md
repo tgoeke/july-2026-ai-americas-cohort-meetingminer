@@ -352,7 +352,10 @@ Each git worktree has its own stores: `make worktree` provisions a private
 compose stack (`meetingminer-<slug>`, its ports and its incarnation id
 `MM_STACK_ID` in the worktree's generated `.env.worktree` — a validated
 ownership record every reader refuses when it is incomplete, hand-edited or
-copied from another worktree), so suites in two worktrees never contend.
+copied from another worktree). Its `MM_STACK_NAME` and `MM_STACK_ID` cannot be
+overridden from the process environment; a conflicting value is refused before
+the stack starts, while port and endpoint overrides keep their normal
+precedence. Suites in two worktrees therefore never contend.
 Memory is the Docker VM's, not the host's: OrbStack's VM reports 23.5 GiB
 against the 128 GB host, a stack idles at about 2 GiB, so a handful of
 stacks fit and a dozen idle ones would fill the VM — `make down` in an idle

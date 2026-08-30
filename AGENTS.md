@@ -98,14 +98,18 @@ Notes that matter:
   the Makefile (`check-env`, plus a parse-time guard that refuses foreign
   keys before `-include` could assign them), the loader (`merged_env`) and
   the test session's import, each naming the remedy. A secret cannot be
-  overridden from it; the stack name or a port key in `.env` is refused
-  too (the Makefile never reads them from there); and because every guard
+  overridden from it; the stack name, stack id, or a port key in `.env` is
+  refused too (the Makefile never reads them from there); and because every guard
   requires `MM_STACK_NAME` to equal `meetingminer-<directory name>`,
   `git worktree move` is not supported for a worktree with a stack.
   `infra/Makefile` (`-include`) and `docker compose` (a second
   `--env-file`) read its stack keys; the loader reads it after `.env`
-  (`merged_env`: `.env`, then `.env.worktree`, then the process environment,
-  a blank process value never masking a file value). A linked worktree
+  (`merged_env`: `.env`, then `.env.worktree`, then the process environment for
+  location and endpoint values, with a blank process value never masking a
+  file value). `MM_STACK_NAME` and `MM_STACK_ID` are non-overridable ownership
+  identity: a conflicting process value is refused before claim, and Make
+  rechecks its effective identity against the live record immediately before
+  Compose. A linked worktree
   without the file is refused by name — `make check-env` and the test
   session's import both stop and point at `make worktree-provision` —
   rather than silently running on the main checkout's stack.
@@ -144,8 +148,9 @@ never contend; one eval run at a time.**
   applies the private Postgres port; the session `app_config` in
   `server/tests/conftest.py` repoints Neo4j and Meilisearch at the twins
   named by `MM_TEST_NEO4J_URI` / `MM_TEST_MEILI_URL` from `.env.worktree`
-  (the process environment still wins; the main checkout defaults to
-  `bolt://localhost:7688` / `http://localhost:7701`); Postgres tests keep
+  (the process environment still wins for those endpoint values; the main
+  checkout defaults to `bolt://localhost:7688` / `http://localhost:7701`);
+  Postgres tests keep
   their per-run database (`RUN_ID`). When the twins are down the store-backed
   tests skip with a named reason that includes the resolved URLs; they never
   fall back to the dev endpoints.
