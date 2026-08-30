@@ -30,12 +30,19 @@ is not part of, so the twin rule is enforced twice more for that path. When
 either fixture is set up, an unmarked requester fails before the fixture
 function runs; the failure is cached the way pytest caches one and torn down
 with that test, so a later ``slow`` test sets the fixture up normally. And
-when an unmarked test is reported passed, the twins its request resolved are
-checked — the case the setup hook cannot see: ``stores_up`` is
+when an unmarked test's setup or call is reported, the twins its request
+resolved are checked — the case the setup hook cannot see: ``stores_up`` is
 session-scoped, and a request for it after a ``slow`` test set it up is
-served from the cache without any setup. The collection check stays because
-it names every offender at once before anything runs; the other two are the
-backstops for the dynamic path.
+served from the cache without any setup. That check does not depend on the
+outcome the test earned: a passed, skipped, xfailed or xpassed report
+becomes a failure carrying the diagnostic and the outcome it replaces (an
+error at setup, when one of the test's own fixtures asked), and a report
+that already failed keeps its failure, with the diagnostic added as a
+section unless it is that failure. The setup hook's refusal counts as a
+resolved twin for the same reason: an ``xfail`` mark would otherwise absorb
+it into a green XFAIL. The collection check stays because it names every
+offender at once before anything runs; the other two are the backstops for
+the dynamic path.
 
 **The by-path hint.** The collection hook also records whether every
 collected item carried ``slow`` — the case where the default expression alone
@@ -62,6 +69,14 @@ _ALL_SLOW = pytest.StashKey[bool]()
 # contract in test_compose_contract.py that requires each to be pinned.
 _SLOW_NODEIDS = pytest.StashKey[frozenset[str]]()
 _TWIN_FIXTURES = frozenset({"projection_stores", "stores_up"})
+# On an item: the setup hook refused a twin request from it — a resolved twin
+# for the report-time check, which no outcome the test earns afterwards
+# (an xfail mark absorbing the refusal, say) may hide.
+_TWIN_REFUSED = pytest.StashKey[bool]()
+# On an item: one of its reports already carries the twin diagnostic, so the
+# later phases of the same item leave their reports alone.
+_TWIN_REPORTED = pytest.StashKey[bool]()
+_TWIN_SECTION = "fast_budget: the twin rule"
 _AT_RUN_TIME = " (requested at run time)"
 _DEFAULT_MARK_EXPRESSION = "not slow"
 
@@ -175,6 +190,7 @@ def pytest_fixture_setup(
     failure = pytest.fail.Exception(_twin_rule([item.nodeid]) + _AT_RUN_TIME, pytrace=False)
     fixturedef.cached_result = (None, fixturedef.cache_key(request), (failure, None))
     item.addfinalizer(functools.partial(fixturedef.finish, request=request))
+    item.stash[_TWIN_REFUSED] = True
     raise failure
 
 
@@ -191,18 +207,54 @@ def _twins_resolved_for(item: pytest.Item) -> set[str]:
     return _TWIN_FIXTURES & set(resolved or ())
 
 
+def _twin_bound(item: pytest.Item) -> bool:
+    """Whether this test's request reached a twin: resolved one, or was refused one by the setup hook."""
+    return item.stash.get(_TWIN_REFUSED, False) or bool(_twins_resolved_for(item))
+
+
+def _earned_outcome(report: pytest.TestReport) -> str:
+    """The outcome pytest gave this report, in the terminal's words."""
+    if hasattr(report, "wasxfail"):
+        return "xfailed" if report.skipped else "xpassed"
+    return report.outcome
+
+
+def _twin_failure(item: pytest.Item, report: pytest.TestReport) -> pytest.TestReport:
+    """The report of an unmarked twin-bound test, made a failure whatever it was.
+
+    A failure the test earned on its own is kept, with the diagnostic added
+    as a section — unless the failure is the setup hook's refusal, which
+    already reads the same. Every other outcome, including a skip, an xfail
+    and an xpass, is replaced by the diagnostic, which names the outcome it
+    replaces; ``wasxfail`` goes with it, or the terminal would still print
+    the report as XFAIL.
+    """
+    diagnosis = _twin_rule([item.nodeid]) + _AT_RUN_TIME
+    if report.failed:
+        if _AT_RUN_TIME not in str(report.longrepr):
+            report.sections.append((_TWIN_SECTION, diagnosis))
+        return report
+    earned = _earned_outcome(report)
+    if hasattr(report, "wasxfail"):
+        del report.wasxfail
+    report.outcome = "failed"
+    report.longrepr = f"{diagnosis}; this replaces the test's own {report.when} outcome ({earned})"
+    return report
+
+
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_makereport(
     item: pytest.Item, call: pytest.CallInfo[None]
 ) -> Generator[None, pytest.TestReport, pytest.TestReport]:
     report = yield
+    if call.when == "teardown" or item.get_closest_marker("slow") is not None:
+        return report
+    if item.stash.get(_TWIN_REPORTED, False):
+        return report
+    if _twin_bound(item):
+        item.stash[_TWIN_REPORTED] = True
+        return _twin_failure(item, report)
     if call.when != "call" or not report.passed or hasattr(report, "wasxfail"):
-        return report
-    if item.get_closest_marker("slow") is not None:
-        return report
-    if _twins_resolved_for(item):
-        report.outcome = "failed"
-        report.longrepr = _twin_rule([item.nodeid]) + _AT_RUN_TIME
         return report
     budget = item.config.stash[_BUDGET]
     if call.duration <= budget:
