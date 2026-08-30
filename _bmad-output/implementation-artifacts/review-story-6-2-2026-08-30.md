@@ -29,3 +29,11 @@ Review of the Story 6.2 YouTube Acquisition Command implementation, limited to t
 - **Finding:** The duration guard only acts when `duration` is already an `int` or `float`. Missing, string-valued, negative, or `NaN` durations pass the probe gate; the mapper then silently omits `durationSeconds` for some of those values. The command can therefore start an unbounded download and mint metadata missing a field the frozen contract requires.
 - **Evidence:** Calling `refuse_unacceptable({"formats": [{"vcodec": "avc1"}]}, max_duration_minutes=180)` returns successfully. `provenance_extra_from_info()` conditionally adds `durationSeconds`, while the source-drop schema leaves provenance open, so schema validation does not restore the story guarantee. This violates the configured cap, the exact provenance field list, and fail-closed behavior.
 - **Suggested direction:** Require a finite, non-negative numeric duration at probe time and refuse missing or malformed duration by name before download. Apply the same invariant to the downloaded metadata before it can reach `mint()`.
+
+### F3 — Downloaded metadata can invalidate the probe decision and still be minted
+
+- **Location:** `server/meetingminer/youtube.py:435-463`
+- **Severity:** high
+- **Finding:** `acquire()` applies the duration and timestamp refusal matrix only to probe data, then derives the finalized wall clock and provenance from a separate downloaded `info.json` without revalidation or consistency checks. If the two responses differ, an over-cap video can be finalized, or a timestamp refusal occurs only after the media download that the contract says must never start for refused input.
+- **Evidence:** A targeted acquisition with a 60-second probe and downloaded metadata reporting `duration=999999` reached `mint()` with `durationSeconds=999999` under the 180-minute configuration. The code calls `refuse_unacceptable(info, ...)` before `download()`, but calls only `started_at_from_info(downloaded)` and `provenance_extra_from_info(downloaded, ...)` afterward.
+- **Suggested direction:** Define and enforce a probe-to-download consistency boundary. Revalidate every refusal and required metadata invariant on downloaded `info.json` before minting, and refuse named on disagreement; adjust the yt-dlp interaction if strict pre-media refusal is required even under metadata drift.
