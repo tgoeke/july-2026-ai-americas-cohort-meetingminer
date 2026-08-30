@@ -162,8 +162,8 @@ Story 6.3 footprint and treats the verbatim Story 6.2 override hunk as context.
   clean against `story/6-3`. Since the prior closeout, local `main` moved and
   now conflicts in the shared `mintdrop.py` block and `sprint-notes.md`; those
   integration conflicts are recorded, not resolved in this review worktree.
-- `make check-reviews` — passed; every dispatched review has a committed
-  report.
+- Post-patch `make check-reviews` — passed after `bb83bcc`; every dispatched
+  review has a committed report.
 
 ## Verdict
 
