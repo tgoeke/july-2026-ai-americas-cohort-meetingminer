@@ -593,7 +593,7 @@ def run(ctx: StageContext) -> None:
             and vtt_ends[position] is None
             and segment.end_ms is None
             and following is not None
-            and following.start_ms == segment.start_ms
+            and following.start_ms <= segment.start_ms
         ):
             ctx.log(
                 "stage.align.zero-duration-fallback",

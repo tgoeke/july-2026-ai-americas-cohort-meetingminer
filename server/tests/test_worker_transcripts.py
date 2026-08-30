@@ -990,6 +990,46 @@ def test_align_warns_when_fallback_collapses_a_turn_to_zero_duration(
     assert warning["following_turn_start_ms"] == 1_000
 
 
+def test_align_warns_when_a_descending_start_makes_the_fallback_zero_duration(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Path,
+    make_transcript_drop: Callable[..., Path],
+    capsys,
+) -> None:
+    drop = make_transcript_drop(
+        "source-descending-start-warning",
+        text=(
+            "Alice | 00:02\n"
+            "first turn\n\n"
+            "Bob | 00:01\n"
+            "second turn\n"
+        ),
+    )
+    job_id = enqueue(pool, drop, "source-descending-start-warning")
+
+    assert runner.run_once(pool, app_config, content_root) is True
+
+    meeting_id = only_meeting(pool, job_id)["id"]
+    rows = segments(pool, meeting_id)
+    assert (rows[0]["start_ms"], rows[0]["end_ms"]) == (2_000, 2_000)
+
+    records = [
+        json.loads(line)
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith("{")
+    ]
+    [warning] = [
+        record
+        for record in records
+        if record["event"] == "stage.align.zero-duration-fallback"
+    ]
+    assert warning["meeting_id"] == str(meeting_id)
+    assert warning["turn_ordinal"] == 1
+    assert warning["turn_start_ms"] == 2_000
+    assert warning["following_turn_start_ms"] == 1_000
+
+
 # --- a recording job replaced by a transcript-only drop --------------------
 
 

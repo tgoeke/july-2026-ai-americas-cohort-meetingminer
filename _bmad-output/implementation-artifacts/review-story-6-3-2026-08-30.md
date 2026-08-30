@@ -122,9 +122,18 @@ Story 6.3 footprint and treats the verbatim Story 6.2 override hunk as context.
 - **Suggested direction:** Add a red CLI-level write-failure test, translate conversion workspace I/O failures to `DialectError` with the affected path, and keep refusal before any drop finalization.
 - **Resolution:** Fixed red-first in `df5b7d9`.
 
+### F13 — Descending starts can reach the same silent zero-duration fallback
+
+- **Location:** `server/meetingminer/pipeline/stages/align.py:589-605`; `server/tests/test_worker_transcripts.py`
+- **Severity:** medium
+- **Finding:** The first F6 warning predicate required two equal starts, but `resolve_end_times()` also returns a zero-duration fallback when the following parsed start is earlier. The named event therefore did not cover every fallback behavior its name and the owner ruling describe.
+- **Evidence:** A red-first reproduction used legacy turns at 2.000s then 1.000s. The first stored boundary remained `(2000, 2000)`, but no `stage.align.zero-duration-fallback` event was emitted until the predicate accepted a following start less than or equal to the affected start.
+- **Suggested direction:** Treat `following.start_ms <= segment.start_ms` as a colliding fallback for warning purposes only, retaining the two distinct stamp fields and making no timing or acceptance change.
+- **Resolution:** Fixed red-first in the follow-up review patch; the exact commit is recorded at closeout.
+
 ## Triage and verification
 
-- Triage: 1 decision-needed, 10 patch, 1 deferred, 11 dismissed as noise,
+- Triage: 1 decision-needed, 11 patch, 1 deferred, 11 dismissed as noise,
   by-design behavior, known deferred work, or out-of-scope Story 6.2 mechanics.
 - Pipeline footprint: `git diff d72c658..story/6-3 --
   server/meetingminer/pipeline/` was empty.
@@ -144,7 +153,7 @@ Story 6.3 footprint and treats the verbatim Story 6.2 override hunk as context.
   `(1000, 1000)` and `(1000, 2200)`, then passed after the warning-only stage
   change.
 - Follow-up combined surface: `test_worker_transcripts.py` plus
-  `test_transcript_dialects.py` — 77 passed.
+  `test_transcript_dialects.py` — 78 passed after the F13 patch.
 - `make test-fast` — puller 128 passed, web 291 passed, eval harness 549
   passed, server fast set 1447 passed with 326 slow tests deselected.
 - `make test` — puller 128 passed, web 291 passed, eval harness 549 passed,
@@ -157,7 +166,7 @@ Story 6.3 footprint and treats the verbatim Story 6.2 override hunk as context.
 
 ## Verdict
 
-**CHANGES REQUESTED.** Eleven patchable or owner-directed findings are fixed or
+**CHANGES REQUESTED.** Twelve patchable or owner-directed findings are fixed or
 deferred with observability. The story does not pass review and must not merge
 while F1 remains open: transcript-only identity can ignore corrected speaker
 attribution, and resolving that requires a separate owner ruling and frozen-spec
