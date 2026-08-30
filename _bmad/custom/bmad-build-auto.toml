@@ -100,7 +100,16 @@ wrap-up time. The first section of the generated prompt is therefore:
 - The report path
   (`_bmad-output/implementation-artifacts/review-story-<story-id>-<date>.md`),
   the finding structure (Location / Severity / Finding / Evidence / Suggested
-  direction), and report-findings-don't-fix.
+  direction), and — this is the repository's convention, corrected
+  2026-08-30 — that **the review lane applies its own patch findings**. The
+  reviewer reports every finding in the report file first, then fixes the
+  patchable ones itself on `story/<story-id>-review` (cut from the story
+  branch, in its own worktree), red-first: the test observed failing against
+  the unfixed code, then the fix, then green. It hands nothing back to a
+  builder. What it must NOT fix: anything needing an owner decision, and
+  anything whose root cause is the frozen spec — those are reported, marked
+  open, and left for the owner. It never merges to `main` and never works in
+  the main checkout; the owner runs `integrate`.
 - The REPORT-FIRST instruction: create and commit the report file as a skeleton
   (scope, range, empty findings section) BEFORE reading any code, then append
   each finding as it is confirmed and commit incrementally. A crashed or closed
