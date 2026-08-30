@@ -2,12 +2,13 @@
 title: 'Story 8.1: AD-10 Amendment and Binding Catalog'
 type: 'feature'
 created: '2026-08-30'
-status: 'ready-for-dev'
+status: 'in-progress'
 review_loop_iteration: 0
 followup_review_recommended: false
-context: []
+context: ['AGENTS.md', '_bmad-output/implementation-artifacts/wave-2026-08-30-rules.md', '_bmad-output/implementation-artifacts/build-prompt-story-8-1-2026-08-30.md']
 warnings: ['oversized']
 deferred: []
+baseline_revision: '4b9d79a109300e4dc3db160a125289eb13142939'
 ---
 
 <intent-contract>

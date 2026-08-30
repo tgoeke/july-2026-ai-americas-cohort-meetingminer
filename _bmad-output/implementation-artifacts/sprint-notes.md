@@ -3237,3 +3237,39 @@ so, never by guessing.
 **Unblocks 7-3** (speaker assignment), which writes `PUT
 /meetings/{id}/speakers/{tag}` into this same route file and was held for
 exactly that reason.
+## 8-1 — AD-10 amendment and binding catalog, 2026-08-30
+
+`llm.roles.<role>` now declares a `catalog[]` of `binding` / `label` /
+`provider` plus a `default`, validated when `config.yaml` loads. Two named
+refusals, both raised from `Settings` validation — the layer `load_config`
+already wraps into `ConfigError`: a `default` outside its own catalog, and a
+catalog entry naming a provider `providers:` does not declare. An omitted
+`provider` is derived from the `<provider>/` tag prefix (the rule
+`resolve_api_base` already routes on, restated rather than imported so
+`config.py` depends on no adapter); an *authored* entry whose tag carries no
+prefix must name its provider, while a *synthesized* one keeps
+`provider: None`, because it is a projection of a file written before the rule
+existed. A role that declares only `model` therefore still loads, as a
+one-entry catalog with `default` equal to `model`.
+
+Declaration only: `model` remains what `build_llm`, `resolve_api_base` and
+`_role_view` read. No call path changed, no selection is persisted, no route
+or picker exists — 8.2 / 8.2a / 8.3.
+
+The committed `config.yaml` gains a two-entry catalog per role (extraction:
+the two local Ollama bindings it already names; chat and judge: `openai/gpt-5.2`
+beside the free local `ollama/gpt-oss:120b`), with each `default` equal to the
+`model` that role already used, so which model runs is unchanged.
+
+Coverage is a new module, `server/tests/test_config_catalog.py` — ten tests,
+one per row of the spec's I/O matrix plus the committed-file check; each was
+observed failing against the unfixed loader first. `test_config.py` was not
+touched (11-2 appends there).
+
+**Gap left open, recorded in the spec's change log.** The AC clause about the
+stale chat comment in `config.yaml` (the invalidated Anthropic key and the
+superseded `claude-sonnet-5` default) is *not* already satisfied — the comment
+is live at the lines `story/10-1` inserts its `topics_prompt` block into. Per
+the wave rules the edit was narrowed rather than widened into another lane;
+whoever lands after 10-1 should delete those two sentences and keep the rest of
+that comment verbatim.
