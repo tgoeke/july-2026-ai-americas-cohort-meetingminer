@@ -561,7 +561,11 @@ def test_ad16_docs_name_the_probe_exception_exactly() -> None:
     readme = (EVALS_ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (EVALS_ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
 
-    for text in (readme, runbook):
+    readme_boundary = readme.split("\n\nIt imports exactly", 1)[0]
+    runbook_boundary = runbook.split(
+        "**One check in this pass mutates state", 1
+    )[1].split("\n\n`<label>`", 1)[0]
+    for text in (readme_boundary, runbook_boundary):
         assert "direct SQL" in text
         assert "public API" in text
         assert "delete-only" in text
