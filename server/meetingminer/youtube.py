@@ -317,7 +317,10 @@ def refuse_unacceptable(info: dict[str, Any], *, max_duration_minutes: int) -> N
     """The probe-time refusals: no video stream, over the duration cap."""
     formats = info.get("formats")
     has_video = isinstance(formats, list) and any(
-        isinstance(entry, dict) and entry.get("vcodec") not in (None, "none")
+        isinstance(entry, dict)
+        and isinstance(entry.get("vcodec"), str)
+        and bool(entry["vcodec"].strip())
+        and entry["vcodec"].strip().lower() != "none"
         for entry in formats
     )
     if not has_video:
