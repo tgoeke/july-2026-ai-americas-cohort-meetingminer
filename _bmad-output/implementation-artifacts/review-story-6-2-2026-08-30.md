@@ -61,3 +61,11 @@ Review of the Story 6.2 YouTube Acquisition Command implementation, limited to t
 - **Finding:** `ensure_tools()` declares the tool gate complete after finding `yt-dlp` and `ffmpeg`, but `mint()` independently requires `ffprobe`. PATH installations are not guaranteed to contain both names. With `ffmpeg` present and `ffprobe` absent, the full media download occurs before the late mint refusal, contradicting the promised pre-download tool gate.
 - **Evidence:** A targeted run stubbed `yt-dlp` and `ffmpeg` as present and `ffprobe` as absent. `download()` ran and wrote media into the temporary directory; only then did `_assert_is_a_video()` raise `MintError: ffprobe is not on PATH`. The offline tests stub `probe_media` and never exercise this dependency ordering.
 - **Suggested direction:** Include `ffprobe` in the acquisition preflight (with the existing `brew install ffmpeg` remediation), and cover the split-PATH case so no media download begins when the actual validation binary is missing.
+
+### F7 — Malformed release timestamps escape the named-refusal path
+
+- **Location:** `server/meetingminer/youtube.py:270-295`
+- **Severity:** medium
+- **Finding:** Any numeric `release_timestamp` is passed directly to `datetime.fromtimestamp()`. Non-finite or out-of-range values raise `ValueError`, `OverflowError`, or `OSError`, bypassing `YoutubeError`, the valid `upload_date` fallback, and `main()`'s named refusal handling.
+- **Evidence:** `started_at_from_info({"release_timestamp": float("nan"), "upload_date": "20260812"})` raises raw `ValueError: Invalid value NaN (not a number)`. `main()` catches only `ConfigError`, `MintError`, and `YoutubeError`, so the operator receives a traceback and non-contract failure despite a usable fallback date.
+- **Suggested direction:** Treat `release_timestamp` as usable only when finite and convertible; catch platform datetime range errors, then try `upload_date`. If neither value is usable, raise the existing named wall-clock refusal.
