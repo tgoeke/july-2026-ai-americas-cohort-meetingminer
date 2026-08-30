@@ -307,6 +307,19 @@ def test_degenerate_turns_are_dropped_and_output_is_sorted(tmp_path) -> None:
     )
 
 
+def test_more_than_one_thousand_speakers_fails_before_a_tag_escapes_placeholder_protection(
+    tmp_path,
+) -> None:
+    tracks = [
+        (FakeSegment(float(index), float(index) + 0.5), f"t{index}", index)
+        for index in range(1001)
+    ]
+    engine = _engine(FakePipeline(FakeAnnotation(tracks)))
+
+    with pytest.raises(DiarizerError, match="at most 1000"):
+        engine.diarize(tmp_path / "audio.wav")
+
+
 # --- the tag contract through the transcribe stage ------------------------
 
 

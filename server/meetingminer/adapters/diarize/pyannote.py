@@ -26,6 +26,7 @@ from typing import Any, Callable
 from meetingminer.adapters.diarize.port import DiarizationTurn, DiarizerError
 
 ENGINE_NAME = "pyannote"
+MAX_PLACEHOLDER_SPEAKERS = 1000
 
 # (model, token) -> a callable pipeline. The default is the real thing; tests
 # inject a fake so nothing under `server/tests` imports pyannote.audio.
@@ -57,7 +58,18 @@ def _to_turns(output: Any) -> tuple[DiarizationTurn, ...]:
         end_ms = int(round(segment.end * 1000))
         if end_ms <= start_ms:
             continue
-        tag = canonical.setdefault(str(label), f"SPEAKER_{len(canonical):02d}")
+        raw_label = str(label)
+        tag = canonical.get(raw_label)
+        if tag is None:
+            if len(canonical) >= MAX_PLACEHOLDER_SPEAKERS:
+                raise DiarizerError(
+                    f"the {ENGINE_NAME} diarizer returned more than"
+                    f" {MAX_PLACEHOLDER_SPEAKERS} distinct speakers; generated"
+                    " tags support at most 1000 without leaving the"
+                    " never-guess placeholder namespace"
+                )
+            tag = f"SPEAKER_{len(canonical):02d}"
+            canonical[raw_label] = tag
         turns.append(DiarizationTurn(start_ms=start_ms, end_ms=end_ms, speaker=tag))
     return tuple(sorted(turns, key=lambda turn: turn.start_ms))
 
