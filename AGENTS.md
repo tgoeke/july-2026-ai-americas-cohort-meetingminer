@@ -47,11 +47,17 @@ make bootstrap                    # per-worktree venv + node_modules (one-time)
 ```
 
 `make worktree` also writes the worktree's `.env.worktree` — its compose
-project name and the seven host ports allocated for it — and brings that
-stack up before it returns (Docker down: the worktree and the file stay, and
-the error names `cd <worktree> && make infra-up`). `BASE=<ref>` branches
-from something other than `main`. When the work is done and pushed, remove
-it:
+project name and the seven host ports allocated for it (a slug matches
+`[a-z0-9][a-z0-9_-]*`; compose rejects `.` in a project name) — sweeps a
+stale stack of that name left by a hand-deleted worktree, and brings the new
+stack up through the *invoking* checkout's Makefile and compose file, so a
+worktree checked out from a pre-11.2 ref cannot start the main stack. Docker
+down: the worktree and the file stay, store-backed tests there skip with
+named reasons until the stack is up, and the error names
+`cd <worktree> && make infra-up`. If the file could not be written,
+`make worktree-provision` in that worktree writes it and starts the stack.
+`BASE=<ref>` branches from something other than `main`. When the work is
+done and pushed, remove it:
 
 ```bash
 make worktree-remove STORY=1-12   # removes the checkout, then its stack and volumes
@@ -70,12 +76,17 @@ Notes that matter:
   target symlinks the main checkout's `.env` so secrets and both storage roots
   — `MM_CONTENT_ROOT` and `MM_DROPS_ROOT` — are shared rather than re-entered.
 - `.env.worktree` is generated, gitignored (the `.env.*` rule), and never
-  hand-edited. Three readers take its `KEY=value` lines: `infra/Makefile`
-  (`-include`), `docker compose` (a second `--env-file`, which wins over
-  `.env`) and the config loader (`merged_env`: `.env`, then `.env.worktree`,
-  then the process environment, with a blank process value never masking a
-  file value). Delete the file and the checkout is back on the main
-  checkout's stack, which is the collision it exists to prevent.
+  hand-edited. It carries stack keys only — `MM_STACK_NAME`, the seven
+  `MM_*_PORT`s, `MM_TEST_NEO4J_URI`, `MM_TEST_MEILI_URL` — and the loader
+  refuses any other key there (a secret cannot be overridden from it) and
+  refuses the stack name or a port key in `.env` (the Makefile never reads
+  them from there). `infra/Makefile` (`-include`) and `docker compose` (a
+  second `--env-file`) read its stack keys; the loader reads it after `.env`
+  (`merged_env`: `.env`, then `.env.worktree`, then the process environment,
+  a blank process value never masking a file value). A linked worktree
+  without the file is refused by name — `make check-env` and the test
+  session's import both stop and point at `make worktree-provision` —
+  rather than silently running on the main checkout's stack.
 - `server/.venv` and `web/node_modules` are gitignored, so each worktree needs
   its own `make bootstrap`. That is the price of isolation; pay it once.
 - The worker's pidfile is already keyed on the checkout path, so a worker
@@ -159,7 +170,8 @@ reports 23.5 GiB against the host's 128 GB, and every other project's
 containers share it, so a handful of stacks fit and a dozen idle ones would
 fill it; nothing in compose caps Neo4j or Meilisearch. `docker stats
 --no-stream` shows the current figure. The port range (400 bases) is not the
-limit. Two full `make test` runs in two worktrees at once took 9m27s and
+limit. When the VM is full, `make down` in an idle worktree stops its stack
+and keeps its volumes; `make infra-up` there brings it back. Two full `make test` runs in two worktrees at once took 9m27s and
 9m31s wall-clock against 9m49s for one alone (2026-08-30, `868ff0f`): neither
 waited on the other.
 

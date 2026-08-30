@@ -29,11 +29,13 @@ how proximity conflicts stay rare enough for integrate to absorb.
    the pair from *parallel*. Sequence them. (`api/main.py` and `App.tsx` left
    this list when story 2.8 made registration auto-discovered: an endpoint is
    a file in `meetingminer/api/`, a screen is a `*.route.tsx` file.)
-2. **Stores and suites.** Server suites may overlap since story 2.7: each run
-   owns a per-run Postgres database, and projection tests queue on a bounded
-   cross-worktree file lock. `make evals-run` must not overlap another eval run
-   or a dev-store writer. Story 11.3's 2026-08-30 owner-gated live measurement
-   was **safe for the corpus** but **unsafe for the verdict**: probe cleanup and
+2. **Stores and suites.** Each worktree has its own Docker stack since story
+   11.2 (`make worktree` provisions it; about 2 GiB idle each inside the
+   Docker VM — AGENTS.md carries the measurement), so server suites in
+   different worktrees never contend; each run still owns a per-run Postgres
+   database. `make evals-run` must not overlap another eval run or a
+   dev-store writer. Story 11.3's 2026-08-30 owner-gated live measurement was
+   **safe for the corpus** but **unsafe for the verdict**: probe cleanup and
    subject ownership held, and the concurrent `make test` was unaffected, but
    one run judged a sibling probe as subject state. The current filter needs a
    passing owner remeasurement before the single-flight rule can be lifted.

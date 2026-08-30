@@ -1,9 +1,11 @@
-"""One exclusion domain over the shared stores (rebuild crash recovery).
+"""One exclusion domain over a checkout's stores (rebuild crash recovery).
 
 The bug this guards against: the Postgres advisory lock and the test suite's
-cross-worktree file lock were two *disjoint* exclusion mechanisms over the
-same Neo4j/Meilisearch containers, so a ``rebuild`` and another worktree's
-projection tests raced freely — torn graph writes and mid-run index deletion.
+cross-process file lock were two *disjoint* exclusion mechanisms over the
+same Neo4j/Meilisearch containers, so a ``rebuild`` and a projection suite
+writing the same endpoints raced freely — torn graph writes and mid-run index
+deletion. (Since story 11.2 each worktree has its own stack; the lock still
+serializes writers of one stack's endpoints.)
 The fix is ``meetingminer.projections.locks.store_file_lock``: every server
 entrypoint that writes either store takes the file lock *first*, then the
 advisory lock, and the conftest fixture delegates to the same implementation.

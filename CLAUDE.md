@@ -11,9 +11,11 @@ The short version:
 - **Never reset, stash, or clean a tree you do not exclusively own**, and never
   `git add -A`. Stage only the paths you changed.
 - **Work in a worktree**: `make worktree STORY=<slug>`.
-- **Worktrees do not isolate the Docker stores.** Server suites may overlap:
-  each owns a per-run Postgres database, while projection tests queue on a
-  bounded cross-worktree file lock. `make evals-run` remains one at a time.
+- **Each worktree has its own Docker stack** (`meetingminer-<slug>`, ports in
+  its generated `.env.worktree`), so suites, rebuilds and workers in different
+  worktrees never contend; two suites in one checkout queue on the projection
+  lock. The api/web ports are still fixed. `make evals-run` remains one at a
+  time.
 
 The technical contract is [docs/architecture.md](docs/architecture.md); what has
 been built and what it deliberately does not do is

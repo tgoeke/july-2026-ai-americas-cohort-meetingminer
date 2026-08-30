@@ -118,13 +118,12 @@ port, not an architecture change.
 
 **AD-10 — One config file drives everything.** A single versioned `config.yaml`
 declares every adapter binding, model, threshold, and endpoint; environment
-variables carry only secrets and the two root locations. A checkout's private
-compose stack — its project name and the host ports its stores publish — is
-environment too: infrastructure location, the same class as the roots, applied
-by the loader to the configured endpoints rather than written into a second
-config file. Bindings cannot scatter across env vars, code defaults, and flags,
-and the eval harness snapshots the resolved config into every run so any run is
-reproducible.
+variables carry only secrets, the two root locations, and a checkout's
+private-stack name and the host ports its stores publish — infrastructure
+location, applied by the loader to the configured endpoints rather than written
+into a second config file. Bindings cannot scatter across env vars, code
+defaults, and flags, and the eval harness snapshots the resolved config into
+every run so any run is reproducible.
 
 **AD-11 — Jobs are Postgres rows advanced by the host worker.** The api enqueues
 by inserting a row; the worker claims it and advances named stages, checkpointing

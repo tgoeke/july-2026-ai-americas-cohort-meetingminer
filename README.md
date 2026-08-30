@@ -350,7 +350,8 @@ Bare `pytest` runs outside it and will not resolve the dependencies.
 
 Each git worktree has its own stores: `make worktree` provisions a private
 compose stack (`meetingminer-<slug>`, its ports in the worktree's
-`.env.worktree`; about 2 GiB idle per stack inside a 23.5 GiB Docker VM), so
+`.env.worktree`; about 2 GiB idle per stack — AGENTS.md carries the
+measurement and the Docker VM bound), so
 suites in two worktrees never contend. Server suites take a per-run Postgres
 database; two suites in one checkout queue on a bounded endpoint-keyed file
 lock (a slow one is waiting, not hanging); `make test-db-prune` clears

@@ -155,18 +155,6 @@ than a false story-4.4 regression.
 
 ## Robustness and hygiene
 
-### B-35 · Per-worktree api and web ports — S
-
-`API_PORT` (8000) and `WEB_PORT` (5173) are fixed in `infra/Makefile`, so
-`make up` in a worktree collides with another checkout's api and web even
-though the stores are private since story 11.2 (`.env.worktree`). The
-committed TS client bakes `http://localhost:8000` in as its default `baseUrl`
-(`CLIENT_URL`), so the api port is more than a Makefile variable.
-
-**Do:** allocate the two ports in `.env.worktree` beside the store ports and
-have the Makefile, the web dev server and the client's base URL read them;
-keep the main checkout on 8000/5173.
-
 ### B-15 · Stop embed-only projection from opening Neo4j — S
 
 The embed-only pass writes only search-store vectors, but still opens and
@@ -212,6 +200,18 @@ whatever replaces it: an existence check is not a review check. Whatever gates
 review next — a required approval, a CI job, a convention — needs to answer
 "who reviewed this, and were they independent of the author", or it will report
 green on work nobody independently read.
+
+### B-35 · Per-worktree api and web ports — S
+
+`API_PORT` (8000) and `WEB_PORT` (5173) are fixed in `infra/Makefile`, so
+`make up` in a worktree collides with another checkout's api and web even
+though the stores are private since story 11.2 (`.env.worktree`). The
+committed TS client bakes `http://localhost:8000` in as its default `baseUrl`
+(`CLIENT_URL`), so the api port is more than a Makefile variable.
+
+**Do:** allocate the two ports in `.env.worktree` beside the store ports and
+have the Makefile, the web dev server and the client's base URL read them;
+keep the main checkout on 8000/5173.
 
 ---
 
@@ -344,7 +344,7 @@ archive-index job, whose plist was never installed and whose archive is no
 longer a corpus source; and several documentation items already corrected in
 place.
 
-Two items were done rather than retired. B-1 (split the test suite so a routine
+One item was done rather than retired. B-1 (split the test suite so a routine
 run takes seconds) closed with story 11.1 on measured numbers, not its own
 estimate. At `e5510c7` on 2026-08-29 the full server run was 1,683 tests in
 9m17s (554s in pytest), not ~33 minutes, and 471 of its 527 test-seconds sat in
@@ -419,6 +419,9 @@ limit: ASR alone peaked at 11,208 MiB of 16,376 in the handoff benchmark.
 
 B-14 (make the projection-lock timeout test independent) closed with story
 11.2. `server/meetingminer/projections/locks.py` honours
+
+On 2026-08-30, B-14 (make the projection-lock timeout test independent)
+closed with story 11.2, done rather than retired. `server/meetingminer/projections/locks.py` honours
 `MM_PROJECTION_LOCK_KEY` — a named key, `[A-Za-z0-9._-]{1,64}`, in place of the
 URL-derived one; unset, the derivation is byte-identical — and
 `test_projection_lock_times_out_with_holder_details_then_releases` sets

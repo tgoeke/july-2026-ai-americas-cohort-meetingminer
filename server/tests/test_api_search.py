@@ -3,8 +3,8 @@
 Store-backed. These run against the disposable test-store twins (`neo4j-test`
 / `meilisearch-test`, via the session `app_config` endpoint override — never
 the developer's dev stores) and skip with a named reason when the twins are
-down. `projection_stores` takes the cross-worktree lock and wipes both test
-stores before yielding, so no test here inherits another run's documents.
+down. `projection_stores` takes the endpoint-keyed file lock and wipes both
+test stores before yielding, so no test here inherits another run's documents.
 
 **Naming, deliberately.** The Meilisearch client is `meili` in every test.
 `client` is the TestClient fixture, and one letter of ambiguity between an

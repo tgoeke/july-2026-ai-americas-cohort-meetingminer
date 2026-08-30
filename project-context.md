@@ -100,8 +100,8 @@ companions its frontmatter lists, plus the per-story frozen contracts in
   stack, or — in the main checkout — the live one, so announce it there.
 - Run `make evals-run` one at a time — it takes no lock.
 - Server suites in different worktrees never share a store: each worktree's
-  stack is its own (about 2 GiB idle per stack against a 23.5 GiB Docker VM;
-  `docker stats --no-stream`). Two suites in one checkout queue on the
+  stack is its own (about 2 GiB idle per stack; AGENTS.md carries the
+  measurement and the Docker VM bound). Two suites in one checkout queue on the
   endpoint-keyed projection file lock, so a slow one is waiting rather than
   hanging. `make test-db-prune` clears databases a killed run left behind and
   tears down stacks whose worktree directory is gone. The api and web ports

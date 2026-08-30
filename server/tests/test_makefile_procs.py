@@ -26,7 +26,7 @@ import pytest
 
 from repo_paths import REPO_ROOT
 
-pytestmark = pytest.mark.slow(reason="spawns make targets with readiness polls and decoy processes: 46 tests, 51.0s at e5510c7")
+pytestmark = pytest.mark.slow(reason="spawns make targets with readiness polls, decoy processes and throwaway git repositories: 63 tests, 61.1s at a352ee0")
 
 INFRA = str(REPO_ROOT / "infra")
 TEST_WORKER_OWNER = "test-owner"
