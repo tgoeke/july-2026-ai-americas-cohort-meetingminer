@@ -443,7 +443,7 @@ PS_ARGV = [
     "--filter",
     "label=com.docker.compose.project",
     "--format",
-    '{{.Label "com.docker.compose.project"}}\t{{.Label "com.docker.compose.project.working_dir"}}',
+    '{{.Label "com.docker.compose.project"}}\t{{.Label "com.docker.compose.project.working_dir"}}\t{{.Label "com.meetingminer.stack-id"}}',
 ]
 VOLUME_ARGV = [
     "docker",
@@ -452,7 +452,7 @@ VOLUME_ARGV = [
     "--filter",
     "label=com.docker.compose.project",
     "--format",
-    '{{.Name}}\t{{.Label "com.docker.compose.project"}}',
+    '{{.Name}}\t{{.Label "com.docker.compose.project"}}\t{{.Label "com.meetingminer.stack-id"}}',
 ]
 
 
@@ -474,29 +474,40 @@ def run_docker(argv: list[str]) -> str:
     return proc.stdout
 
 
-def _tab_rows(output: str) -> list[tuple[str, str]]:
-    rows: list[tuple[str, str]] = []
+def _tab_rows(output: str) -> list[tuple[str, str, str]]:
+    rows: list[tuple[str, str, str]] = []
     for line in output.splitlines():
         if not line.strip():
             continue
-        first, _, second = line.partition("\t")
-        rows.append((first.strip(), second.strip()))
+        first, _, rest = line.partition("\t")
+        second, _, third = rest.partition("\t")
+        rows.append((first.strip(), second.strip(), third.strip()))
     return rows
 
 
 def _is_worktree_project(project: str) -> bool:
-    return project.startswith(PROJECT_PREFIX) and project != MAIN_PROJECT
+    """Exactly ``meetingminer-<valid slug>``: only a name this tool could
+    have provisioned may ever be classified, let alone torn down.
+    ``meetingminer-Foo``, ``meetingminer-`` or ``meetingminer-.backup`` is a
+    foreign project, whatever its prefix (finding 2)."""
+    return bool(_PROJECT_RE.match(project)) and project != MAIN_PROJECT
 
 
 @dataclass
 class Stack:
     """One ``meetingminer-<slug>`` compose project and where its checkout
     would be. ``unknown`` marks a project this tool will not touch: volumes
-    it does not recognise, or nowhere to place a volumes-only project."""
+    it does not recognise, or nowhere to place a volumes-only project.
+    ``ids`` and ``volume_ids`` are the ``com.meetingminer.stack-id`` labels
+    on its containers and volumes (the empty string for an unlabeled one) —
+    the incarnation identities ``claim`` compares against the worktree's
+    ``.env.worktree``."""
 
     project: str
     owners: set[Path] = field(default_factory=set)
     unknown: bool = False
+    ids: set[str] = field(default_factory=set)
+    volume_ids: set[str] = field(default_factory=set)
 
     @property
     def present_owner(self) -> Path | None:
@@ -506,47 +517,69 @@ class Stack:
 
 def worktree_stacks(
     ps_output: str, volume_output: str, worktree_root: Path
-) -> dict[str, Stack]:
-    """Every ``meetingminer-<slug>`` project docker knows, classified.
+) -> tuple[dict[str, Stack], list[str]]:
+    """Every ``meetingminer-<slug>`` project docker knows, classified, plus
+    the sorted foreign names (a ``meetingminer-`` prefix whose suffix is not
+    a valid slug) that must only ever be reported.
 
     A container carries compose's ``working_dir`` label -- the ``infra/``
     directory the stack was started from -- so its checkout is that
     directory's parent. A ``.env.worktree`` under ``worktree_root`` that
     declares the project's name owns it too (a moved worktree keeps its file).
-    A project with volumes and no containers is placed at
-    ``<worktree_root>/<slug>`` only when every volume is one of the compose
-    file's seven (``<project>_<name>``) and the root exists; anything else is
-    ``unknown``. ``meetingminer`` and every foreign project are left out.
+    ``unknown`` is computed for **every** candidate from its volumes,
+    containers or not (finding 3): a volume that is not one of the compose
+    file's seven (``<project>_<name>``) marks the project untouchable. A
+    recognised volumes-only project is placed at ``<worktree_root>/<slug>``
+    when the root exists, else it is ``unknown`` too. ``meetingminer`` and
+    every project without the prefix are left out entirely.
     """
     containers: dict[str, set[str]] = {}
-    for project, working_dir in _tab_rows(ps_output):
-        if _is_worktree_project(project):
-            containers.setdefault(project, set())
-            if working_dir:
-                containers[project].add(working_dir)
+    container_ids: dict[str, set[str]] = {}
+    foreign: set[str] = set()
+
+    def classify(project: str) -> bool:
+        if not project.startswith(PROJECT_PREFIX) or project == MAIN_PROJECT:
+            return False
+        if not _is_worktree_project(project):
+            foreign.add(project)
+            return False
+        return True
+
+    for project, working_dir, stack_id in _tab_rows(ps_output):
+        if not classify(project):
+            continue
+        containers.setdefault(project, set())
+        container_ids.setdefault(project, set()).add(stack_id)
+        if working_dir:
+            containers[project].add(working_dir)
     volumes: dict[str, list[str]] = {}
-    for volume, project in _tab_rows(volume_output):
-        if _is_worktree_project(project):
-            volumes.setdefault(project, []).append(volume)
+    volume_ids: dict[str, set[str]] = {}
+    for volume, project, stack_id in _tab_rows(volume_output):
+        if not classify(project):
+            continue
+        volumes.setdefault(project, []).append(volume)
+        volume_ids.setdefault(project, set()).add(stack_id)
     declared = declared_owners(worktree_root)
 
     stacks: dict[str, Stack] = {}
     for project in sorted(set(containers) | set(volumes)):
-        stack = Stack(project)
+        stack = Stack(
+            project,
+            ids=container_ids.get(project, set()),
+            volume_ids=volume_ids.get(project, set()),
+        )
         stack.owners.update(Path(wd).parent for wd in containers.get(project, ()))
         if project in declared:
             stack.owners.add(declared[project])
-        if stack.owners:
-            stacks[project] = stack
-            continue
         ours = {f"{project}_{name}" for name in VOLUME_NAMES}
-        recognised = all(volume in ours for volume in volumes.get(project, []))
-        if recognised and worktree_root.is_dir():
-            stack.owners.add(worktree_root / project[len(PROJECT_PREFIX) :])
-        else:
-            stack.unknown = True
+        stack.unknown = not all(volume in ours for volume in volumes.get(project, []))
+        if not stack.owners and not stack.unknown:
+            if worktree_root.is_dir():
+                stack.owners.add(worktree_root / project[len(PROJECT_PREFIX) :])
+            else:
+                stack.unknown = True
         stacks[project] = stack
-    return stacks
+    return stacks, sorted(foreign)
 
 
 def prune(
@@ -566,12 +599,15 @@ def prune(
     or an unknown layout is an error: the caller is about to create a stack
     of that name and must not attach to someone else's.
     """
-    stacks = worktree_stacks(run(PS_ARGV), run(VOLUME_ARGV), worktree_root)
+    stacks, foreign = worktree_stacks(run(PS_ARGV), run(VOLUME_ARGV), worktree_root)
     if project is not None:
         stacks = {name: stack for name, stack in stacks.items() if name == project}
         if not stacks:
             out(f"no stale stack {project}")
             return []
+    else:
+        for name in foreign:
+            out(f"skipped foreign {name} (not a meetingminer-<slug> name)")
     removed: list[str] = []
     failed: list[str] = []
     for name in sorted(stacks):
