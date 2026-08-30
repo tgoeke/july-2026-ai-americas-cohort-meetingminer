@@ -423,6 +423,22 @@ def test_no_video_stream_is_refused_at_probe(
     assert list(drops_root.iterdir()) == []
 
 
+@pytest.mark.parametrize("vcodec", ["", "   ", False, 0, [], {}])
+def test_malformed_video_codec_is_refused_at_probe(
+    vcodec: object,
+    drops_root: Path,
+    tools_present: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    info = info_fixture("full")
+    info["formats"] = [{"format_id": "broken", "vcodec": vcodec}]
+    monkeypatch.setattr(youtube, "probe", lambda url: info)
+    monkeypatch.setattr(youtube, "download", _must_not_run("download"))
+    with pytest.raises(youtube.YoutubeError, match="no video stream"):
+        youtube.acquire(WATCH_URL, **acquire_kwargs(drops_root))
+    assert list(drops_root.iterdir()) == []
+
+
 def test_over_the_duration_cap_names_duration_cap_and_config_key(
     drops_root: Path, tools_present: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
