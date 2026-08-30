@@ -441,13 +441,29 @@ def test_neither_timestamp_refuses_before_the_download(
     assert list(drops_root.iterdir()) == []
 
 
+@pytest.mark.parametrize(
+    "changes,match",
+    [
+        ({"id": "different01"}, "video id"),
+        ({"duration": 999999}, "over the.*cap"),
+        ({"channel": "", "uploader": ""}, "channel"),
+        ({"format_id": ""}, "format_id"),
+        (
+            {"release_timestamp": float("nan"), "upload_date": "invalid"},
+            "release_timestamp",
+        ),
+    ],
+)
 def test_downloaded_metadata_is_revalidated_before_mint(
-    drops_root: Path, tools_present: None, monkeypatch: pytest.MonkeyPatch
+    changes: dict[str, object],
+    match: str,
+    drops_root: Path,
+    tools_present: None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     probe_info = info_fixture("full")
     downloaded = dict(probe_info)
-    downloaded["id"] = "different01"
-    downloaded["duration"] = 999999
+    downloaded.update(changes)
     monkeypatch.setattr(youtube, "probe", lambda url: probe_info)
     monkeypatch.setattr(youtube, "yt_dlp_version", lambda: "2026.07.04")
 
@@ -458,7 +474,7 @@ def test_downloaded_metadata_is_revalidated_before_mint(
 
     monkeypatch.setattr(youtube, "download", fake_download)
     monkeypatch.setattr(youtube, "mint", _must_not_run("mint"))
-    with pytest.raises(youtube.YoutubeError, match="video id|duration"):
+    with pytest.raises(youtube.YoutubeError, match=match):
         youtube.acquire(WATCH_URL, **acquire_kwargs(drops_root))
     assert list(drops_root.iterdir()) == []
 
