@@ -179,7 +179,11 @@ drop. `corpus` is always `real`, and `startedAt` comes from the video's own
 publish metadata (`release_timestamp` at second precision, else `upload_date`
 at day precision).
 
-Like `mint-drop`, it refuses **before writing anything**, each refusal named:
+It refuses before any permanent write, each refusal named. URL, tool, and
+probe-known refusals happen before media download. Metadata drift or a selected
+caption that fails to materialize can be discovered only after `yt-dlp` writes
+temporary bytes; those paths still refuse before finalization, remove the
+private temporary directory, and leave no source drop.
 
 - the URL is not a YouTube *video* URL (a playlist-only URL is refused);
 - `yt-dlp` or `ffmpeg` is not on PATH (`brew install yt-dlp ffmpeg`) — checked
