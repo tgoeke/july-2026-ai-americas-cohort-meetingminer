@@ -17,6 +17,10 @@ WEB     := $(ROOT)/web
 # working archive it pulls into (occurrence folders, the signed-in browser
 # profile, the pull ledger) lives outside this repo.
 PULLER  := $(ROOT)/tools/puller
+DIARIZE_EXTRA_TEST_MODULES := \
+	$(ROOT)/server/tests/test_diarize_pyannote.py \
+	$(ROOT)/server/tests/test_stt_adapter.py \
+	$(ROOT)/server/tests/test_worker_transcripts.py
 # Where the puller actually RUNS: the working archive outside this repo that
 # holds the meeting corpus and the signed-in browser profile. `--all`, `--login`
 # and `--replay` resolve against __dirname, so the archive keeps its own copy of
@@ -92,7 +96,7 @@ help:
 	@echo "  make down        - stop host processes and containers"
 	@echo "  make test        - run the puller suite, the web suite, the eval suite, the server suite, and build the web app"
 	@echo "  make test-fast   - the iteration loop: check-client, the store-free suites, then the server suite's fast set (pytest -m 'not slow'). Needs Postgres only: its Postgres-backed tests skip with a named reason when it is down; twin-bound tests are slow and deselected here — make test is the gate that requires the twins"
-	@echo "  make diarize-extra-test - install the optional diarizer extra in isolation and import pyannote.audio (no model load)"
+	@echo "  make diarize-extra-test - run every pyannote-sensitive server test module with the optional extra installed"
 	@echo "  make puller-test - run the puller's own suite (emit-drop + drop-schema validation)"
 	@echo "  make web-test    - run the web component suite (vitest)"
 	@echo "  make evals-test  - run the eval harness suite (schema, loader, subject selection, check algorithms, run artifacts; no stores, no api)"
@@ -294,14 +298,14 @@ lint:
 typecheck:
 	cd $(ROOT)/server && uv run --project $(ROOT)/server python -m mypy
 
-# The full gate's packaging smoke for Story 7.1. It uses a disposable uv
-# environment so the torch-sized optional dependency never contaminates the
-# default fast-loop venv, and imports only the package — no model or network
-# inference. `--locked` refuses to repair drift in the committed lock. A broken
-# optional-dependency declaration or platform lock now fails `make test` instead
-# of turning the provider contract test into a skip.
-diarize-extra-test:
-	cd $(ROOT) && uv run --locked --isolated --project $(ROOT)/server --extra diarize python -c "import pyannote.audio"
+# The full gate's installed-extra lane for Story 7.1. It uses a disposable uv
+# environment so the torch-sized dependency never contaminates the default
+# fast-loop venv. `--locked` refuses to repair drift in the committed lock. The
+# module list is pinned two ways in test_compose_contract.py; any new test module
+# whose behavior depends on pyannote must join both lists. Worker transcript
+# coverage needs ffmpeg and Postgres, so this target owns those prerequisites.
+diarize-extra-test: check-tools infra-up
+	cd $(ROOT) && uv run --locked --isolated --project $(ROOT)/server --extra diarize pytest -q -rs $(DIARIZE_EXTRA_TEST_MODULES)
 
 # The iteration loop (story 11.1): check-client first, so a missing client
 # fails with its named message rather than as a Vite import error inside

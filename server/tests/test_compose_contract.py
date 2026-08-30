@@ -30,6 +30,11 @@ MAKEFILE_PATH = REPO_ROOT / "infra" / "Makefile"
 PYPROJECT_PATH = REPO_ROOT / "server" / "pyproject.toml"
 SERVER_DIR = REPO_ROOT / "server"
 SERVER_TESTS = SERVER_DIR / "tests"
+DIARIZE_EXTRA_TEST_MODULES = (
+    "test_diarize_pyannote.py",
+    "test_stt_adapter.py",
+    "test_worker_transcripts.py",
+)
 STORE_CHECK_NODE_ID = (
     f"{SERVER_TESTS / 'test_projections_search.py'}"
     "::test_configured_projection_stores_are_reachable"
@@ -95,10 +100,12 @@ def test_make_test_requires_the_effective_test_store_endpoints() -> None:
 
 
 def test_make_test_gates_the_optional_diarizer_extra_in_an_isolated_environment() -> None:
-    """The full gate must install and import the story's real optional dependency."""
+    """The full gate must run every pyannote-sensitive module with the extra."""
     steps = _dry_run_steps("test")
     targets = [target for target, _lines in steps]
     assert "diarize-extra-test" in targets, targets
+    assert "check-tools" in targets, targets
+    assert "infra-up" in targets, targets
 
     commands = _direct_commands("diarize-extra-test")
     assert len(commands) == 1, commands
@@ -113,10 +120,26 @@ def test_make_test_gates_the_optional_diarizer_extra_in_an_isolated_environment(
         str(SERVER_DIR),
         "--extra",
         "diarize",
-        "python",
-        "-c",
-        "import pyannote.audio",
+        "pytest",
+        "-q",
+        "-rs",
+        *[str(SERVER_TESTS / module) for module in DIARIZE_EXTRA_TEST_MODULES],
     ], words
+
+
+def test_diarize_extra_gate_pins_every_pyannote_sensitive_module() -> None:
+    """A new module whose behavior depends on the extra must join the gate."""
+    discovered = {
+        path.name
+        for path in SERVER_TESTS.glob("test_*.py")
+        if path.name != Path(__file__).name
+        and "pyannote" in path.read_text(encoding="utf-8")
+    }
+    assert discovered == set(DIARIZE_EXTRA_TEST_MODULES), (
+        f"pyannote-sensitive modules changed: discovered {sorted(discovered)}, "
+        f"pinned {list(DIARIZE_EXTRA_TEST_MODULES)}; edit both "
+        "DIARIZE_EXTRA_TEST_MODULES and infra/Makefile's gate command"
+    )
 
 
 def _under_server_tests(word: str) -> bool:

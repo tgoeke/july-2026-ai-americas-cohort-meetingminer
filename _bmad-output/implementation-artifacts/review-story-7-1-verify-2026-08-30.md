@@ -49,6 +49,14 @@
 - **Evidence:** Local `uv run --help` defines `--isolated` only as “Run the command in an isolated virtual environment” and separately defines `--locked` as “Assert that the `uv.lock` will remain unchanged.” The target runs `uv run --isolated --project ... --extra diarize` with no `--locked`; its contract test pins that omission exactly.
 - **Resolution:** **RESOLVED BY OWNER DECISION AND PATCH — 2026-08-30.** The owner ruling removed the footprint blocker. The contract expectation was changed first to require `--locked`; against the unfixed Makefile it failed at argument index 2 (`--isolated` observed, `--locked` expected). The gate now runs `uv run --locked --isolated ...`, its focused regression passes, and the two edited paths remain a known union for integrate with Stories 11-3 and 11-4.
 
+### V6. The installed-extra configuration was not exercised by its gate
+
+- **Location:** `infra/Makefile:293-294`; `server/tests/test_stt_adapter.py:29-34,116-123`; `server/tests/test_worker_transcripts.py:474-494`; `server/tests/test_compose_contract.py:37-41,102-140`
+- **Severity:** High
+- **Finding:** Story 7.1's optional-extra gate imported `pyannote.audio` but did not run the test modules whose behavior changes when that extra is available. The STT adapter's structural `Binding` predates `token_env`; the worker test assumes every pyannote failure says “not bundled,” although an installed extra correctly advances to the missing-token error. Both defects stay hidden in the supported extra-free lane. A new pyannote-sensitive module could also escape the gate silently because no exact module inventory existed.
+- **Evidence:** Before fixing either test, the widened target ran `test_diarize_pyannote.py`, `test_stt_adapter.py`, and `test_worker_transcripts.py` under `--extra diarize` and failed on the reported `AttributeError`, the stale worker error assertion, and the real provider probe exceeding the ordinary 2-second fast budget (16.01 seconds in the fresh isolated environment). The gate contract was itself red before the Makefile changed, and the two-way source inventory already discovered exactly those three modules.
+- **Resolution:** **OPEN — remediation in progress.** Preserve the widened, pinned module gate; update the structural binding and both-configuration assertions without weakening the adapter; give this deliberately heavy isolated lane an explicit test-budget override; then prove installed and extra-free green.
+
 ## Mutation Audit
 
 The five claimed fixes were tested in remediation-commit order. Every restored fix was green; two narrower follow-up mutations exposed V2 and V3.
