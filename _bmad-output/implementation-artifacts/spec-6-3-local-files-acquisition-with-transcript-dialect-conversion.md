@@ -341,3 +341,32 @@ boundary where the meeting identity and structured logger are available.
   boundary followed by 2200ms.
 - [x] Update the owner/spec handoff so F1 is the only open decision. Do not act
   on F1 and do not merge to `main`.
+
+## Suggested Review Order
+
+**Owner ruling and observability**
+
+- Start with the ruling that constrains every follow-up change.
+  [`spec-6-3-local-files-acquisition-with-transcript-dialect-conversion.md:310`](spec-6-3-local-files-acquisition-with-transcript-dialect-conversion.md#L310)
+
+- Inspect the warning-only boundary; timing decisions remain in the pure core.
+  [`align.py:587`](../../server/meetingminer/pipeline/stages/align.py#L587)
+
+**Deferred evidence and open decision**
+
+- Confirm the exact reproduction and corpus-based revisit trigger remain intact.
+  [`deferred-work.md:265`](deferred-work.md#L265)
+
+- Verify F6 is deferred while the review verdict still blocks on F1.
+  [`review-story-6-3-2026-08-30.md:62`](review-story-6-3-2026-08-30.md#L62)
+
+- Review the sole remaining owner decision and explicit no-merge handoff.
+  [`build-prompt-story-6-3-2026-08-30.md:22`](build-prompt-story-6-3-2026-08-30.md#L22)
+
+**Regression coverage**
+
+- Reproduce the two sub-second cues and unchanged stored boundaries.
+  [`test_worker_transcripts.py:928`](../../server/tests/test_worker_transcripts.py#L928)
+
+- Check the review-found descending-start edge uses warning-only behavior.
+  [`test_worker_transcripts.py:980`](../../server/tests/test_worker_transcripts.py#L980)

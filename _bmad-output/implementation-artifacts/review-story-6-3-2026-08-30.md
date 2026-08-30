@@ -129,7 +129,7 @@ Story 6.3 footprint and treats the verbatim Story 6.2 override hunk as context.
 - **Finding:** The first F6 warning predicate required two equal starts, but `resolve_end_times()` also returns a zero-duration fallback when the following parsed start is earlier. The named event therefore did not cover every fallback behavior its name and the owner ruling describe.
 - **Evidence:** A red-first reproduction used legacy turns at 2.000s then 1.000s. The first stored boundary remained `(2000, 2000)`, but no `stage.align.zero-duration-fallback` event was emitted until the predicate accepted a following start less than or equal to the affected start.
 - **Suggested direction:** Treat `following.start_ms <= segment.start_ms` as a colliding fallback for warning purposes only, retaining the two distinct stamp fields and making no timing or acceptance change.
-- **Resolution:** Fixed red-first in the follow-up review patch; the exact commit is recorded at closeout.
+- **Resolution:** Fixed red-first in `be7ba80`.
 
 ## Triage and verification
 
@@ -154,13 +154,14 @@ Story 6.3 footprint and treats the verbatim Story 6.2 override hunk as context.
   change.
 - Follow-up combined surface: `test_worker_transcripts.py` plus
   `test_transcript_dialects.py` — 78 passed after the F13 patch.
-- `make test-fast` — puller 128 passed, web 291 passed, eval harness 549
-  passed, server fast set 1447 passed with 326 slow tests deselected.
-- `make test` — puller 128 passed, web 291 passed, eval harness 549 passed,
-  server 1773 passed in 9m14s, and the production web build passed.
+- Post-patch `make test-fast` — puller 128 passed, web 291 passed, eval harness
+  549 passed, server fast set 1449 passed with 326 slow tests deselected.
+- Post-patch `make test` — puller 128 passed, web 291 passed, eval harness 549
+  passed, server 1775 passed in 9m31s, and the production web build passed.
 - `python3 _bmad/scripts/branch_conflicts.py --against story/6-3-review` —
-  clean against `main`, `story/6-2`, and `story/6-3`; the documented one-block
-  conflict remains against `story/6-2-review`.
+  clean against `story/6-3`. Since the prior closeout, local `main` moved and
+  now conflicts in the shared `mintdrop.py` block and `sprint-notes.md`; those
+  integration conflicts are recorded, not resolved in this review worktree.
 - `make check-reviews` — passed; every dispatched review has a committed
   report.
 

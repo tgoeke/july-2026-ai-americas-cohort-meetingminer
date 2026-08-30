@@ -94,9 +94,11 @@ python3 _bmad/scripts/branch_conflicts.py --against story/6-3-review
 make check-reviews
 ```
 
-The current review branch already passed all of those test gates except that
-`make check-reviews` is reserved for the final committed report closeout. The
-full server gate passed 1773 tests and the web production build passed.
+The current review branch passed the post-F6 gates: the combined transcript
+surface passed 78 tests, `make test-fast` passed 1449 server tests with 326 slow
+tests deselected, and the full server gate passed 1775 tests plus the web
+production build. `make check-reviews` remains reserved for the final committed
+report closeout.
 
 ## Explicitly out of scope
 
