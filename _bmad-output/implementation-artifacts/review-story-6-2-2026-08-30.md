@@ -45,3 +45,11 @@ Review of the Story 6.2 YouTube Acquisition Command implementation, limited to t
 - **Finding:** The source ID is fixed from the input URL, but neither probe nor downloaded `info.json` is required to report that same video ID. A redirect, extractor inconsistency, or changed response can mint another video's bytes and metadata under `youtube:<requested-id>`, after which the exists short-circuit permanently treats the requested video as already acquired.
 - **Evidence:** Both yt-dlp metadata objects carry an `id`, but the implementation never reads it. A targeted acquisition with requested ID `aB3dEfGhIj0` and downloaded `id="different01"` reached `mint()` with `source_id="youtube:aB3dEfGhIj0"`. No schema rule can compare provenance to the source ID.
 - **Suggested direction:** Require the probe and downloaded metadata IDs to equal the offline-parsed video ID, with a named refusal on absence or mismatch before finalization. Add a regression test that proves mismatched bytes cannot be minted under the requested identity.
+
+### F5 — Required YouTube provenance fields are treated as optional
+
+- **Location:** `server/meetingminer/youtube.py:213-220`, `server/meetingminer/youtube.py:380-400`
+- **Severity:** medium
+- **Finding:** The frozen contract requires `channel`, `ytDlpVersion`, and `formatId`, but the mapper omits blank/missing channel and format ID, while `yt_dlp_version()` accepts empty stdout. These inputs still produce schema-valid drops because provenance is intentionally open in the shared schema.
+- **Evidence:** `provenance_extra_from_info({}, "aB3dEfGhIj0", "")` returns only `tool`, `url`, and an empty `ytDlpVersion`. The conditional assignments at lines 391-399 have no later guard, and the successful acquisition path sends that partial map directly to `mint()`.
+- **Suggested direction:** Validate every story-required provenance value as non-empty (and of the expected type) before minting. Refuse with a named metadata error rather than silently producing a contract-incomplete drop.
