@@ -870,7 +870,7 @@ def _validate_worktree_env(path: Path, values: dict[str, str]) -> None:
     blank = [key for key in WORKTREE_ENV_KEY_ORDER if not values[key].strip()]
     if blank:
         raise ConfigError(f"{path}: {', '.join(blank)} is blank — {remedy}")
-    if not _STACK_NAME_RE.match(values[STACK_NAME_KEY]):
+    if not _STACK_NAME_RE.fullmatch(values[STACK_NAME_KEY]):
         raise ConfigError(
             f"{path}: {STACK_NAME_KEY} is {values[STACK_NAME_KEY]!r}, not a"
             f" meetingminer-<slug> stack name — {remedy}"
@@ -898,7 +898,7 @@ def _validate_worktree_env(path: Path, values: dict[str, str]) -> None:
             f"{path}: {', '.join(clashing)} names a main-checkout default"
             f" port — a worktree on it would reach the main stack — {remedy}"
         )
-    if not _STACK_ID_RE.match(values[STACK_ID_KEY]):
+    if not _STACK_ID_RE.fullmatch(values[STACK_ID_KEY]):
         raise ConfigError(
             f"{path}: {STACK_ID_KEY} must be 12 lowercase hex characters,"
             f" got {values[STACK_ID_KEY]!r} — {remedy}"

@@ -163,7 +163,7 @@ class StackError(Exception):
 
 
 def validate_slug(slug: str) -> str:
-    if not _SLUG_RE.match(slug):
+    if not _SLUG_RE.fullmatch(slug):
         raise StackError(
             f"STORY must match {SLUG_PATTERN} (it names the branch, the"
             f" directory and the compose project): got {slug!r}"
@@ -354,7 +354,7 @@ def validate_env_file(env_file: Path, slug: str) -> dict[str, str]:
             f"{', '.join(clashing)} names a main-checkout default port — a"
             " worktree on it would reach the main stack"
         )
-    if not _STACK_ID_RE.match(values[STACK_ID_VAR]):
+    if not _STACK_ID_RE.fullmatch(values[STACK_ID_VAR]):
         raise refuse(
             f"{STACK_ID_VAR} must be 12 lowercase hex characters, got"
             f" {values[STACK_ID_VAR]!r}"
@@ -417,7 +417,7 @@ def declared_owners(worktree_root: Path) -> dict[str, Path]:
         # Only a valid meetingminer-<slug> name grants ownership: a broken
         # sibling file must not break allocation, but neither may it claim
         # `meetingminer` or a foreign project.
-        if name and _PROJECT_RE.match(name):
+        if name and _PROJECT_RE.fullmatch(name):
             owners.setdefault(name, env_file.parent)
     return owners
 
@@ -427,7 +427,7 @@ def render_env(slug: str, ports: dict[str, int], stack_id: str) -> str:
     incarnation id, and the two test-twin URLs the test session reads by
     name — exactly ``STACK_KEYS``, in order."""
     name = stack_name(slug)
-    if not _STACK_ID_RE.match(stack_id):
+    if not _STACK_ID_RE.fullmatch(stack_id):
         raise StackError(
             f"{STACK_ID_VAR} must be 12 lowercase hex characters, got {stack_id!r}"
         )
@@ -572,7 +572,7 @@ def _is_worktree_project(project: str) -> bool:
     have provisioned may ever be classified, let alone torn down.
     ``meetingminer-Foo``, ``meetingminer-`` or ``meetingminer-.backup`` is a
     foreign project, whatever its prefix (finding 2)."""
-    return bool(_PROJECT_RE.match(project)) and project != MAIN_PROJECT
+    return bool(_PROJECT_RE.fullmatch(project)) and project != MAIN_PROJECT
 
 
 @dataclass
