@@ -612,6 +612,91 @@ def test_the_clean_probe_sequence_over_fakes(tmp_path: Path) -> None:
     assert gate_probe.probe_title("2026-08-30-left") in insert_params
 
 
+def test_the_probe_id_is_committed_before_autocommit_mode(
+    tmp_path: Path,
+) -> None:
+    """F10: mint must receive the UUID before acknowledging the commit."""
+    modes: list[bool] = []
+    connection = FakeConnection(row_state=None)
+
+    def connect(conninfo: str, autocommit: bool) -> FakeConnection:
+        modes.append(autocommit)
+        return connection
+
+    probe = gate_probe.run_gate_probe(
+        run_id="2026-08-30-left",
+        manifest_id="demo-001",
+        meeting_id=MEETING,
+        base_url="http://127.0.0.1:8000",
+        config=probe_config(tmp_path),
+        corpus=FakeCorpus(),
+        search=ProbeSearchClient(),
+        graph=ProbeGraphDriver(),
+        transport=httpx.MockTransport(approve_transport(connection).handler),
+        connect=connect,
+    )
+
+    assert probe.artifact_id == PROBE_ID
+    assert modes[0] is False
+
+
+def test_commit_ack_loss_cleans_the_known_id_on_a_fresh_connection(
+    tmp_path: Path,
+) -> None:
+    """F10: an ambiguous commit keeps the returned UUID recoverable."""
+    shared = {"state": None}
+    opened: list[FakeConnection] = []
+
+    class SharedConnection(FakeConnection):
+        def __init__(self, *, lose_commit: bool) -> None:
+            super().__init__(row_state=None)
+            self.lose_commit = lose_commit
+            self.lost = False
+
+        def execute(self, sql: str, params: tuple[Any, ...] = ()) -> FakeCursor:
+            self.statements.append((sql, params))
+            if sql.startswith("INSERT INTO artifact"):
+                shared["state"] = "extracted"
+                return FakeCursor([(PROBE_ID,)])
+            if sql.startswith("DELETE FROM artifact"):
+                shared["state"] = None
+                return FakeCursor([])
+            if "SELECT state" in sql:
+                state = shared["state"]
+                return FakeCursor([(state,)] if state is not None else [])
+            if "pg_advisory_" in sql:
+                return FakeCursor([(True,)])
+            raise AssertionError(f"unexpected statement: {sql}")
+
+        def commit(self) -> None:
+            if self.lose_commit and not self.lost:
+                self.lost = True
+                raise RuntimeError("commit acknowledgement lost")
+
+    def connect(conninfo: str, autocommit: bool) -> SharedConnection:
+        connection = SharedConnection(lose_commit=not opened)
+        opened.append(connection)
+        return connection
+
+    probe = gate_probe.run_gate_probe(
+        run_id="2026-08-30-left",
+        manifest_id="demo-001",
+        meeting_id=MEETING,
+        base_url="http://127.0.0.1:8000",
+        config=probe_config(tmp_path),
+        corpus=FakeCorpus(),
+        search=ProbeSearchClient(),
+        graph=ProbeGraphDriver(),
+        connect=connect,
+    )
+
+    assert probe.artifact_id == PROBE_ID
+    assert probe.problem is not None and "commit acknowledgement" in probe.problem
+    assert len(opened) == 2
+    assert shared["state"] is None
+    assert probe.cleanup is not None and probe.cleanup.verified
+
+
 def test_a_late_foreign_row_is_classified_as_consumed(tmp_path: Path) -> None:
     """F2: response rows absent from discovery cannot disappear from triage."""
     probe = run_probe(

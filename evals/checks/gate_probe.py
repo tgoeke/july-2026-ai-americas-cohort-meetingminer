@@ -690,7 +690,8 @@ def _execute_probe(
     consumed_foreign: tuple[str, ...] = ()
     problem: str | None = None
 
-    with opener(_writable_conninfo(config), autocommit=True) as conn:
+    conninfo = _writable_conninfo(config)
+    with opener(conninfo, autocommit=False) as conn:
         row = conn.execute(
             _INSERT_PROBE,
             (
@@ -702,6 +703,37 @@ def _execute_probe(
             ),
         ).fetchone()
         artifact_id = str(row[0])
+
+        try:
+            conn.commit()
+        except Exception as exc:  # noqa: BLE001 — commit outcome is ambiguous
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            with opener(conninfo, autocommit=True) as cleanup_conn:
+                cleanup = cleanup_probe(
+                    artifact_id,
+                    search=search,
+                    graph=graph,
+                    publish_root=getattr(
+                        config.secrets, "mm_publish_root", None
+                    ),
+                    connection=cleanup_conn,
+                    config=config,
+                )
+            return GateProbe(
+                artifact_id=artifact_id,
+                moment_id=moment_id,
+                cleanup=cleanup,
+                problem=(
+                    f"the probe mint returned id {artifact_id}, but its commit"
+                    f" acknowledgement was lost ({type(exc).__name__}: {exc});"
+                    " the known id was reconciled and erased through a fresh"
+                    " connection, so the gate transition was not attempted"
+                ),
+            )
+        conn.autocommit = True
 
         raced = False
         try:
