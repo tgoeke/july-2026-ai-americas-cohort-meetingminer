@@ -80,3 +80,11 @@
 - **Red regression:** `test_down_refuses_a_linked_worktree_without_an_ownership_record` failed at `assert proc.returncode != 0`: `make down` returned 0 from an actual linked checkout with no record after printing only the three pidfile notes; its Docker log contained the main-project compose teardown.
 - **Resolution:** Fixed on the review branch. The linked/main checkout ownership-state check is now a standalone prerequisite shared by `check-env` and `down`, so teardown refuses before stopping host processes or invoking Docker while its unreadable-`.env` project-name fallback remains available for a valid owner.
 - **Green verification:** The red regression, main-checkout unreadable-`.env` fallback, valid worktree teardown, and process-precedence compose tests all passed: 4 tests.
+
+### Finding 7 — The application loader accepts another worktree's ownership record
+
+- **Location:** `server/meetingminer/config.py:899`
+- **Severity:** high
+- **Finding:** The loader validates `.env.worktree` structurally but deliberately omits the directory/name ownership check. An API or worker loaded directly in linked checkout `probe` therefore accepts a copied, fully valid `meetingminer-other` record and connects to the other worktree's Postgres, Neo4j, and Meilisearch ports; only Make and pytest have the directory guard.
+- **Evidence:** Beside `probe/.env` with `probe/.git` as a linked-worktree file, a complete `good_stack_text("other")` passes `merged_env` and returns `MM_STACK_NAME=meetingminer-other`, `MM_POSTGRES_PORT=20001`, and the copied twin URLs. `load_config` subsequently applies those copied store ports without consulting the checkout name, so direct server entrypoints read/write the wrong stack.
+- **Suggested direction:** When the resolved `.env` actually lives at a Git checkout root, bind a present ownership record to that root: linked worktrees require `MM_STACK_NAME=meetingminer-<directory>`, and a main checkout must not carry the record. Preserve the accepted external `MM_ENV_PATH` behavior for env files outside a checkout root.
