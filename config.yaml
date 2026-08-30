@@ -18,7 +18,13 @@ stt:
   model: mlx-community/whisper-large-v3-turbo
 
 diarizer:
-  engine: noop # noop | pyannote (documented, not bundled)
+  engine: noop # noop | pyannote
+  # pyannote is an optional extra, installed by hand:
+  #   uv sync --project server --extra diarize
+  # Its models are gated: accept the model licence on huggingface.co, then
+  # put that account's token in .env under the variable `token_env` names.
+  model: pyannote/speaker-diarization-community-1
+  token_env: HF_TOKEN
 
 llm:
   roles:

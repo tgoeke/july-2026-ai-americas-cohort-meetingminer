@@ -61,6 +61,13 @@ dependencies = [
     "meilisearch>=0.43,<1",
 ]
 
+[project.optional-dependencies]
+# The pyannote engine for the `Diarizer` port (story 7.1). Optional, never a
+# default dependency: it pulls a torch-sized runtime and its models are gated
+# behind a Hugging Face licence acceptance, so it is installed by hand with
+# `uv sync --project server --extra diarize`.
+diarize = ["pyannote.audio>=4,<5"]
+
 [project.scripts]
 # `uv run rebuild` — regenerate Neo4j + Meilisearch from Postgres + config.yaml
 # alone (FR24, AD-4). Sits beside `make rebuild`, which is the same entry point.

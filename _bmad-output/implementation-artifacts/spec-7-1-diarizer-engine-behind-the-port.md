@@ -2,7 +2,8 @@
 title: 'Story 7.1: Diarizer Engine Behind the Port'
 type: 'feature'
 created: '2026-08-30'
-status: 'ready-for-dev'
+status: 'in-progress'
+baseline_revision: '311f0141b720c10a045d97b1a0033705baaebe5e'
 review_loop_iteration: 0
 followup_review_recommended: false
 context: []

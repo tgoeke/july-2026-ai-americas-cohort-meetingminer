@@ -135,7 +135,17 @@ class SttConfig(_StrictModel):
 
 
 class DiarizerConfig(_StrictModel):
+    """The `Diarizer` port binding (AD-8).
+
+    ``model`` and ``token_env`` matter only to the ``pyannote`` engine: the
+    Hugging Face model id to load, and the *name* of the environment variable
+    (set in .env) holding the token whose account accepted that model's
+    licence. The ``noop`` engine ignores both.
+    """
+
     engine: Literal["noop", "pyannote"]
+    model: NonEmptyText = "pyannote/speaker-diarization-community-1"
+    token_env: NonEmptyText = "HF_TOKEN"
 
 
 class LlmRoleBinding(_StrictModel):
