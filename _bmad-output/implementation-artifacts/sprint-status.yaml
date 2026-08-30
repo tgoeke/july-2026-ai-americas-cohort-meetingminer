@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-18-2026 10:04
-last_updated: 08-30-2026 13:30
+last_updated: 08-30-2026 17:10
 project: meetingminer
 project_key: NOKEY
 tracking_system: file-system
@@ -97,7 +97,7 @@ development_status:
 
   epic-6: in-progress
   6-1-ux-design-spec-for-the-new-flows: done
-  6-2-youtube-acquisition-command: review
+  6-2-youtube-acquisition-command: done
   6-2a-playlist-acquisition: backlog
   6-3-local-files-acquisition-with-transcript-dialect-conversion: backlog
   6-4-acquisition-launch-surface: backlog
@@ -128,7 +128,7 @@ development_status:
   epic-9-retrospective: optional
 
   epic-10: in-progress
-  10-1-topic-extraction: review
+  10-1-topic-extraction: done
   10-2-threads-and-the-graph-projection: backlog
   10-2a-thread-curation: backlog
   10-2b-thread-questions-in-chat: backlog
@@ -142,6 +142,6 @@ development_status:
   epic-11: in-progress
   11-1-seconds-fast-default-suite: done
   11-2-per-run-store-isolation: in-progress
-  11-3-eval-runs-own-their-namespace: review
+  11-3-eval-runs-own-their-namespace: done
   11-4-lint-and-type-tooling-in-the-fast-loop: backlog
   epic-11-retrospective: optional

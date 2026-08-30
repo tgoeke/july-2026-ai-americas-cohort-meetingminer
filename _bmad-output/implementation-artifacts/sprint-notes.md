@@ -2789,3 +2789,52 @@ owner in the spec's Verification section. Worktree note: this lane's `.env`
 became a placeholder copy (the bootstrap symlink was lost and the permission
 gate refused restoring it); `make test-fast` was verified green with
 process-env storage roots — restore the symlink at integrate.
+
+## Integrate pass, 2026-08-30 ~17:10 — 10-1, 6-2 and 11-3 landed
+
+Three of the wave's stories are on `main`, in this order, each rebased onto the
+previous one and re-gated before merging (not merged on the reviewer's numbers):
+
+| story | landed at | gate re-run at integrate |
+|---|---|---|
+| 10-1 topic extraction | `54e1a11` | story suites `-m ""` 84 passed; `test-fast` 1461 |
+| 6-2 YouTube acquisition | `bf7a993` | story suites 233 passed; `test-fast` 1571 |
+| 11-3 eval namespace | `b670166` | `evals-test` 643; `test-fast` 1571 |
+
+**Ops run:** `make migrate` applied `0014_topics.sql` (10-1's tables) — the only
+operation owed by these three. No API-surface change, so no `make client`; no
+projected field or index-shape change, so no `make rebuild`; `pyproject.toml`
+untouched, so no venv sync. The worker was not started and the hold stands.
+
+**Backlog ids reconciled.** Three lanes each filed "the next free number they
+could see", which is only correct when one lane is filing: B-35 is 11-2's
+per-worktree api/web ports, B-36 is the LAN GPU host binding, and 11-3's
+projection-refusal item was renumbered to B-37 before landing. **Backlog ids
+are a shared counter with no coordination — treat them like `sprint-status.yaml`
+keys, not like free text.** That belongs in `conflict-playbook.md`.
+
+**`sprint-notes.md` conflicted on every branch after the first**, exactly as the
+2026-08-30 wave rules made inevitable by sending every lane to append here.
+Resolution each time was a union keeping both entries; no entry was dropped.
+The file has no merge driver, unlike `sprint-status.yaml`. Either give it one or
+give each lane its own file — this is the wave's clearest process defect.
+
+**7-1 is HELD OUT of `main`, and this is the integration's real finding.** Its
+suites pass extra-free but two fail whenever the optional `diarize` extra is
+installed — `test_stt_adapter.py::test_pyannote_is_documented_not_bundled` and
+`test_worker_transcripts.py::test_a_pyannote_binding_fails_the_stage_with_the_documented_reason`,
+both `AttributeError: 'Binding' object has no attribute 'token_env'` from stubs
+that predate the adapter's new field. Extra-free, `build_diarizer` raises
+`PYANNOTE_UNAVAILABLE` before reaching that line, so the stubs are never
+exercised and the tests pass — which is why review never saw it. The root cause
+is not the two stubs: `make diarize-extra-test` exists to gate the
+extra-installed configuration and does not cover these modules, so the
+configuration story 7.1 is *for* had no gate. Routed back with both fixes
+required. **Note for the next lander: the main checkout's venv is extra-free
+and must stay that way, or these two tests will fail there too.**
+
+**Still out:** 6-3 (review running), 7-1 (above), 11-4 and 11-2 (deliberately
+last — 11-4 puts lint/typecheck inside `test-fast` and would fail later
+branches for unrelated tidiness; 11-2 switches every worktree to a private
+stack and each existing worktree then owes `make worktree-provision`), 8-1
+(built, review not yet dispatched; its AD-10 edit unions with 11-2's).
