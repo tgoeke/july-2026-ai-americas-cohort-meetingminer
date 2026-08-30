@@ -3029,38 +3029,18 @@ three belong in `conflict-playbook.md`.
 ## Story 6.3 — local files with transcript dialect conversion — 2026-08-30
 
 `mint-drop --transcript-dialect {plain,teams-vtt,zoom}`. A Zoom `.vtt` whose
-cue payloads read `Name: text` is converted **at acquisition** into the two
-files a drop holds: a legacy-lineage `transcript.txt` carrying the speakers and
-a speaker-less `transcript.vtt` carrying the timing. `pipeline/transcripts.py`
-and `pipeline/stages/align.py` are unchanged, which was the acceptance
-criterion and also the design: the converted `.txt` is an ordinary legacy
-transcript, so a Zoom name resolves through the roster by the same code path a
-Teams label takes.
+cue payloads read `Name: text` is converted **at acquisition** into a
+legacy-lineage `transcript.txt` plus a speaker-less `transcript.vtt`;
+`pipeline/transcripts.py` and `pipeline/stages/align.py` are unchanged, so a
+Zoom name resolves through the roster by the same path a Teams label takes.
+The converter re-reads its own output with the pipeline's parser and refuses
+rather than minting a write-once drop `align` would fail on, and a cue prefix
+becomes a speaker only if it reads like a name — otherwise `Unknown`, never
+the previous speaker.
 
-Two decisions worth carrying forward:
+The wave's pinned coupling worked: `mintdrop.py`'s override hunk was taken
+verbatim from 6-2's `7625b79`, so `6-3 × 6-2` is **clean**. `6-2-review`
+hardened `provenance_extra` afterwards; that one mechanical conflict resolves
+by taking 6-2-review's block whole, executed and tested (103 green).
 
-- **The converter checks itself with the pipeline's own parser** before
-  anything is minted, and refuses if the file it wrote would be read
-  differently than it was meant. That is what makes the acceptance criterion
-  ("align is unchanged") a property rather than a hope — an utterance
-  containing ` | ` reads as a legacy header with a bad stamp and fails the
-  whole `align` stage, and a drop is write-once.
-- **A cue prefix is accepted as a speaker only if it reads like a name**
-  (1–6 tokens, a letter, none of `.?!`), otherwise the turn is `Unknown`.
-  `Right. So: here we go` is not a person, and inheriting the previous
-  speaker's name would be the wrong-attribution failure never-guess exists to
-  prevent. Cost: `Dr. Alice Chen` is not read as a name — recorded as deferred.
-
-The 6.2 coupling worked as the wave rules intended: `mintdrop.py`'s
-`build_metadata()`/`mint()` override hunk was taken **verbatim** from `6-2`'s
-`7625b79`, so `branch_conflicts.py` reports `story/6-3 × story/6-2` **clean**.
-`story/6-2-review` hardened `provenance_extra` afterwards, which shows as one
-mechanical conflict in that region; the resolution is to take 6-2-review's side
-whole (`transcriptDialect` is not one of its mint-owned keys), and that
-resolution was executed and tested — 103 tests green across
-`test_transcript_dialects.py` and `test_mint_drop.py`.
-
-Coverage was demonstrated, not assumed: a 14-mutation matrix over the converter
-and the CLI killed every mutation. `make test` 1762 passed. One `make test-fast`
-budget failure in `test_frame_image.py` was cross-lane contention on the shared
-stack (0.01s when re-run alone) and did not recur in the gate.
+Detail, mutation matrix and gate output: `spec-6-3-local-files-acquisition-with-transcript-dialect-conversion.md`.
