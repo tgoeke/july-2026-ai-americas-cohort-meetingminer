@@ -496,6 +496,13 @@ def provision(
     try:
         worktree_root.mkdir(parents=True, exist_ok=True)
         with _provision_lock(worktree_root):
+            # The file may have been published by another provisioner after
+            # our fast-path existence check but before this lock acquisition.
+            # Its complete record wins; a waiter must never mint a second id
+            # for the same target and overwrite the first incarnation.
+            if env_file.is_file():
+                validate_env_file(env_file, slug)
+                return env_file, False
             ports = allocate_ports(slug, taken_ports(worktree_root, exclude=worktree), probe)
             text = render_env(slug, ports, secrets.token_hex(6))
             try:
