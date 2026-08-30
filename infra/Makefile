@@ -283,7 +283,7 @@ test: check-client puller-test web-test evals-test infra-up check-dev-stores che
 # fails with its named message rather than as a Vite import error inside
 # web-test; then the three store-free suites; then the server suite under
 # pyproject's default `-m "not slow"` — the tests whose duration the test
-# process controls (1,382 of 1,708 at 722e521; `pytest server/tests --co -q`
+# process controls (1,389 of 1,715 at 4911c21; `pytest server/tests --co -q`
 # shows the current split). The fast set needs Postgres only: when Postgres
 # is down its Postgres-backed tests skip with a named reason, and `-rs`
 # prints every skip with its reason, so an unrun suite is visible rather

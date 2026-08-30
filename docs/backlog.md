@@ -315,18 +315,20 @@ cost; `server/pyproject.toml` defaults every run to
 the store-free suites, and `make test` runs everything with `-m ""`. The
 marks alone deselect 325 of the 1,683 baseline tests (the twelve modules'
 322 plus three timing tests); with a fourth per-test mark and the regression
-tests this story added, the split at `722e521` on `story/11-1-review` is
-1,382 of 1,708 with 326 deselected (`uv run --project server pytest
+tests this story added, the split at `4911c21` on `story/11-1-review` is
+1,389 of 1,715 with 326 deselected (`uv run --project server pytest
 server/tests --co -q` shows the current figure). `server/tests/fast_budget.py`, loaded
 from conftest's `pytest_plugins`, fails any unmarked test whose call phase
-exceeds `mm_fast_test_budget_seconds` (2.0s), and stops collection when a
-`slow` mark lacks a `reason=` or an unmarked test requests the test twins.
+exceeds `mm_fast_test_budget_seconds` (2.0s), stops collection when a
+`slow` mark lacks a `reason=` or an unmarked test requests the test twins,
+and fails an unmarked test that requests them at run time
+(`request.getfixturevalue`) before `projection_stores` runs for it.
 `REPO_ROOT` moved to `server/tests/repo_paths.py`, and the two make runners in
 `test_makefile_procs.py` collapsed into one. Measured with the stores up at
-`722e521`: `make test-fast` took 69s wall, 50.4s of it the 1,382-test pytest
+`4911c21`: `make test-fast` took 68s wall, 49.4s of it the 1,389-test pytest
 step; the rest is the three store-free suites and interpreter startup. The
 fast set needs Postgres only — with the twins unreachable it still ran all
-1,382 with no skips, because every twin-bound test is `slow` and deselected;
+1,389 with no skips, because every twin-bound test is `slow` and deselected;
 `make test` is the gate that requires the twins. Not the "couple of seconds"
 B-1 asked for: the residue is roughly a thousand Postgres-backed api and
 worker tests at 20–50ms each, which is fixture cost, and making those
