@@ -976,6 +976,32 @@ def test_main_classifies_an_invalid_url_before_resolving_a_writable_root(
     assert "fatal: youtube-drop refused: not a YouTube video URL" in capsys.readouterr().err
 
 
+def test_main_defers_the_drops_root_write_probe_until_acquisition_accepts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "drops"
+    root.mkdir()
+    monkeypatch.setattr(youtube, "_load_cli_config", lambda: cli_config(root))
+    monkeypatch.setattr(youtube, "resolve_api_url", lambda explicit: "http://api.test")
+
+    def mutating_resolver(explicit: str | None, config: object) -> Path:
+        (root / ".staging").mkdir()
+        return root
+
+    monkeypatch.setattr(youtube, "resolve_drops_root", mutating_resolver)
+    monkeypatch.setattr(
+        youtube,
+        "acquire",
+        lambda url, **kwargs: (_ for _ in ()).throw(
+            youtube.YoutubeError("probe refusal")
+        ),
+    )
+
+    assert youtube.main([WATCH_URL]) == 1
+    assert list(root.iterdir()) == []
+
+
 @pytest.mark.parametrize("result_status", ["created", "exists"])
 def test_main_posts_created_and_existing_drops_with_resolver_and_cap_parity(
     result_status: str,
