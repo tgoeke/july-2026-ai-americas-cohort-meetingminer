@@ -142,3 +142,21 @@
 - **Red regression:** The focused newline/CR matrix produced three failures: `test_bad_slug_is_refused_by_name[probe\n]` and `test_render_refuses_a_stack_id_with_trailing_control_characters[0123456789ab\n]` both failed with `DID NOT RAISE StackError`; `test_a_prefix_with_an_invalid_slug_is_not_a_worktree_project[meetingminer-probe\n]` failed because `_is_worktree_project` returned `True`.
 - **Resolution:** Fixed on the review branch. All slug, project-name, and incarnation-id validators in the stdlib stack tool and application loader now use full-string matching.
 - **Green verification:** The newline/CR regressions and the complete worktree-stack plus config modules passed: 253 tests.
+
+## Review Outcome
+
+- **Verdict:** Changes requested — not ready to integrate while Finding 10 remains an unresolved high-severity owner decision.
+- **Triage:** 12 confirmed findings: 10 patch findings fixed on this review branch; 2 decision-needed findings left open by contract/scope (`Finding 10`, high; `Finding 11`, low); no deferred findings.
+- **Prior remediation assessment:** The production fixes for the ten dispatched findings hold under the exercised adversarial cases after this lane's patches. The claimed ownership-recheck regression for prior finding 7 was not discriminating; Finding 9 replaces it with an observed mutation-red test. The new effective-identity gap in Finding 10 prevents approval even though the original ten checklist rows are otherwise closed.
+- **Story status:** `in-progress` in the spec and sprint tracker because unresolved high-severity behavior remains. No merge was performed.
+
+## Final Verification
+
+- `uv run --project server pytest server/tests/test_worktree_stack.py server/tests/test_config.py server/tests/test_compose_contract.py -q` — **296 passed, 1 deselected**.
+- `uv run --project server pytest -m "" server/tests/test_makefile_procs.py server/tests/test_projections_locks.py server/tests/test_parallel_store_safety.py -q` — **112 passed**.
+- `MM_REQUIRE_TEST_STORES=1 ... test_projections_search.py::test_configured_projection_stores_are_reachable` — **1 passed** against this worktree's twins; `make check-test-stores` independently passed the same required reachability gate.
+- `uv run --project server pytest server/tests --co -q | tail -1` — **1612/1984 collected, 372 deselected**.
+- `make check-env` — passed for this worktree's validated ownership record.
+- `make test` — after the documented one-time `make bootstrap` installed missing worktree-local puller/web dependencies: puller **128 passed**, web **291 passed**, eval harness **549 passed**, server **1984 passed** in 579.13s, production web build succeeded.
+- `git diff --check` — passed.
+- `make evals-run` was not run (paid judge role, expressly excluded).
