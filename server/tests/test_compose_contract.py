@@ -94,6 +94,30 @@ def test_make_test_requires_the_effective_test_store_endpoints() -> None:
     )
 
 
+def test_make_test_gates_the_optional_diarizer_extra_in_an_isolated_environment() -> None:
+    """The full gate must install and import the story's real optional dependency."""
+    steps = _dry_run_steps("test")
+    targets = [target for target, _lines in steps]
+    assert "diarize-extra-test" in targets, targets
+
+    commands = _direct_commands("diarize-extra-test")
+    assert len(commands) == 1, commands
+    words = shlex.split(commands[0])
+    assert words[:3] == ["cd", str(REPO_ROOT), "&&"], words
+    assert words[3:] == [
+        "uv",
+        "run",
+        "--isolated",
+        "--project",
+        str(SERVER_DIR),
+        "--extra",
+        "diarize",
+        "python",
+        "-c",
+        "import pyannote.audio",
+    ], words
+
+
 def _under_server_tests(word: str) -> bool:
     """A command word that is a path (or node id) at or under server/tests."""
     path = Path(word.split("::", maxsplit=1)[0])

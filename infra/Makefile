@@ -79,7 +79,7 @@ export COREPACK_ENABLE_DOWNLOAD_PROMPT := 0
 # (finding 3).
 .NOTPARALLEL:
 
-.PHONY: help bootstrap up down test test-fast puller-test puller-sync puller-archive-check web-test evals-test evals-run migrate api worker web client \
+.PHONY: help bootstrap up down test test-fast diarize-extra-test puller-test puller-sync puller-archive-check web-test evals-test evals-run migrate api worker web client \
         rebuild purge digest backfill-drop-paths mint-drop test-db-prune check-reviews check-tools check-docker check-env check-client check-stores check-dev-stores check-test-stores check-api \
         infra-up start-api start-worker start-web \
         stop-api stop-worker stop-web \
@@ -92,6 +92,7 @@ help:
 	@echo "  make down        - stop host processes and containers"
 	@echo "  make test        - run the puller suite, the web suite, the eval suite, the server suite, and build the web app"
 	@echo "  make test-fast   - the iteration loop: check-client, the store-free suites, then the server suite's fast set (pytest -m 'not slow'). Needs Postgres only: its Postgres-backed tests skip with a named reason when it is down; twin-bound tests are slow and deselected here — make test is the gate that requires the twins"
+	@echo "  make diarize-extra-test - install the optional diarizer extra in isolation and import pyannote.audio (no model load)"
 	@echo "  make puller-test - run the puller's own suite (emit-drop + drop-schema validation)"
 	@echo "  make web-test    - run the web component suite (vitest)"
 	@echo "  make evals-test  - run the eval harness suite (schema, loader, subject selection, check algorithms, run artifacts; no stores, no api)"
@@ -275,7 +276,7 @@ bootstrap: check-tools
 # `-m "not slow"` (the fast set, story 11.1), and an empty expression on the
 # command line replaces it and clears the filter, so the gate runs the `slow`
 # modules too. `make test-fast` is the iteration loop.
-test: check-client puller-test web-test evals-test infra-up check-dev-stores check-test-stores
+test: check-client puller-test web-test evals-test diarize-extra-test infra-up check-dev-stores check-test-stores
 	cd $(ROOT) && MM_REQUIRE_TEST_STORES=1 uv run --project $(ROOT)/server pytest -m "" $(ROOT)/server/tests
 	pnpm --dir $(WEB) run build
 
@@ -292,6 +293,14 @@ lint:
 # server/.mypy_cache (gitignored).
 typecheck:
 	cd $(ROOT)/server && uv run --project $(ROOT)/server python -m mypy
+
+# The full gate's packaging smoke for Story 7.1. It uses a disposable uv
+# environment so the torch-sized optional dependency never contaminates the
+# default fast-loop venv, and imports only the package — no model or network
+# inference. A broken optional-dependency declaration or platform lock now
+# fails `make test` instead of turning the provider contract test into a skip.
+diarize-extra-test:
+	cd $(ROOT) && uv run --isolated --project $(ROOT)/server --extra diarize python -c "import pyannote.audio"
 
 # The iteration loop (story 11.1): check-client first, so a missing client
 # fails with its named message rather than as a Vite import error inside
