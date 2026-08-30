@@ -1042,6 +1042,14 @@ def test_acquisition_config_defaults_and_the_committed_block_agree() -> None:
     assert committed["acquisition"]["youtube"]["max_duration_minutes"] == 180
 
 
+def test_readme_distinguishes_temporary_downloads_from_permanent_writes() -> None:
+    readme = (REPO_ROOT / "docs" / "README.md").read_text(encoding="utf-8")
+    section = readme.split("## Ingesting a YouTube video", 1)[1].split("\n## ", 1)[0]
+    assert "It refuses before any permanent write" in section
+    assert "temporary bytes" in section
+    assert "before writing anything" not in section
+
+
 # --- CLI parity with mint-drop ----------------------------------------------
 
 
