@@ -539,3 +539,13 @@ stores:
     user: neo4j
   meilisearch:
     url: http://localhost:7700
+
+# Acquisition commands (epic 6). The YouTube duration cap is a refusal
+# boundary, and a refusal boundary is configuration (AD-10): `make
+# youtube-drop` refuses, by name, a video longer than this before a byte of
+# media is downloaded. The loader defaults the whole block to these same
+# values, so a config.yaml that predates it still validates; it is committed
+# explicitly so the boundary is visible where an operator looks for it.
+acquisition:
+  youtube:
+    max_duration_minutes: 180

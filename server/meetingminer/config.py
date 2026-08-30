@@ -687,6 +687,30 @@ class ApiConfig(_StrictModel):
     chat: ChatQueryConfig
 
 
+class YoutubeAcquisitionConfig(_StrictModel):
+    """`make youtube-drop` knobs (story 6.2).
+
+    The duration cap is a refusal boundary, and a refusal boundary is
+    configuration, not a code constant (AD-10): the command refuses, by name,
+    a video longer than this before a byte of media is downloaded.
+    """
+
+    max_duration_minutes: int = Field(default=180, gt=0)
+
+
+class AcquisitionConfig(_StrictModel):
+    """Settings the acquisition commands own (epic 6).
+
+    Defaulted at every level so a config.yaml written before the block existed
+    still validates; the committed config.yaml carries it explicitly so the
+    boundary is visible where an operator looks for it.
+    """
+
+    youtube: YoutubeAcquisitionConfig = Field(
+        default_factory=YoutubeAcquisitionConfig
+    )
+
+
 class Settings(_StrictModel):
     """The validated shape of config.yaml."""
 
@@ -702,6 +726,9 @@ class Settings(_StrictModel):
     pipeline: PipelineConfig
     projections: ProjectionsConfig
     api: ApiConfig
+    # Last, and defaulted: every fixture config.yaml that predates the block
+    # still validates (story 6.2).
+    acquisition: AcquisitionConfig = Field(default_factory=AcquisitionConfig)
 
 
 class Secrets(BaseModel):

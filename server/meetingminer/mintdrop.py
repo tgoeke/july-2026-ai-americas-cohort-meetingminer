@@ -549,6 +549,7 @@ def build_metadata(
     supplied_by: str,
     files: list[SuppliedFile],
     minted_at: datetime,
+    provenance_extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The drop's ``metadata.json``.
 
@@ -560,34 +561,39 @@ def build_metadata(
     No ``url`` key: ``DropContents.stream_url`` turns ``provenance.url`` into
     UX-DR11's transitional "watch the original recap" deep link, and a local
     file has no such page. ``title`` *is* set — ``DropContents.title`` reads it
-    as the meeting's human label.
+    as the meeting's human label. A producer whose source *does* have such a
+    page merges it in through ``provenance_extra``, applied after the defaults
+    so it may also deliberately override ``tool`` (story 6.2).
 
     No ``participants`` key either. Omitted and ``[]`` are different statements
     (glossary): omitted means the source did not look, and the pipeline falls
     back to transcript speaker attribution, which is the truth here.
     """
+    provenance: dict[str, Any] = {
+        "tool": PROGRAM,
+        "title": title,
+        "mintedAt": _iso_second_utc(minted_at),
+        "suppliedBy": supplied_by,
+        "startedAtSource": started_at_source,
+        "files": [
+            {
+                "dropFilename": f.canonical,
+                "sourcePath": str(f.source),
+                "sha256": f.sha256,
+                "byteSize": f.byte_size,
+            }
+            for f in files
+        ],
+    }
+    if provenance_extra:
+        provenance.update(provenance_extra)
     return {
         "schemaVersion": 1,
         "sourceId": source_id,
         "corpus": corpus,
         "startedAt": started_at,
         "startedAtPrecision": started_at_precision,
-        "provenance": {
-            "tool": PROGRAM,
-            "title": title,
-            "mintedAt": _iso_second_utc(minted_at),
-            "suppliedBy": supplied_by,
-            "startedAtSource": started_at_source,
-            "files": [
-                {
-                    "dropFilename": f.canonical,
-                    "sourcePath": str(f.source),
-                    "sha256": f.sha256,
-                    "byteSize": f.byte_size,
-                }
-                for f in files
-            ],
-        },
+        "provenance": provenance,
     }
 
 
@@ -622,6 +628,9 @@ def mint(
     started_at_argument: str | None = None,
     supplied_by: str | None = None,
     identity_root: Path | None = None,
+    source_id: str | None = None,
+    started_at_override: tuple[str, str, str] | None = None,
+    provenance_extra: dict[str, Any] | None = None,
 ) -> MintResult:
     """Mint one drop, or report the one already minted for this content.
 
@@ -630,6 +639,14 @@ def mint(
     clock, then assemble-validate-finalize. Nothing is written to the drops root
     before the last step, and that step either finalizes a whole drop or leaves
     the root untouched.
+
+    The keyword overrides default to today's behaviour bit-for-bit. A producer
+    with a source-side identity passes ``source_id`` verbatim (used for the
+    identity lock, the existing-drop lookup, and ``metadata.sourceId``), an
+    already-resolved wall clock as ``started_at_override``
+    (``(startedAt, precision, source)``), and its own provenance keys as
+    ``provenance_extra`` — assembly still goes through this one
+    staging → validate → atomic-rename path (story 6.2).
     """
     pairs = classify_supplied(supplied)
     recording = next((p for p, name in pairs if name == RECORDING_FILENAME), None)
@@ -638,7 +655,8 @@ def mint(
     files = _digest_supplied(pairs)
 
     primary = files[0]
-    source_id = f"{SOURCE_ID_PREFIX}{primary.sha256}"
+    if source_id is None:
+        source_id = f"{SOURCE_ID_PREFIX}{primary.sha256}"
     label = (title or primary.source.stem).strip() or primary.source.stem
 
     # Before the wall clock, not after: identity comes from the bytes, so a
@@ -660,7 +678,9 @@ def mint(
                 ignored=_evidence_not_in(existing, files),
             )
 
-        if started_at_argument is not None:
+        if started_at_override is not None:
+            started_at, precision, started_at_source = started_at_override
+        elif started_at_argument is not None:
             started_at, precision = started_at_from_argument(started_at_argument)
             started_at_source = "--started-at"
         else:
@@ -676,6 +696,7 @@ def mint(
             supplied_by=supplied_by or _default_supplied_by(),
             files=files,
             minted_at=datetime.now(timezone.utc),
+            provenance_extra=provenance_extra,
         )
         name = drop_name(started_at, label, source_id)
         target = drops_root / name
