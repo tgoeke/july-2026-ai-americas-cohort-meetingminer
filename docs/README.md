@@ -60,6 +60,7 @@ The arguments worth knowing:
 | `--corpus scripted\|real` | **required**, never guessed. `scripted` meetings are eval subjects; `real` ones are demo corpus only. The tag lands on the meeting row. |
 | `--title` | the meeting's human label, shown in the app. Defaults to the stem of the *primary* file — the recording when you supply several, otherwise the transcript. |
 | `--started-at` | when the meeting started: `2026-08-05T12:00:19Z` (any explicit offset works and is converted to UTC), or `2026-08-05` for a day you know without a time. Optional only when the video carries its own `creation_time`. |
+| `--transcript-dialect plain\|teams-vtt\|zoom` | which export the transcript is. Declared, never sniffed. `plain` (the default) mints the files as they are; `zoom` converts. See [Transcript dialects](#transcript-dialects) below. |
 | `--supplied-by` | who provided the file, recorded in the drop's provenance. Defaults to the account running the command. |
 | `--drops DIR` | mint into `MM_DROPS_ROOT` itself or a child directory beneath it, except its reserved `.staging` assembly area. A sibling or external root is refused before staging, because intake stores only drops-root-relative paths. |
 | `--api URL` | the api to hand the drop to. Defaults to `$MM_API_URL`, else `http://127.0.0.1:8000`. It must be an HTTP(S) base URL with a host and no query or fragment. |
@@ -146,6 +147,77 @@ ingested and can never be deleted:
 A failure part-way through leaves nothing behind: the drop is assembled in a
 staging directory under the drops root and moved into place with a single
 rename, so a directory visible in the drops root is always a whole drop.
+
+### Transcript dialects
+
+MeetingMiner reads three transcript shapes and only three: the Teams text
+export (`[m:ss] Last, First: text`), the legacy speaker-attributed form
+(`<Name> | MM:SS` on its own line, the utterance beneath it), and a
+**speaker-less** `.vtt`, which contributes cue end timings and never a speaker.
+A meeting exported from Zoom is none of them: its `.vtt` carries the names
+*inside* the cue payloads, as `Name: text`. Mint it as it stands and the names
+are in the file but invisible to the system — every turn comes out `Unknown`.
+
+`--transcript-dialect` says which export you are handing over, and the
+conversion happens at acquisition, so the pipeline reads the same three shapes
+it always has:
+
+| Dialect | What happens |
+|---|---|
+| `plain` (default) | nothing. The files are minted as they are. |
+| `teams-vtt` | nothing to the files — a Teams export already *is* a speaker-attributed `.txt` beside a speaker-less `.vtt`. The declaration is recorded in provenance. |
+| `zoom` | the supplied `.vtt` is converted into **both** files the drop holds: a `transcript.txt` in the legacy form, carrying the speakers, and a speaker-less `transcript.vtt` carrying every cue's timing. |
+
+```bash
+make mint-drop MINT_ARGS="'~/Downloads/Migration Sync.vtt' --corpus real \
+    --transcript-dialect zoom --started-at 2026-08-05T12:00:19Z"
+```
+
+**The dialect is declared, never sniffed.** Nothing inspects the file to decide
+what it is. A drop is write-once, so a guess that eventually guesses wrong is a
+meeting that can be neither re-read nor deleted.
+
+What the conversion does, precisely:
+
+- Consecutive cues by the same speaker become one turn, which is what a turn
+  means in both text lineages. The individual cue timings all survive in the
+  `.vtt`, where `align` takes each turn's real end from them.
+- A cue's speaker is the text before its first `:`, accepted only when it reads
+  like a name — one to six words, at least one letter, and none of `.`, `?`,
+  `!`. So `Right. So: here we go` is not a person. A cue whose prefix is not
+  accepted becomes an `Unknown` turn rather than inheriting the previous
+  speaker's name: a wrong attribution is worse than an absent one, and
+  `Unknown` is a label the resolver already refuses to turn into a participant.
+  The cost is that a name written `Dr. Alice Chen` is not read as one.
+- The block stamp is `MM:SS`, or `HH:MM:SS` past the hour, truncated rather
+  than rounded — a citation offset that rounds up points past the moment
+  somebody started speaking.
+- The `Name: ` prefix comes off the `.vtt`'s payloads. A drop's `.vtt` is a
+  subtitle track, and `align` matches a cue to a turn by word overlap.
+
+Before anything is minted, the command **re-reads the transcript it just
+produced with the pipeline's own parser** and checks it turn for turn. If the
+file it wrote would mean something else — an utterance that itself reads as a
+`<Name> | MM:SS` header, say — the command refuses and writes nothing, for the
+same reason it validates against the drop schema: a drop the pipeline would
+choke on can afterwards be neither ingested nor deleted.
+
+It also refuses, by name and before writing, when: no `.vtt` was supplied; two
+were; a `.txt` was supplied as well (the conversion *produces* that file, and a
+drop holds one of each); the file has no `WEBVTT` header, no cue text, or a cue
+timing that will not parse; or **no** cue carries a `Name: ` prefix at all —
+which means the file is a speaker-less export and wants `teams-vtt`.
+
+`provenance.transcriptDialect` records what happened: the dialect, whether it
+converted, the files produced, and the original file with its `sha256` and
+size. That last part matters because `provenance.files[]` describes the
+*converted* bytes — the conversion writes to a temporary workspace that is gone
+by the time you read the drop — so the dialect record is the only place your
+own file is named. For `plain` the key is absent, not `false`: the default
+mints exactly the metadata it minted before this existed.
+
+The conversion is deterministic, so re-running on the same Zoom export reports
+`exists` and writes nothing, exactly as re-running on the same recording does.
 
 ### What it never does
 
