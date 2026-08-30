@@ -236,6 +236,89 @@ def test_the_happy_path_wires_membership_and_the_probe_with_the_runs_id(
     assert probe_calls[0]["meeting_id"] == MEETING
 
 
+def test_probe_marked_rows_are_not_judged_as_immutable_subject_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """F3 verify: sibling probes belong to orchestration, not subject state."""
+    driver = ClosableDriver()
+    seen: list[str] = []
+    monkeypatch.setattr(
+        test_publish_gate.stores, "search_client", lambda config: object()
+    )
+    monkeypatch.setattr(
+        test_publish_gate.stores, "graph_driver", lambda config: driver
+    )
+
+    def absent(client: object, artifact_id: str) -> StorePresence:
+        seen.append(artifact_id)
+        return StorePresence(present=False)
+
+    monkeypatch.setattr(test_publish_gate.stores, "artifact_in_search", absent)
+    monkeypatch.setattr(test_publish_gate.stores, "artifact_in_graph", absent)
+
+    probe_absent = {
+        checks.SEARCH_STORE: StorePresence(present=False),
+        checks.GRAPH_STORE: StorePresence(present=False),
+    }
+    probe_present = {
+        checks.SEARCH_STORE: StorePresence(
+            present=True, cited_moment_ids=(MOMENT,)
+        ),
+        checks.GRAPH_STORE: StorePresence(
+            present=True, cited_moment_ids=(MOMENT,)
+        ),
+    }
+    monkeypatch.setattr(
+        gate_probe,
+        "run_gate_probe",
+        lambda **kwargs: GateProbe(
+            artifact_id=PROBE_ID,
+            moment_id=MOMENT,
+            pre=probe_absent,
+            post=probe_present,
+            approve=ApproveOutcome(
+                attempted=True, ok=True, published_ids=(PROBE_ID,)
+            ),
+            cleanup=CleanupReport(
+                search_document_removed=True,
+                graph_node_removed=True,
+                export_file_removed=True,
+                postgres_row_removed=True,
+            ),
+        ),
+    )
+
+    subject_id = "22222222-2222-7222-8222-222222222222"
+    sibling_id = "33333333-3333-7333-8333-333333333333"
+    artifacts = (
+        SimpleNamespace(
+            id=subject_id,
+            moment_id=MOMENT,
+            state="extracted",
+            title="subject artifact",
+        ),
+        SimpleNamespace(
+            id=sibling_id,
+            moment_id=MOMENT,
+            state="published",
+            title=f"{gate_probe.PROBE_TITLE_PREFIX}other-run",
+        ),
+    )
+    corpus = SimpleNamespace(
+        meeting_corpus=lambda meeting_id: "scripted",
+        artifacts_for=lambda meeting_id: artifacts,
+    )
+    run = RecordingRun()
+
+    run_gate(run, a_subject(), corpus, object(), LocalConfig())
+
+    assert run.results[0].passed, run.results[0].problems
+    assert run.results[0].metrics["artifacts"] == 1
+    assert sibling_id not in seen
+    assert seen == [subject_id, subject_id]
+    assert driver.closed
+
+
 def test_a_later_subject_store_error_preserves_the_first_defect(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

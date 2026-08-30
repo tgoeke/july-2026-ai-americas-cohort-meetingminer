@@ -116,7 +116,11 @@ def test_publish_gate_projection(
     # store handle, no row.
     try:
         tag = corpus.meeting_corpus(meeting_id)
-        artifacts = corpus.artifacts_for(meeting_id)
+        artifacts = tuple(
+            artifact
+            for artifact in corpus.artifacts_for(meeting_id)
+            if not gate_probe.is_probe_artifact(artifact)
+        )
     except CorpusQueryError as exc:
         result = _not_applicable(
             run,
@@ -171,7 +175,9 @@ def test_publish_gate_projection(
         raise
 
     try:
-        # The subject halves: one membership read per artifact, no mutation.
+        # The subject halves: one membership read per subject artifact, no
+        # mutation. Probe-marked rows belong to gate_probe's moment-locked
+        # coordination/stranded-debt path, never immutable subject assertions.
         membership: dict[str, dict[str, StorePresence]] = {}
         membership_problem: str | None = None
         try:

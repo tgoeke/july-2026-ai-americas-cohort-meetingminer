@@ -81,6 +81,7 @@ __all__ = [
     "choose_order",
     "cleanup_probe",
     "eligible_moments",
+    "is_probe_artifact",
     "probe_body",
     "probe_title",
     "run_gate_probe",
@@ -156,12 +157,12 @@ def eligible_moments(
         str(artifact.moment_id)
         for artifact in artifacts
         if artifact.state == checks.EXTRACTED_STATE
-        and not _is_probe_artifact(artifact)
+        and not is_probe_artifact(artifact)
     }
     return tuple(moment for moment in moments if str(moment.id) not in consumed)
 
 
-def _is_probe_artifact(artifact: Any) -> bool:
+def is_probe_artifact(artifact: Any) -> bool:
     """Whether a corpus row carries the eval probe ownership marker."""
     return str(getattr(artifact, "title", "") or "").startswith(
         PROBE_TITLE_PREFIX
@@ -639,7 +640,7 @@ def run_gate_probe(
         )
         if blockers:
             blocker_ids = ", ".join(sorted(str(row.id) for row in blockers))
-            if all(_is_probe_artifact(row) for row in blockers):
+            if all(is_probe_artifact(row) for row in blockers):
                 return GateProbe(
                     problem=(
                         f"moment {moment_id} holds stranded probe row(s)"
