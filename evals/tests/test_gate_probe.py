@@ -11,6 +11,7 @@ the shape with no store, no api and no run folder.
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -213,6 +214,12 @@ class FakeConnection:
         self.row_state = row_state
         self.statements: list[tuple[str, tuple[Any, ...]]] = []
 
+    def commit(self) -> None:
+        return None
+
+    def rollback(self) -> None:
+        return None
+
     def execute(self, sql: str, params: tuple[Any, ...] = ()) -> FakeCursor:
         self.statements.append((sql, params))
         if sql.startswith("DELETE FROM artifact"):
@@ -224,6 +231,8 @@ class FakeConnection:
             )
         if sql.startswith("INSERT INTO artifact"):
             return FakeCursor([(PROBE_ID,)])
+        if "pg_advisory_" in sql:
+            return FakeCursor([(True,)])
         raise AssertionError(f"unexpected statement: {sql}")
 
     def __enter__(self) -> FakeConnection:
@@ -247,6 +256,7 @@ def test_a_clean_cleanup_verifies_every_target(tmp_path: Path) -> None:
         graph=graph,
         publish_root=tmp_path,
         connection=connection,
+        config=probe_config(tmp_path),
     )
 
     assert report.verified, report.problems
@@ -255,6 +265,60 @@ def test_a_clean_cleanup_verifies_every_target(tmp_path: Path) -> None:
     assert graph.erased == [PROBE_ID]
     assert not export.exists()
     assert connection.row_state is None
+
+
+def test_cleanup_holds_the_projection_writer_lock_for_every_erasure(
+    tmp_path: Path,
+) -> None:
+    """F1: verified absence is stable only inside the writers' lock domain."""
+    held = False
+
+    @contextmanager
+    def cleanup_lock(config: object, connection: object, holder: str) -> Any:
+        nonlocal held
+        assert holder == f"eval gate-probe cleanup {PROBE_ID}"
+        held = True
+        try:
+            yield
+        finally:
+            held = False
+
+    class LockedIndex(FakeIndex):
+        def delete_document(self, document_id: str) -> FakeTask:
+            assert held
+            return super().delete_document(document_id)
+
+        def get_document(self, document_id: str) -> Any:
+            assert held
+            return super().get_document(document_id)
+
+    class LockedSearch(FakeSearchClient):
+        def index(self, name: str) -> LockedIndex:
+            assert held
+            return LockedIndex(self)
+
+    class LockedGraph(FakeGraphDriver):
+        def session(self, **kwargs: Any) -> FakeGraphSession:
+            assert held
+            return super().session(**kwargs)
+
+    class LockedConnection(FakeConnection):
+        def execute(self, sql: str, params: tuple[Any, ...] = ()) -> FakeCursor:
+            assert held
+            return super().execute(sql, params)
+
+    report = gate_probe.cleanup_probe(
+        PROBE_ID,
+        search=LockedSearch(),
+        graph=LockedGraph(),
+        publish_root=tmp_path,
+        connection=LockedConnection(),
+        config=probe_config(tmp_path),
+        cleanup_lock=cleanup_lock,
+    )
+
+    assert report.verified, report.problems
+    assert not held
 
 
 def test_an_absent_export_file_is_a_verified_removal(tmp_path: Path) -> None:
@@ -266,6 +330,7 @@ def test_an_absent_export_file_is_a_verified_removal(tmp_path: Path) -> None:
         graph=FakeGraphDriver(),
         publish_root=tmp_path,
         connection=FakeConnection(),
+        config=probe_config(tmp_path),
     )
     assert report.export_file_removed, report.problems
 
@@ -277,6 +342,7 @@ def test_a_surviving_search_document_is_a_named_leftover(tmp_path: Path) -> None
         graph=FakeGraphDriver(),
         publish_root=tmp_path,
         connection=FakeConnection(),
+        config=probe_config(tmp_path),
     )
     assert not report.verified
     assert not report.search_document_removed
@@ -294,6 +360,7 @@ def test_a_surviving_graph_node_is_a_named_leftover(tmp_path: Path) -> None:
         graph=FakeGraphDriver(still_present=True),
         publish_root=tmp_path,
         connection=FakeConnection(),
+        config=probe_config(tmp_path),
     )
     assert not report.graph_node_removed
     problem = next(p for p in report.problems if "neo4j" in p.lower())
@@ -307,6 +374,7 @@ def test_a_missing_publish_root_is_a_named_leftover(tmp_path: Path) -> None:
         graph=FakeGraphDriver(),
         publish_root=None,
         connection=FakeConnection(),
+        config=probe_config(tmp_path),
     )
     assert not report.export_file_removed
     assert any("MM_PUBLISH_ROOT" in p for p in report.problems)
@@ -424,7 +492,9 @@ def probe_config(tmp_path: Path) -> SimpleNamespace:
             stores=SimpleNamespace(
                 postgres=SimpleNamespace(
                     host="localhost", port=5433, database="mm", user="mm"
-                )
+                ),
+                neo4j=SimpleNamespace(uri="bolt://localhost:7687"),
+                meilisearch=SimpleNamespace(url="http://localhost:7700"),
             )
         ),
         secrets=SimpleNamespace(
@@ -715,6 +785,7 @@ def test_a_published_probe_with_no_export_file_is_a_named_leftover(
         graph=FakeGraphDriver(),
         publish_root=tmp_path,
         connection=FakeConnection(),
+        config=probe_config(tmp_path),
         expect_export=True,
     )
     assert not report.export_file_removed

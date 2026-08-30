@@ -46,7 +46,13 @@ silent.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable, Mapping, Sequence
+import fcntl
+import math
+import os
+import tempfile
+import time
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -106,6 +112,8 @@ _INSERT_PROBE = (
 )
 _PROBE_STATE = "SELECT state FROM artifact WHERE id = %s"
 _DELETE_PROBE = "DELETE FROM artifact WHERE id = %s"
+_PROJECTION_LOCK_NAME = "meetingminer-projections"
+_PROJECTION_LOCK_TIMEOUT_ENV = "MM_PROJECTION_LOCK_TIMEOUT_SECONDS"
 
 #: The graph erasure and its verification. ``DETACH DELETE`` is scoped to
 #: the one node carrying the minted UUID — label-agnostic like every other
@@ -225,6 +233,64 @@ def _search_absent(search: Any, artifact_id: str) -> tuple[bool, str | None]:
     )
 
 
+@contextmanager
+def _projection_writer_lock(
+    config: Any, connection: Any, holder: str
+) -> Iterator[None]:
+    """Join production projection writers' file/advisory exclusion domain."""
+    stores_config = config.settings.stores
+    key = hashlib.sha256(
+        f"{stores_config.neo4j.uri}|{stores_config.meilisearch.url}".encode()
+    ).hexdigest()[:16]
+    lock_path = (
+        Path(tempfile.gettempdir()) / f"meetingminer-projections-{key}.lock"
+    )
+    raw_timeout = os.environ.get(_PROJECTION_LOCK_TIMEOUT_ENV, "300")
+    try:
+        timeout = float(raw_timeout)
+    except ValueError:
+        raise RuntimeError(
+            f"{_PROJECTION_LOCK_TIMEOUT_ENV} must be a positive finite number"
+        ) from None
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise RuntimeError(
+            f"{_PROJECTION_LOCK_TIMEOUT_ENV} must be a positive finite number"
+        )
+
+    handle = open(lock_path, "a+")
+    started = time.monotonic()
+    try:
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                elapsed = time.monotonic() - started
+                if elapsed >= timeout:
+                    raise RuntimeError(
+                        f"{holder} refused: projection store lock timed out"
+                        f" after {elapsed:.2f}s waiting for {lock_path}"
+                    ) from None
+                time.sleep(min(0.05, timeout - elapsed))
+
+        connection.execute(
+            "SELECT pg_advisory_lock(hashtext(%s))", (_PROJECTION_LOCK_NAME,)
+        )
+        connection.commit()
+        try:
+            yield
+        finally:
+            connection.rollback()
+            connection.execute(
+                "SELECT pg_advisory_unlock(hashtext(%s))",
+                (_PROJECTION_LOCK_NAME,),
+            )
+            connection.commit()
+    finally:
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        handle.close()
+
+
 def cleanup_probe(
     artifact_id: str,
     *,
@@ -232,7 +298,9 @@ def cleanup_probe(
     graph: Any,
     publish_root: Path | None,
     connection: Any,
+    config: Any,
     expect_export: bool = False,
+    cleanup_lock: Callable[[Any, Any, str], Any] | None = None,
 ) -> CleanupReport:
     """Erase the probe from all four places it landed, verifying each.
 
@@ -241,6 +309,42 @@ def cleanup_probe(
     carrying the exact id and the manual remedy. Only ever called with the
     id this run minted — the sanction this module exists to keep narrow.
     """
+    lock = cleanup_lock or _projection_writer_lock
+    try:
+        with lock(config, connection, f"eval gate-probe cleanup {artifact_id}"):
+            return _cleanup_probe_locked(
+                artifact_id,
+                search=search,
+                graph=graph,
+                publish_root=publish_root,
+                connection=connection,
+                expect_export=expect_export,
+            )
+    except Exception as exc:  # noqa: BLE001 — the leftover must stay loud
+        return CleanupReport(
+            search_document_removed=False,
+            graph_node_removed=False,
+            export_file_removed=False,
+            postgres_row_removed=False,
+            problems=(
+                f"probe cleanup for artifact {artifact_id} could not enter"
+                f" the projection writer lock ({type(exc).__name__}: {exc})"
+                " — no erasure was attempted because verified absence would"
+                " not be stable against a concurrent projection writer",
+            ),
+        )
+
+
+def _cleanup_probe_locked(
+    artifact_id: str,
+    *,
+    search: Any,
+    graph: Any,
+    publish_root: Path | None,
+    connection: Any,
+    expect_export: bool,
+) -> CleanupReport:
+    """Erase and verify while :func:`cleanup_probe` holds writer exclusion."""
     problems: list[str] = []
 
     search_removed = False
@@ -543,6 +647,7 @@ def run_gate_probe(
                 graph=graph,
                 publish_root=getattr(config.secrets, "mm_publish_root", None),
                 connection=conn,
+                config=config,
                 expect_export=(
                     approve.attempted
                     and approve.ok
