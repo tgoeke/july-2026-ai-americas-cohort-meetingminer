@@ -93,8 +93,9 @@ Blind Hunter, Edge Case Hunter, Verification Gap Reviewer, and Acceptance Audito
 - `make diarize-extra-test` after V5 — passed after visibly executing `uv run --locked --isolated ...` and installing 166 packages in the disposable environment.
 - V6 installed-extra gate after widening — `90 passed` across `test_diarize_pyannote.py`, `test_stt_adapter.py`, and `test_worker_transcripts.py`; no skips.
 - V6 locked isolated extra-free mirror — `89 passed, 1 skipped`, with the skip naming absent `pyannote.audio`.
+- Full installed-extra server fast suite on current `origin/main` — `1602 passed, 1 skipped, 326 deselected`; the sole skip is the opt-in real-network YouTube test.
 - Real-wheel telemetry proof, run with `uv run --locked --isolated --project server --extra diarize`: locked `pyannote.audio==4.0.7` reported endpoint `https://otel.pyannote.ai/v1/traces` and metrics enabled before the adapter call; with only `Pipeline.from_pretrained` mocked to prevent a model/network operation, `_load_pipeline` made the provider's own `is_metrics_enabled()` false before that call. Output: `before=true before_load=false`.
-- `make test-fast` in the foreground — puller `128 passed`; web `291 passed`; evals `549 passed`; server `1430 passed, 1 skipped, 326 deselected`.
+- `make test-fast` in the foreground after V6 and the current-main rebase — puller `128 passed`; web `294 passed`; evals `549 passed`; server `1602 passed, 1 skipped, 326 deselected`.
 - `make check-reviews` — passed: `every dispatched review has a committed report`.
 - `make evals-run` was not run.
 
