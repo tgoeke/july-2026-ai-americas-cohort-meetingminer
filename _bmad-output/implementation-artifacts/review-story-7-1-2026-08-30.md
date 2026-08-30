@@ -18,7 +18,7 @@ The exclusions and pre-recorded deferred items named in the review handoff remai
 ## Review Range
 
 - Target branch: `story/7-1`
-- Range: `5cdfce7..HEAD`
+- Range reviewed: `5cdfce7..db36748`
 - Review worktree branch: `story/7-1-review`
 
 ## Findings
@@ -62,3 +62,29 @@ The exclusions and pre-recorded deferred items named in the review handoff remai
 - **Finding:** Importing and running locked pyannote 4.0.7 activates its default OpenTelemetry exporter, but the adapter neither disables it nor documents that a nominally in-process diarizer makes this external request. AD-12 permits egress, so this is not an architecture prohibition; it is an implicit operational/privacy behavior introduced by the new engine.
 - **Evidence:** Direct inspection of the installed 4.0.7 wheel shows `pyannote/audio/telemetry/config.yaml` sets `metrics_enabled: true` and targets `https://otel.pyannote.ai/v1/traces`. Its pipeline hooks emit model/pipeline origin, package version, session id, audio duration, and requested speaker-count parameters on initialization/application. The story adds no `PYANNOTE_METRICS_ENABLED` handling, adapter-level telemetry choice, or operator wording.
 - **Suggested direction:** Make the behavior deliberate: either disable pyannote telemetry in the adapter before model initialization, or explicitly document and test the chosen egress policy so upgrades cannot silently change it.
+
+## Triage
+
+All four configured adversarial layers completed: Blind Hunter, Edge Case Hunter, Verification Gap Reviewer, and Acceptance Auditor. They produced 26 raw candidates, normalized to 21 distinct claims. Five were retained and 16 were dismissed after reading the call sites and frozen contract.
+
+| Finding | Sources | Route | Rationale |
+|---|---|---|---|
+| 1. Placeholder namespace overflow | Edge Case Hunter + Acceptance Auditor | Patch | The never-guess invariant is absolute and the four-digit boundary is directly reproducible. |
+| 2. Discoverability is not importability | Blind Hunter + Edge Case Hunter + Acceptance Auditor | Patch | The implementation and its own test place a partial-install import failure after the required build boundary. |
+| 3. Default factory wiring untested | Verification Gap Reviewer + Blind Hunter | Patch | A provider-call mutation survives every current test and breaks the first real model load. |
+| 4. Optional-extra path ungated | Verification Gap Reviewer + Blind Hunter | Patch | The current 4.0.7 lock works, but no normal gate protects the installation contract from regression. |
+| 5. Implicit telemetry policy | Blind Hunter | Decision needed | AD-12 permits egress, so disabling versus explicitly accepting/documenting telemetry is an owner policy choice rather than an unambiguous code patch. |
+
+Dismissed candidates included the four items already recorded in the spec frontmatter (process-environment token threading, the extra-installed `test_stt_adapter.py` failure, stale runbook guidance, and MPS placement); they were confirmed but deliberately not re-reported. The blocked 60-minute measurement is explicitly permitted by the frozen contract while `HF_TOKEN` is absent. Other dismissed candidates were unreachable provider shapes, behavior deliberately fixed by the contract (first-surviving-appearance canonicalization and regular diarization through unchanged `speaker_at` semantics), unsupported timeout requirements, and changes outside Stories 7.2–7.4's excluded scope. The suggestion to remove `DiarizerConfig` defaults was also dismissed because the frozen Story 7.1 task explicitly requires those defaults.
+
+## Verification
+
+- `uv run --isolated --project server pytest server/tests/test_diarize_pyannote.py server/tests/test_stt_adapter.py -q` — 52 passed, 1 named skip in a clean extra-free environment.
+- `uv run --project server pytest server/tests/test_diarize_pyannote.py -q` — 22 passed with locked `pyannote.audio` 4.0.7 installed; the provider signature check executed rather than skipping.
+- The same extra-installed environment imported `pyannote.audio` 4.0.7 and showed `Pipeline.from_pretrained(..., token=...)` in its live signature.
+- A real `pyannote.core.Annotation` converted successfully through `_to_turns` without loading a model.
+- The combined adapter command in the extra-installed environment produced the already-recorded deferred failure in `test_stt_adapter.py` (52 passed, 1 failed); it was not re-filed as a new finding per the review handoff.
+
+## Verdict
+
+**Changes requested — Story 7.1 does not pass review as it stands.** Four patch findings remain open, including three medium-severity runtime/verification gaps, and the telemetry behavior needs an explicit owner decision. The branch must not merge until the patch findings are remediated, the telemetry choice is recorded and implemented as applicable, and the resulting tree is re-reviewed.
