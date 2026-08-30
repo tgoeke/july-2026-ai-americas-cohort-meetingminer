@@ -16,16 +16,16 @@ ENVFILE := $(ROOT)/.env
 # Absent, every default below reproduces the main checkout's stack exactly.
 WT_ENVFILE := $(ROOT)/.env.worktree
 STACK_VARS := MM_STACK_NAME MM_POSTGRES_PORT MM_NEO4J_HTTP_PORT MM_NEO4J_BOLT_PORT MM_MEILI_PORT MM_NEO4J_TEST_HTTP_PORT MM_NEO4J_TEST_BOLT_PORT MM_MEILI_TEST_PORT MM_STACK_ID
-# Parse-time guard, BEFORE the include: `-include` would let any assignment
-# in the file override this Makefile's own variables (ROOT, INFRA, COMPOSE,
-# ...). A file carrying any key outside the stack set is refused by name
-# before a single target runs — one sed per make invocation.
+# Parse-time guard, BEFORE the include: `-include` would execute Make
+# directives and expand assignment values before any target (including
+# check-env) could validate them. The stdlib ownership-record parser accepts
+# only the complete generated data grammar — no ignored line, directive,
+# duplicate or foreign key — and is silent only for a valid record.
 STACK_FILE_KEYS := $(STACK_VARS) MM_TEST_NEO4J_URI MM_TEST_MEILI_URL
 ifneq ($(wildcard $(WT_ENVFILE)),)
-WT_ENVFILE_KEYS := $(shell sed -nE 's/^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=.*/\2/p' '$(WT_ENVFILE)')
-WT_ENVFILE_FOREIGN := $(filter-out $(STACK_FILE_KEYS),$(WT_ENVFILE_KEYS))
-ifneq ($(WT_ENVFILE_FOREIGN),)
-$(error $(WT_ENVFILE) assigns $(WT_ENVFILE_FOREIGN) — .env.worktree carries stack keys only ($(STACK_FILE_KEYS)); delete the file and run 'make worktree-provision' in that worktree)
+WT_ENVFILE_VALIDATION_ERROR := $(shell python3 '$(INFRA)/worktree_stack.py' check --worktree '$(dir $(WT_ENVFILE))' 2>&1)
+ifneq ($(strip $(WT_ENVFILE_VALIDATION_ERROR)),)
+$(error $(WT_ENVFILE_VALIDATION_ERROR))
 endif
 endif
 DEFAULT_MM_STACK_NAME := meetingminer

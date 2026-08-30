@@ -141,6 +141,9 @@ _SLUG_RE = re.compile(rf"^{SLUG_PATTERN}$")
 #: A worktree stack's project name, exactly: the prefix plus a valid slug.
 #: `meetingminer-Foo` or `meetingminer-` is a foreign project, not ours.
 _PROJECT_RE = re.compile(rf"^{re.escape(PROJECT_PREFIX)}{SLUG_PATTERN}$")
+_ASSIGNMENT_RE = re.compile(
+    r"^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*=(.*)$"
+)
 
 #: Bases 20000, 20010, ... 23990: a stack's seven ports are base+1..base+7,
 #: so the range stays inside 20000-23999.
@@ -242,9 +245,41 @@ def parse_env_lines(text: str) -> dict[str, str]:
     return values
 
 
+def parse_ownership_record(text: str, env_file: Path) -> dict[str, str]:
+    """Strict ``.env.worktree`` syntax: data assignments, never Make code.
+
+    Generated comments and blank lines are allowed. Every other line must be
+    one ``KEY=value`` assignment (an ``export`` prefix and matching quotes are
+    accepted for reader parity), and a key may appear exactly once. No line is
+    ignored and no duplicate silently replaces an earlier ownership fact.
+    """
+    values: dict[str, str] = {}
+    for line_number, raw in enumerate(text.splitlines(), start=1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = _ASSIGNMENT_RE.fullmatch(raw)
+        if match is None:
+            raise StackError(
+                f"{env_file}: invalid line {line_number}: {raw!r} — the file"
+                " carries data assignments only, never Make directives"
+            )
+        key = match.group(1)
+        if key in values:
+            raise StackError(
+                f"{env_file}: duplicate {key} on line {line_number} — each"
+                " ownership key must be assigned exactly once"
+            )
+        value = match.group(2).strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        values[key] = value
+    return values
+
+
 def read_env_file(env_file: Path) -> dict[str, str]:
     try:
-        return parse_env_lines(env_file.read_text(encoding="utf-8"))
+        return parse_ownership_record(env_file.read_text(encoding="utf-8"), env_file)
     except OSError as exc:
         raise StackError(f"{env_file} is unreadable: {exc}") from exc
 
@@ -273,7 +308,10 @@ def validate_env_file(env_file: Path, slug: str) -> dict[str, str]:
     import from ``infra/``; ``test_config.py`` pins the two equal.
     """
     validate_slug(slug)
-    values = read_env_file(env_file)
+    try:
+        values = read_env_file(env_file)
+    except StackError as exc:
+        raise StackError(f"{exc} — {_remedy(env_file, slug)}") from exc
 
     def refuse(problem: str) -> StackError:
         return StackError(f"{env_file}: {problem} — {_remedy(env_file, slug)}")

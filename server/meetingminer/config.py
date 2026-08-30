@@ -98,6 +98,9 @@ WORKTREE_ENV_KEYS = frozenset(WORKTREE_ENV_KEY_ORDER)
 _MAIN_STACK_PORTS = frozenset({5433, 7474, 7687, 7700, 7475, 7688, 7701})
 _STACK_NAME_RE = re.compile(r"^meetingminer-[a-z0-9][a-z0-9_-]*$")
 _STACK_ID_RE = re.compile(r"^[0-9a-f]{12}$")
+_WORKTREE_ASSIGNMENT_RE = re.compile(
+    r"^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*=.*$"
+)
 
 # Test/ops overrides for the default file locations (used by the fail-fast
 # tests to point a subprocess at a missing/broken config without touching
@@ -924,6 +927,28 @@ def validated_worktree_env(env_path: Path) -> dict[str, str]:
     worktree_env = env_path.parent / WORKTREE_ENV_FILENAME
     if not worktree_env.is_file():
         return {}
+    try:
+        lines = worktree_env.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ConfigError(f"env file unreadable: {worktree_env}: {exc}") from exc
+    seen: set[str] = set()
+    for line_number, raw in enumerate(lines, start=1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = _WORKTREE_ASSIGNMENT_RE.fullmatch(raw)
+        if match is None:
+            raise ConfigError(
+                f"{worktree_env}: invalid line {line_number}: {raw!r} — the"
+                " file carries data assignments only, never Make directives"
+            )
+        key = match.group(1)
+        if key in seen:
+            raise ConfigError(
+                f"{worktree_env}: duplicate {key} on line {line_number} —"
+                " each ownership key must be assigned exactly once"
+            )
+        seen.add(key)
     values = _read_env_file(worktree_env)
     _validate_worktree_env(worktree_env, values)
     return values
