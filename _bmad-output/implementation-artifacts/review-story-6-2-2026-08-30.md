@@ -77,3 +77,11 @@ Review of the Story 6.2 YouTube Acquisition Command implementation, limited to t
 - **Finding:** When the probe selects manual or automatic English captions but yt-dlp exits zero without writing a VTT, `download()` returns `transcript=None` and `acquire()` mints a recording-only drop. Recording-only is allowed only when no English track exists; this path silently loses evidence the source said was present.
 - **Evidence:** The candidate lookup explicitly maps an empty list to `None` even when `captions is not None`. The offline acquisition test replaces `download()` and manufactures a VTT, while the normally skipped network test asserts only a non-empty MP4, so this behavior is both reachable and unverified.
 - **Suggested direction:** Fail by name when a selected caption does not materialize (or implement an explicitly specified manual-to-auto retry), and add deterministic `download()` tests for both caption modes and missing output.
+
+### F9 — The real CLI mutates the drops root before rejecting an invalid URL
+
+- **Location:** `server/meetingminer/youtube.py:506-530`, `server/meetingminer/mintdrop.py:369-423`
+- **Severity:** medium
+- **Finding:** `main()` resolves the drops root before `acquire()` classifies the URL. The reused resolver write-probes the root by creating and removing `.staging`, so the user-facing command does perform filesystem writes before the promised offline non-YouTube refusal.
+- **Evidence:** URL parsing first occurs at `acquire()` line 423, after `main()` calls `resolve_drops_root()` at line 519. That resolver calls `staging_root.mkdir(...)` and conditionally `rmdir()`. Tests assert an untouched root only when calling `acquire()` directly, bypassing this CLI ordering.
+- **Suggested direction:** Classify the URL before any write-probing resolver runs, then retain the existing API/root validation ordering for valid YouTube inputs. Add a `main()` regression test that observes no root mutation for an invalid URL.
