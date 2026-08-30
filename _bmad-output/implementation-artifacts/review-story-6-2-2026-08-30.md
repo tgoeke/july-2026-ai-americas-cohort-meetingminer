@@ -117,3 +117,26 @@ Review of the Story 6.2 YouTube Acquisition Command implementation, limited to t
 - **Finding:** `YoutubeAcquisitionConfig`, `AcquisitionConfig`, and `Settings.acquisition` all supply code defaults, so a config file with no acquisition block silently acquires under a 180-minute cap. AD-10 says every threshold is declared by the versioned `config.yaml` and cannot scatter into code defaults; the repository invariant also rejects silent fallbacks. This is rooted in the frozen spec, which explicitly requested the defaults, rather than an implementation deviation.
 - **Evidence:** `AcquisitionConfig()` succeeds with `max_duration_minutes == 180`, and the story test treats that fallback as required. The committed YAML does carry 180, but deleting or omitting the block does not fail configuration loading, so the YAML is not authoritative for this threshold.
 - **Suggested direction:** Resolve this as a spec amendment before patching code: make the committed acquisition block required (updating fixture configs explicitly) or amend AD-10 to define schema defaults as authoritative configuration. Do not silently choose one interpretation in remediation.
+
+## Triage and verdict
+
+**Verdict: Story 6.2 does not pass review as it stands.** Five high-severity and eight medium-severity findings remain unresolved. The story must not merge to `main` until the patch findings are remediated, F13 is resolved through a spec/architecture decision, and the affected verification is rerun.
+
+- **Decision needed / spec amendment:** F13.
+- **Patch in the Story 6.2 remediation lane:** F1-F12.
+- **Deferred:** none added by this review. The network test's missing `slow` mark was already recorded and explicitly excluded from this review's actionable scope.
+- **Dismissed as noise or already handled:** 7 deduplicated candidates. These covered the spec-mandated fallback selector itself, pre-validating exact format availability that yt-dlp already refuses by name, generic probe wording that preserves yt-dlp's actual detail, unreachable conflicting mint arguments, malformed existing provenance already rejected by `read_metadata()`, the already-recorded slow-mark gap, and network assertions subsumed by F11.
+
+All configured layers completed: Blind Hunter, Edge Case Hunter, Verification Gap Reviewer, and Acceptance Auditor.
+
+## Verification evidence
+
+- `uv run --project server pytest server/tests/test_youtube.py -q` at subject HEAD `9b51bc7`: **43 passed, 1 skipped**.
+- Targeted reproduction: schema validation accepted metadata after `provenance_extra` replaced `files`, `startedAtSource`, and `mintedAt` (F1).
+- Targeted reproduction: missing duration passed `refuse_unacceptable()` and incomplete provenance was accepted (F2/F5).
+- Targeted reproduction: a 60-second probe followed by downloaded `duration=999999` and a different metadata ID reached `mint()` under the requested source ID (F3/F4).
+- Targeted reproduction: `ffmpeg` present plus `ffprobe` absent allowed `download()` to run before the late `MintError` (F6).
+- Targeted reproduction: a `NaN` release timestamp with a valid upload date raised raw `ValueError` (F7).
+- `make -n` demonstrated that a quote/semicolon in `URL` breaks out into shell commands in both target recipe lines (F10); no injected command was executed.
+
+No implementation files were changed during this review.
