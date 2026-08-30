@@ -6,14 +6,17 @@ build run's context; everything it needs is here.
 ## 1. Required output — read this before touching any code
 
 **Report path:** `_bmad-output/implementation-artifacts/review-story-11-4-2026-08-30.md`,
-under the main checkout `/Users/devopsterus/current/cohort/meetingminer`.
+under the dedicated review worktree
+`/Users/devopsterus/current/cohort/meetingminer-wt/11-4-review`.
 
 **Finding structure** — one block per finding: **Location** (`path:line` in
 the worktree named below) / **Severity** (high, medium, low — by consequence
 for a builder running the loop) / **Finding** / **Evidence** (command and
 real output, or the lines) / **Suggested direction**.
 
-**Report findings; do not fix.** Do not edit any file outside the report.
+**Review, then patch.** Record findings first. Apply every triaged patch finding
+on the review branch with red/green regression evidence; leave integration or
+owner-decision findings open and explicit.
 
 **REPORT-FIRST.** Before reading any code, create the report file as a
 skeleton — title, scope, the range, an empty `## Findings` section — and
@@ -22,14 +25,15 @@ prose, never the artifact.
 
 **Closeout.** `_bmad-output/` is tracked since 2026-08-30 (owner decision):
 commit and push the report like any file. Run `make check-reviews` from the
-main checkout before reporting completion.
+review worktree before reporting completion.
 
 ## 2. Repository, branch, range
 
 - Repo: `/Users/devopsterus/current/cohort/meetingminer` (main checkout —
-  other agents work in it; do not edit it). Review in the worktree
-  `/Users/devopsterus/current/cohort/meetingminer-wt/11-4` (branch
-  `story/11-4`, bootstrapped), or make your own detached one.
+  other agents work in it; use it only to run
+  `make worktree STORY=11-4-review BASE=story/11-4`, then do not edit it).
+  Review in `/Users/devopsterus/current/cohort/meetingminer-wt/11-4-review`
+  on branch `story/11-4-review`, based on `story/11-4`.
 - Range: `origin/main..origin/story/11-4`, rebased onto main `211857c`.
   Enumerate it yourself with `git log --oneline origin/main..origin/story/11-4`
   rather than trusting a pasted list: the head commit carries this prompt,

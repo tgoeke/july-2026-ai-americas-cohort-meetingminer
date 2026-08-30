@@ -30,6 +30,12 @@ from repo_paths import REPO_ROOT
 
 MAKEFILE_DIR = REPO_ROOT / "infra"
 PYPROJECT_PATH = REPO_ROOT / "server" / "pyproject.toml"
+REVIEW_PROMPT_PATH = (
+    REPO_ROOT
+    / "_bmad-output"
+    / "implementation-artifacts"
+    / "review-prompt-story-11-4-2026-08-30.md"
+)
 SERVER_DIR = REPO_ROOT / "server"
 SPRINT_NOTES_PATH = REPO_ROOT / "_bmad-output" / "implementation-artifacts" / "sprint-notes.md"
 
@@ -129,6 +135,16 @@ def test_baseline_prose_distinguishes_pairs_from_per_file_entries() -> None:
             f"{path.relative_to(REPO_ROOT)} must describe the dated baseline as "
             f"{BASELINE_SUMMARY!r}"
         )
+
+
+def test_review_handoff_uses_a_dedicated_review_worktree() -> None:
+    """The report and closeout belong on the review branch, never main."""
+    prompt = REVIEW_PROMPT_PATH.read_text()
+    assert "make worktree STORY=11-4-review BASE=story/11-4" in prompt
+    assert "/meetingminer-wt/11-4-review" in prompt
+    assert "branch `story/11-4-review`" in prompt
+    assert "under the main checkout" not in prompt
+    assert "from the main checkout" not in prompt
 
 
 def _dry_run(target: str) -> str:
