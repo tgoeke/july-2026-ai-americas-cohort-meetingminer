@@ -2,7 +2,7 @@
 title: 'Story 6.2 Review Remediation'
 type: 'bugfix'
 created: '2026-08-30'
-status: 'in-progress'
+status: 'done'
 review_loop_iteration: 0
 baseline_commit: '2108c2a9385528756eb78b328585c5c2611230b1'
 context:
@@ -80,11 +80,46 @@ context:
 - `python3 _bmad/scripts/branch_conflicts.py --against story/6-2-review` -- wave conflicts reported for integration awareness.
 
 **Results (2026-08-30):**
-- `uv run --project server pytest server/tests/test_youtube.py -q` -- 78 passed,
+- `uv run --project server pytest server/tests/test_youtube.py -q` -- 96 passed,
   1 skipped by the named `MM_YOUTUBE_NETWORK_TEST` gate.
-- `make test-fast` -- puller 128, web 291, evals 549, server 1479 passed;
+- `make test-fast` -- puller 128, web 291, evals 549, server 1497 passed;
   1 named YouTube network skip and 326 slow tests deselected.
 - `make check-reviews` -- every dispatched review has a committed report.
 - `python3 _bmad/scripts/branch_conflicts.py --against story/6-2-review` -- 18
   clean pairs and 7 artifact conflicts reported; this branch is clean against
   `main`, `story/6-2`, and all implementation files in the reported wave.
+
+## Suggested Review Order
+
+**Acquisition boundary**
+
+- Start at orchestration: local identity, dual metadata gates, then one mint path.
+  [`youtube.py:596`](../../server/meetingminer/youtube.py#L596)
+
+- Validate legacy `exists` drops locally before allowing an idempotent re-POST.
+  [`youtube.py:506`](../../server/meetingminer/youtube.py#L506)
+
+- Centralize fail-closed identity, duration, stream, publisher, and format checks.
+  [`youtube.py:335`](../../server/meetingminer/youtube.py#L335)
+
+- Bind caption output to the exact selected English language track.
+  [`youtube.py:409`](../../server/meetingminer/youtube.py#L409)
+
+**Provenance integrity**
+
+- Reject non-mappings and mint-owned collisions before classification or locking.
+  [`mintdrop.py:174`](../../server/meetingminer/mintdrop.py#L174)
+
+- Preserve write-once assembly while accepting only validated producer facts.
+  [`mintdrop.py:653`](../../server/meetingminer/mintdrop.py#L653)
+
+**Command boundary and evidence**
+
+- Transport hostile Make values as data without exporting raw command-line input.
+  [`Makefile:554`](../../infra/Makefile#L554)
+
+- Read regressions for legacy drops, caption drift, provenance, CLI, and Make injection.
+  [`test_youtube.py:581`](../../server/tests/test_youtube.py#L581)
+
+- Confirm operator documentation accurately distinguishes temporary and permanent writes.
+  [`README.md:182`](../../docs/README.md#L182)

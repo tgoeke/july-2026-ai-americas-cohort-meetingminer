@@ -268,3 +268,19 @@ The requested out-of-scope ideas were not implemented: no ffprobe/yt-dlp
 duration comparison, no physical proof of `format_id`, no equality requirement
 for otherwise-valid probe/download duration, publisher, or wall clock, and no
 network-test slow-mark change. **F13 remains open and untouched.**
+
+## Final triage and verdict
+
+- **Resolved and verified:** F1-F12, including the post-build boundary
+  corrections above.
+- **Open — owner decision required:** F13. The reviewer did not choose between
+  changing the frozen defaulting intent and amending AD-10.
+- **Deferred by the supplied scope:** the network test's `slow` mark and
+  `SLOW_TESTS` pin.
+
+**Final verdict: the review lane's patch findings pass. Story 6.2 remains
+conditionally held on F13 and therefore does not receive an unconditional
+architecture-clean verdict.** The final foreground verification produced 96
+passed and one named skip in the story module; `make test-fast` produced 128
+puller, 291 web, 549 eval, and 1,497 server passes, with the same named network
+skip and 326 slow tests deselected.
