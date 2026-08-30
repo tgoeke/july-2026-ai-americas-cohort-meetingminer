@@ -155,9 +155,14 @@ and the whole run at 9m17s.
 current split; `uv run --project server pytest -m "" server/tests --durations=25`
 re-measures it.
 
-- **`make test-fast` is the loop.** The three store-free suites, then the fast
-  set with every skip printed with its reason (`-rs`). Nothing needs to be up.
-- **`make test` is the gate.** It passes `-m ""` and runs everything.
+- **`make test-fast` is the loop.** `check-client`, the three store-free
+  suites, then the fast set with every skip printed with its reason (`-rs`).
+  The fast set needs Postgres only: with Postgres down, its Postgres-backed
+  tests skip with named reasons; the twin-bound tests are `slow` (or a
+  collection error if unmarked) and deselected here, so a twins-only outage
+  produces no skips at all.
+- **`make test` is the gate.** It passes `-m ""`, runs everything, and
+  requires the twins — `check-test-stores` fails first when they are down.
 - **A `slow` module run by path needs `-m ""`.**
   `pytest server/tests/test_projections_graph.py` deselects every test in the
   file and exits 5 with a one-line hint; run

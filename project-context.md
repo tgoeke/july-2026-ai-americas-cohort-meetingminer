@@ -72,7 +72,10 @@ companions its frontmatter lists, plus the per-story frozen contracts in
 - `make test-fast` is the iteration loop: the three store-free suites, then
   the server suite's fast set (`-m "not slow"`;
   `uv run --project server pytest server/tests --co -q | tail -1` shows the
-  split) with skips printed with their reasons; nothing needs to be up.
+  split) with skips printed with their reasons. The fast set needs Postgres
+  only: Postgres-backed tests skip with named reasons when it is down, and
+  twin-bound tests are `slow` and deselected here, so a twins-only outage
+  produces no skips; `make test` is the gate that requires the twins.
   `server/tests/fast_budget.py` (loaded from conftest's `pytest_plugins`)
   fails a passing unmarked test whose call phase exceeds
   `mm_fast_test_budget_seconds` (2.0s in `server/pyproject.toml`;
