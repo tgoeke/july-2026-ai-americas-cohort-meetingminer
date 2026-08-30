@@ -35,6 +35,13 @@ companions its frontmatter lists, plus the per-story frozen contracts in
   the worker. The earlier warning here described a `claude-sonnet-5` extraction
   binding and an ~850-call paused backlog; neither exists now, and the backlog
   is empty. Check `/status` for the live binding before assuming either way.
+- Each `llm.roles.<role>` block declares a `catalog` of the bindings that role
+  may be served by and a `default` among them (story 8.1, AD-10). The loader
+  refuses a `default` outside its own catalog, and refuses a catalog entry
+  naming a provider `providers:` does not declare; an entry that omits
+  `provider` derives it from the `<provider>/` tag prefix. The catalog is
+  declaration only — every call path still reads the role's `model` until a
+  persisted selection lands (story 8.2).
 - Work on `story/<slug>`, and rebase onto `main` before merging.
 - Stay inside the file boundary your story's frozen contract names. If you need a
   file another in-flight story owns, say so rather than editing it.
