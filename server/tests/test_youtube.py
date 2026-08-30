@@ -774,6 +774,38 @@ def test_digest_named_drop_with_wrong_source_id_refuses_without_yt_dlp(
         youtube.acquire(WATCH_URL, **acquire_kwargs(drops_root))
 
 
+def test_existing_drop_over_the_configured_cap_refuses_without_yt_dlp(
+    drops_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    drop, metadata = write_existing_youtube_drop(drops_root)
+    metadata["provenance"]["durationSeconds"] = 61 * 60
+    (drop / "metadata.json").write_text(
+        json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(youtube, "ensure_tools", _must_not_run("ensure_tools"))
+    monkeypatch.setattr(youtube, "probe", _must_not_run("probe"))
+    monkeypatch.setattr(youtube, "download", _must_not_run("download"))
+
+    with pytest.raises(youtube.YoutubeError, match=r"durationSeconds exceeds.*60-minute"):
+        youtube.acquire(WATCH_URL, **acquire_kwargs(drops_root, cap_minutes=60))
+
+
+def test_existing_drop_with_inconsistent_started_at_source_refuses_without_yt_dlp(
+    drops_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    drop, metadata = write_existing_youtube_drop(drops_root)
+    metadata["provenance"]["startedAtSource"] = "upload_date"
+    (drop / "metadata.json").write_text(
+        json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(youtube, "ensure_tools", _must_not_run("ensure_tools"))
+    monkeypatch.setattr(youtube, "probe", _must_not_run("probe"))
+    monkeypatch.setattr(youtube, "download", _must_not_run("download"))
+
+    with pytest.raises(youtube.YoutubeError, match="startedAtSource does not match"):
+        youtube.acquire(WATCH_URL, **acquire_kwargs(drops_root))
+
+
 # --- acquisition end to end, offline ----------------------------------------
 
 
