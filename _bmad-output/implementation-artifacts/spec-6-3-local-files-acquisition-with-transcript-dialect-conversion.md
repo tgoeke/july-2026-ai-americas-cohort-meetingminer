@@ -2,10 +2,10 @@
 title: 'Story 6.3: Local-Files Acquisition with Transcript Dialect Conversion'
 type: 'feature'
 created: '2026-08-30'
-status: 'review'
+status: 'in-progress'
 baseline_revision: 'd72c658'
-review_loop_iteration: 0
-followup_review_recommended: false
+review_loop_iteration: 1
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/build-prompt-story-6-3-2026-08-30.md'
   - '{project-root}/_bmad-output/implementation-artifacts/wave-2026-08-30-rules.md'
