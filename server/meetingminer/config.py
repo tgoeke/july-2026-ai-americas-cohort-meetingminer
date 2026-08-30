@@ -60,6 +60,25 @@ POSTGRES_PORT_ENV = "MM_POSTGRES_PORT"
 NEO4J_BOLT_PORT_ENV = "MM_NEO4J_BOLT_PORT"
 MEILI_PORT_ENV = "MM_MEILI_PORT"
 
+#: The keys ``.env.worktree`` may carry — and the only ones: the stack name,
+#: the seven host ports compose publishes, and the two test-twin URLs. The
+#: name and the ports may not appear in ``.env`` at all (the Makefile never
+#: reads them from there, so a value there would bind the loader and compose
+#: differently). Mirrors ``infra/worktree_stack.py`` STACK_KEYS.
+STACK_NAME_KEY = "MM_STACK_NAME"
+STACK_PORT_KEYS = (
+    "MM_POSTGRES_PORT",
+    "MM_NEO4J_HTTP_PORT",
+    "MM_NEO4J_BOLT_PORT",
+    "MM_MEILI_PORT",
+    "MM_NEO4J_TEST_HTTP_PORT",
+    "MM_NEO4J_TEST_BOLT_PORT",
+    "MM_MEILI_TEST_PORT",
+)
+WORKTREE_ENV_KEYS = frozenset(
+    (STACK_NAME_KEY, *STACK_PORT_KEYS, "MM_TEST_NEO4J_URI", "MM_TEST_MEILI_URL")
+)
+
 # Test/ops overrides for the default file locations (used by the fail-fast
 # tests to point a subprocess at a missing/broken config without touching
 # the repo's real files). Explicit load_config() arguments still win.
@@ -811,18 +830,37 @@ def merged_env(env_path: Path) -> dict[str, str]:
     ``.env`` is the secrets file ``env_path`` names (in a git worktree, a
     symlink to the main checkout's). ``.env.worktree`` is looked up beside
     that *path*, not its target, so each worktree reads its own generated
-    file. The process environment wins over both — except that a blank
+    file; it may carry stack keys only (:data:`WORKTREE_ENV_KEYS`), and
+    ``.env`` may carry none of the stack name or port keys — either is a
+    named :class:`ConfigError`, so a secret can never be overridden from the
+    worktree file and a port can never be set where the Makefile does not
+    look. The process environment wins over both — except that a blank
     process-env value never masks a real file value (finding 15: a stray
     `export VAR=` in a shell profile must not blank out a secret). docker
-    compose is given the same two files in the same order, so the three
-    readers agree.
+    compose is given the same two files in the same order; the Makefile
+    reads the stack keys from ``.env.worktree`` alone.
     """
     merged: dict[str, str] = {}
     if env_path.is_file():
-        merged.update(_read_env_file(env_path))
+        base = _read_env_file(env_path)
+        misplaced = [key for key in (STACK_NAME_KEY, *STACK_PORT_KEYS) if key in base]
+        if misplaced:
+            raise ConfigError(
+                f"{env_path}: {', '.join(misplaced)} — stack keys belong in"
+                f" {WORKTREE_ENV_FILENAME} (written by 'make worktree'), never in .env"
+            )
+        merged.update(base)
     worktree_env = env_path.parent / WORKTREE_ENV_FILENAME
     if worktree_env.is_file():
-        merged.update(_read_env_file(worktree_env))
+        overrides = _read_env_file(worktree_env)
+        foreign = [key for key in overrides if key not in WORKTREE_ENV_KEYS]
+        if foreign:
+            raise ConfigError(
+                f"{worktree_env}: {', '.join(foreign)} is not a stack key —"
+                f" {WORKTREE_ENV_FILENAME} carries only"
+                f" {', '.join(sorted(WORKTREE_ENV_KEYS))}"
+            )
+        merged.update(overrides)
     for key, value in os.environ.items():
         if value.strip() or key not in merged:
             merged[key] = value
@@ -835,10 +873,9 @@ def _env_port(env: dict[str, str], name: str) -> int | None:
     raw = env.get(name, "").strip()
     if not raw:
         return None
-    try:
-        port = int(raw)
-    except ValueError:
-        port = 0
+    # ASCII digits only: int() would also accept "+5", "1_000" and other
+    # scripts' digits, none of which compose reads the same way.
+    port = int(raw) if raw.isascii() and raw.isdigit() else 0
     if not 1 <= port <= 65535:
         raise ConfigError(
             f"{name} must be an integer port in 1..65535, got {raw!r}"
@@ -847,21 +884,25 @@ def _env_port(env: dict[str, str], name: str) -> int | None:
 
 
 def _with_port(url: str, port: int, name: str) -> str:
-    """``url`` with its port replaced (or added) — host and scheme kept."""
+    """``url`` with its port replaced (or added) — scheme, userinfo and the
+    host text kept verbatim (case, IPv6 brackets)."""
     try:
         parts = urlsplit(url)
-        host = parts.hostname
+        hostname = parts.hostname
     except ValueError as exc:
         raise ConfigError(f"{name}: cannot apply to endpoint {url!r}: {exc}") from exc
-    if not parts.scheme or not host:
+    if not parts.scheme or not hostname:
         raise ConfigError(
             f"{name}: cannot apply to endpoint {url!r}: scheme and host are required"
         )
-    if ":" in host:  # a bare IPv6 literal must be re-bracketed
-        host = f"[{host}]"
-    userinfo, at, _hostport = parts.netloc.rpartition("@")
-    netloc = f"{userinfo}{at}{host}:{port}"
-    return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+    userinfo, at, hostport = parts.netloc.rpartition("@")
+    if hostport.startswith("["):
+        host_text = hostport[: hostport.index("]") + 1]
+    else:
+        host_text = hostport.split(":", 1)[0]
+    return urlunsplit(
+        (parts.scheme, f"{userinfo}{at}{host_text}:{port}", parts.path, parts.query, parts.fragment)
+    )
 
 
 def _apply_stack_overrides(settings: "Settings", env: dict[str, str]) -> None:

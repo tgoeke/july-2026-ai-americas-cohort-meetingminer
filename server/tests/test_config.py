@@ -810,73 +810,96 @@ PORT_OVERRIDES = ("MM_POSTGRES_PORT", "MM_NEO4J_BOLT_PORT", "MM_MEILI_PORT")
 
 @pytest.fixture()
 def no_port_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in PORT_OVERRIDES:
+    for name in (*PORT_OVERRIDES, "MM_TEST_MEILI_URL", "MM_TEST_NEO4J_URI", "MM_STACK_NAME"):
         monkeypatch.delenv(name, raising=False)
 
 
 def test_worktree_env_file_overrides_env_file(
-    valid_config: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    valid_config: Path, tmp_path: Path, no_port_overrides: None
 ) -> None:
-    monkeypatch.delenv("POSTGRES_PASSWORD", raising=False)
+    """A twin URL may sit in both files; the worktree's wins."""
+    from meetingminer.config import merged_env
+
     envfile = _stack_files(
-        tmp_path, "POSTGRES_PASSWORD=from-env\n", "POSTGRES_PASSWORD=from-worktree\n"
+        tmp_path,
+        "MM_TEST_MEILI_URL=http://localhost:1\n",
+        "MM_TEST_MEILI_URL=http://localhost:2\n",
     )
-    assert load_config(valid_config, envfile).secrets.postgres_password == "from-worktree"
+    assert merged_env(envfile)["MM_TEST_MEILI_URL"] == "http://localhost:2"
 
 
 def test_process_env_overrides_worktree_env_file(
-    valid_config: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    valid_config: Path, tmp_path: Path, no_port_overrides: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("POSTGRES_PASSWORD", "from-process")
-    envfile = _stack_files(
-        tmp_path, "POSTGRES_PASSWORD=from-env\n", "POSTGRES_PASSWORD=from-worktree\n"
-    )
-    assert load_config(valid_config, envfile).secrets.postgres_password == "from-process"
+    monkeypatch.setenv("MM_MEILI_PORT", "20014")
+    envfile = _stack_files(tmp_path, "", "MM_MEILI_PORT=20004\n")
+    assert load_config(valid_config, envfile).settings.stores.meilisearch.url == "http://localhost:20014"
 
 
 def test_blank_process_env_does_not_mask_worktree_env_file(
-    valid_config: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    valid_config: Path, tmp_path: Path, no_port_overrides: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("POSTGRES_PASSWORD", "")
-    envfile = _stack_files(
-        tmp_path, "POSTGRES_PASSWORD=from-env\n", "POSTGRES_PASSWORD=from-worktree\n"
-    )
-    assert load_config(valid_config, envfile).secrets.postgres_password == "from-worktree"
+    monkeypatch.setenv("MM_MEILI_PORT", "")
+    envfile = _stack_files(tmp_path, "", "MM_MEILI_PORT=20004\n")
+    assert load_config(valid_config, envfile).settings.stores.meilisearch.url == "http://localhost:20004"
 
 
 def test_merged_env_precedence_is_env_then_worktree_then_process(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, no_port_overrides: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from meetingminer.config import merged_env
 
-    monkeypatch.setenv("MM_PROBE_C", "process")
-    monkeypatch.setenv("MM_PROBE_D", "")
+    monkeypatch.setenv("MM_MEILI_PORT", "30004")
+    monkeypatch.setenv("MM_POSTGRES_PORT", "")
     envfile = _stack_files(
         tmp_path,
-        "MM_PROBE_A=env\nMM_PROBE_B=env\nMM_PROBE_C=env\nMM_PROBE_D=env\n",
-        "MM_PROBE_B=worktree\nMM_PROBE_C=worktree\n",
+        "MM_TEST_NEO4J_URI=bolt://localhost:1\nMM_TEST_MEILI_URL=http://localhost:1\n",
+        "MM_TEST_MEILI_URL=http://localhost:2\nMM_MEILI_PORT=20004\nMM_POSTGRES_PORT=20001\n",
     )
     env = merged_env(envfile)
-    assert [env[f"MM_PROBE_{k}"] for k in "ABCD"] == ["env", "worktree", "process", "env"]
+    assert env["MM_TEST_NEO4J_URI"] == "bolt://localhost:1"  # .env alone
+    assert env["MM_TEST_MEILI_URL"] == "http://localhost:2"  # worktree over .env
+    assert env["MM_MEILI_PORT"] == "30004"  # process over worktree
+    assert env["MM_POSTGRES_PORT"] == "20001"  # blank process value does not mask
+
+
+def test_worktree_env_file_refuses_a_key_that_is_not_a_stack_key(
+    valid_config: Path, tmp_path: Path, no_port_overrides: None
+) -> None:
+    """A secret can never be overridden from the worktree file."""
+    envfile = _stack_files(tmp_path, "", "MM_MEILI_PORT=20004\nPOSTGRES_PASSWORD=sneaky\n")
+    with pytest.raises(ConfigError, match=r"\.env\.worktree: POSTGRES_PASSWORD is not a stack key"):
+        load_config(valid_config, envfile)
+
+
+@pytest.mark.parametrize("key", ["MM_STACK_NAME", "MM_POSTGRES_PORT", "MM_MEILI_TEST_PORT"])
+def test_env_file_refuses_stack_name_and_port_keys(
+    valid_config: Path, tmp_path: Path, no_port_overrides: None, key: str
+) -> None:
+    """The Makefile never reads them from .env, so the loader must not either."""
+    envfile = _stack_files(tmp_path, f"{key}=x\n", None)
+    with pytest.raises(ConfigError, match=rf"{key} — stack keys belong in \.env\.worktree"):
+        load_config(valid_config, envfile)
 
 
 def test_worktree_env_file_is_found_beside_the_env_path_not_its_target(
-    valid_config: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    valid_config: Path, tmp_path: Path, no_port_overrides: None
 ) -> None:
     """In a worktree `.env` is a symlink to the main checkout's file; the
     worktree file that counts is the one beside the LINK."""
-    monkeypatch.delenv("POSTGRES_PASSWORD", raising=False)
     main = tmp_path / "main"
     main.mkdir()
     (main / ".env").write_text("POSTGRES_PASSWORD=from-main\n", encoding="utf-8")
-    (main / ".env.worktree").write_text("POSTGRES_PASSWORD=from-main-worktree\n", encoding="utf-8")
+    (main / ".env.worktree").write_text("MM_MEILI_PORT=20014\n", encoding="utf-8")  # must NOT be read
     worktree = tmp_path / "wt"
     worktree.mkdir()
     (worktree / ".env").symlink_to(main / ".env")
-    (worktree / ".env.worktree").write_text("POSTGRES_PASSWORD=from-wt\n", encoding="utf-8")
-    assert load_config(valid_config, worktree / ".env").secrets.postgres_password == "from-wt"
+    (worktree / ".env.worktree").write_text("MM_MEILI_PORT=20004\n", encoding="utf-8")
+    config = load_config(valid_config, worktree / ".env")
+    assert config.settings.stores.meilisearch.url == "http://localhost:20004"
+    assert config.secrets.postgres_password == "from-main"
     (worktree / ".env.worktree").unlink()
-    assert load_config(valid_config, worktree / ".env").secrets.postgres_password == "from-main"
+    assert load_config(valid_config, worktree / ".env").settings.stores.meilisearch.url == "http://localhost:7700"
 
 
 def test_port_overrides_repoint_the_three_stores(
@@ -903,16 +926,8 @@ def test_port_overrides_are_inactive_when_unset(
     )
 
 
-def test_port_override_from_the_process_env_wins_over_the_worktree_file(
-    valid_config: Path, tmp_path: Path, no_port_overrides: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("MM_MEILI_PORT", "20014")
-    envfile = _stack_files(tmp_path, "", "MM_MEILI_PORT=20004\n")
-    assert load_config(valid_config, envfile).settings.stores.meilisearch.url == "http://localhost:20014"
-
-
 @pytest.mark.parametrize("name", PORT_OVERRIDES)
-@pytest.mark.parametrize("value", ["abc", "70000", "0", "-1", "1.5", "65536"])
+@pytest.mark.parametrize("value", ["abc", "70000", "0", "-1", "1.5", "65536", "+5", "1_000", "\u0663"])
 def test_invalid_port_override_is_a_named_config_error(
     valid_config: Path, tmp_path: Path, no_port_overrides: None, name: str, value: str
 ) -> None:
@@ -921,22 +936,33 @@ def test_invalid_port_override_is_a_named_config_error(
         load_config(valid_config, envfile)
 
 
+def _config_with(tmp_path: Path, old: str, new: str) -> Path:
+    assert old in VALID_CONFIG
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(VALID_CONFIG.replace(old, new), encoding="utf-8")
+    return config_path
+
+
 def test_port_override_adds_a_port_to_a_uri_without_one(
     tmp_path: Path, no_port_overrides: None
 ) -> None:
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        VALID_CONFIG.replace("uri: bolt://localhost:7687", "uri: bolt://host"), encoding="utf-8"
-    )
+    config_path = _config_with(tmp_path, "uri: bolt://localhost:7687", "uri: bolt://host")
     envfile = _stack_files(tmp_path, "", "MM_NEO4J_BOLT_PORT=1\n")
     assert load_config(config_path, envfile).settings.stores.neo4j.uri == "bolt://host:1"
 
 
 def test_port_override_keeps_userinfo_and_path(tmp_path: Path, no_port_overrides: None) -> None:
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        VALID_CONFIG.replace("url: http://localhost:7700", "url: http://u:p@127.0.0.1:7700/base"),
-        encoding="utf-8",
+    config_path = _config_with(
+        tmp_path, "url: http://localhost:7700", "url: http://u:p@127.0.0.1:7700/base"
     )
     envfile = _stack_files(tmp_path, "", "MM_MEILI_PORT=20004\n")
     assert load_config(config_path, envfile).settings.stores.meilisearch.url == "http://u:p@127.0.0.1:20004/base"
+
+
+def test_port_override_keeps_the_host_text_verbatim(tmp_path: Path, no_port_overrides: None) -> None:
+    """Mixed case is kept (not lowercased through .hostname); IPv6 keeps its brackets."""
+    config_path = _config_with(tmp_path, "uri: bolt://localhost:7687", "uri: bolt://Neo4jHost:7687")
+    envfile = _stack_files(tmp_path, "", "MM_NEO4J_BOLT_PORT=20003\n")
+    assert load_config(config_path, envfile).settings.stores.neo4j.uri == "bolt://Neo4jHost:20003"
+    config_path = _config_with(tmp_path, "uri: bolt://localhost:7687", 'uri: "bolt://[::1]:7687"')
+    assert load_config(config_path, envfile).settings.stores.neo4j.uri == "bolt://[::1]:20003"

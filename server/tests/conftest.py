@@ -29,7 +29,7 @@ import sys
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, Mapping
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -196,14 +196,52 @@ def valid_metadata(source_id: str = "source-1", **overrides: Any) -> dict[str, A
     return metadata
 
 
-#: The disposable test-store twins (infra/docker-compose.yml `neo4j-test` /
-#: `meilisearch-test`), read through the loader's merged environment: a
-#: worktree's generated `.env.worktree` (story 11.2) names its private
+#: The main checkout's test-store twins (infra/docker-compose.yml
+#: `neo4j-test` / `meilisearch-test`); a worktree's `.env.worktree` names its
+#: own (story 11.2).
+DEFAULT_TEST_NEO4J_URI = "bolt://localhost:7688"
+DEFAULT_TEST_MEILI_URL = "http://localhost:7701"
+
+
+def linked_worktree_without_stack(root: Path) -> str | None:
+    """The refusal for a linked git worktree that has no `.env.worktree`.
+
+    `<root>/.git` is a file in a linked worktree and a directory in the main
+    checkout. Without the file the loader resolves the main checkout's
+    ports, so a suite here would run — and wipe twins — on the main stack,
+    which is exactly what the per-worktree stack exists to prevent. None
+    when the checkout is fine.
+    """
+    if (root / ".git").is_file() and not (root / ".env.worktree").is_file():
+        return (
+            f"{root} is a linked git worktree with no .env.worktree — its"
+            " store-backed tests would run against the main checkout's Docker"
+            " stack. Run 'make worktree-provision' in that worktree to write"
+            " the file and start its own stack (story 11.2)."
+        )
+    return None
+
+
+def twin_endpoints(env: Mapping[str, str]) -> tuple[str, str]:
+    """(neo4j-test URI, meilisearch-test URL) from a merged environment:
+    `MM_TEST_NEO4J_URI` / `MM_TEST_MEILI_URL` when set and non-blank, else
+    the main checkout's twins."""
+    return (
+        env.get("MM_TEST_NEO4J_URI") or DEFAULT_TEST_NEO4J_URI,
+        env.get("MM_TEST_MEILI_URL") or DEFAULT_TEST_MEILI_URL,
+    )
+
+
+_STACK_REFUSAL = linked_worktree_without_stack(REPO_ROOT)
+if _STACK_REFUSAL is not None:
+    raise RuntimeError(_STACK_REFUSAL)
+
+#: The disposable twins this session wipes, read through the loader's merged
+#: environment: the worktree's generated `.env.worktree` names its private
 #: twins, the process environment still wins, and the defaults are the main
 #: checkout's compose ports.
 _STACK_ENV = merged_env(REPO_ROOT / ".env")
-TEST_NEO4J_URI = _STACK_ENV.get("MM_TEST_NEO4J_URI") or "bolt://localhost:7688"
-TEST_MEILI_URL = _STACK_ENV.get("MM_TEST_MEILI_URL") or "http://localhost:7701"
+TEST_NEO4J_URI, TEST_MEILI_URL = twin_endpoints(_STACK_ENV)
 REQUIRE_TEST_STORES_ENV = "MM_REQUIRE_TEST_STORES"
 
 _DEFAULT_ENDPOINT_PORTS = {
