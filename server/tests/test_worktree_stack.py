@@ -752,3 +752,103 @@ def test_worktree_stacks_carries_container_and_volume_ids(tmp_path: Path) -> Non
     stack = stacks["meetingminer-probe"]
     assert stack.ids == {"deadbeef0001"}
     assert stack.volume_ids == {"deadbeef0001", ""}
+
+
+# --- remediation 2026-08-30: claim — one safe start path (findings 4, 5) ----
+
+
+def _claim_worktree(tmp_path: Path) -> tuple[Path, Path, Path]:
+    root = tmp_path / "wt"
+    worktree = root / "probe"
+    worktree.mkdir(parents=True)
+    env_file = worktree / ".env.worktree"
+    env_file.write_text(good_stack_text("probe"), encoding="utf-8")
+    return root, worktree, env_file
+
+
+def test_claim_notes_an_absent_project(tmp_path: Path) -> None:
+    root, worktree, _env = _claim_worktree(tmp_path)
+    fake = _FakeDocker("", "")
+    lines: list[str] = []
+    ws.claim(worktree, root, run=fake, out=lines.append)
+    assert _downs(fake) == []
+    assert lines == ["no stale stack meetingminer-probe"]
+
+
+def test_claim_keeps_a_stack_carrying_this_files_id(tmp_path: Path) -> None:
+    root, worktree, _env = _claim_worktree(tmp_path)
+    ps = f"meetingminer-probe\t{worktree / 'infra'}\t{GOOD_STACK_ID}"
+    fake = _FakeDocker(ps, _our_volumes("meetingminer-probe", GOOD_STACK_ID))
+    lines: list[str] = []
+    ws.claim(worktree, root, run=fake, out=lines.append)
+    assert _downs(fake) == []
+    assert lines == ["kept stack meetingminer-probe (this worktree's)"]
+
+
+@pytest.mark.parametrize(
+    ("container_id", "volume_id"),
+    [
+        ("", ""),  # a pre-remediation, id-less incarnation
+        ("aaaaaaaaaaaa", "aaaaaaaaaaaa"),  # another incarnation's id
+        (GOOD_STACK_ID, ""),  # a mix: our containers over stale volumes
+    ],
+    ids=["id-less", "other-id", "mixed"],
+)
+def test_claim_tears_down_a_stale_incarnation(
+    tmp_path: Path, container_id: str, volume_id: str
+) -> None:
+    """Anything under this name that does not carry the file's MM_STACK_ID on
+    every container and volume is stale: torn down, never attached to."""
+    root, worktree, env_file = _claim_worktree(tmp_path)
+    ps = f"meetingminer-probe\t{worktree / 'infra'}\t{container_id}"
+    fake = _FakeDocker(ps, _our_volumes("meetingminer-probe", volume_id))
+    lines: list[str] = []
+    ws.claim(worktree, root, run=fake, out=lines.append)
+    assert _downs(fake) == ["meetingminer-probe"]
+    assert lines == [
+        f"removed stale stack meetingminer-probe (not started from {env_file})"
+    ]
+
+
+def test_claim_errors_when_another_existing_checkout_owns_the_name(tmp_path: Path) -> None:
+    root, worktree, _env = _claim_worktree(tmp_path)
+    other = root / "other"
+    (other / "infra").mkdir(parents=True)
+    ps = f"meetingminer-probe\t{other / 'infra'}\t{GOOD_STACK_ID}"
+    fake = _FakeDocker(ps, "")
+    with pytest.raises(ws.StackError, match=f"belongs to the existing checkout {other}"):
+        ws.claim(worktree, root, run=fake, out=lambda _l: None)
+    assert _downs(fake) == []
+
+
+def test_claim_errors_on_an_unknown_layout(tmp_path: Path) -> None:
+    root, worktree, _env = _claim_worktree(tmp_path)
+    volumes = (
+        _our_volumes("meetingminer-probe", GOOD_STACK_ID)
+        + f"\nmeetingminer-probe_foreign-data\tmeetingminer-probe\t{GOOD_STACK_ID}"
+    )
+    fake = _FakeDocker("", volumes)
+    with pytest.raises(ws.StackError, match="does not recognise"):
+        ws.claim(worktree, root, run=fake, out=lambda _l: None)
+    assert _downs(fake) == []
+
+
+def test_claim_validates_the_file_before_touching_docker(tmp_path: Path) -> None:
+    root = tmp_path / "wt"
+    worktree = root / "probe"
+    worktree.mkdir(parents=True)
+    (worktree / ".env.worktree").write_text(good_stack_text("other"), encoding="utf-8")
+    fake = _FakeDocker("", "")
+    with pytest.raises(ws.StackError, match="MM_STACK_NAME"):
+        ws.claim(worktree, root, run=fake, out=lambda _l: None)
+    assert fake.calls == []
+
+
+def test_cli_claim_reports_the_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    root, worktree, _env = _claim_worktree(tmp_path)
+    monkeypatch.setattr(ws, "run_docker", _FakeDocker("", ""))
+    rc = ws.main(
+        ["claim", "--worktree", str(worktree), "--worktree-root", str(root)]
+    )
+    assert rc == 0
+    assert "no stale stack meetingminer-probe" in capsys.readouterr().out

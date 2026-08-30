@@ -1315,11 +1315,40 @@ echo "$*" >> "__ARGV__"
 echo "env MM_STACK_NAME=$MM_STACK_NAME MM_POSTGRES_PORT=$MM_POSTGRES_PORT" >> "__ARGV__"
 if [ "$1" = "info" ]; then exit __INFO_EXIT__; fi
 case "$*" in
-  "ps -aq --filter "*) echo "deadbeefcafe" ;;
+  "ps -aq --filter "*) if [ "__PS_Q_EXIT__" != "0" ]; then exit __PS_Q_EXIT__; fi; echo "deadbeefcafe" ;;
   "ps -a --filter "*) printf '%b' "__PS_ROWS__" ;;
+  "volume ls -q --filter "*) : ;;
+  "volume ls --filter "*) printf '%b' "__VOLUME_ROWS__" ;;
+esac
+case "$*" in
+  compose*" down"*) exit __DOWN_EXIT__ ;;
+  *" up "*) exit __UP_EXIT__ ;;
 esac
 exit 0
 """
+
+
+def _write_worktree_docker(
+    docker_bin: Path,
+    argv_log: Path,
+    *,
+    info_exit: int = 0,
+    ps_rows: str = "",
+    volume_rows: str = "",
+    up_exit: int = 0,
+    down_exit: int = 0,
+    ps_q_exit: int = 0,
+) -> None:
+    _write_script(
+        docker_bin / "docker",
+        WORKTREE_DOCKER_BODY.replace("__ARGV__", str(argv_log))
+        .replace("__INFO_EXIT__", str(info_exit))
+        .replace("__PS_Q_EXIT__", str(ps_q_exit))
+        .replace("__UP_EXIT__", str(up_exit))
+        .replace("__DOWN_EXIT__", str(down_exit))
+        .replace("__PS_ROWS__", ps_rows.replace("\\", "\\\\"))
+        .replace("__VOLUME_ROWS__", volume_rows.replace("\\", "\\\\")),
+    )
 
 PRUNE_PS_PREFIX = "ps -a --filter label=com.docker.compose.project"
 
@@ -1335,7 +1364,15 @@ def _git(repo: Path, *args: str) -> str:
 
 
 def _throwaway_repo(
-    tmp_path: Path, *, docker_info_exit: int = 0, ps_rows: str = "", origin: bool = False
+    tmp_path: Path,
+    *,
+    docker_info_exit: int = 0,
+    ps_rows: str = "",
+    volume_rows: str = "",
+    up_exit: int = 0,
+    down_exit: int = 0,
+    ps_q_exit: int = 0,
+    origin: bool = False,
 ) -> tuple[Path, Path, Path]:
     """A committed `main` with the real infra files, a `.env`, and a decoy docker.
 
@@ -1364,11 +1401,15 @@ def _throwaway_repo(
         _git(repo, "push", "-q", "origin", "main")
     docker_bin = tmp_path / "path"
     argv_log = tmp_path / "docker-argv.txt"
-    _write_script(
-        docker_bin / "docker",
-        WORKTREE_DOCKER_BODY.replace("__ARGV__", str(argv_log))
-        .replace("__INFO_EXIT__", str(docker_info_exit))
-        .replace("__PS_ROWS__", ps_rows.replace("\\", "\\\\")),
+    _write_worktree_docker(
+        docker_bin,
+        argv_log,
+        info_exit=docker_info_exit,
+        ps_rows=ps_rows,
+        volume_rows=volume_rows,
+        up_exit=up_exit,
+        down_exit=down_exit,
+        ps_q_exit=ps_q_exit,
     )
     return repo, docker_bin, argv_log
 
@@ -1705,3 +1746,160 @@ def test_a_stack_file_assigning_a_makefile_variable_fails_at_parse_time(tmp_path
     assert proc.returncode != 0, output
     assert "ROOT" in output
     assert "MeetingMiner targets" not in proc.stdout  # nothing ran
+
+
+# --- remediation 2026-08-30: one start path, safe for old refs and retries --
+
+import shutil  # noqa: E402
+
+from test_worktree_stack import _our_volumes  # noqa: E402
+
+
+def _python3_decoy(bin_dir: Path, fail_flag: Path) -> None:
+    """A python3 on PATH that execs the real interpreter, except that a
+    `provision` call fails while `fail_flag` exists."""
+    real = shutil.which("python3")
+    assert real is not None and not real.startswith(str(bin_dir))
+    _write_script(
+        bin_dir / "python3",
+        f"""#!/bin/bash
+if [ -e "{fail_flag}" ]; then
+  case "$*" in
+    *" provision "*) echo "error: provision refused (decoy failure)" >&2; exit 1 ;;
+  esac
+fi
+exec "{real}" "$@"
+""",
+    )
+
+
+def _old_ref_branch(repo: Path) -> None:
+    """A branch whose infra/ predates story 11.2: no stack targets, and a
+    compose file that names the MAIN project."""
+    _git(repo, "checkout", "-q", "-b", "old")
+    (repo / "infra" / "Makefile").write_text("all:\n\t@echo old makefile\n", encoding="utf-8")
+    (repo / "infra" / "docker-compose.yml").write_text(
+        "name: meetingminer\nservices: {}\n", encoding="utf-8"
+    )
+    _git(repo, "commit", "-q", "-am", "pre-11.2 infra")
+    _git(repo, "checkout", "-q", "main")
+
+
+def test_old_ref_provision_failure_names_a_retry_that_runs_from_this_checkout(
+    tmp_path: Path,
+) -> None:
+    """The printed repair must be executable for a pre-11.2 worktree: the old
+    checkout has no worktree-provision target, so the retry is
+    `make worktree-start STORY=<slug>` from the invoking checkout — and
+    running it drives the invoker's compose file at the worktree's stack,
+    never the main project."""
+    repo, docker_bin, argv_log = _throwaway_repo(tmp_path)
+    _old_ref_branch(repo)
+    flag = tmp_path / "fail-provision"
+    flag.touch()
+    _python3_decoy(docker_bin, flag)
+    proc = _make_at(repo, docker_bin, ["worktree"], {"STORY": "probe", "BASE": "old"})
+    output = proc.stdout + proc.stderr
+    assert proc.returncode != 0, output
+    assert "make worktree-start STORY=probe" in output
+    assert "worktree-provision" not in output
+    worktree = tmp_path / "meetingminer-wt" / "probe"
+    assert worktree.is_dir()
+
+    flag.unlink()
+    retry = _make_at(repo, docker_bin, ["worktree-start"], {"STORY": "probe"})
+    retry_output = retry.stdout + retry.stderr
+    assert retry.returncode == 0, retry_output
+    lines = _argv_lines(argv_log)
+    expected_up = _compose_up_line(
+        worktree, repo / "infra" / "docker-compose.yml", worktree / "infra", "meetingminer-probe"
+    )
+    assert expected_up in lines, lines
+    assert not any(" -p meetingminer " in f" {line} " for line in lines), lines
+
+
+def test_old_ref_compose_failure_never_points_at_the_old_makefile(tmp_path: Path) -> None:
+    """`cd <wt> && make infra-up` in a pre-11.2 worktree would start the MAIN
+    stack; the failure message must keep the operator on this checkout."""
+    repo, docker_bin, _argv_log = _throwaway_repo(tmp_path, up_exit=1)
+    _old_ref_branch(repo)
+    proc = _make_at(repo, docker_bin, ["worktree"], {"STORY": "probe", "BASE": "old"})
+    output = proc.stdout + proc.stderr
+    assert proc.returncode != 0, output
+    worktree = tmp_path / "meetingminer-wt" / "probe"
+    assert f"cd {worktree} && make infra-up" not in output
+    assert "make worktree-start STORY=probe" in output
+    assert "predates story 11.2" in output
+
+
+def test_post_112_compose_failure_names_infra_up_and_the_retry_claims_first(
+    tmp_path: Path,
+) -> None:
+    """For a post-11.2 worktree the documented retry is its own
+    `make infra-up` — safe only because infra-up claims the project name
+    (docker ps inventory) before any `up`."""
+    repo, docker_bin, argv_log = _throwaway_repo(tmp_path, up_exit=1)
+    proc = _make_at(repo, docker_bin, ["worktree"], {"STORY": "probe"})
+    output = proc.stdout + proc.stderr
+    assert proc.returncode != 0, output
+    worktree = tmp_path / "meetingminer-wt" / "probe"
+    assert f"cd {worktree} && make infra-up" in output
+
+    _write_worktree_docker(docker_bin, argv_log)  # compose now succeeds
+    argv_log.write_text("", encoding="utf-8")
+    retry = _make_at(worktree, docker_bin, ["infra-up"])
+    retry_output = retry.stdout + retry.stderr
+    assert retry.returncode == 0, retry_output
+    lines = _argv_lines(argv_log)
+    ps_index = next(i for i, line in enumerate(lines) if line.startswith(PRUNE_PS_PREFIX))
+    up_index = next(i for i, line in enumerate(lines) if line.endswith(" up -d --wait"))
+    assert ps_index < up_index, lines
+
+
+def test_docker_down_creation_retry_sweeps_a_stale_incarnation(tmp_path: Path) -> None:
+    """Docker down at creation leaves the worktree and its file; the retry
+    must tear down a same-named stale project (which cannot carry the new
+    file's id) before the first `up` — and keep a stack that does carry it."""
+    worktree = tmp_path / "meetingminer-wt" / "probe"
+    stale_ps = f"meetingminer-probe\t{worktree / 'infra'}\t\n"
+    repo, docker_bin, argv_log = _throwaway_repo(
+        tmp_path, docker_info_exit=1, ps_rows=stale_ps
+    )
+    proc = _make_at(repo, docker_bin, ["worktree"], {"STORY": "probe"})
+    output = proc.stdout + proc.stderr
+    assert proc.returncode != 0, output
+    env_file = worktree / ".env.worktree"
+    assert env_file.is_file()
+
+    _write_worktree_docker(
+        docker_bin,
+        argv_log,
+        ps_rows=stale_ps,
+        volume_rows=_our_volumes("meetingminer-probe") + "\n",
+    )
+    argv_log.write_text("", encoding="utf-8")
+    retry = _make_at(repo, docker_bin, ["worktree-start"], {"STORY": "probe"})
+    retry_output = retry.stdout + retry.stderr
+    assert retry.returncode == 0, retry_output
+    assert "removed stale stack meetingminer-probe" in retry_output
+    lines = _argv_lines(argv_log)
+    down = "compose -p meetingminer-probe down -v --remove-orphans"
+    assert down in lines, lines
+    assert lines.index(down) < next(
+        i for i, line in enumerate(lines) if line.endswith(" up -d --wait")
+    ), lines
+
+    stack_id = next(
+        line.split("=", 1)[1]
+        for line in env_file.read_text(encoding="utf-8").splitlines()
+        if line.startswith("MM_STACK_ID=")
+    )
+    own_ps = f"meetingminer-probe\t{worktree / 'infra'}\t{stack_id}\n"
+    own_volumes = _our_volumes("meetingminer-probe", stack_id) + "\n"
+    _write_worktree_docker(docker_bin, argv_log, ps_rows=own_ps, volume_rows=own_volumes)
+    argv_log.write_text("", encoding="utf-8")
+    retry2 = _make_at(repo, docker_bin, ["worktree-start"], {"STORY": "probe"})
+    retry2_output = retry2.stdout + retry2.stderr
+    assert retry2.returncode == 0, retry2_output
+    assert "kept stack meetingminer-probe" in retry2_output
+    assert not any(" down" in line for line in _argv_lines(argv_log)), _argv_lines(argv_log)
