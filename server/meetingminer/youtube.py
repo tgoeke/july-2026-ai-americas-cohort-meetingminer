@@ -820,7 +820,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         config = _load_cli_config()
     except ConfigError as exc:
-        print(f"fatal: {PROGRAM} aborted: {exc}", file=sys.stderr)
+        print(f"fatal: {PROGRAM} refused: {exc}", file=sys.stderr)
         return 1
 
     try:

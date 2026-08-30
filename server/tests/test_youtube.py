@@ -1048,14 +1048,15 @@ def test_mint_without_overrides_is_todays_behaviour_unchanged(tmp_path: Path) ->
 # --- configuration -----------------------------------------------------------
 
 
-def test_acquisition_config_defaults_and_the_committed_block_agree() -> None:
-    from meetingminer.config import AcquisitionConfig
+def test_acquisition_cap_comes_from_the_committed_config() -> None:
+    from meetingminer.config import load_config
 
-    assert AcquisitionConfig().youtube.max_duration_minutes == 180
     committed = yaml.safe_load(
         (REPO_ROOT / "config.yaml").read_text(encoding="utf-8")
     )
     assert committed["acquisition"]["youtube"]["max_duration_minutes"] == 180
+    loaded = load_config(REPO_ROOT / "config.yaml", REPO_ROOT / ".absent-env")
+    assert loaded.settings.acquisition.youtube.max_duration_minutes == 180
 
 
 def test_main_refuses_when_duration_cap_setting_is_missing(

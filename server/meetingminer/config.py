@@ -695,20 +695,17 @@ class YoutubeAcquisitionConfig(_StrictModel):
     a video longer than this before a byte of media is downloaded.
     """
 
-    max_duration_minutes: int = Field(default=180, gt=0)
+    max_duration_minutes: int = Field(gt=0)
 
 
 class AcquisitionConfig(_StrictModel):
     """Settings the acquisition commands own (epic 6).
 
-    Defaulted at every level so a config.yaml written before the block existed
-    still validates; the committed config.yaml carries it explicitly so the
-    boundary is visible where an operator looks for it.
+    Thresholds are required from the versioned config rather than supplied by
+    model defaults, so an omitted refusal boundary fails closed (AD-10).
     """
 
-    youtube: YoutubeAcquisitionConfig = Field(
-        default_factory=YoutubeAcquisitionConfig
-    )
+    youtube: YoutubeAcquisitionConfig
 
 
 class Settings(_StrictModel):
@@ -726,9 +723,7 @@ class Settings(_StrictModel):
     pipeline: PipelineConfig
     projections: ProjectionsConfig
     api: ApiConfig
-    # Last, and defaulted: every fixture config.yaml that predates the block
-    # still validates (story 6.2).
-    acquisition: AcquisitionConfig = Field(default_factory=AcquisitionConfig)
+    acquisition: AcquisitionConfig
 
 
 class Secrets(BaseModel):

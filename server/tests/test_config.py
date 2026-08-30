@@ -115,6 +115,9 @@ stores:
   postgres: {host: localhost, port: 5432, database: meetingminer, user: meetingminer}
   neo4j: {uri: bolt://localhost:7687, user: neo4j}
   meilisearch: {url: http://localhost:7700}
+acquisition:
+  youtube:
+    max_duration_minutes: 37
 """
 
 

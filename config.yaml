@@ -543,9 +543,8 @@ stores:
 # Acquisition commands (epic 6). The YouTube duration cap is a refusal
 # boundary, and a refusal boundary is configuration (AD-10): `make
 # youtube-drop` refuses, by name, a video longer than this before a byte of
-# media is downloaded. The loader defaults the whole block to these same
-# values, so a config.yaml that predates it still validates; it is committed
-# explicitly so the boundary is visible where an operator looks for it.
+# media is downloaded. This versioned setting is the sole declaration; the
+# loader has no fallback and refuses a config that omits it.
 acquisition:
   youtube:
     max_duration_minutes: 180
