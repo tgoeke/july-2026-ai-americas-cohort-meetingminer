@@ -1,10 +1,19 @@
 """The per-role model catalog `config.yaml` declares (story 8.1, FR38, AD-10).
 
 Every case in the story's I/O matrix: the back-compat synthesis a file written
-before the catalog existed still gets, the authored-catalog path, and the two
-named refusals — a `default` outside its own catalog, and a catalog entry whose
-provider `providers:` does not declare. Nothing here calls a model; the catalog
-is declaration only until story 8.2 resolves a selection.
+before the catalog existed still gets, the authored-catalog path, and the
+refusals the loader raises by name.
+
+Two of those refusals are the story's headline rules — a `default` outside its
+own catalog, and a catalog entry whose provider `providers:` does not declare.
+Two more fall out of making the second one honest, and apply to *authored*
+entries only: an entry whose tag carries no `<provider>/` prefix must name its
+provider, and a written provider may not contradict the prefix the tag already
+carries. Entries synthesized for a pre-catalog role are held to none of them,
+which is the back-compatibility clause and is tested as such.
+
+Nothing here calls a model; the catalog is declaration only until story 8.2
+resolves a selection.
 """
 
 from __future__ import annotations
@@ -71,9 +80,62 @@ def test_legacy_prefixed_model_becomes_a_one_entry_catalog(
     entry = chat.catalog[0]
     assert entry.binding == "openai/gpt-5.2"
     assert entry.label == "openai/gpt-5.2"
-    assert entry.provider == "openai"
+    # A synthesized entry carries no provider: the file authored none, and
+    # deriving one would subject a pre-catalog role to a rule written after it.
+    # The next test is the case that makes that consequence visible.
+    assert entry.provider is None
     assert chat.default == "openai/gpt-5.2"
     assert chat.model == "openai/gpt-5.2"
+
+
+def test_legacy_model_naming_an_undeclared_provider_still_loads(
+    tmp_path: Path, no_env: Path
+) -> None:
+    """Back-compat beats the new refusal for a role that authored no catalog.
+
+    A role bound to a tag whose prefix `providers:` never declared loads today
+    — `resolve_api_base` returns no `api_base` and LiteLLM uses its own default
+    — so this story may not start refusing it. The same rule is what keeps
+    `test_failfast.py`'s embedder gate reachable with `providers.ollama`
+    removed: a synthesized catalog asserts nothing about the provider map.
+    """
+    path = write_with_chat_role(tmp_path, {"model": "moonshot/kimi-k2"})
+
+    chat = load_config(path, no_env).settings.llm.roles.chat
+
+    assert [entry.binding for entry in chat.catalog] == ["moonshot/kimi-k2"]
+    assert chat.catalog[0].provider is None
+    assert chat.default == "moonshot/kimi-k2"
+
+
+def test_written_provider_contradicting_the_tag_prefix_is_refused(
+    tmp_path: Path, no_env: Path
+) -> None:
+    """A declared provider the call would never reach is wrong, not merely odd.
+
+    `openai` is declared, so the declared-provider check alone would pass this
+    entry — while `resolve_api_base` routes `moonshot/kimi-k2` by its own
+    prefix to a different endpoint entirely.
+    """
+    path = write_with_chat_role(
+        tmp_path,
+        {
+            "model": "openai/gpt-5.2",
+            "catalog": [
+                {"binding": "openai/gpt-5.2"},
+                {"binding": "moonshot/kimi-k2", "provider": "openai"},
+            ],
+            "default": "openai/gpt-5.2",
+        },
+    )
+
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(path, no_env)
+
+    message = str(excinfo.value)
+    assert "moonshot/kimi-k2" in message
+    assert "'openai'" in message
+    assert "'moonshot'" in message
 
 
 def test_legacy_bare_tag_synthesizes_an_entry_with_no_provider(
@@ -171,9 +233,11 @@ def test_entry_naming_an_undeclared_provider_is_refused(
     message = str(excinfo.value)
     assert "chat" in message
     assert "moonshot/kimi-k2" in message
-    assert "moonshot" in message
-    for declared in ("anthropic", "openai", "openrouter", "ollama"):
-        assert declared in message
+    # Not just the substring inside the binding: the message must name the
+    # provider as a provider, and list what the file does declare.
+    assert "provider 'moonshot'" in message
+    for declared in committed_raw()["providers"]:
+        assert repr(declared) in message
 
 
 def test_omitted_provider_is_derived_from_the_tag_prefix(
@@ -221,10 +285,10 @@ def test_derived_provider_is_checked_against_the_declared_set(
         load_config(path, no_env)
 
     message = str(excinfo.value)
-    assert "moonshot" in message
     assert "moonshot/kimi-k2" in message
-    for declared in ("anthropic", "openai", "openrouter", "ollama"):
-        assert declared in message
+    assert "provider 'moonshot'" in message
+    for declared in committed_raw()["providers"]:
+        assert repr(declared) in message
 
 
 def test_authored_entry_without_a_prefix_must_name_its_provider(
