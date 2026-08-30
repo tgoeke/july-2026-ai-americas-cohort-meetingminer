@@ -341,9 +341,9 @@ def test_pyproject_carries_the_dated_ruff_baseline_and_nothing_looser() -> None:
     no `extend-exclude` or other `[tool.ruff]` key that exempts whole trees
     (demonstrated to stay green under every other assertion here), no
     select/extend key that changes the rule set — the version pin's job —
-    and per-file entries only shrink: retiring a line or a code stays green,
-    while a new path or code fails until BASELINE_PER_FILE grows it
-    deliberately."""
+    and per-file entries only shrink: retiring a line, a code, or the final
+    table stays green, while a new path or code fails until BASELINE_PER_FILE
+    grows it deliberately."""
     ruff = _pyproject()["tool"]["ruff"]
     assert set(ruff) == {"required-version", "lint"}, (
         f"[tool.ruff] may hold only required-version and lint; another key (extend-exclude, "
@@ -351,8 +351,10 @@ def test_pyproject_carries_the_dated_ruff_baseline_and_nothing_looser() -> None:
         f"{sorted(ruff)}"
     )
     lint = ruff["lint"]
-    assert set(lint) == {"ignore", "per-file-ignores"}, (
-        f"[tool.ruff.lint] may hold only the dated baseline (ignore, per-file-ignores); "
+    lint_keys = set(lint)
+    assert "ignore" in lint_keys and lint_keys <= {"ignore", "per-file-ignores"}, (
+        f"[tool.ruff.lint] may hold only the dated global ignore and an optional "
+        f"per-file-ignores retirement table; "
         f"a select/extend key changes the rule set silently — got {sorted(lint)}"
     )
     assert set(lint["ignore"]) == BASELINE_GLOBAL_IGNORE, (
@@ -360,8 +362,7 @@ def test_pyproject_carries_the_dated_ruff_baseline_and_nothing_looser() -> None:
         "shrinking it is retirement — either edits pyproject AND BASELINE_GLOBAL_IGNORE in "
         "test_lint_contract.py, with the deferred-work.md item updated"
     )
-    per_file = lint["per-file-ignores"]
-    assert per_file, "the per-file baseline may be retired entry-by-entry, not dropped wholesale"
+    per_file = lint.get("per-file-ignores", {})
     for path, codes in per_file.items():
         assert not Path(path).is_absolute(), f"baseline paths are relative to server/: {path}"
         assert (SERVER_DIR / path).is_file(), (
@@ -381,6 +382,22 @@ def test_pyproject_carries_the_dated_ruff_baseline_and_nothing_looser() -> None:
             "is shrink-only — a new exemption is a widening, an edit of pyproject AND "
             "BASELINE_PER_FILE in test_lint_contract.py"
         )
+
+
+def test_ruff_baseline_contract_allows_full_per_file_retirement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Retiring the last path may remove the per-file-ignores table entirely."""
+    fully_retired = {
+        "tool": {
+            "ruff": {
+                "required-version": ">=0.16.5,<0.17",
+                "lint": {"ignore": sorted(BASELINE_GLOBAL_IGNORE)},
+            }
+        }
+    }
+    monkeypatch.setattr(sys.modules[__name__], "_pyproject", lambda: fully_retired)
+    test_pyproject_carries_the_dated_ruff_baseline_and_nothing_looser()
 
 
 def test_pyproject_pins_the_mypy_scope_to_the_decision_cores() -> None:
