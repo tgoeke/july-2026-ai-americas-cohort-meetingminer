@@ -99,6 +99,7 @@ def test_the_walk_actually_reaches_the_harness() -> None:
     walked = {path.relative_to(EVALS_ROOT).as_posix() for path in python_files()}
     for expected in (
         "conftest.py",
+        "checks/gate_probe.py",
         "checks/test_capture_checks.py",
         "checks/test_publish_gate.py",
         "checks/test_retrieval_checks.py",
@@ -273,18 +274,34 @@ def test_the_only_database_connection_lives_in_one_harness_module() -> None:
     assert users == {"corpus.py"}
 
 
-@pytest.mark.parametrize("driver", ["meilisearch", "neo4j"])
+@pytest.mark.parametrize(
+    ("driver", "expected"),
+    [
+        # `checks/gate_probe.py` (story 11.3) is the one sanctioned second
+        # importer, and only of the *error* family: telling "absent" from
+        # "broken" when the probe's erasure is verified needs
+        # `MeilisearchApiError`, and faking that distinction at any other
+        # seam would leave the verification untestable. Its store calls are
+        # pinned delete-only below — the probe layer can erase the run's own
+        # probe and can never fabricate the membership the check asserts.
+        ("meilisearch", {"harness/stores.py", "checks/gate_probe.py"}),
+        # The graph erasure needs no `neo4j` import at all: the driver
+        # handle is duck-typed, so `harness/stores.py` stays the single
+        # module that can even construct one.
+        ("neo4j", {"harness/stores.py"}),
+    ],
+)
 def test_the_only_store_read_connection_lives_in_one_harness_module(
-    driver: str,
+    driver: str, expected: set[str]
 ) -> None:
-    """`meilisearch` and `neo4j` are reachable from exactly one eval module.
+    """`meilisearch` and `neo4j` are reachable from exactly the named modules.
 
     Same shape as the psycopg guard, scoped *wider* on purpose — the whole
     `evals/` tree, tests included — because unlike psycopg (which the
-    write-probe test legitimately imports) nothing outside `harness/stores.py`
-    has any business holding a store driver: the store-backed publish-gate
-    test observes through `stores.py`'s read-only functions, and the
-    store-free suite fakes at that seam rather than at the driver.
+    write-probe test legitimately imports) nothing else in `evals/` has any
+    business holding a store driver: the store-backed publish-gate test
+    observes through `stores.py`'s read-only functions, and the store-free
+    suite fakes at that seam rather than at the driver.
     """
     users = {
         path.relative_to(EVALS_ROOT).as_posix()
@@ -294,7 +311,7 @@ def test_the_only_store_read_connection_lives_in_one_harness_module(
             for module in imported_modules(path)
         )
     }
-    assert users == {"harness/stores.py"}
+    assert users == expected
 
 
 #: Write-method *stems* `harness/stores.py` must never reference. Stems, not
@@ -374,6 +391,62 @@ def test_the_write_method_pin_leaves_read_vocabulary_alone() -> None:
         "the membership read",
     ):
         assert not store_write_references(benign), benign
+
+
+#: Store-write stems `checks/gate_probe.py` must never reference — every
+#: stem of `harness/stores.py`'s pin *except* `delete`. Story 11.3's
+#: sanction is exactly one direction wide: the probe layer erases the run's
+#: own probe (`delete_document`, `DETACH DELETE`, and the Postgres row it
+#: minted) and can never create or reshape store state — a probe that could
+#: put a document *into* a store would be fabricating the membership the
+#: check asserts, which is the AD-16 failure mode this whole suite exists
+#: to refuse.
+_PROBE_FORBIDDEN_STEMS = tuple(
+    stem for stem in _STORE_WRITE_STEMS if stem != "delete"
+)
+
+
+def probe_write_references(text: str) -> list[str]:
+    """Every creation-shaped store token in ``text``, or an empty list."""
+    found: list[str] = []
+    for stem in _PROBE_FORBIDDEN_STEMS:
+        found.extend(re.findall(rf"\b{stem}\w*", text))
+    return found
+
+
+def test_the_probe_module_is_pinned_to_the_erasure_direction() -> None:
+    """The 11.3 sanction's width, checked textually like the stores pin."""
+    text = (EVALS_ROOT / "checks" / "gate_probe.py").read_text(encoding="utf-8")
+    offenders = probe_write_references(text)
+    assert not offenders, (
+        f"checks/gate_probe.py references {offenders} — the probe layer is"
+        " sanctioned for erasure only: it deletes the run's own probe and"
+        " never creates or reshapes store state (story 11.3, AD-16)"
+    )
+
+
+def test_the_probe_pin_still_catches_the_creation_surface() -> None:
+    """The guard on the guard: dropping `delete` must not have dropped the
+    stems that matter."""
+    for call in (
+        "client.index(x).add_documents([doc])",
+        "index.add_documents_in_batches(docs)",
+        "index.update_documents([doc])",
+        "index.update_settings(settings)",
+        "client.create_index(uid)",
+        "session.execute_write(work)",
+    ):
+        assert probe_write_references(call), f"the probe pin missed {call!r}"
+
+
+def test_the_probe_pin_leaves_the_erasure_vocabulary_alone() -> None:
+    for benign in (
+        "index.delete_document(doc_id)",
+        "MATCH (a {id: $id}) DETACH DELETE a",
+        "DELETE FROM artifact WHERE id = %s",
+        "the erasure verification",
+    ):
+        assert not probe_write_references(benign), benign
 
 
 def test_the_harness_connection_is_read_only_by_construction() -> None:
