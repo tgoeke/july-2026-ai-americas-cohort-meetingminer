@@ -2,12 +2,115 @@
 title: 'Story 8.1: AD-10 Amendment and Binding Catalog'
 type: 'feature'
 created: '2026-08-30'
-status: 'in-progress'
+status: 'review'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context: ['AGENTS.md', '_bmad-output/implementation-artifacts/wave-2026-08-30-rules.md', '_bmad-output/implementation-artifacts/build-prompt-story-8-1-2026-08-30.md']
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      AC clause 3 is unmet: the stale chat comment in config.yaml (an
+      invalidated Anthropic key, a superseded claude-sonnet-5 default) is
+      still there.
+    evidence: |-
+      The clause is real, not already-satisfied: the literal token "revoked"
+      is absent but the comment it names is live. It was left alone because
+      `git diff --unified=0 origin/main...origin/story/10-1 -- config.yaml`
+      reports `@@ -146,0 +147,24 @@` - story 10-1 inserts at exactly the first
+      line of that comment, so any edit conflicts with an in-flight lane. The
+      wave rules say narrow rather than widen. Whoever lands after 10-1 should
+      delete the two stale sentences and keep the rest of that comment
+      verbatim: the no-fallback owner decision and the `openai/` prefix
+      requirement are both live. It is recorded here rather than in
+      docs/backlog.md because the wave rules put that file off limits to this
+      lane.
+    location: >-
+      config.yaml:147-154
+    severity: high
+  - summary: >-
+      The binding that actually runs is never required to be in the role's
+      own catalog.
+    evidence: |-
+      The enforced invariant is `default in catalog`; every call path still
+      reads `model`, and `default` falls back to `model` only when the file
+      writes no default. So `catalog: [a, b]` with `default: a` and
+      `model: z` loads clean, and the "catalog of allowed bindings" does not
+      constrain the one binding in use. Three review layers raised this
+      independently. Adding `model in catalog` is cheap and the committed
+      config.yaml already satisfies it, but it is a rule the story's AC does
+      not ask for and it changes what a half-migrated file may say - an owner
+      call, and arguably 8.2's, since 8.2 makes the selection authoritative.
+    location: >-
+      server/meetingminer/config.py - LlmRoleBinding._default_is_a_catalog_binding
+    severity: medium
+  - summary: >-
+      A role's `fallback` tag is subject to neither new rule.
+    evidence: |-
+      `llm.roles.extraction.fallback` is a live model tag resolved at call
+      time, yet it need not be in the catalog and its provider is never
+      checked against `providers:`. The undeclared-provider refusal therefore
+      covers the declarative catalog but not both tags that can actually be
+      sent. Out of scope here (the AC speaks only of catalog bindings) but it
+      is the same class of defect the story exists to prevent.
+    location: >-
+      server/meetingminer/config.py - Settings._catalog_providers_are_declared
+    severity: medium
+  - summary: >-
+      Three provider-derivation rules now exist in the tree and they disagree.
+    evidence: |-
+      `adapters/llm/litellm.py:resolve_api_base` and `api/status.py:provider_of`
+      both resolve bare `claude-...` to anthropic and bare OpenAI spellings to
+      openai; `config._provider_prefix` deliberately does not. The divergence
+      is documented in the new docstring and is deliberate - copying the
+      bare-spelling tables would write provider names into config.py - but
+      nothing pins the three against each other, so they may drift further.
+      Consequence today: a legacy `model: claude-sonnet-5` synthesizes an
+      entry with provider None while `/config` and `/status` report anthropic
+      for the same tag.
+    location: >-
+      server/meetingminer/config.py:141
+    severity: medium
+  - summary: >-
+      The catalog is invisible to an operator of the running stack.
+    evidence: |-
+      `GET /config`'s `LlmRoleView` is an explicit allowlist and
+      `test_api_config_view.py` pins its field set, so the catalog and default
+      appear nowhere in any api response. The story's user is an operator, and
+      the declaration is only visible in the file. Serving it is story 8.2's
+      `GET /settings/models`, so this is a scope boundary rather than a defect
+      - recorded so 8.2 does not assume the surface already exists.
+    location: >-
+      server/meetingminer/api/config_view.py
+    severity: medium
+  - summary: >-
+      A resolved-config dump no longer round-trips for a role whose catalog
+      was synthesized from a prefixed tag.
+    evidence: |-
+      `Settings.model_dump(mode="json")` emits the synthesized entry as
+      `{binding, label, provider: None}`. Feeding that back to
+      `Settings.model_validate` derives the provider (the entry now looks
+      authored) and checks it, so a dump of a config whose tag prefix names an
+      undeclared provider would be refused on the way back in. Nothing
+      re-loads a dump today, but `evals/harness/run.py` writes exactly this as
+      `config-snapshot.yaml`.
+    location: >-
+      server/meetingminer/config.py - LlmRoleBinding._catalog_from_model
+    severity: low
+  - summary: >-
+      Smaller loader gaps left unfixed: no duplicate-binding refusal, only the
+      first undeclared provider is reported, `catalog: null` and `catalog: []`
+      behave oppositely, and a blank `model` is reported by the default rule.
+    evidence: |-
+      Each is real and each is cheap, but none is required by the AC and
+      together they would widen this story's diff well past its footprint.
+      Duplicates matter most: the catalog exists to feed a picker (8.3), where
+      two rows for one binding is exactly the defect a loader catches cheaply.
+      The blank-model case also changes an existing behaviour: `model` is a
+      plain `str` with no non-empty constraint, so `model: ""` loaded before
+      and is now refused - by a message that names the default, not the model.
+    location: >-
+      server/meetingminer/config.py
+    severity: low
 baseline_revision: '4b9d79a109300e4dc3db160a125289eb13142939'
 ---
 
@@ -155,6 +258,37 @@ story stops at the config contract: it changes no call path.
 
 ## Spec Change Log
 
+**2026-08-30 — `make test` caught a back-compat break the fast set could not.**
+The first implementation derived a provider for the *synthesized* one-entry
+catalog and then checked it against `providers:`. That made every pre-catalog
+file whose tag prefix names an undeclared provider refuse to load — a direct
+violation of this spec's own "every `config.yaml` that loads today still loads"
+invariant. It surfaced as `test_failfast.py::test_api_exits_1_when_no_provider_serves_the_configured_embedder`,
+whose fixture removes `providers.ollama` and requires the config to still reach
+the embedder gate; the module is `slow`, so `make test-fast` was green and only
+the full gate found it. Fix: a synthesized entry carries no provider at all and
+is skipped by the check, while authored entries keep the strict rule — the
+asymmetry this spec already stated, now applied to the undeclared case and not
+only the underivable one. A regression pins the exact shape
+(`test_legacy_model_naming_an_undeclared_provider_still_loads`).
+
+`server/tests/test_failfast.py` is edited **outside the build prompt's
+footprint**, deliberately and recorded here: its fixture removes a provider the
+committed catalogs now name, so it must drop the authored catalogs with it. No
+in-flight lane touches that file (measured against all seven `story/*`
+branches), and `branch_conflicts.py` stays clean on it.
+
+**2026-08-30 — review-layer patches.** `_provider_prefix`'s docstring claimed to
+restate `resolve_api_base`; it does not — the adapter also routes bare
+`claude-`/`gpt-` spellings — so the docstring now states the narrowing and why
+copying those tables was rejected. A written `provider` is now checked against
+the tag's own prefix, closing a hole where `{binding: moonshot/kimi-k2,
+provider: openai}` passed the declared-provider check while the call would route
+elsewhere. The role loop guards on `isinstance`. Two test assertions were
+tautological (the provider name is a substring of the binding) and the declared
+set was hardcoded beside `config.yaml`; both now assert distinguishing text
+derived from the file.
+
 **2026-08-30 — AC clause 3 (the stale chat comment) is NOT already satisfied; recorded as an
 open gap rather than widened into.** The build prompt directed this story to verify that no
 `revoked` text remains and record the clause as satisfied. The literal token is indeed absent
@@ -172,6 +306,20 @@ the rest of that comment verbatim: the no-fallback owner decision and the `opena
 requirement are both live.
 
 ## Review Triage Log
+
+### 2026-08-30 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 6: (high 1, medium 2, low 3)
+- defer: 7: (high 1, medium 4, low 2)
+- reject: 9
+- addressed_findings:
+  - `[high]` `[patch]` Synthesized catalog entries were provider-checked, breaking every pre-catalog file whose tag prefix names an undeclared provider; caught by `make test` via the embedder fail-fast gate. Synthesized entries now carry no provider; regression added; `test_failfast.py`'s fixture drops the authored catalogs with the provider it removes.
+  - `[medium]` `[patch]` `_provider_prefix` docstring falsely claimed to restate `resolve_api_base`, which also routes bare `claude-`/`gpt-` spellings. Rewritten to state the narrowing and the reason for it.
+  - `[medium]` `[patch]` A written `provider` was never checked against the tag's own prefix, so a declared-but-wrong provider passed while the call routed elsewhere. Now refused by name, with a test.
+  - `[low]` `[patch]` The role loop assumed every `LlmRoles` field is an `LlmRoleBinding`; guarded with `isinstance`.
+  - `[low]` `[patch]` Two assertions were tautological — the provider name is a substring of the binding it appears in. Now assert `provider '<name>'`.
+  - `[low]` `[patch]` The declared-provider set was hardcoded in the tests beside `config.yaml`; now derived from the committed file.
 
 ## Design Notes
 
@@ -214,3 +362,66 @@ because AD-10 would then describe behavior no code implements.
   four: `spec-11-2-per-run-store-isolation.md`, `review-story-11-4-2026-08-30.md`, and
   `sprint-notes.md` against `story/7-1` and `story/7-1-review` — all present against `main`
   itself, and all absorbed by `integrate`.
+
+## Auto Run Result
+
+Status: review (not `done`: the wave's build-auto customization and the build
+prompt both end this story at `review`, for the Codex `bmad-code-review` lane).
+
+**Implemented.** `llm.roles.<role>` declares `catalog[]` of
+`binding` / `label` / `provider` plus a `default`, validated when `config.yaml`
+loads. Two headline refusals, both raised from `Settings` validation — the layer
+`load_config` wraps into the named `ConfigError`: a `default` outside its own
+catalog, and an authored catalog entry naming a provider `providers:` does not
+declare. Two more keep the second honest, on authored entries only: a tag with
+no `<provider>/` prefix must name its provider, and a written provider may not
+contradict the prefix the tag carries. A role declaring only `model` still
+loads, as a one-entry catalog that carries no provider and is checked against
+nothing. Declaration only — `model` remains what `build_llm`,
+`resolve_api_base` and `_role_view` read; no call path changed.
+
+**Files changed**
+
+- `server/meetingminer/config.py` — `_provider_prefix`, `CatalogEntry`, the
+  `catalog`/`default` fields and their two validators on `LlmRoleBinding`, and
+  the catalog×providers cross-check on `Settings` (placed with the `providers`
+  field, not the class tail, which story 6-2 appends to).
+- `server/tests/test_config_catalog.py` — NEW; 12 tests, one per I/O-matrix row
+  plus the committed-file check and the back-compat regression.
+- `server/tests/test_failfast.py` — fixture only; drops the authored catalogs
+  along with the provider it removes. Outside the build prompt's footprint,
+  recorded in the Spec Change Log.
+- `config.yaml` — `catalog:`/`default:` as the first keys of all three role
+  blocks; every `default` equals the `model` that role already ran.
+- `docs/architecture.md` — AD-10's binding sentence.
+- `project-context.md` — the binding policy line.
+- `_bmad-output/implementation-artifacts/` — this spec, `epic-8-context.md`,
+  `sprint-status.yaml`, `sprint-notes.md`, the review prompt.
+
+**Review findings.** 6 patched (1 high, 2 medium, 3 low), 7 deferred (see
+frontmatter), 9 rejected. Follow-up review recommended: **true** — a `high`
+finding was patched.
+
+**Verification performed** (every command run in the foreground, output read)
+
+- `uv run --project server pytest server/tests/test_config_catalog.py server/tests/test_config.py -q` → 67 passed.
+- `uv run --project server pytest -m "" server/tests/test_failfast.py -q` → 12 passed.
+- `make test-fast` → 1411 passed, 326 deselected, **zero skips**; evals 549 passed.
+- `make test` → **1739 passed**, 9m28s, plus the web build (`tsc -b && vite build`) clean.
+  The first run of this gate **failed** on the embedder fail-fast test; that
+  failure is the Spec Change Log's first entry and is fixed.
+- `python3 _bmad/scripts/branch_conflicts.py --against story/8-1` → see below.
+- Both Ollama tags in the committed catalogs were checked against the live
+  `providers.ollama` endpoint with `/api/tags`: `gpt-oss:120b` and `qwen3:30b`
+  are both served there, so no catalog entry offers a binding that endpoint
+  cannot answer.
+
+**Residual risks**
+
+- `docs/architecture.md` conflicts with `story/11-2` — the same AD-10 paragraph,
+  a different sentence. Pre-declared by the owner in `sprint-notes.md` as
+  integrate's to union; 11-2's environment-variable sentence is untouched here.
+- The `_bmad-output` process files (`sprint-notes.md` and two other lanes'
+  records) conflict as they already do against `main` itself; integrate absorbs
+  them.
+- AC clause 3 is unmet by design, not by oversight — deferred item 1.

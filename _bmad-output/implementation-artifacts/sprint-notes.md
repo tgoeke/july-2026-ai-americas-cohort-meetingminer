@@ -3273,3 +3273,19 @@ is live at the lines `story/10-1` inserts its `topics_prompt` block into. Per
 the wave rules the edit was narrowed rather than widened into another lane;
 whoever lands after 10-1 should delete those two sentences and keep the rest of
 that comment verbatim.
+
+**Addendum, 8-1.** `make test` earned its keep. The first implementation derived
+a provider for the one-entry catalog synthesized from a role's `model` and then
+checked it against `providers:`, which made every pre-catalog file whose tag
+prefix names an undeclared provider refuse to load. `make test-fast` was green:
+the test that catches it, `test_failfast.py`'s embedder gate, is in a `slow`
+module and is deselected there. A synthesized entry now carries no provider and
+is checked against nothing; authored entries keep the strict rule.
+
+Two cross-lane facts follow from that. First, `server/tests/test_failfast.py` is
+edited outside 8-1's footprint — its fixture removes `providers.ollama` and
+needs the roles' authored catalogs removed with it — and no in-flight lane
+touches that file, measured against all seven `story/*` branches. Second, any
+lane that adds a role tag or removes a provider from `config.yaml` now touches a
+unit surface: `test_config_catalog.py` loads the committed file and asserts every
+catalog entry's provider is declared.
