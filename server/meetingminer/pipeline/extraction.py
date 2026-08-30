@@ -401,6 +401,12 @@ _EXCLUDED_ACTION_SECTIONS = ("reported done", "watch item")
 # above is a target, because its section headings are owner names.
 _ARCH_TARGET_HEADINGS = ("decision", "summary")
 
+# A topics response may drift in wording, but it must still identify itself as
+# topical either in the section heading or through the configured table shape.
+# This keeps useful headings such as "Discussion themes" while refusing a
+# Decisions/Notes/task document whose T-id happens to look plausible.
+_TOPIC_HEADING_MARKERS = ("topic", "discussion", "theme")
+
 # Which ID prefixes become artifacts, per document. The architecture summary
 # also carries an action-items table, but those are the same commitments the
 # action document lists in full — counting both would duplicate every one of
@@ -796,6 +802,17 @@ def _section_is_target(heading: str, document_kind: str) -> bool:
     return any(marker in lowered for marker in _ARCH_TARGET_HEADINGS)
 
 
+def _has_topic_semantics(
+    heading: str, headers: Sequence[str] | None
+) -> bool:
+    lowered = heading.casefold()
+    if any(marker in lowered for marker in _TOPIC_HEADING_MARKERS):
+        return True
+    return _labelled(headers, ("topic",)) is not None and _labelled(
+        headers, ("gist",)
+    ) is not None
+
+
 def _kind_for(prefix: str, document_kind: str) -> str | None:
     """The artifact kind this item ID becomes, or ``None`` for "not an artifact".
 
@@ -906,6 +923,14 @@ def parse_extraction_document(text: str, document_kind: str) -> ParsedDocument:
             # question, or a row under "Reported done". Counted as structure,
             # never as a proposal — and so never as a missing anchor either.
             continue
+        if document_kind == DOC_TOPICS and not _has_topic_semantics(
+            section, headers if layout == LAYOUT_TABLE else None
+        ):
+            raise ArtifactParseError(
+                f"item {item_id} in the topics document appears under section"
+                f" {section!r} without topic semantics in either the heading or"
+                " Topic/Gist table columns"
+            )
         dedup_key = (section if document_kind == DOC_ACTION_ITEMS else "", item_id)
         if dedup_key in seen_ids:
             if document_kind == DOC_TOPICS:

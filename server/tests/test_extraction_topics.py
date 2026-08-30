@@ -222,18 +222,36 @@ def test_non_t_ids_are_structure_not_topics() -> None:
     assert parsed.populated_target_sections == ("Topics",)
 
 
-def test_every_heading_is_a_target_for_the_topics_document() -> None:
-    # Real-world heading drift: the section is not called "Topics" and the
-    # parse must not care.
+def test_a_semantic_heading_tolerates_topic_table_header_drift() -> None:
+    # Real-world drift can affect the section and column names together. The
+    # semantic heading is sufficient even without exact Topic/Gist headers.
     document = (
         "## Discussion themes\n"
         "\n"
-        "| ID | Topic | Gist | Timestamps |\n"
+        "| ID | Theme | Summary | Timestamps |\n"
         "|----|-------|------|------------|\n"
         "| T1 | Vendor feed transport | Moving to SFTP | [0:10] |\n"
     )
     parsed = core.parse_extraction_document(document, core.DOC_TOPICS)
     assert [a.item_id for a in parsed.artifacts] == ["T1"]
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        (
+            "## Decisions\n\n"
+            "| ID | Decision | Context | Timestamp |\n"
+            "|----|----------|---------|-----------|\n"
+            "| T1 | Rotate the vendor key | Required by policy | [0:10] |\n"
+        ),
+        "## Notes\n\n- T1 - Rotate the vendor key - Required by policy - [0:10]\n",
+    ],
+    ids=["decisions-table", "task-list"],
+)
+def test_a_contentful_foreign_document_is_a_named_parse_error(document: str) -> None:
+    with pytest.raises(core.ArtifactParseError, match="T1.*topic semantics"):
+        core.parse_extraction_document(document, core.DOC_TOPICS)
 
 
 def test_the_shared_empty_document_parses_to_zero_topics() -> None:
@@ -812,6 +830,28 @@ def test_an_unparseable_topics_reply_earns_one_retry(
 ) -> None:
     engine = fake_llm(replies=("prose with no structure at all", TOPICS_DOC))
     job_id = enqueue(pool, make_extraction_drop("source-retry"), "source-retry")
+    assert runner.run_once(pool, app_config, content_root) is True
+    assert job_row(pool, job_id) == ("done", None)
+    assert len(engine.calls) == 2
+    [meeting] = meetings(pool, job_id)
+    assert len(topic_rows(pool, meeting["id"])) == 2
+
+
+def test_a_contentful_foreign_topics_reply_earns_one_retry(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_extraction_drop: Callable[[str], Any],
+    fake_llm: Callable[..., FakeLlm],
+) -> None:
+    foreign = (
+        "## Decisions\n\n"
+        "| ID | Decision | Context | Timestamp |\n"
+        "|----|----------|---------|-----------|\n"
+        "| T1 | Rotate the vendor key | Required by policy | [0:10] |\n"
+    )
+    engine = fake_llm(replies=(foreign, TOPICS_DOC))
+    job_id = enqueue(pool, make_extraction_drop("source-foreign-retry"), "source-foreign-retry")
     assert runner.run_once(pool, app_config, content_root) is True
     assert job_row(pool, job_id) == ("done", None)
     assert len(engine.calls) == 2
