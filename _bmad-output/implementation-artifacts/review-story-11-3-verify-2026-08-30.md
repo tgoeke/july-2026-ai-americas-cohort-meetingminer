@@ -66,7 +66,7 @@
 - Severity: high
 - Finding: The approve route catches a total projection failure, logs it, and still returns 200. Check 2.11 therefore cannot distinguish a publish-gate regression from transient projection-lock contention when both retrieval stores remain absent.
 - Evidence: Main commit `5a9676d` records `artifacts.projection.failed` for probe `01a054ab-56b3-7b0e-8d7a-fe22c1bffe00` with `ProjectionLockedError`, immediately followed by `moments.approved` and `POST .../approve HTTP/1.1` `200 OK`; the probe was absent from both stores afterward. Three other probes projected successfully, so the measurement does not support a story-4-4 regression.
-- Resolution: Open and deferred as backlog B-35. This is a server/API contract defect outside Story 11-3's frozen footprint; no server code was patched on this branch.
+- Resolution: Open and deferred as backlog B-37. This is a server/API contract defect outside Story 11-3's frozen footprint; no server code was patched on this branch.
 
 ## Mutation Evidence
 
@@ -95,7 +95,7 @@ Every remediation commit F1–F12 received a kill mutation in commit order. Unle
 - F12's implementation prose was accurate, but its claimed canary was not falsifiable at the governing paragraph; Finding 1 closes that gap.
 - Cleanup remains scoped to the Postgres-minted UUID in SQL, Meilisearch, Neo4j, and the publish-root path. A persistent sibling marker is diagnosed but never deleted by the observing run. Finding 4 moves the only post-commit/pre-cleanup statement into unconditional cleanup protection.
 - The owner's genuine two-run measurement at main commit `5a9676d` tested branch tip `f2ed760`, before Finding 3's subject filter landed in `65fb5c7`. It confirmed distinct run folders, four owned/verified cleanups, zero surviving probe rows, untouched subject artifacts, no `nothing-to-approve` response, and an unaffected concurrent `make test`; it also proved that the then-unfiltered subject half let a sibling probe decide the `left` verdict. The current code closes that path store-free, but concurrency is not accepted until an owner remeasurement passes.
-- The same measurement exposed the independent approve-route projection-refusal contract in Finding 7. It is intentionally not fixed here because `server/**` is outside the frozen Story 11-3 footprint; backlog B-35 owns it.
+- The same measurement exposed the independent approve-route projection-refusal contract in Finding 7. It is intentionally not fixed here because `server/**` is outside the frozen Story 11-3 footprint; backlog B-37 owns it.
 
 ## Verification
 
@@ -109,4 +109,4 @@ Every remediation commit F1–F12 received a kill mutation in commit order. Unle
 
 ## Verdict
 
-**CODE REMEDIATION GREEN; CONCURRENCY ACCEPTANCE FAILED.** Six in-scope independent-review findings were fixed (4 high, 2 medium), including the live sibling-verdict defect, but the single-flight rule stays until the owner remeasures the post-`65fb5c7` branch and it passes. Finding 7 remains openly deferred as server/API backlog B-35 because it is outside this story. Do not claim concurrent eval runs work. Integration must also land the already-deferred AD-16 architecture wording. This review did not merge or modify `main`.
+**CODE REMEDIATION GREEN; CONCURRENCY ACCEPTANCE FAILED.** Six in-scope independent-review findings were fixed (4 high, 2 medium), including the live sibling-verdict defect, but the single-flight rule stays until the owner remeasures the post-`65fb5c7` branch and it passes. Finding 7 remains openly deferred as server/API backlog B-37 because it is outside this story. Do not claim concurrent eval runs work. Integration must also land the already-deferred AD-16 architecture wording. This review did not merge or modify `main`.

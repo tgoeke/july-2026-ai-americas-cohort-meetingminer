@@ -132,7 +132,7 @@ while 6.6 was in flight — 11.1 has landed, so nothing blocks this now.
 **Done when:** a recorded YouTube meeting's moments carry the deep link on all
 three models and the 6.6 secondary link shows on search hits and citations.
 
-### B-35 · Surface total projection refusal from approve — M
+### B-37 · Surface total projection refusal from approve — M
 
 The Story 11.3 live concurrency measurement at main commit `5a9676d` captured
 `POST /moments/{moment_id}/approve` publishing a probe in Postgres, logging
