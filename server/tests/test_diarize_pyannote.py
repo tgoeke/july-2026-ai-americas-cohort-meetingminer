@@ -241,14 +241,60 @@ def test_the_default_factory_forwards_the_configured_model_and_token(
     pyannote_package = ModuleType("pyannote")
     pyannote_package.__path__ = []
     pyannote_audio = ModuleType("pyannote.audio")
+    pyannote_audio.__path__ = []
     pyannote_audio.Pipeline = StubPipeline
+    pyannote_telemetry = ModuleType("pyannote.audio.telemetry")
+    pyannote_telemetry.set_telemetry_metrics = lambda enabled: None
     pyannote_package.audio = pyannote_audio
     monkeypatch.setitem(sys.modules, "pyannote", pyannote_package)
     monkeypatch.setitem(sys.modules, "pyannote.audio", pyannote_audio)
+    monkeypatch.setitem(
+        sys.modules, "pyannote.audio.telemetry", pyannote_telemetry
+    )
 
     assert _load_pipeline("configured-model", "configured-token") is sentinel
     assert calls == [
         (("configured-model",), {"token": "configured-token"}),
+    ]
+
+
+def test_the_default_factory_disables_telemetry_before_model_construction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[tuple[object, ...]] = []
+    sentinel = object()
+
+    class StubPipeline:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            events.append(("load", args, kwargs))
+            return sentinel
+
+    def set_telemetry_metrics(enabled: bool) -> None:
+        events.append(("telemetry", enabled))
+
+    pyannote_package = ModuleType("pyannote")
+    pyannote_package.__path__ = []
+    pyannote_audio = ModuleType("pyannote.audio")
+    pyannote_audio.__path__ = []
+    pyannote_audio.Pipeline = StubPipeline
+    pyannote_telemetry = ModuleType("pyannote.audio.telemetry")
+    pyannote_telemetry.set_telemetry_metrics = set_telemetry_metrics
+    pyannote_package.audio = pyannote_audio
+    monkeypatch.setitem(sys.modules, "pyannote", pyannote_package)
+    monkeypatch.setitem(sys.modules, "pyannote.audio", pyannote_audio)
+    monkeypatch.setitem(
+        sys.modules, "pyannote.audio.telemetry", pyannote_telemetry
+    )
+
+    assert _load_pipeline("configured-model", "configured-token") is sentinel
+    assert events == [
+        ("telemetry", False),
+        (
+            "load",
+            ("configured-model",),
+            {"token": "configured-token"},
+        ),
     ]
 
 

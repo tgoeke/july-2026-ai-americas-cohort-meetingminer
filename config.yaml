@@ -25,6 +25,7 @@ diarizer:
   # keep that account's token in .env under the variable `token_env` names —
   # and export it into the environment that launches the worker, because the
   # host worker process reads its environment, not .env, today.
+  # The adapter disables pyannote telemetry before constructing the pipeline.
   model: pyannote/speaker-diarization-community-1
   token_env: HF_TOKEN
 

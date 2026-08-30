@@ -34,9 +34,11 @@ PipelineFactory = Callable[[str, str], Any]
 
 
 def _load_pipeline(model: str, token: str) -> Any:
-    """Import pyannote.audio and load the model — the only heavy path."""
+    """Disable provider telemetry, then load the model — the only heavy path."""
     from pyannote.audio import Pipeline
+    from pyannote.audio.telemetry import set_telemetry_metrics
 
+    set_telemetry_metrics(False)
     return Pipeline.from_pretrained(model, token=token)
 
 
