@@ -93,9 +93,11 @@ PROVENANCE_KEY = "transcriptDialect"
 #: VTT because a bad cue there costs only an end timing, while here a skipped
 #: cue is lost evidence, so this reader refuses instead.
 _CUE_TIMING = re.compile(
-    r"^(?P<start>\d{1,4}(?::\d{1,2}){1,2}[.,]?\d*)\s*-->\s*"
-    r"(?P<end>\d{1,4}(?::\d{1,2}){1,2}[.,]?\d*)(?:\s+.*)?$"
+    r"^(?P<start>\d{1,4}(?::\d{1,2}){1,2}(?:[.,]\d+)?)\s*-->\s*"
+    r"(?P<end>\d{1,4}(?::\d{1,2}){1,2}(?:[.,]\d+)?)(?:\s+.*)?$"
 )
+
+_WEBVTT_HEADER = re.compile(r"WEBVTT(?:[ \t].*)?")
 
 #: Markup a cue payload may carry. Stripped before the speaker is read, so
 #: ``<b>Alice Chen</b>: hello`` still yields the name.
@@ -315,7 +317,7 @@ def read_zoom_cues(text: str, *, source: Path) -> tuple[ZoomCue, ...]:
     if not any(line.strip() for line in lines):
         raise DialectError(f"{source} is empty — an empty file is not a transcript")
     header = next(line.strip() for line in lines if line.strip())
-    if not header.upper().startswith("WEBVTT"):
+    if _WEBVTT_HEADER.fullmatch(header) is None:
         raise DialectError(
             f"{source} does not start with a WEBVTT header (first line"
             f" {header!r}) — --transcript-dialect {DIALECT_ZOOM} reads Zoom's"
@@ -328,6 +330,11 @@ def read_zoom_cues(text: str, *, source: Path) -> tuple[ZoomCue, ...]:
         line = lines[index].strip()
         number = index + 1
         index += 1
+        if "->" in line and "-->" not in line:
+            raise DialectError(
+                f"{source} line {number}: {line!r} is not a WebVTT timing line"
+                " — nothing was converted"
+            )
         if "-->" not in line:
             # A cue identifier, the header, a NOTE — none of them carry words.
             continue
@@ -339,17 +346,33 @@ def read_zoom_cues(text: str, *, source: Path) -> tuple[ZoomCue, ...]:
             )
         start_ms = _stamp(match.group("start"), source=source, number=number)
         end_ms = _stamp(match.group("end"), source=source, number=number)
+        if end_ms < start_ms:
+            raise DialectError(
+                f"{source} line {number}: cue ends before it starts"
+                " — nothing was converted"
+            )
         body: list[str] = []
         while index < len(lines) and lines[index].strip():
+            if "-->" in lines[index]:
+                raise DialectError(
+                    f"{source} line {index + 1}: cue timing appears before a"
+                    " blank separator — nothing was converted"
+                )
             body.append(lines[index].strip())
             index += 1
         speaker, spoken = _split_speaker(" ".join(body))
         if not spoken:
             continue
+        if cues and start_ms < cues[-1].start_ms:
+            raise DialectError(
+                f"{source} line {number}: cue starts at {start_ms}ms before the"
+                f" preceding cue at {cues[-1].start_ms}ms (out of order)"
+                " — nothing was converted"
+            )
         cues.append(
             ZoomCue(
                 start_ms=start_ms,
-                end_ms=max(end_ms, start_ms),
+                end_ms=end_ms,
                 speaker=speaker,
                 text=spoken,
             )

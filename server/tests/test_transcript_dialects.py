@@ -444,6 +444,99 @@ def test_a_malformed_timing_line_is_refused_naming_the_line(
     assert "line 4" in str(refusal.value)
 
 
+def test_a_single_arrow_timing_line_is_refused_instead_of_dropped(
+    tmp_path: Path, workspace: Path
+) -> None:
+    """The frozen malformed-line example must not disappear before validation."""
+    source = tmp_path / "sync.vtt"
+    source.write_text(
+        "WEBVTT\n\n"
+        "00:00:01.000 -> bad\n"
+        "Alice Chen: This evidence must not disappear.\n\n"
+        "00:00:03.000 --> 00:00:04.000\n"
+        "Bob Smith: A later valid cue must not hide the error.\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(dialects.DialectError) as refusal:
+        convert(source, workspace)
+
+    assert "line 3" in str(refusal.value)
+    assert list(workspace.iterdir()) == []
+
+
+def test_a_reverse_cue_timing_is_refused(
+    tmp_path: Path, workspace: Path
+) -> None:
+    source = tmp_path / "sync.vtt"
+    source.write_text(
+        vtt(("00:00:03.000", "00:00:01.000", "Alice Chen: Morning.")),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(dialects.DialectError) as refusal:
+        convert(source, workspace)
+
+    assert "ends before it starts" in str(refusal.value)
+    assert "line 3" in str(refusal.value)
+
+
+def test_a_missing_cue_separator_is_refused(
+    tmp_path: Path, workspace: Path
+) -> None:
+    source = tmp_path / "sync.vtt"
+    source.write_text(
+        "WEBVTT\n\n"
+        "00:00:01.000 --> 00:00:02.000\n"
+        "Alice Chen: First cue.\n"
+        "00:00:03.000 --> 00:00:04.000\n"
+        "Bob Smith: Second cue.\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(dialects.DialectError) as refusal:
+        convert(source, workspace)
+
+    assert "separator" in str(refusal.value)
+    assert "line 5" in str(refusal.value)
+
+
+def test_out_of_order_cues_are_refused(
+    tmp_path: Path, workspace: Path
+) -> None:
+    source = tmp_path / "sync.vtt"
+    source.write_text(
+        vtt(
+            ("00:00:05.000", "00:00:06.000", "Alice Chen: Later."),
+            ("00:00:01.000", "00:00:02.000", "Bob Smith: Earlier."),
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(dialects.DialectError) as refusal:
+        convert(source, workspace)
+
+    assert "out of order" in str(refusal.value)
+    assert "line 6" in str(refusal.value)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "WEBVTT-NOT-A-HEADER\n\n00:00:01.000 --> 00:00:02.000\nAlice: Hi.\n",
+        "WEBVTT\n\n00:00:01. --> 00:00:02.\nAlice: Hi.\n",
+    ],
+)
+def test_malformed_webvtt_signatures_and_stamps_are_refused(
+    tmp_path: Path, workspace: Path, content: str
+) -> None:
+    source = tmp_path / "sync.vtt"
+    source.write_text(content, encoding="utf-8")
+
+    with pytest.raises(dialects.DialectError):
+        convert(source, workspace)
+
+
 def test_an_utterance_shaped_like_a_legacy_header_is_refused(
     tmp_path: Path, workspace: Path
 ) -> None:
