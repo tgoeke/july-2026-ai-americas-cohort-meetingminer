@@ -1684,6 +1684,33 @@ def test_worktree_remove_tears_the_stack_down_after_git_removes_the_checkout(tmp
     assert lines.index("info") < lines.index("compose -p meetingminer-probe down -v --remove-orphans")
 
 
+def test_worktree_remove_refuses_a_target_file_that_names_another_stack(
+    tmp_path: Path,
+) -> None:
+    """A copied/tampered ownership record must not route target removal to a
+    different live worktree's ``down -v``."""
+    repo, docker_bin, argv_log = _throwaway_repo(tmp_path)
+    assert _make_at(repo, docker_bin, ["worktree"], {"STORY": "probe"}).returncode == 0
+    assert _make_at(repo, docker_bin, ["worktree"], {"STORY": "victim"}).returncode == 0
+    probe = tmp_path / "meetingminer-wt" / "probe"
+    stack_file = probe / ".env.worktree"
+    stack_file.write_text(
+        stack_file.read_text(encoding="utf-8").replace(
+            "MM_STACK_NAME=meetingminer-probe",
+            "MM_STACK_NAME=meetingminer-victim",
+        ),
+        encoding="utf-8",
+    )
+    argv_log.write_text("", encoding="utf-8")
+
+    proc = _make_at(repo, docker_bin, ["worktree-remove"], {"STORY": "probe"})
+    output = proc.stdout + proc.stderr
+    assert proc.returncode != 0, output
+    assert probe.is_dir(), output
+    assert "MM_STACK_NAME" in output
+    assert not any(" down -v " in line for line in _argv_lines(argv_log))
+
+
 def test_worktree_remove_of_a_dirty_checkout_leaves_the_stack_intact(tmp_path: Path) -> None:
     """Row `Remove`, dirty: git refuses as before and no teardown runs."""
     repo, docker_bin, argv_log = _throwaway_repo(tmp_path)
