@@ -6,9 +6,9 @@ import type {
   MomentDetail,
   SnippetRunModel,
 } from '@/client/types.gen'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { ReplayPlayer } from '@/features/replay/ReplayPlayer'
-import { affordanceOf, offsetLabel } from '@/lib/affordance'
+import { affordanceOf, offsetLabel, sourceLinkLabel } from '@/lib/affordance'
 import { API_BASE } from '@/lib/api'
 import { mediaUrl } from '@/lib/media'
 import {
@@ -340,6 +340,29 @@ export function MeetingMoments({ meetingId, onOpenMoment }: MeetingMomentsProps)
     )
   }
 
+  // UX-DR12: beside each row's Replay, the meeting's YouTube link timed at
+  // that row's own offset — the same `affordanceOf` decision the header
+  // makes, given the offset. Nothing for another host (replay wins), and
+  // nothing without a recording: the degraded header carries the meeting-
+  // scoped link then.
+  const sourceControls = (key: string, startMs: number) => {
+    if (data === null) return null
+    const rowAffordance = affordanceOf(data, startMs)
+    if (rowAffordance.kind !== 'replay' || rowAffordance.source === null) return null
+    return (
+      <a
+        data-testid={`drilldown-youtube-link-${key}`}
+        href={rowAffordance.source.href}
+        target="_blank"
+        rel="noreferrer"
+        className={buttonVariants({ variant: 'outline', size: 'sm' })}
+      >
+        {sourceLinkLabel(rowAffordance.source)}
+        <span aria-hidden="true">↗</span>
+      </a>
+    )
+  }
+
   const inlinePlayer = (key: string, startMs: number, where: string) => {
     if (!hasRecording || data === null || openReplay !== key) return null
     return (
@@ -437,6 +460,7 @@ export function MeetingMoments({ meetingId, onOpenMoment }: MeetingMomentsProps)
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {replayControls(key, where)}
+          {sourceControls(key, shot.startOffsetMs)}
         </div>
         {inlinePlayer(key, shot.startOffsetMs, where)}
       </li>
@@ -698,14 +722,23 @@ export function MeetingMoments({ meetingId, onOpenMoment }: MeetingMomentsProps)
               // an unsafe scheme is shown inert, never offered.
               <div className="flex flex-wrap items-center gap-3 lg:order-1">
                 {headerAffordance?.kind === 'deepLink' && (
+                  // Labelled by provider (UX-DR12). Meeting scope, so a
+                  // YouTube link here is untimed: "Open on YouTube".
                   <a
                     data-testid="drilldown-deep-link"
-                    href={headerAffordance.href}
+                    href={headerAffordance.source.href}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-sm underline"
+                    className={
+                      headerAffordance.source.provider === 'youtube'
+                        ? buttonVariants({ variant: 'outline', size: 'sm' })
+                        : 'text-sm underline'
+                    }
                   >
-                    Open in Stream
+                    {sourceLinkLabel(headerAffordance.source)}
+                    {headerAffordance.source.provider === 'youtube' && (
+                      <span aria-hidden="true">↗</span>
+                    )}
                   </a>
                 )}
                 {headerAffordance?.kind === 'inertLink' && (
@@ -801,6 +834,7 @@ export function MeetingMoments({ meetingId, onOpenMoment }: MeetingMomentsProps)
                         )}
                         <div className="flex flex-wrap items-center gap-3">
                           {replayControls(key, where)}
+                          {sourceControls(key, segment.startMs)}
                         </div>
                         {inlinePlayer(key, segment.startMs, where)}
                       </li>

@@ -148,6 +148,53 @@ describe('ChatPanel', () => {
     expect(onOpenMoment).toHaveBeenCalledExactlyOnceWith('moment-1')
   })
 
+  it('links a YouTube citation back to the video at its offset beside Open moment', async () => {
+    // UX-DR12 on chat citations: YouTube only — another host or a null link
+    // leaves the row exactly as before.
+    fetchMock.mockResolvedValue(
+      streamResponse([
+        sseFrame('chat.token', { event: 'chat.token', text: 'The order was approved.' }),
+        sseFrame('chat.citations', {
+          event: 'chat.citations',
+          citations: [
+            citation({ sourceDeepLink: 'https://www.youtube.com/watch?v=abc' }),
+            citation({
+              momentId: 'moment-2',
+              startMs: 5_000,
+              sourceDeepLink: 'https://example.sharepoint.com/stream.aspx?id=x',
+            }),
+            citation({ momentId: 'moment-3', startMs: 6_000, sourceDeepLink: null }),
+          ],
+        }),
+        sseFrame('chat.done', { event: 'chat.done', route: route() }),
+      ]),
+    )
+    const onOpenMoment = vi.fn()
+    render(<ChatPanel onOpenMoment={onOpenMoment} />)
+
+    await ask('What happened with the purchase order?')
+
+    const row = await screen.findByTestId('chat-citation-moment-1-0')
+    const link = within(row).getByTestId('chat-citation-youtube-moment-1-0')
+    // The name carries the offset (65 000 ms); the `↗` glyph is hidden.
+    expect(link).toBe(within(row).getByRole('link', { name: 'Open on YouTube at 1:05' }))
+    expect(link).toHaveAttribute('href', 'https://www.youtube.com/watch?v=abc&t=65')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noreferrer')
+    // `Open moment` is unchanged, precedes the link, and still opens by
+    // `momentId` alone.
+    const open = within(row).getByRole('button', { name: /open moment/i })
+    expect(open.compareDocumentPosition(link)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    await userEvent.click(open)
+    expect(onOpenMoment).toHaveBeenCalledExactlyOnceWith('moment-1')
+    // Another host, or no link at all: offset and `Open moment` only.
+    for (const id of ['chat-citation-moment-2-1', 'chat-citation-moment-3-2']) {
+      const other = screen.getByTestId(id)
+      expect(within(other).queryByRole('link')).toBeNull()
+      expect(within(other).getByRole('button', { name: /open moment/i })).toBeInTheDocument()
+    }
+  })
+
   it('renders an explicit no-citable-answer state on a 422 gate rejection, not a chat bubble', async () => {
     fetchMock.mockResolvedValue(
       problemResponse(422, {

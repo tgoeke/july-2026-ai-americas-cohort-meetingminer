@@ -556,11 +556,69 @@ describe('MomentView', () => {
 
     const link = await screen.findByTestId('moment-deep-link')
     expect(link).toHaveAttribute('href', 'https://example.sharepoint.com/stream.aspx?id=x')
+    // Another host keeps the untimed label (UX-DR12 changes YouTube only).
+    expect(link).toHaveAccessibleName('Open in Stream')
     // No screenshot, and no player ever mounts — ReplayPlayer has no failure
     // surface, so the caller gates.
     expect(screen.queryByTestId('moment-screenshot')).toBeNull()
     expect(screen.queryByTestId('replay-player')).toBeNull()
     expect(screen.queryByRole('button', { name: /Replay/ })).toBeNull()
+  })
+
+  it('offers the timed YouTube link beside Replay, replay first, on a recorded moment', async () => {
+    // UX-DR12: the source second — a YouTube meeting *with* a recording
+    // carries its link beside the Replay button, timed at this moment.
+    answers(detail({ sourceDeepLink: 'https://www.youtube.com/watch?v=abc' }))
+    render(<MomentView momentId="moment-1" />)
+
+    const replay = await screen.findByRole('button', { name: 'Replay recording at 0:44' })
+    const link = screen.getByTestId('moment-youtube-link')
+    // The accessible name carries the offset; the `↗` glyph is hidden.
+    expect(link).toBe(screen.getByRole('link', { name: 'Open on YouTube at 0:44' }))
+    expect(link).toHaveAttribute('href', 'https://www.youtube.com/watch?v=abc&t=44')
+    expect(new URL(link.getAttribute('href')!).searchParams.getAll('t')).toEqual(['44'])
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noreferrer')
+    // Replay precedes the link in document order.
+    expect(replay.compareDocumentPosition(link)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    // The sole `moment-deep-link` is the replay-less shape, not this one.
+    expect(screen.queryByTestId('moment-deep-link')).toBeNull()
+    // The player still opens only from Replay.
+    expect(screen.queryByTestId('replay-player')).toBeNull()
+    await userEvent.click(replay)
+    expect(await screen.findByTestId('replay-player')).toBeInTheDocument()
+  })
+
+  it('offers no source link beside Replay for another host', async () => {
+    // Story 2.2's rule, kept: a non-YouTube link beside a recording is the
+    // stale-link case, and the recording wins.
+    answers(detail({ sourceDeepLink: 'https://example.sharepoint.com/stream.aspx?id=x' }))
+    render(<MomentView momentId="moment-1" />)
+
+    await screen.findByRole('button', { name: 'Replay recording at 0:44' })
+    expect(screen.queryByTestId('moment-youtube-link')).toBeNull()
+    expect(screen.queryByTestId('moment-deep-link')).toBeNull()
+    expect(screen.queryByRole('link')).toBeNull()
+  })
+
+  it('makes the timed YouTube link the sole affordance on a transcript-only moment', async () => {
+    answers(
+      detail({
+        hasRecording: false,
+        screenshotId: null,
+        screenshotPath: null,
+        sourceDeepLink: 'https://youtu.be/abc',
+      }),
+    )
+    render(<MomentView momentId="moment-1" />)
+
+    const link = await screen.findByTestId('moment-deep-link')
+    expect(link).toBe(screen.getByRole('link', { name: 'Open on YouTube at 0:44' }))
+    expect(link).toHaveAttribute('href', 'https://youtu.be/abc?t=44')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(screen.queryByTestId('moment-youtube-link')).toBeNull()
+    expect(screen.queryByRole('button', { name: /Replay/ })).toBeNull()
+    expect(screen.queryByTestId('replay-player')).toBeNull()
   })
 
   it('shows an unsafe deep link as inert text, never as an anchor', async () => {

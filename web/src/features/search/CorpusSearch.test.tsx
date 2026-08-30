@@ -473,6 +473,67 @@ describe('CorpusSearch', () => {
     expect(screen.queryByRole('link')).toBeNull()
   })
 
+  it('offers the timed YouTube link beside Replay, replay first, on a recorded hit', async () => {
+    // UX-DR12 on search hits: the same treatment as the moment view, timed
+    // at the hit's own `startMs`.
+    answers(
+      response({ hits: [hit({ sourceDeepLink: 'https://www.youtube.com/watch?v=abc' })] }),
+    )
+    render(<CorpusSearch />)
+    const user = await type('purchase order')
+
+    const replay = await screen.findByRole('button', { name: 'Replay Data Hub Demo at 0:44' })
+    const link = screen.getByTestId('hit-youtube-link-moment-1')
+    expect(link).toBe(screen.getByRole('link', { name: 'Open on YouTube at 0:44' }))
+    expect(link).toHaveAttribute('href', 'https://www.youtube.com/watch?v=abc&t=44')
+    expect(new URL(link.getAttribute('href')!).searchParams.getAll('t')).toEqual(['44'])
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(replay.compareDocumentPosition(link)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(screen.queryByTestId('hit-deep-link-moment-1')).toBeNull()
+    // The player still opens only from Replay.
+    expect(screen.queryByTestId('replay-player')).toBeNull()
+    await user.click(replay)
+    expect(await screen.findByTestId('replay-player')).toBeInTheDocument()
+  })
+
+  it('offers no source link beside Replay for another host', async () => {
+    answers(
+      response({
+        hits: [hit({ sourceDeepLink: 'https://example-my.sharepoint.com/stream.aspx?id=x' })],
+      }),
+    )
+    render(<CorpusSearch />)
+    await type('purchase order')
+
+    await screen.findByRole('button', { name: 'Replay Data Hub Demo at 0:44' })
+    expect(screen.queryByTestId('hit-youtube-link-moment-1')).toBeNull()
+    expect(screen.queryByTestId('hit-deep-link-moment-1')).toBeNull()
+    expect(screen.queryByRole('link')).toBeNull()
+  })
+
+  it('makes the timed YouTube link the sole affordance on a transcript-only hit', async () => {
+    answers(
+      response({
+        hits: [
+          hit({
+            momentId: 'moment-5',
+            hasRecording: false,
+            screenshotId: null,
+            sourceDeepLink: 'https://youtu.be/abc',
+          }),
+        ],
+      }),
+    )
+    render(<CorpusSearch />)
+    await type('purchase order')
+
+    const link = await screen.findByTestId('hit-deep-link-moment-5')
+    expect(link).toBe(screen.getByRole('link', { name: 'Open on YouTube at 0:44' }))
+    expect(link).toHaveAttribute('href', 'https://youtu.be/abc?t=44')
+    expect(screen.queryByTestId('hit-youtube-link-moment-5')).toBeNull()
+    expect(screen.queryByRole('button', { name: /Replay/ })).toBeNull()
+  })
+
   it('says how much of the answer it is showing when the page is truncated', async () => {
     // Results stopping at the page size look exactly like the whole answer.
     answers(response({ hits: [hit()], estimatedTotal: 137 }))
@@ -701,10 +762,10 @@ describe('hit display helpers', () => {
   })
 
   it('chooses replay, deep link, inert text, or neither', () => {
-    expect(affordanceOf(hit())).toEqual({ kind: 'replay' })
+    expect(affordanceOf(hit())).toEqual({ kind: 'replay', source: null })
     expect(
       affordanceOf(hit({ hasRecording: false, sourceDeepLink: 'https://x/y' })),
-    ).toEqual({ kind: 'deepLink', href: 'https://x/y' })
+    ).toEqual({ kind: 'deepLink', source: { provider: 'other', href: 'https://x/y' } })
     expect(
         affordanceOf(hit({ hasRecording: false, sourceDeepLink: 'javascript:x' })),
     ).toEqual({ kind: 'inertLink', text: 'javascript:x' })
@@ -715,9 +776,23 @@ describe('hit display helpers', () => {
 
   it('prefers replay over a stale deep link when a recording exists', () => {
     // AD-15 clears `sourceDeepLink` once a recording arrives; if a stale one
-    // survives, the recording still wins.
+    // survives, the recording still wins — for any host but YouTube.
     expect(affordanceOf(hit({ sourceDeepLink: 'https://x/y' }))).toEqual({
       kind: 'replay',
+      source: null,
+    })
+  })
+
+  it('carries the timed YouTube link beside replay (UX-DR12)', () => {
+    expect(
+      affordanceOf(hit({ sourceDeepLink: 'https://www.youtube.com/watch?v=abc' }), 44_000),
+    ).toEqual({
+      kind: 'replay',
+      source: {
+        provider: 'youtube',
+        href: 'https://www.youtube.com/watch?v=abc&t=44',
+        offsetMs: 44_000,
+      },
     })
   })
 

@@ -1,7 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import type { CitationModel, RouteModel } from '@/client/types.gen'
-import { Button } from '@/components/ui/button'
-import { offsetLabel } from '@/lib/affordance'
+import { Button, buttonVariants } from '@/components/ui/button'
+import { offsetLabel, sourceLinkLabel, sourceLinkOf } from '@/lib/affordance'
 import { API_BASE } from '@/lib/api'
 import { chatStream } from './chatStream'
 import { type ChatFailure, classifyFailure, questionProblem, routeSummary } from './chat'
@@ -253,36 +253,57 @@ export function ChatPanel({ onOpenMoment }: ChatPanelProps = {}) {
 
         {citations.length > 0 && (
           <ul data-testid="chat-citations" className="flex flex-col gap-2">
-            {citations.map((citation, index) => (
-              <li
-                // `momentId` alone collides when the same moment is cited
-                // twice (two separate excerpts) — the index disambiguates
-                // both the key and the testid.
-                key={`${citation.momentId}-${index}`}
-                data-testid={`chat-citation-${citation.momentId}-${index}`}
-                className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm"
-              >
-                <span className="text-xs text-muted-foreground">
-                  {offsetLabel(citation.startMs)}
-                </span>
-                {/* Only when a shell wired the navigation: an enabled button
-                    that silently does nothing is exactly the dead affordance
-                    `CorpusSearch`'s own optional prop exists to avoid. Opens
-                    by `momentId` alone, identically regardless of
-                    `screenshotId`/`sourceDeepLink` — `MomentView` renders the
-                    degraded mode itself. */}
-                {onOpenMoment !== undefined && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    aria-label={`Open moment at ${offsetLabel(citation.startMs)}`}
-                    onClick={() => onOpenMoment(citation.momentId)}
-                  >
-                    Open moment
-                  </Button>
-                )}
-              </li>
-            ))}
+            {citations.map((citation, index) => {
+              // UX-DR12: a YouTube citation also links back to the video at
+              // this offset. `CitationModel` carries no `hasRecording`, so
+              // this is the provider check alone — another host's link has
+              // no affordance on this surface, exactly as before.
+              const source = sourceLinkOf(citation.sourceDeepLink, citation.startMs)
+              return (
+                <li
+                  // `momentId` alone collides when the same moment is cited
+                  // twice (two separate excerpts) — the index disambiguates
+                  // both the key and the testid.
+                  key={`${citation.momentId}-${index}`}
+                  data-testid={`chat-citation-${citation.momentId}-${index}`}
+                  className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm"
+                >
+                  <span className="text-xs text-muted-foreground">
+                    {offsetLabel(citation.startMs)}
+                  </span>
+                  <span className="flex flex-wrap items-center gap-2">
+                    {/* Only when a shell wired the navigation: an enabled
+                        button that silently does nothing is exactly the dead
+                        affordance `CorpusSearch`'s own optional prop exists to
+                        avoid. Opens by `momentId` alone, identically
+                        regardless of `screenshotId`/`sourceDeepLink` —
+                        `MomentView` renders the degraded mode itself. */}
+                    {onOpenMoment !== undefined && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        aria-label={`Open moment at ${offsetLabel(citation.startMs)}`}
+                        onClick={() => onOpenMoment(citation.momentId)}
+                      >
+                        Open moment
+                      </Button>
+                    )}
+                    {source?.provider === 'youtube' && (
+                      <a
+                        data-testid={`chat-citation-youtube-${citation.momentId}-${index}`}
+                        href={source.href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                      >
+                        {sourceLinkLabel(source)}
+                        <span aria-hidden="true">↗</span>
+                      </a>
+                    )}
+                  </span>
+                </li>
+              )
+            })}
           </ul>
         )}
 

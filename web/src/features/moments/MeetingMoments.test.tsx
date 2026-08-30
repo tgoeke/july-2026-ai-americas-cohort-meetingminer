@@ -493,11 +493,76 @@ describe('MeetingMoments', () => {
       'href',
       'https://example-my.sharepoint.com/recap',
     )
+    // Another host keeps the untimed label (UX-DR12 changes YouTube only).
+    expect(screen.getByTestId('drilldown-deep-link')).toHaveAccessibleName('Open in Stream')
     // Highlighting still works without a recording.
     await userEvent.type(screen.getByTestId('highlight-input'), 'feed')
     expect(
       screen.getByTestId('drilldown-segment-seg-2').querySelectorAll('mark'),
     ).toHaveLength(1)
+  })
+
+  it('times the YouTube link at each row beside Replay when the meeting has a recording', async () => {
+    // UX-DR12 on the drill-down: every screenshot row and transcript row
+    // carries the meeting's link timed at that row's own offset.
+    answers(response({ sourceDeepLink: 'https://www.youtube.com/watch?v=abc' }))
+    render(<MeetingMoments meetingId="meeting-1" />)
+
+    await screen.findByTestId('drilldown-segment-seg-1')
+    const shot1 = screen.getByTestId('drilldown-youtube-link-shot:shot-1')
+    const shot2 = screen.getByTestId('drilldown-youtube-link-shot:shot-2')
+    const seg1 = screen.getByTestId('drilldown-youtube-link-seg:seg-1')
+    const seg2 = screen.getByTestId('drilldown-youtube-link-seg:seg-2')
+    expect(shot1).toHaveAttribute('href', 'https://www.youtube.com/watch?v=abc&t=0')
+    expect(shot2).toHaveAttribute('href', 'https://www.youtube.com/watch?v=abc&t=30')
+    expect(seg1).toHaveAttribute('href', 'https://www.youtube.com/watch?v=abc&t=2')
+    expect(seg2).toHaveAttribute('href', 'https://www.youtube.com/watch?v=abc&t=40')
+    // Each name carries its own offset; the `↗` glyph is hidden from it.
+    expect(
+      within(screen.getByTestId('drilldown-segment-seg-2')).getByRole('link', {
+        name: 'Open on YouTube at 0:40',
+      }),
+    ).toBe(seg2)
+    expect(seg2).toHaveAttribute('target', '_blank')
+    // Replay first: the row's Replay button precedes its link.
+    const replay = within(screen.getByTestId('drilldown-screenshot-shot-2')).getByRole(
+      'button',
+      { name: 'Replay recording at 0:30' },
+    )
+    expect(replay.compareDocumentPosition(shot2)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    // The meeting-scoped header link is the degraded shape only.
+    expect(screen.queryByTestId('drilldown-deep-link')).toBeNull()
+  })
+
+  it('offers no source link beside Replay for another host', async () => {
+    // The default fixture: a SharePoint recap link and a recording. Story
+    // 2.2's rule, kept — the recording wins.
+    answers(response())
+    render(<MeetingMoments meetingId="meeting-1" />)
+
+    await screen.findByTestId('drilldown-segment-seg-1')
+    expect(screen.getAllByRole('button', { name: /^Replay recording/ }).length).toBeGreaterThan(0)
+    expect(screen.queryByTestId(/^drilldown-youtube-link-/)).toBeNull()
+    expect(screen.queryByTestId('drilldown-deep-link')).toBeNull()
+  })
+
+  it('labels the degraded header link Open on YouTube, untimed at meeting scope', async () => {
+    answers(
+      response({
+        hasRecording: false,
+        screenshots: [],
+        sourceDeepLink: 'https://www.youtube.com/watch?v=abc',
+      }),
+    )
+    render(<MeetingMoments meetingId="meeting-1" />)
+
+    await screen.findByTestId('drilldown-segment-seg-1')
+    const link = screen.getByTestId('drilldown-deep-link')
+    expect(link).toBe(screen.getByRole('link', { name: 'Open on YouTube' }))
+    // Meeting scope: no `t`, the drop's URL verbatim.
+    expect(link).toHaveAttribute('href', 'https://www.youtube.com/watch?v=abc')
+    expect(screen.queryByRole('button', { name: /Replay/ })).toBeNull()
+    expect(screen.queryByTestId(/^drilldown-youtube-link-/)).toBeNull()
   })
 
   it('shows an unsafe recap link inert rather than as an anchor', async () => {

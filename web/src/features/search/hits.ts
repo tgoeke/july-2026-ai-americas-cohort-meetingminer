@@ -19,6 +19,9 @@ export {
   affordanceOf,
   offsetLabel,
   safeHref,
+  type SourceLink,
+  sourceLinkLabel,
+  sourceLinkOf,
 } from '@/lib/affordance'
 export { problemMessage } from '@/lib/problems'
 

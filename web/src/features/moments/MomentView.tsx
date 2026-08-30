@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { approveMomentArtifacts, getExtractionPrompts, getMoment } from '@/client/sdk.gen'
 import type { ExtractionPrompt, MomentDetail } from '@/client/types.gen'
-import { Button } from '@/components/ui/button'
-import { affordanceOf, offsetLabel } from '@/lib/affordance'
+import { Button, buttonVariants } from '@/components/ui/button'
+import { affordanceOf, offsetLabel, sourceLinkLabel } from '@/lib/affordance'
 import { API_BASE } from '@/lib/api'
 import { mediaUrl } from '@/lib/media'
 import { problemMessage } from '@/lib/problems'
@@ -214,7 +214,8 @@ export function MomentView({ momentId }: MomentViewProps) {
   }, [momentId])
 
   const loading = detail === null && failure === null
-  const affordance = detail === null ? null : affordanceOf(detail)
+  // Timed at this moment: a YouTube source link carries `t=` from `startMs`.
+  const affordance = detail === null ? null : affordanceOf(detail, detail.startMs)
 
   return (
     <section className="flex w-full flex-col gap-4">
@@ -412,18 +413,42 @@ export function MomentView({ momentId }: MomentViewProps) {
                     {replayOpen ? 'Hide replay' : 'Replay'}
                   </Button>
                 )}
+                {affordance?.kind === 'replay' && affordance.source !== null && (
+                  // UX-DR12: replay first, the source second — the YouTube
+                  // link timed at this moment, as an outline anchor that never
+                  // competes with the default-variant Replay button.
+                  <a
+                    data-testid="moment-youtube-link"
+                    href={affordance.source.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                  >
+                    {sourceLinkLabel(affordance.source)}
+                    <span aria-hidden="true">↗</span>
+                  </a>
+                )}
                 {affordance?.kind === 'deepLink' && (
                   // UX-DR11: the transitional source deep link, exactly where
                   // the replay button would be, until augmentation supplies
-                  // real video.
+                  // real video. Labelled by provider (UX-DR12): a YouTube link
+                  // is timed and named with its offset; any other host keeps
+                  // the untimed "Open in Stream".
                   <a
                     data-testid="moment-deep-link"
-                    href={affordance.href}
+                    href={affordance.source.href}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-sm underline"
+                    className={
+                      affordance.source.provider === 'youtube'
+                        ? buttonVariants({ variant: 'outline', size: 'sm' })
+                        : 'text-sm underline'
+                    }
                   >
-                    Open in Stream
+                    {sourceLinkLabel(affordance.source)}
+                    {affordance.source.provider === 'youtube' && (
+                      <span aria-hidden="true">↗</span>
+                    )}
                   </a>
                 )}
                 {affordance?.kind === 'inertLink' && (
