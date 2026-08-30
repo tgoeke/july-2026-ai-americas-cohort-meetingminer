@@ -938,6 +938,58 @@ def test_align_logs_one_summary_event_with_the_resolution_split(
     assert sum(event[name] for name in speakers.RESOLUTIONS) == event["segment_count"]
 
 
+def test_align_warns_when_fallback_collapses_a_turn_to_zero_duration(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Path,
+    make_transcript_drop: Callable[..., Path],
+    capsys,
+) -> None:
+    """Whole-second starts stay unchanged, but their collision is observable."""
+    drop = make_transcript_drop(
+        "source-zero-duration-warning",
+        text=(
+            "Alice | 00:01\n"
+            "opening words\n\n"
+            "Bob | 00:01\n"
+            "closing words\n"
+        ),
+        vtt=(
+            "WEBVTT\n\n"
+            "00:00:01.100 --> 00:00:01.500\n"
+            "opening words\n\n"
+            "00:00:01.900 --> 00:00:02.200\n"
+            "closing words\n"
+        ),
+    )
+    job_id = enqueue(pool, drop, "source-zero-duration-warning")
+
+    assert runner.run_once(pool, app_config, content_root) is True
+
+    meeting_id = only_meeting(pool, job_id)["id"]
+    rows = segments(pool, meeting_id)
+    assert [(row["start_ms"], row["end_ms"]) for row in rows] == [
+        (1_000, 1_000),
+        (1_000, 2_200),
+    ]
+
+    records = [
+        json.loads(line)
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith("{")
+    ]
+    [warning] = [
+        record
+        for record in records
+        if record["event"] == "stage.align.zero-duration-fallback"
+    ]
+    assert warning["severity"] == "warning"
+    assert warning["meeting_id"] == str(meeting_id)
+    assert warning["turn_ordinal"] == 1
+    assert warning["turn_start_ms"] == 1_000
+    assert warning["following_turn_start_ms"] == 1_000
+
+
 # --- a recording job replaced by a transcript-only drop --------------------
 
 

@@ -65,8 +65,8 @@ Story 6.3 footprint and treats the verbatim Story 6.2 override hunk as context.
 - **Severity:** medium
 - **Finding:** Truncating every legacy start to a whole second gives two speaker changes within one second the same start. The first turn's VTT matching window then ends at that same truncated start, before either real cue begins, so it receives no VTT end and falls back to a zero-duration boundary.
 - **Evidence:** Provided starts representing cues at 1.100s and 1.900s both become 1.000s. `merge_vtt_end_timings()` returned `(None, 2200)`; `resolve_end_times()` consequently bounds the first turn at the following 1.000s start. This is a concrete downstream consequence of the frozen truncation decision.
-- **Suggested direction:** **Open — frozen-spec decision required.** Amend the representation contract to preserve subsecond ordering (or define a deterministic monotonic stamp policy) before changing the converter; the current frozen contract explicitly requires truncation.
-- **Resolution:** **OPEN.** No code change was made because the frozen truncation contract must be amended first.
+- **Suggested direction:** **Deferred by owner ruling dated 2026-08-30.** Keep the truncation contract and converter unchanged until real Zoom exports in the new corpus show sub-second speaker changes. Preserve the reproduction in `deferred-work.md`; add only a named warning so a future occurrence becomes measurable evidence.
+- **Resolution:** **DEFERRED.** The exact reproduction and revisit trigger are recorded in `deferred-work.md`. A red-first regression proved the existing fallback still stores `(1000, 1000)` then `(1000, 2200)` and now emits `stage.align.zero-duration-fallback` with the meeting, affected turn, and both colliding stamps. No converter or timing behavior changed.
 
 ### F7 — Original-file provenance can hash different bytes than were converted
 
@@ -124,7 +124,7 @@ Story 6.3 footprint and treats the verbatim Story 6.2 override hunk as context.
 
 ## Triage and verification
 
-- Triage: 2 decision-needed, 10 patch, 0 deferred, 11 dismissed as noise,
+- Triage: 1 decision-needed, 10 patch, 1 deferred, 11 dismissed as noise,
   by-design behavior, known deferred work, or out-of-scope Story 6.2 mechanics.
 - Pipeline footprint: `git diff d72c658..story/6-3 --
   server/meetingminer/pipeline/` was empty.
@@ -139,6 +139,12 @@ Story 6.3 footprint and treats the verbatim Story 6.2 override hunk as context.
   `test_a_zoom_mint_holds_both_transcripts_and_records_the_dialect`.
 - `uv run --project server pytest server/tests/test_transcript_dialects.py -q`
   — 46 passed.
+- F6 warning regression: the targeted test first failed with no
+  `stage.align.zero-duration-fallback` event while reproducing stored boundaries
+  `(1000, 1000)` and `(1000, 2200)`, then passed after the warning-only stage
+  change.
+- Follow-up combined surface: `test_worker_transcripts.py` plus
+  `test_transcript_dialects.py` — 77 passed.
 - `make test-fast` — puller 128 passed, web 291 passed, eval harness 549
   passed, server fast set 1447 passed with 326 slow tests deselected.
 - `make test` — puller 128 passed, web 291 passed, eval harness 549 passed,
@@ -151,8 +157,9 @@ Story 6.3 footprint and treats the verbatim Story 6.2 override hunk as context.
 
 ## Verdict
 
-**CHANGES REQUESTED.** Ten patchable findings are fixed and fully green. The
-story does not pass review and must not merge while F1 (transcript-only identity
-can ignore corrected attribution) and F6 (subsecond speaker changes can collapse
-to a zero-duration turn) remain open. Both require an owner decision and frozen
-spec amendment before code remediation.
+**CHANGES REQUESTED.** Eleven patchable or owner-directed findings are fixed or
+deferred with observability. The story does not pass review and must not merge
+while F1 remains open: transcript-only identity can ignore corrected speaker
+attribution, and resolving that requires a separate owner ruling and frozen-spec
+amendment. F6 is deferred under the 2026-08-30 owner ruling and is not an open
+merge decision.

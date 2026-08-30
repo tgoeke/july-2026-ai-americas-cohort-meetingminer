@@ -1,8 +1,9 @@
 # Owner/spec handoff — Story 6.3 review decisions
 
 Story 6.3 **does not pass review** and must not merge yet. The review lane fixed
-all ten unambiguous code findings itself; two findings are rooted in the frozen
-intent and need owner decisions before any further code change.
+all unambiguous code findings itself, and the owner deferred F6 with a named
+warning for observability. F1 is the only finding still awaiting an owner
+decision.
 
 - Repository: `/Users/devopsterus/current/cohort/meetingminer`
 - Source branch: `story/6-3`
@@ -18,9 +19,9 @@ intent and need owner decisions before any further code change.
 Read the report first. Its Location / Severity / Finding / Evidence / Suggested
 direction entries are authoritative.
 
-## Specification decisions required
+## Specification decision required
 
-Do not ask a builder to guess either decision. Amend the frozen intent, then
+Do not ask a builder to guess this decision. Amend the frozen intent, then
 re-derive the implementation task.
 
 ### F1 — Choose transcript-only Zoom identity
@@ -46,29 +47,24 @@ re-derive the implementation task.
   existing drop that carries different attributed text without a named,
   actionable outcome.
 
-### F6 — Choose behavior for speaker changes inside one second
+## F6 owner ruling — deferred 2026-08-30
 
 - **Anchor:** `server/meetingminer/transcripts/dialects.py:434-449` and
   `server/meetingminer/pipeline/alignment.py:153-170` in the reviewed source.
 - **Failure:** Starts at 1.100s and 1.900s both render as `00:01`; the first
   turn's matching window ends before its real cue, producing no VTT end and a
   zero-duration fallback boundary.
-- **Why the spec owns it:** The frozen contract explicitly requires truncating
-  legacy block stamps to whole seconds while also requiring the unchanged
-  legacy pipeline format, which has no fractional field.
-- **Decision options:**
-  1. Fail closed at acquisition when distinct consecutive turns collapse to the
-     same legacy stamp. This preserves the unchanged pipeline and never invents
-     time, at the cost of refusing those exports.
-  2. Amend the pipeline transcript contract to preserve fractional legacy
-     starts. This is a wider architecture/story change and violates the current
-     unchanged-pipeline acceptance criterion until that criterion is amended.
-  3. Define a monotonic whole-second adjustment rule. This stays local but can
-     point a turn later than it actually began, so it needs an explicit
-     never-guess exception and downstream citation analysis.
-- **Required outcome:** Two real speaker turns must not collapse into a
-  zero-duration first turn without a named refusal or a representation that
-  preserves their order.
+- **Ruling:** Defer. Do not amend the truncation contract and do not change the
+  converter while the frequency in genuine Zoom exports remains unmeasured.
+- **Evidence retained:** Exact input: cues at 1.100s and 1.900s. Observed:
+  `merge_vtt_end_timings() -> (None, 2200)`, producing a zero-duration first
+  boundary. `_bmad-output/implementation-artifacts/deferred-work.md` carries
+  the full reproduction.
+- **Revisit trigger:** Real Zoom exports in the new corpus showing sub-second
+  speaker changes.
+- **Observability added:** `stage.align.zero-duration-fallback` names the
+  meeting, affected turn, and both colliding stamps without changing timing,
+  retry, conversion, or acceptance behavior.
 
 ## Already fixed on the review branch
 
@@ -86,9 +82,9 @@ No builder action is requested for these findings:
 Every regression was observed failing against the unfixed code before its fix.
 The final dialect suite has 46 tests.
 
-## Verification after the owner decisions
+## Verification after the F1 owner decision
 
-After amending the spec and implementing the chosen rules, rerun:
+After resolving F1, rerun:
 
 ```bash
 uv run --project server pytest server/tests/test_transcript_dialects.py -q
@@ -108,5 +104,6 @@ Do not widen into Stories 6.4/6.4a/6.5/6.5a, Teams content inference,
 `pipeline/speakers.py`, unrelated alignment policy, Story 6.2's override
 mechanism, shared test fixtures, configuration, root documentation, or the
 known deferred `Dr.`-style-name and unbounded same-speaker-gap items. Do not
-merge to `main` until a fresh follow-up review sees both decisions resolved and
-all gates green.
+merge to `main` until a fresh follow-up review sees F1 resolved and all gates
+green. F6 is deferred and does not require a contract change before that
+review.

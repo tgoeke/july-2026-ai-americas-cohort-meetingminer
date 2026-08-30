@@ -586,6 +586,23 @@ def run(ctx: StageContext) -> None:
 
     timed = _timed(base)
     ends = resolve_end_times(timed, vtt_ends, config)
+    for position, (segment, end_ms) in enumerate(zip(timed, ends)):
+        following = timed[position + 1] if position + 1 < len(timed) else None
+        if (
+            end_ms == segment.start_ms
+            and vtt_ends[position] is None
+            and segment.end_ms is None
+            and following is not None
+            and following.start_ms == segment.start_ms
+        ):
+            ctx.log(
+                "stage.align.zero-duration-fallback",
+                severity="warning",
+                meeting_id=ctx.meeting_id,
+                turn_ordinal=position + 1,
+                turn_start_ms=segment.start_ms,
+                following_turn_start_ms=following.start_ms,
+            )
     matches: tuple[AlignmentMatch, ...]
     if stt is not None and label_source is not None and stt.segments:
         matches = align_segments(timed, _timed(stt.segments), config)

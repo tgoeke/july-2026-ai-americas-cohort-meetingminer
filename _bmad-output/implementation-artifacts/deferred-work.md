@@ -322,3 +322,10 @@ also edits the pinned sets in `server/tests/test_lint_contract.py`.
 - source_spec: `_bmad-output/implementation-artifacts/spec-11-1-seconds-fast-default-suite.md`
   summary: The fast set is ~49s of pytest (~66–71s `make test-fast`), not seconds; the residue is ~1,000 Postgres-backed api/worker tests at 20–50ms each.
   evidence: Spec residual risk (1): the cost is per-test fixture setup against the per-run Postgres database, which the story's marks do not touch. Bringing the fast loop to single-digit seconds means changing the fixture cost (a shared per-session schema, or a decision-core split), which is a story, not a mark. Not yet in `docs/backlog.md`; the spec left filing it to the owner.
+
+## Deferred from: Story 6.3 review finding F6 (2026-08-30, owner ruling)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-6-3-local-files-acquisition-with-transcript-dialect-conversion.md`
+  summary: DEFERRED — whole-second legacy stamps can erase a speaker turn's duration. Do not amend the truncation contract and do not change the converter until the corpus establishes that this occurs in genuine Zoom exports.
+  evidence: Exact input: cues at 1.100s and 1.900s. Observed: `merge_vtt_end_timings() -> (None, 2200)`. Both converted legacy starts are 1.000s, so the first turn's fallback is bounded by the following 1.000s start, producing the resulting zero-duration boundary `(start_ms, end_ms) == (1000, 1000)`; the second turn ends at 2200ms. The mechanism is preserved unchanged. Story 6.3 review adds only the named structured warning `stage.align.zero-duration-fallback`, carrying the meeting, affected turn, and both colliding stamps.
+  revisit_trigger: Real Zoom exports in the new corpus showing sub-second speaker changes.

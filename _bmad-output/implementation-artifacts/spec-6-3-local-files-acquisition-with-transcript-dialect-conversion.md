@@ -326,18 +326,18 @@ boundary where the meeting identity and structured logger are available.
 
 ### Tasks & Acceptance — F6 owner ruling
 
-- [ ] Record F6 as **DEFERRED** in the review report and
+- [x] Record F6 as **DEFERRED** in the review report and
   `_bmad-output/implementation-artifacts/deferred-work.md`, retaining verbatim:
   cues at 1.100s and 1.900s; observed
   `merge_vtt_end_timings() -> (None, 2200)`; resulting zero-duration boundary;
   revisit only when real Zoom exports in the new corpus show sub-second speaker
   changes.
-- [ ] Add a red-first regression test proving the fallback emits one named
+- [x] Add a red-first regression test proving the fallback emits one named
   structured warning with the meeting, affected turn, and the two colliding
   stamps.
-- [ ] Add the warning at the alignment stage boundary without changing
+- [x] Add the warning at the alignment stage boundary without changing
   `resolve_end_times()`, converter output, accepted inputs, or stored timing
   behavior. Assert the reproduced result remains the zero-duration first
   boundary followed by 2200ms.
-- [ ] Update the owner/spec handoff so F1 is the only open decision. Do not act
+- [x] Update the owner/spec handoff so F1 is the only open decision. Do not act
   on F1 and do not merge to `main`.
