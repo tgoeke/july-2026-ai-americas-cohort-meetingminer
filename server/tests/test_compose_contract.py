@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 import yaml
 
+from fast_budget import _SLOW_NODEIDS
 from repo_paths import REPO_ROOT
 
 COMPOSE_PATH = REPO_ROOT / "infra" / "docker-compose.yml"
@@ -103,7 +104,7 @@ def _under_server_tests(word: str) -> bool:
 
 
 def _dry_run(target: str, *flags: str) -> str:
-    """What `make -n [flags] -C infra <target>` prints, one command per line.
+    """What `make -n [flags] -C infra <target>` prints: every recipe command, one per line, plus whatever the flags add (`--debug=basic`: make's own trace).
 
     `make -n` prints each recipe line expanded — prerequisites included — and
     executes none of them, so this is the effective run without a pytest
@@ -156,12 +157,19 @@ def _dry_run_steps(target: str) -> list[tuple[str, list[str]]]:
     `_server_pytest_words`.
     """
     steps: list[tuple[str, list[str]]] = []
-    for line in _dry_run(target, "--debug=basic").splitlines():
+    output = _dry_run(target, "--debug=basic")
+    for line in output.splitlines():
         announced = _REMAKE.search(line)
         if announced:
             steps.append((announced.group(1), []))
         elif steps:
             steps[-1][1].append(line)
+    version = subprocess.run(["make", "--version"], capture_output=True, text=True, timeout=60)
+    assert steps, (
+        f"no remake announcement matched {_REMAKE.pattern!r} in `make -n --debug=basic` "
+        f"output under {version.stdout.splitlines()[:1]}; first lines:\n"
+        + "\n".join(output.splitlines()[:8])
+    )
     return steps
 
 
@@ -256,9 +264,15 @@ def test_make_test_fast_runs_check_client_then_every_store_free_suite_before_the
     """The loop's effective sequence, from make itself: check-client first (a missing client fails with its named message, not as a Vite import error inside web-test), then exactly the three store-free suites, and the one whole-server pytest command last, under test-fast. Dropping a prerequisite from the rule line, adding one, or moving check-client fails here."""
     steps = _dry_run_steps("test-fast")
     targets = [target for target, _ in steps]
-    assert targets[0] == TEST_FAST_PREREQUISITES[0], targets
+    edit = "the `test-fast:` rule line and TEST_FAST_PREREQUISITES in test_compose_contract.py"
+    assert targets[0] == TEST_FAST_PREREQUISITES[0], f"check-client must run first; got {targets}"
     assert targets[-1] == "test-fast", targets
-    assert set(targets[1:-1]) == set(TEST_FAST_PREREQUISITES[1:]), targets
+    # The order among the three suites is deliberately unconstrained; the set
+    # is exact, transitively — a prerequisite of a prerequisite would appear here too.
+    assert set(targets[1:-1]) == set(TEST_FAST_PREREQUISITES[1:]), (
+        f"test-fast ran {targets[1:-1]} before the fast set, expected exactly "
+        f"{list(TEST_FAST_PREREQUISITES[1:])}; edit both {edit}"
+    )
     with_server_pytest = [
         target for target, lines in steps if any(_server_pytest_words(line) for line in lines)
     ]
@@ -346,10 +360,9 @@ def _is_slow_mark(node: ast.expr) -> bool:
     )
 
 
-def _has_module_level_slow_mark(path: Path) -> bool:
-    """A real module-level `pytestmark = pytest.mark.slow(...)`, alone or inside a list — the same text inside a string is not a mark."""
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    for node in tree.body:
+def _slow_pytestmark_in(body: list[ast.stmt]) -> bool:
+    """A real `pytestmark = pytest.mark.slow(...)` among these statements, alone or inside a list — the same text inside a string is not a mark."""
+    for node in body:
         if isinstance(node, ast.Assign):
             targets, value = node.targets, node.value
         elif isinstance(node, ast.AnnAssign) and node.value is not None:
@@ -364,13 +377,25 @@ def _has_module_level_slow_mark(path: Path) -> bool:
     return False
 
 
+def _has_module_level_slow_mark(path: Path) -> bool:
+    """A module-level `pytestmark` carrying `slow`."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return _slow_pytestmark_in(tree.body)
+
+
+def _both_ways(marked: set[str], expected: tuple[str, ...], pin: str) -> None:
+    """Exact-set comparison with a message that says what to edit."""
+    assert marked == set(expected), (
+        f"extra: {sorted(marked - set(expected))}; missing: {sorted(set(expected) - marked)} "
+        f"— a slow mark is a deliberate edit of both places: the mark and {pin} in "
+        "server/tests/test_compose_contract.py"
+    )
+
+
 def test_the_module_level_slow_set_is_exactly_the_measured_twelve() -> None:
     """Derived from the syntax of every test module and compared both ways: an extra marked module would shrink the fast set silently, a missing mark would re-admit a twin-bound module, and a mark inside a string is no mark."""
     marked = {p.stem for p in SERVER_TESTS.glob("test_*.py") if _has_module_level_slow_mark(p)}
-    expected = set(SLOW_MODULES)
-    assert marked == expected, (
-        f"extra: {sorted(marked - expected)}; missing: {sorted(expected - marked)}"
-    )
+    _both_ways(marked, SLOW_MODULES, "SLOW_MODULES")
 
 
 # The measured per-test slow set (story 11.1): the four tests in otherwise
@@ -386,19 +411,38 @@ SLOW_TESTS = (
 
 
 def _decorated_slow_definitions(path: Path) -> set[str]:
-    """Every `def`, `async def` or `class` at module level or inside a class whose decorators carry a real `pytest.mark.slow`, as `module::name` — the same text inside a string (a pytester probe) is not a mark."""
+    """Every `def`, `async def` or `class` a real `pytest.mark.slow` reaches through syntax, as `module::name`.
+
+    Definitions at module level or inside a class, including ones under a
+    module-level `if`/`try`/`with`, which pytest collects too. A mark counts
+    anywhere inside a decorator expression — `pytest.param(marks=...)` in a
+    `parametrize` as well as the decorator itself — and a class-body
+    `pytestmark` counts for the class. The same text inside a string (a
+    pytester probe) is not a mark.
+    """
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     found: set[str] = set()
 
     def walk(body: list[ast.stmt], prefix: str) -> None:
         for node in body:
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                name = f"{prefix}::{node.name}"
+                decorated = any(
+                    _is_slow_mark(inner)
+                    for decorator in node.decorator_list
+                    for inner in ast.walk(decorator)
+                )
+                if decorated or (isinstance(node, ast.ClassDef) and _slow_pytestmark_in(node.body)):
+                    found.add(name)
+                if isinstance(node, ast.ClassDef):
+                    walk(node.body, name)
                 continue
-            name = f"{prefix}::{node.name}"
-            if any(_is_slow_mark(decorator) for decorator in node.decorator_list):
-                found.add(name)
-            if isinstance(node, ast.ClassDef):
-                walk(node.body, name)
+            for field in ("body", "orelse", "finalbody"):
+                block = getattr(node, field, None)
+                if isinstance(block, list):
+                    walk(block, prefix)
+            for handler in getattr(node, "handlers", []):
+                walk(handler.body, prefix)
 
     walk(tree.body, path.stem)
     return found
@@ -409,7 +453,25 @@ def test_the_per_test_slow_set_is_exactly_the_measured_four() -> None:
     marked: set[str] = set()
     for path in SERVER_TESTS.glob("test_*.py"):
         marked |= _decorated_slow_definitions(path)
-    expected = set(SLOW_TESTS)
-    assert marked == expected, (
-        f"extra: {sorted(marked - expected)}; missing: {sorted(expected - marked)}"
+    _both_ways(marked, SLOW_TESTS, "SLOW_TESTS")
+
+
+def _pinned(nodeid: str) -> bool:
+    """Whether a slow-marked node id is accounted for: its module is in SLOW_MODULES, or its `module::[Class::]test` (parametrization stripped) is in SLOW_TESTS."""
+    path, _, rest = nodeid.partition("::")
+    stem = Path(path).stem
+    if stem in SLOW_MODULES:
+        return True
+    return f"{stem}::{rest.partition('[')[0]}" in SLOW_TESTS
+
+
+def test_every_slow_marked_item_this_session_collected_is_pinned(
+    request: pytest.FixtureRequest,
+) -> None:
+    """The syntax inventories see marks in source; this sees the marks pytest applied — whatever form they took — because the fast_budget plugin records every collected item that carried `slow` when its collection hook ran, before deselection, and each must be in SLOW_MODULES or SLOW_TESTS. Exact in a whole-suite run; vacuous when only this module was collected."""
+    slow = request.config.stash[_SLOW_NODEIDS]
+    unpinned = sorted(nodeid for nodeid in slow if not _pinned(nodeid))
+    assert not unpinned, (
+        f"slow-marked but in neither SLOW_MODULES nor SLOW_TESTS "
+        f"(server/tests/test_compose_contract.py): {unpinned}"
     )

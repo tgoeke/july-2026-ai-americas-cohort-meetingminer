@@ -87,25 +87,48 @@ def test_only_slow():
     pass
 '''
 
-# The twin fixture is requested at run time, so it is outside every test's
-# static fixture closure and the collection rule cannot see it. The fake
-# fixture records each time it runs; the middle test reads the record after
-# the unmarked request, and the marked test after its own. The scope mirrors
-# conftest's (`projection_stores` per test, `stores_up` per session), because
-# the requesting test is found differently for each.
-DYNAMIC_TWIN_PROBE = '''
+# The twin fixtures requested at run time — outside every test's static
+# fixture closure, so the collection rule cannot see them. The fakes have
+# conftest's shape (`stores_up` per session, `projection_stores` per test and
+# depending on it; `test_the_real_session_loads_fast_budget_from_conftest`
+# pins those scopes) and record each run, so a probe can read how often the
+# fixture it asked for actually ran.
+TWIN_PROBE_CONFTEST = '''
 import pytest
 
 RAN = []
 
 
-@pytest.fixture(scope="SCOPE")
-def FIXTURE():
-    RAN.append("FIXTURE")
+@pytest.fixture(scope="session")
+def stores_up():
+    RAN.append("stores_up")
+
+
+@pytest.fixture()
+def projection_stores(stores_up):
+    RAN.append("projection_stores")
+'''
+
+# Unmarked requesters first: from the test body, and from a fixture of the
+# test's own. Neither fixture has run when the middle test looks, and the
+# marked requester afterwards sets it up normally.
+UNMARKED_FIRST_PROBE = '''
+import pytest
+
+from conftest import RAN
 
 
 def test_unmarked_dynamic_twin_user(request):
     request.getfixturevalue("FIXTURE")
+
+
+@pytest.fixture()
+def helper(request):
+    request.getfixturevalue("FIXTURE")
+
+
+def test_unmarked_via_its_own_fixture(helper):
+    pass
 
 
 def test_the_twin_fixture_never_ran():
@@ -115,10 +138,39 @@ def test_the_twin_fixture_never_ran():
 @pytest.mark.slow(reason="probe")
 def test_marked_dynamic_twin_user(request):
     request.getfixturevalue("FIXTURE")
-    assert RAN == ["FIXTURE"]
+    assert RAN.count("FIXTURE") == 1
+'''
+
+# A slow module first, so a session-scoped fixture is cached when the
+# unmarked test asks: that request never reaches fixture setup, and the
+# report-time check is what fails it. The fixture ran once, for the slow test.
+MARKED_FIRST_PROBE = '''
+import pytest
+
+from conftest import RAN
+
+pytestmark = pytest.mark.slow(reason="probe")
+
+
+def test_module_marked_dynamic_twin_user(request):
+    request.getfixturevalue("FIXTURE")
+    assert RAN.count("FIXTURE") == 1
+'''
+
+UNMARKED_AFTER_PROBE = '''
+from conftest import RAN
+
+
+def test_unmarked_dynamic_twin_user_after_a_slow_test(request):
+    request.getfixturevalue("FIXTURE")
+
+
+def test_the_twin_fixture_ran_once_for_the_slow_test():
+    assert RAN.count("FIXTURE") == 1
 '''
 
 TWIN_SCOPES = {"projection_stores": "function", "stores_up": "session"}
+AT_RUN_TIME = "(requested at run time)"
 
 TRIVIAL_PROBE = '''
 def test_trivial():
@@ -169,11 +221,16 @@ def _failure_section(result: pytest.RunResult, test_name: str) -> str:
 def test_the_real_session_loads_fast_budget_from_conftest(
     request: pytest.FixtureRequest,
 ) -> None:
-    """conftest's pytest_plugins registers the plugin, and the budget it configured is a valid number — whatever the ini or a `-o` override said."""
+    """conftest's pytest_plugins registers the plugin, the budget it configured is a valid number — whatever the ini or a `-o` override said — and the real twin fixtures have the scopes the probes mirror."""
     assert request.config.pluginmanager.hasplugin("fast_budget")
     configured = request.config.stash[_BUDGET]
     assert math.isfinite(configured) and configured > 0
     assert configured == float(request.config.getini(BUDGET_KEY))
+    assert set(TWIN_SCOPES) == _TWIN_FIXTURES
+    for name, scope in TWIN_SCOPES.items():
+        fixturedefs = request.session._fixturemanager.getfixturedefs(name, request.node)
+        assert fixturedefs, f"no fixture {name!r} visible from {request.node.nodeid}"
+        assert fixturedefs[-1].scope == scope, (name, fixturedefs[-1].scope)
 
 
 def test_an_unmarked_test_over_budget_is_failed_naming_the_key(
@@ -260,26 +317,57 @@ def test_an_unmarked_test_requesting_the_twins_stops_collection(
     )
 
 
+def _twin_probe_run(pytester: pytest.Pytester, fixture: str, **probe_files: str) -> pytest.RunResult:
+    """One inner run over the probe files with FIXTURE substituted, the fake twins in its conftest."""
+    pytester.makeconftest(TWIN_PROBE_CONFTEST)
+    files = {name: text.replace("FIXTURE", fixture) for name, text in probe_files.items()}
+    return _inner_run(pytester, **files)
+
+
 @pytest.mark.parametrize("fixture", sorted(_TWIN_FIXTURES))
 def test_an_unmarked_test_requesting_a_twin_at_run_time_is_stopped_before_it_runs(
     pytester: pytest.Pytester, fixture: str
 ) -> None:
-    """`request.getfixturevalue` bypasses the closure the collection rule reads: the setup-time backstop fails the unmarked test naming it and the fixture, the fixture never runs, and a slow-marked test may still request it the same way."""
-    assert set(TWIN_SCOPES) == _TWIN_FIXTURES
-    probe = DYNAMIC_TWIN_PROBE.replace("FIXTURE", fixture).replace("SCOPE", TWIN_SCOPES[fixture])
-    result = _inner_run(pytester, test_dynamic_twin_probe=probe)
+    """`request.getfixturevalue` bypasses the closure the collection rule reads: the setup-time backstop fails the unmarked test (an error at setup when one of its own fixtures asked), naming it, the fixture never runs, and a slow-marked test may still request it the same way."""
+    result = _twin_probe_run(pytester, fixture, test_dynamic_twin_probe=UNMARKED_FIRST_PROBE)
     result.stdout.fnmatch_lines(
         [
             "*test_dynamic_twin_probe.py::test_unmarked_dynamic_twin_user FAILED*",
+            "*test_dynamic_twin_probe.py::test_unmarked_via_its_own_fixture ERROR*",
             "*test_dynamic_twin_probe.py::test_the_twin_fixture_never_ran PASSED*",
             "*test_dynamic_twin_probe.py::test_marked_dynamic_twin_user PASSED*",
         ]
     )
+    result.assert_outcomes(passed=2, failed=1, errors=1)
+    for test_name in ("test_unmarked_dynamic_twin_user", "test_unmarked_via_its_own_fixture"):
+        body = _failure_section(result, test_name)
+        assert f"test_dynamic_twin_probe.py::{test_name}" in body
+        assert "@pytest.mark.slow(reason=...)" in body
+        assert AT_RUN_TIME in body
+
+
+@pytest.mark.parametrize("fixture", sorted(_TWIN_FIXTURES))
+def test_an_unmarked_test_requesting_a_twin_a_slow_test_already_set_up_is_failed(
+    pytester: pytest.Pytester, fixture: str
+) -> None:
+    """After a slow module set the fixture up, a session-scoped one is served from the cache with no setup for the setup hook to see: the unmarked test is failed when it is reported, with the same diagnostic. The fixture ran once, for the slow test."""
+    result = _twin_probe_run(
+        pytester,
+        fixture,
+        test_a_marked_module_probe=MARKED_FIRST_PROBE,
+        test_b_unmarked_after_probe=UNMARKED_AFTER_PROBE,
+    )
+    result.stdout.fnmatch_lines(
+        [
+            "*test_a_marked_module_probe.py::test_module_marked_dynamic_twin_user PASSED*",
+            "*test_b_unmarked_after_probe.py::test_unmarked_dynamic_twin_user_after_a_slow_test FAILED*",
+            "*test_b_unmarked_after_probe.py::test_the_twin_fixture_ran_once_for_the_slow_test PASSED*",
+        ]
+    )
     result.assert_outcomes(passed=2, failed=1)
-    body = _failure_section(result, "test_unmarked_dynamic_twin_user")
-    assert fixture in body
-    assert "test_dynamic_twin_probe.py::test_unmarked_dynamic_twin_user" in body
-    assert "@pytest.mark.slow(reason=...)" in body
+    body = _failure_section(result, "test_unmarked_dynamic_twin_user_after_a_slow_test")
+    assert "test_b_unmarked_after_probe.py::test_unmarked_dynamic_twin_user_after_a_slow_test" in body
+    assert AT_RUN_TIME in body
 
 
 def test_a_slow_only_path_under_the_default_selection_prints_the_hint(

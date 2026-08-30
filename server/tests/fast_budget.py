@@ -26,15 +26,16 @@ carries a non-empty ``reason=``, and a test with no ``slow`` mark may not
 request ``projection_stores`` or ``stores_up`` — a twin-bound test belongs in
 the slow set. The collection check reads each item's static fixture closure,
 which a ``request.getfixturevalue("projection_stores")`` inside the test body
-is not part of, so the twin rule is enforced a second time when either
-fixture is set up: an unmarked requester fails there, before the fixture
-function runs and before anything is cached, so a later ``slow`` test sets the
-fixture up normally. The collection check stays because it names every
-offender at once before anything runs; the setup check is the backstop for
-the dynamic path. ``stores_up`` is session-scoped, so its setup check fires
-for the first request of the session — a cached ``stores_up`` is a skip gate
-that already passed, not the wiping fixture, which is ``projection_stores``,
-per test.
+is not part of, so the twin rule is enforced twice more for that path. When
+either fixture is set up, an unmarked requester fails before the fixture
+function runs; the failure is cached the way pytest caches one and torn down
+with that test, so a later ``slow`` test sets the fixture up normally. And
+when an unmarked test is reported passed, the twins its request resolved are
+checked — the case the setup hook cannot see: ``stores_up`` is
+session-scoped, and a request for it after a ``slow`` test set it up is
+served from the cache without any setup. The collection check stays because
+it names every offender at once before anything runs; the other two are the
+backstops for the dynamic path.
 
 **The by-path hint.** The collection hook also records whether every
 collected item carried ``slow`` — the case where the default expression alone
@@ -55,7 +56,13 @@ import pytest
 _FAST_TEST_BUDGET_KEY = "mm_fast_test_budget_seconds"
 _BUDGET = pytest.StashKey[float]()
 _ALL_SLOW = pytest.StashKey[bool]()
+# Every collected node id that carried `slow` when the collection hook below
+# ran (first, before deselection), however the mark got there — a decorator,
+# a module or class `pytestmark`, `pytest.param(marks=...)` — for the
+# contract in test_compose_contract.py that requires each to be pinned.
+_SLOW_NODEIDS = pytest.StashKey[frozenset[str]]()
 _TWIN_FIXTURES = frozenset({"projection_stores", "stores_up"})
+_AT_RUN_TIME = " (requested at run time)"
 _DEFAULT_MARK_EXPRESSION = "not slow"
 
 
@@ -94,36 +101,40 @@ def _twin_rule(nodeids: Iterable[str]) -> str:
     )
 
 
-def _requesting_item(request: pytest.FixtureRequest) -> pytest.Item | None:
+def _requesting_item(request: pytest.FixtureRequest) -> pytest.Item:
     """The test whose request is setting a fixture up.
 
     ``request.node`` is the node of the fixture's scope — the item for a
     function-scoped fixture, the session for ``stores_up`` — while the test
     that asked is ``_pyfuncitem`` on every request scope; pytest exposes no
-    public name for it. A request with neither is not a test's (nothing to
-    check).
+    public name for it, and the pin in server/pyproject.toml is what makes
+    the private one safe. Its absence is an error, never a silently skipped
+    check.
     """
     item = getattr(request, "_pyfuncitem", None)
-    if isinstance(item, pytest.Item):
-        return item
-    node = request.node
-    return node if isinstance(node, pytest.Item) else None
+    if not isinstance(item, pytest.Item):
+        raise RuntimeError(
+            f"fast_budget: pytest {pytest.__version__} gives this request no _pyfuncitem, "
+            "so the twin rule cannot find the requesting test; see _requesting_item"
+        )
+    return item
 
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     unreasoned: list[str] = []
     twin_bound: list[str] = []
-    unmarked_seen = False
+    slow_nodeids: set[str] = set()
     for item in items:
         marks = list(item.iter_markers("slow"))
         if marks and not all(_has_reason(mark) for mark in marks):
             unreasoned.append(item.nodeid)
-        if not marks:
-            unmarked_seen = True
-            if _TWIN_FIXTURES & set(getattr(item, "fixturenames", ())):
-                twin_bound.append(item.nodeid)
-    config.stash[_ALL_SLOW] = bool(items) and not unmarked_seen
+        if marks:
+            slow_nodeids.add(item.nodeid)
+        elif _TWIN_FIXTURES & set(getattr(item, "fixturenames", ())):
+            twin_bound.append(item.nodeid)
+    config.stash[_SLOW_NODEIDS] = frozenset(slow_nodeids)
+    config.stash[_ALL_SLOW] = bool(items) and len(slow_nodeids) == len(items)
     problems: list[str] = []
     if unreasoned:
         problems.append(
@@ -157,15 +168,27 @@ def pytest_fixture_setup(
     if fixturedef.argname not in _TWIN_FIXTURES:
         return
     item = _requesting_item(request)
-    if item is None or item.get_closest_marker("slow") is not None:
+    if item.get_closest_marker("slow") is not None:
         return
-    failure = pytest.fail.Exception(
-        _twin_rule([item.nodeid]) + f" (requested {fixturedef.argname} at run time)",
-        pytrace=False,
-    )
+    # Named: the test, not the fixture — `projection_stores` resolves `stores_up`
+    # first, so the fixture being set up need not be the one the test asked for.
+    failure = pytest.fail.Exception(_twin_rule([item.nodeid]) + _AT_RUN_TIME, pytrace=False)
     fixturedef.cached_result = (None, fixturedef.cache_key(request), (failure, None))
     item.addfinalizer(functools.partial(fixturedef.finish, request=request))
     raise failure
+
+
+def _twins_resolved_for(item: pytest.Item) -> set[str]:
+    """The twin fixtures this test's request resolved, statically or at run time.
+
+    ``Function._request`` is the item's request and ``_fixture_defs`` every
+    fixture it resolved — including one ``getfixturevalue`` found already
+    cached, which the setup hook never saw. Both names are private; pytest
+    keeps no public record of run-time requests.
+    """
+    request = getattr(item, "_request", None)
+    resolved = getattr(request, "_fixture_defs", None)
+    return _TWIN_FIXTURES & set(resolved or ())
 
 
 @pytest.hookimpl(wrapper=True)
@@ -176,6 +199,10 @@ def pytest_runtest_makereport(
     if call.when != "call" or not report.passed or hasattr(report, "wasxfail"):
         return report
     if item.get_closest_marker("slow") is not None:
+        return report
+    if _twins_resolved_for(item):
+        report.outcome = "failed"
+        report.longrepr = _twin_rule([item.nodeid]) + _AT_RUN_TIME
         return report
     budget = item.config.stash[_BUDGET]
     if call.duration <= budget:

@@ -64,7 +64,7 @@ companions its frontmatter lists, plus the per-story frozen contracts in
   outside the project environment, and pytest needs a path under
   `server/tests` or a cwd of `server/` — `server/tests/conftest.py` registers
   plugins through `pytest_plugins`, which only an initial conftest may do. A
-  `slow` module (twelve are marked, plus a few tests elsewhere) needs `-m ""`
+  `slow` module (twelve are marked, plus four tests elsewhere) needs `-m ""`
   on the command line —
   `uv run --project server pytest -m "" server/tests/test_projections_graph.py` —
   because `server/pyproject.toml` defaults every run to `-m "not slow"`, which
@@ -83,8 +83,11 @@ companions its frontmatter lists, plus the per-story frozen contracts in
   it is marked `slow` with a reason or made faster, and stops collection when
   a `slow` mark has no `reason=` or an unmarked test requests
   `projection_stores`/`stores_up` (a `request.getfixturevalue` of either from
-  an unmarked test fails that test as the fixture is set up, before it runs).
-  `--strict-markers` is on. Re-measure with
+  an unmarked test fails that test too, before `projection_stores` runs).
+  `--strict-markers` is on. The slow set and `test-fast`'s prerequisites are
+  pinned in `server/tests/test_compose_contract.py` (`SLOW_MODULES`,
+  `SLOW_TESTS`, `TEST_FAST_PREREQUISITES`); a new mark or prerequisite is an
+  edit of both places. Re-measure with
   `uv run --project server pytest -m "" server/tests --durations=25`.
 - `make test` is the gate, not the loop: it needs the stores up, passes
   `-m ""` so the `slow` modules run, runs four suites, and builds the web app.

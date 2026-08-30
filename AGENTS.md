@@ -190,10 +190,15 @@ re-measures it.
   naming every offending node id: a `slow` mark must carry a non-empty
   `reason=`, and a test with no `slow` mark may not request
   `projection_stores` or `stores_up` — a twin-bound test belongs in the slow
-  set. The second rule is applied again as either fixture is set up, for a
-  `request.getfixturevalue` the static closure does not show: the unmarked
-  test fails there, before the fixture runs. With `--strict-markers`, an
-  unregistered mark stops collection too.
+  set. The second rule is also applied when either fixture is set up and
+  when an unmarked test is reported, which catches a
+  `request.getfixturevalue(...)` the static closure cannot show: the
+  unmarked test fails (an error at setup, when one of its own fixtures
+  asked) and `projection_stores` never runs for it. With `--strict-markers`,
+  an unregistered mark stops collection too. The slow set is pinned in
+  `server/tests/test_compose_contract.py` (`SLOW_MODULES`, `SLOW_TESTS`), as
+  are `test-fast`'s prerequisites (`TEST_FAST_PREREQUISITES`): adding a mark
+  or a prerequisite is an edit of both places.
 
 ## Branch and merge
 
