@@ -47,6 +47,14 @@ Subcommands::
     check --worktree <dir>
         Validate ``<dir>/.env.worktree`` against the directory name; exit 0
         silently, else the named error.
+    identity --worktree <dir>
+        Print the checkout-owned Compose project name and incarnation id.
+    check-process-identity --worktree <dir>
+        Refuse a non-blank process name/id that differs from the ownership
+        record (or the main-checkout defaults).
+    assert-identity --worktree <dir> --project <name> [--stack-id <id>]
+        Re-read the record and refuse when Make's effective identity differs;
+        this is the final backstop immediately before Compose executes.
     claim --worktree <dir> --worktree-root <root>
         Make the worktree's project safe to start: keep it when every
         container and volume carries the file's id, tear down a stale
@@ -902,6 +910,51 @@ def _cmd_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def _declared_identity(worktree: Path) -> tuple[str, str]:
+    """Return the checkout-owned Compose identity, never a process override."""
+    worktree = worktree.absolute()
+    env_file = worktree / ENV_FILENAME
+    if env_file.is_file():
+        values = validate_env_file(env_file, worktree.name)
+        return values[STACK_NAME_VAR], values[STACK_ID_VAR]
+    return MAIN_PROJECT, ""
+
+
+def _cmd_identity(args: argparse.Namespace) -> int:
+    project, stack_id = _declared_identity(Path(args.worktree))
+    print(f"{project} {stack_id}")
+    return 0
+
+
+def _cmd_check_process_identity(args: argparse.Namespace) -> int:
+    project, stack_id = _declared_identity(Path(args.worktree))
+    expected = {STACK_NAME_VAR: project, STACK_ID_VAR: stack_id}
+    for key, declared in expected.items():
+        requested = os.environ.get(key, "").strip()
+        if requested and requested != declared:
+            raise StackError(
+                f"{key} effective process value {requested!r} does not match"
+                f" ownership record value {declared!r}; the process environment"
+                " cannot override stack identity"
+            )
+    return 0
+
+
+def _cmd_assert_identity(args: argparse.Namespace) -> int:
+    project, stack_id = _declared_identity(Path(args.worktree))
+    if args.project != project:
+        raise StackError(
+            f"{STACK_NAME_VAR} effective value {args.project!r} does not match"
+            f" ownership record value {project!r}; the record changed after Make parsed it"
+        )
+    if args.stack_id != stack_id:
+        raise StackError(
+            f"{STACK_ID_VAR} effective value {args.stack_id!r} does not match"
+            f" ownership record value {stack_id!r}; the record changed after Make parsed it"
+        )
+    return 0
+
+
 def _cmd_claim(args: argparse.Namespace) -> int:
     claim(Path(args.worktree), Path(args.worktree_root), run=run_docker)
     return 0
@@ -933,6 +986,25 @@ def main(argv: list[str] | None = None) -> int:
     )
     check_cmd.add_argument("--worktree", required=True)
     check_cmd.set_defaults(func=_cmd_check)
+    identity_cmd = commands.add_parser(
+        "identity", help="print the checkout-owned Compose project name and incarnation id"
+    )
+    identity_cmd.add_argument("--worktree", required=True)
+    identity_cmd.set_defaults(func=_cmd_identity)
+    process_identity_cmd = commands.add_parser(
+        "check-process-identity",
+        help="refuse process values that differ from the checkout-owned identity",
+    )
+    process_identity_cmd.add_argument("--worktree", required=True)
+    process_identity_cmd.set_defaults(func=_cmd_check_process_identity)
+    assert_identity_cmd = commands.add_parser(
+        "assert-identity",
+        help="compare Make's effective Compose identity with the live ownership record",
+    )
+    assert_identity_cmd.add_argument("--worktree", required=True)
+    assert_identity_cmd.add_argument("--project", required=True)
+    assert_identity_cmd.add_argument("--stack-id", default="")
+    assert_identity_cmd.set_defaults(func=_cmd_assert_identity)
     claim_cmd = commands.add_parser(
         "claim",
         help="tear down a stale same-named stack before this worktree's starts",

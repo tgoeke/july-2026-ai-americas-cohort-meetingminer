@@ -119,9 +119,9 @@ port, not an architecture change.
 **AD-10 — One config file drives everything.** A single versioned `config.yaml`
 declares every adapter binding, model, threshold, and endpoint; environment
 variables carry only secrets, the two root locations, and a checkout's
-private-stack name and the host ports its stores publish — infrastructure
-location, applied by the loader to the configured endpoints rather than written
-into a second config file. Bindings cannot scatter across env vars, code
+private-stack name, generated incarnation identity, and the host ports its
+stores publish — infrastructure location, applied by the loader to the
+configured endpoints rather than written into a second config file. Bindings cannot scatter across env vars, code
 defaults, and flags, and the eval harness snapshots the resolved config into
 every run so any run is reproducible.
 

@@ -15,7 +15,9 @@ ENVFILE := $(ROOT)/.env
 # second --env-file) read its stack keys; the loader reads it after .env.
 # Absent, every default below reproduces the main checkout's stack exactly.
 WT_ENVFILE := $(ROOT)/.env.worktree
-STACK_VARS := MM_STACK_NAME MM_POSTGRES_PORT MM_NEO4J_HTTP_PORT MM_NEO4J_BOLT_PORT MM_MEILI_PORT MM_NEO4J_TEST_HTTP_PORT MM_NEO4J_TEST_BOLT_PORT MM_MEILI_TEST_PORT MM_STACK_ID
+STACK_IDENTITY_VARS := MM_STACK_NAME MM_STACK_ID
+STACK_LOCATION_VARS := MM_POSTGRES_PORT MM_NEO4J_HTTP_PORT MM_NEO4J_BOLT_PORT MM_MEILI_PORT MM_NEO4J_TEST_HTTP_PORT MM_NEO4J_TEST_BOLT_PORT MM_MEILI_TEST_PORT
+STACK_VARS := MM_STACK_NAME $(STACK_LOCATION_VARS) MM_STACK_ID
 # Parse-time guard, BEFORE the include: `-include` would execute Make
 # directives and expand assignment values before any target (including
 # check-env) could validate them. The stdlib ownership-record parser accepts
@@ -27,6 +29,16 @@ WT_ENVFILE_VALIDATION_ERROR := $(shell python3 '$(INFRA)/worktree_stack.py' chec
 ifneq ($(strip $(WT_ENVFILE_VALIDATION_ERROR)),)
 $(error $(WT_ENVFILE_VALIDATION_ERROR))
 endif
+WT_STACK_IDENTITY := $(shell python3 '$(INFRA)/worktree_stack.py' identity --worktree '$(dir $(WT_ENVFILE))')
+DECLARED_MM_STACK_NAME := $(word 1,$(WT_STACK_IDENTITY))
+DECLARED_MM_STACK_ID := $(word 2,$(WT_STACK_IDENTITY))
+else
+DECLARED_MM_STACK_NAME := meetingminer
+DECLARED_MM_STACK_ID :=
+endif
+PROCESS_IDENTITY_ERROR := $(shell python3 '$(INFRA)/worktree_stack.py' check-process-identity --worktree '$(dir $(WT_ENVFILE))' 2>&1)
+ifneq ($(strip $(PROCESS_IDENTITY_ERROR)),)
+$(error $(PROCESS_IDENTITY_ERROR))
 endif
 DEFAULT_MM_STACK_NAME := meetingminer
 DEFAULT_MM_POSTGRES_PORT := 5433
@@ -38,12 +50,17 @@ DEFAULT_MM_NEO4J_TEST_BOLT_PORT := 7688
 DEFAULT_MM_MEILI_TEST_PORT := 7701
 # The main stack has no incarnation id: the compose label renders empty.
 DEFAULT_MM_STACK_ID :=
-# Precedence, the same as compose's and the loader's: a non-blank process
-# environment value, then .env.worktree, then the default. The environment is
-# snapshotted first because an included file's assignment would replace it.
-$(foreach v,$(STACK_VARS),$(eval _ENV_$(v) := $(strip $($(v)))))
+# Location precedence, the same as compose's and the loader's: a non-blank
+# process environment value, then .env.worktree, then the default. The
+# environment is snapshotted first because an included file's assignment would
+# replace it. Stack name/id are ownership identity instead: they come only from
+# the validated record (or main defaults), and even Make command-line values
+# cannot replace them.
+$(foreach v,$(STACK_LOCATION_VARS),$(eval _ENV_$(v) := $(strip $($(v)))))
 -include $(WT_ENVFILE)
-$(foreach v,$(STACK_VARS),$(eval $(v) := $(or $(_ENV_$(v)),$(strip $($(v))),$(DEFAULT_$(v)))))
+$(foreach v,$(STACK_LOCATION_VARS),$(eval $(v) := $(or $(_ENV_$(v)),$(strip $($(v))),$(DEFAULT_$(v)))))
+override MM_STACK_NAME := $(DECLARED_MM_STACK_NAME)
+override MM_STACK_ID := $(DECLARED_MM_STACK_ID)
 VENV    := $(ROOT)/server/.venv
 WEB     := $(ROOT)/web
 # The Teams puller (AD-1 black box). It shares no server code; the only reason
@@ -665,6 +682,7 @@ check-stack:
 	fi
 
 infra-up: check-docker check-env check-stack
+	@python3 $(INFRA)/worktree_stack.py assert-identity --worktree "$(dir $(WT_ENVFILE))" --project "$(MM_STACK_NAME)" --stack-id "$(MM_STACK_ID)"
 	$(COMPOSE) up -d --wait
 
 # Order-only prerequisite: migrations must never run before Postgres is
@@ -1039,6 +1057,7 @@ down: check-stack-record stop-web stop-worker stop-api
 		echo "down: warning — processes launched from this checkout are still running without pidfiles (pids: $$STRAY) — stop them manually"; \
 	fi; \
 	if docker info >/dev/null 2>&1; then \
+		python3 $(INFRA)/worktree_stack.py assert-identity --worktree "$(dir $(WT_ENVFILE))" --project "$(MM_STACK_NAME)" --stack-id "$(MM_STACK_ID)" || exit 1; \
 		if [ -r $(ENVFILE) ] && $(COMPOSE) down; then \
 			:; \
 		else \
