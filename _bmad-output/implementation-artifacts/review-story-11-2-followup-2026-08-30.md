@@ -69,3 +69,11 @@
 - **Red regression:** `test_worktree_remove_refuses_path_traversal_before_git_or_docker` failed at `assert proc.returncode != 0`: the observed command returned 0, removed the real `victim` checkout through `../meetingminer-wt/victim`, printed `removed stack meetingminer-victim`, and completed its owned `down -v` teardown.
 - **Resolution:** Fixed on the review branch. `worktree-remove` now applies the same anchored slug rule as creation and start before deriving a filesystem or branch path.
 - **Green verification:** All six `worktree-remove` process tests passed, including the red traversal regression.
+
+### Finding 6 — `make down` can stop the main stack from an unprovisioned worktree
+
+- **Location:** `infra/Makefile:987`
+- **Severity:** high
+- **Finding:** `down` has no linked-worktree ownership-record prerequisite. If `.env.worktree` is missing, Make silently resolves `MM_STACK_NAME` to `meetingminer`, so invoking `make down` inside that worktree targets the main checkout's containers—the exact unsafe fallback that `check-env` blocks on every start path.
+- **Evidence:** In a real linked checkout with `.git` as a file and no `.env.worktree`, the Make defaults select `COMPOSE ... -p meetingminer`; with Docker available, `down` invokes that compose command and its project-name fallback is also `docker compose -p meetingminer down`. The target reaches Docker without running `check-env` or any equivalent ownership-state check.
+- **Suggested direction:** Give teardown a record-state guard that runs before host-process stops or Docker: linked worktrees must have a valid directory-owned `.env.worktree`, main must have none. Keep the frozen unreadable-`.env` fallback by separating this ownership check from the secret-file readability checks used by startup.
