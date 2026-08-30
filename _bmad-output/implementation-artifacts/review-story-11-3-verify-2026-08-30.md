@@ -42,4 +42,4 @@
 - Severity: high
 - Finding: After the probe insert commits, `conn.autocommit = True` runs before the cleanup-protected `try/finally`. An exception from that driver state transition escapes `_execute_probe` with a committed probe row and no cleanup attempt or recorded cleanup verdict.
 - Evidence: The known `artifact_id` is committed at lines 702–703. The autocommit assignment at line 731 is outside the `try` beginning at line 734 and the `finally` invoking `cleanup_probe` at lines 790–803. Existing interruption tests inject failures only after that protected region begins.
-- Resolution: Open — add a red fake-connection regression whose autocommit setter raises after commit, then move the transition inside the protected sequence so the exact id always reaches cleanup and the interruption is reported.
+- Resolution: Fixed in this review. The fake-connection regression first raised out of `_execute_probe` with no result. The autocommit transition now occurs inside the interruption-catching `try/finally`; its failure is named on the returned probe and the known id is erased with a verified cleanup. The full probe file passes (`38 passed`).

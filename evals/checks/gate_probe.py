@@ -738,10 +738,9 @@ def _execute_probe(
                     " connection, so the gate transition was not attempted"
                 ),
             )
-        conn.autocommit = True
-
         raced = False
         try:
+            conn.autocommit = True
             pre = {}
             _membership(search, graph, artifact_id, pre)
             if any(presence.present for presence in pre.values()):

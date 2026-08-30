@@ -1069,6 +1069,36 @@ def test_a_store_failure_mid_probe_still_cleans_up(
     assert connection.row_state is None, "the minted row must still be erased"
 
 
+def test_autocommit_transition_failure_after_mint_still_cleans_the_known_id(
+    tmp_path: Path,
+) -> None:
+    """F4 verify: every post-commit step is inside unconditional cleanup."""
+
+    class AutocommitFailureConnection(FakeConnection):
+        @property
+        def autocommit(self) -> bool:
+            return False
+
+        @autocommit.setter
+        def autocommit(self, value: bool) -> None:
+            if value:
+                raise RuntimeError("autocommit transition failed")
+
+    connection = AutocommitFailureConnection(row_state="extracted")
+    probe = run_probe(
+        tmp_path,
+        corpus=FakeCorpus(),
+        search=ProbeSearchClient(),
+        graph=ProbeGraphDriver(),
+        connection=connection,
+    )
+
+    assert probe.artifact_id == PROBE_ID
+    assert probe.problem is not None and "autocommit transition failed" in probe.problem
+    assert probe.cleanup is not None and probe.cleanup.verified
+    assert connection.row_state is None
+
+
 def test_a_later_probe_store_error_preserves_the_first_violation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
