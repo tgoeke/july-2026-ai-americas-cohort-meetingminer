@@ -169,6 +169,49 @@ def test_the_twin_fixture_ran_once_for_the_slow_test():
     assert RAN.count("FIXTURE") == 1
 '''
 
+# A slow test fills a session-scoped wrapper whose body dynamically resolves
+# the session-scoped twin. The later unmarked test receives the wrapper from
+# cache: neither the wrapper nor the twin is set up for that item, so only the
+# transitive cache record can expose the dependency.
+CACHED_WRAPPER_CONFTEST = '''
+import pytest
+
+RAN = []
+
+
+@pytest.fixture(scope="session")
+def stores_up():
+    RAN.append("stores_up")
+    return object()
+
+
+@pytest.fixture(scope="session")
+def cached_wrapper(request):
+    return request.getfixturevalue("stores_up")
+'''
+
+CACHED_WRAPPER_MARKED_PROBE = '''
+import pytest
+
+pytestmark = pytest.mark.slow(reason="probe: seed the cached twin wrapper")
+
+
+def test_seed(cached_wrapper):
+    assert cached_wrapper is not None
+'''
+
+CACHED_WRAPPER_UNMARKED_PROBE = '''
+from conftest import RAN
+
+
+def test_unmarked_cached_wrapper_user(cached_wrapper):
+    assert cached_wrapper is not None
+
+
+def test_the_twin_ran_once_for_the_slow_test():
+    assert RAN == ["stores_up"]
+'''
+
 # After the slow module: unmarked requesters that earn no passing call
 # report. One skips, one xfails and one xpasses after its request; two ask
 # through a fixture of their own, so the request lands at setup, and one of
@@ -422,6 +465,29 @@ def test_an_unmarked_test_requesting_a_twin_a_slow_test_already_set_up_is_failed
     result.assert_outcomes(passed=2, failed=1)
     body = _failure_section(result, "test_unmarked_dynamic_twin_user_after_a_slow_test")
     assert "test_b_unmarked_after_probe.py::test_unmarked_dynamic_twin_user_after_a_slow_test" in body
+    assert AT_RUN_TIME in body
+
+
+def test_a_cached_wrapper_cannot_hide_its_dynamic_twin_from_an_unmarked_test(
+    pytester: pytest.Pytester,
+) -> None:
+    """A wrapper served from cache remains twin-bound until its cached value is finalized."""
+    pytester.makeconftest(CACHED_WRAPPER_CONFTEST)
+    result = _inner_run(
+        pytester,
+        test_a_cached_wrapper_marked_probe=CACHED_WRAPPER_MARKED_PROBE,
+        test_b_cached_wrapper_unmarked_probe=CACHED_WRAPPER_UNMARKED_PROBE,
+    )
+    result.stdout.fnmatch_lines(
+        [
+            "*test_a_cached_wrapper_marked_probe.py::test_seed PASSED*",
+            "*test_b_cached_wrapper_unmarked_probe.py::test_unmarked_cached_wrapper_user ERROR*",
+            "*test_b_cached_wrapper_unmarked_probe.py::test_the_twin_ran_once_for_the_slow_test PASSED*",
+        ]
+    )
+    result.assert_outcomes(passed=2, errors=1)
+    body = _failure_section(result, "test_unmarked_cached_wrapper_user")
+    assert "test_b_cached_wrapper_unmarked_probe.py::test_unmarked_cached_wrapper_user" in body
     assert AT_RUN_TIME in body
 
 

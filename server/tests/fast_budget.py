@@ -40,9 +40,11 @@ its reason (an error at setup, when one of the test's own fixtures asked),
 and a report that already failed keeps its failure, with the diagnostic
 added beside it unless it is that failure. The setup hook's refusal counts
 as a resolved twin for the same reason: an ``xfail`` mark would otherwise
-absorb it into a green XFAIL. The collection check stays because it names
-every offender at once before anything runs; the other two are the backstops
-for the dynamic path.
+absorb it into a green XFAIL. A fixture that dynamically resolves a twin is
+recorded as twin-bound for the lifetime of its cached value, so a later test
+served that wrapper from cache cannot hide the dependency. The collection
+check stays because it names every offender at once before anything runs;
+the other checks are the backstops for the dynamic path.
 
 **The by-path hint.** The collection hook also records whether every
 collected item carried ``slow`` — the case where the default expression alone
@@ -69,6 +71,12 @@ _ALL_SLOW = pytest.StashKey[bool]()
 # contract in test_compose_contract.py that requires each to be pinned.
 _SLOW_NODEIDS = pytest.StashKey[frozenset[str]]()
 _TWIN_FIXTURES = frozenset({"projection_stores", "stores_up"})
+# On the config: fixture definitions whose current cached value resolved a
+# twin, directly or through another wrapper. A cached wrapper does not execute
+# its body for a later requester, so the later item's request otherwise has no
+# record of the twin. The post-finalizer hook removes the definition when that
+# cached value dies; a later value may take a different dynamic path.
+_TWIN_BOUND_FIXTUREDEFS = pytest.StashKey[set[pytest.FixtureDef[object]]]()
 # On an item: the failure the setup hook raised to refuse a twin request from
 # it — a resolved twin for the report-time check, which no outcome the test
 # earns afterwards (an xfail mark absorbing the refusal, say) may hide, and
@@ -99,6 +107,7 @@ def pytest_configure(config: pytest.Config) -> None:
             f"{_FAST_TEST_BUDGET_KEY} must be a positive, finite number of seconds; got {raw!r}"
         )
     config.stash[_BUDGET] = budget
+    config.stash[_TWIN_BOUND_FIXTUREDEFS] = set()
 
 
 def _has_reason(mark: pytest.Mark) -> bool:
@@ -181,6 +190,15 @@ def pytest_fixture_setup(
     """
     if fixturedef.argname not in _TWIN_FIXTURES:
         return
+    # A SubRequest chain is the twin itself, then every fixture whose setup is
+    # waiting for it, up to the test's top-level request. Persist those wrapper
+    # definitions while their cached values live; a later cache hit does not
+    # run this hook again.
+    twin_bound = request.config.stash[_TWIN_BOUND_FIXTUREDEFS]
+    for active_request in request._iter_chain():
+        active_fixturedef = getattr(active_request, "_fixturedef", None)
+        if isinstance(active_fixturedef, pytest.FixtureDef):
+            twin_bound.add(active_fixturedef)
     item = _requesting_item(request)
     if item.get_closest_marker("slow") is not None:
         return
@@ -193,6 +211,13 @@ def pytest_fixture_setup(
     raise failure
 
 
+def pytest_fixture_post_finalizer(
+    fixturedef: pytest.FixtureDef[object], request: pytest.FixtureRequest
+) -> None:
+    """A fixture definition is twin-bound only while that cached value lives."""
+    request.config.stash[_TWIN_BOUND_FIXTUREDEFS].discard(fixturedef)
+
+
 def _twins_resolved_for(item: pytest.Item) -> set[str]:
     """The twin fixtures this test's request resolved, statically or at run time.
 
@@ -202,8 +227,13 @@ def _twins_resolved_for(item: pytest.Item) -> set[str]:
     keeps no public record of run-time requests.
     """
     request = getattr(item, "_request", None)
-    resolved = getattr(request, "_fixture_defs", None)
-    return _TWIN_FIXTURES & set(resolved or ())
+    resolved = getattr(request, "_fixture_defs", None) or {}
+    direct = _TWIN_FIXTURES & set(resolved)
+    twin_bound = item.config.stash[_TWIN_BOUND_FIXTUREDEFS]
+    wrapped = {
+        fixturedef.argname for fixturedef in resolved.values() if fixturedef in twin_bound
+    }
+    return direct | wrapped
 
 
 def _twin_bound(item: pytest.Item) -> bool:
