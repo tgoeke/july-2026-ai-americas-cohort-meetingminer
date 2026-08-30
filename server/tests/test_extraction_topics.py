@@ -107,17 +107,21 @@ def test_a_short_topic_name_is_not_promoted_out_of_the_name_field(
     ("document", "missing_field"),
     [
         (
-            "## Topics\n\n"
-            "| ID | Topic | Gist | Timestamps |\n"
-            "|----|-------|------|------------|\n"
-            "| T1 | | Artificial intelligence planning | [0:10] |\n",
+            (
+                "## Topics\n\n"
+                "| ID | Topic | Gist | Timestamps |\n"
+                "|----|-------|------|------------|\n"
+                "| T1 | | Artificial intelligence planning | [0:10] |\n"
+            ),
             "Topic",
         ),
         (
-            "## Topics\n\n"
-            "| ID | Topic | Gist | Timestamps |\n"
-            "|----|-------|------|------------|\n"
-            "| T1 | AI | | [0:10] |\n",
+            (
+                "## Topics\n\n"
+                "| ID | Topic | Gist | Timestamps |\n"
+                "|----|-------|------|------------|\n"
+                "| T1 | AI | | [0:10] |\n"
+            ),
             "Gist",
         ),
         (

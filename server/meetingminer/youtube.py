@@ -374,7 +374,11 @@ def started_at_from_info(info: dict[str, Any]) -> tuple[str, str, str]:
     upload = info.get("upload_date")
     if isinstance(upload, str) and re.fullmatch(r"\d{8}", upload):
         try:
-            day = datetime.strptime(upload, "%Y%m%d")
+            # noqa rationale: only the DATE is taken from this value —
+            # it is reformatted below with an explicit `T00:00:00Z`, which is
+            # the schema's `day` precision. No naive instant is ever stored,
+            # so attaching a timezone here would assert a time we do not know.
+            day = datetime.strptime(upload, "%Y%m%d")  # noqa: DTZ007
         except ValueError:
             day = None
         if day is not None:
