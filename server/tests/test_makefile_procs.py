@@ -763,6 +763,21 @@ def test_down_falls_back_when_env_file_interpolation_fails(tmp_path: Path) -> No
 # --- row: a worktree's private stack (story 11.2) ---------------------------
 
 
+def test_down_refuses_a_linked_worktree_without_an_ownership_record(
+    tmp_path: Path,
+) -> None:
+    """A missing record must not make worktree teardown target main."""
+    repo, docker_bin, argv_log = _throwaway_repo(tmp_path)
+    worktree = _linked_worktree_without_stack(repo, "probe")
+    argv_log.write_text("", encoding="utf-8")
+
+    proc = _make_at(worktree, docker_bin, ["down"])
+    output = proc.stdout + proc.stderr
+    assert proc.returncode != 0, output
+    assert "linked git worktree with no .env.worktree" in output
+    assert not any("compose" in line for line in _argv_lines(argv_log))
+
+
 def test_down_tears_down_the_worktree_stack_named_in_env_worktree(tmp_path: Path) -> None:
     """A checkout with a `.env.worktree` passes it to compose as the second
     --env-file and names ITS project — on the fallback path too, so a broken
