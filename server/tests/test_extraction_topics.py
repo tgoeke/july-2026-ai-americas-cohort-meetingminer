@@ -115,7 +115,7 @@ def test_a_document_with_no_structure_is_a_parse_error() -> None:
         )
 
 
-def test_topic_ids_dedup_document_globally() -> None:
+def test_duplicate_topic_ids_are_a_named_parse_error() -> None:
     document = (
         "## Topics\n"
         "\n"
@@ -130,13 +130,8 @@ def test_topic_ids_dedup_document_globally() -> None:
         "| T1 | Vendor feed restated | A restatement | [0:45] |\n"
         "| T2 | Credential ownership | Second topic | [1:35] |\n"
     )
-    parsed = core.parse_extraction_document(document, core.DOC_TOPICS)
-    # Topics are numbered once for the whole document (unlike the action
-    # document's per-owner sections): the restated T1 is not a second topic.
-    assert [(a.item_id, a.title) for a in parsed.artifacts] == [
-        ("T1", "Vendor feed transport"),
-        ("T2", "Credential ownership"),
-    ]
+    with pytest.raises(core.ArtifactParseError, match="duplicate topic ID T1"):
+        core.parse_extraction_document(document, core.DOC_TOPICS)
 
 
 def test_non_t_ids_are_structure_not_topics() -> None:
