@@ -211,3 +211,60 @@ fully clean verdict while F13 remains undecided.** F13 is the explicit conflict
 between the frozen defaulted acquisition settings and AD-10's single source of
 thresholds; resolving it requires human-owned specification or architecture
 direction and was intentionally not attempted here.
+
+## Post-build correction — 2026-08-30
+
+A follow-up review of the remediation found additional boundary gaps in the
+F1-F12 fixes. They were corrected in commit
+`d006af086e3524ac7b58296d2f269beaa0933657`; the operator-facing timing
+guarantee was corrected in
+`20b3eb4b20e13f1ed539224ed2db3b878201a5b1`.
+
+- **F1 correction:** `provenance_extra` must now be a runtime mapping before it
+  is normalized. A list of pairs can no longer bypass collision detection and
+  overwrite `files`. Tests cover all five protected keys, preserve the allowed
+  `tool` override, and prove the guard still runs when the source id already
+  resolves to an existing drop.
+- **F2-F5/F12 correction:** a local `exists` result is validated against the
+  finalized YouTube contract without invoking yt-dlp. Schema, source identity,
+  corpus, recording presence, required provenance, configured duration cap,
+  started-at source, and the checksum/size evidence manifest must all hold.
+  An incomplete legacy drop is refused with explicit do-not-POST and quarantine
+  guidance instead of being returned to `main()` for intake.
+- **F5 correction:** a whitespace-only `channel` no longer suppresses a valid,
+  normalized `uploader` fallback. Probe tests also prove missing and blank
+  publisher metadata refuses before download.
+- **F3/F8/F11 correction:** downloaded caption availability must equal the
+  probe selection before minting. Caption output discovery accepts only the VTT
+  for the selected English language key; an unrelated `fr` VTT cannot satisfy
+  either a manual or automatic English request. Downloaded-metadata tests now
+  cover missing, non-finite, and negative duration plus a lost video stream.
+- **F9 correction:** the invalid-URL `main()` regression now pins the named
+  stderr refusal as well as the untouched root.
+- **F10 correction:** GNU Make automatically exports command-line variables;
+  therefore a literal `$(shell ...)` in `URL=` could execute even though the
+  recipe used `$(value URL)`. The target now `unexport`s raw `URL` and exports
+  only `MM_YOUTUBE_URL`. Tests prove both quote/semicolon shell syntax and a
+  literal Make `$(shell touch ...)` reach Python unchanged as one argument and
+  execute nothing.
+- **Guarantee correction:** module and README wording now distinguishes
+  probe-known refusals (before download) from downloaded drift/output refusals
+  (after temporary bytes, before finalization, leaving no drop).
+
+### Post-build red/green evidence
+
+- Red focused selection before the correction: **8 failed, 19 passed**. The
+  failures reproduced the non-mapping F1 path, whitespace fallback, unrelated
+  VTT acceptance, caption drift reaching `mint()`, incomplete legacy `exists`,
+  Make-time command execution, and one test-fixture assertion subsequently
+  narrowed to compare state before/after the guarded retry.
+- Green focused selection after correction: **28 passed**.
+- `uv run --project server pytest server/tests/test_youtube.py -q` — **96
+  passed, 1 skipped** by the named network gate.
+- `make test-fast` — **128 puller, 291 web, 549 eval, and 1497 server tests
+  passed**; one named YouTube network skip, 326 slow tests deselected.
+
+The requested out-of-scope ideas were not implemented: no ffprobe/yt-dlp
+duration comparison, no physical proof of `format_id`, no equality requirement
+for otherwise-valid probe/download duration, publisher, or wall clock, and no
+network-test slow-mark change. **F13 remains open and untouched.**
