@@ -106,7 +106,7 @@ def test_a_mention_may_only_name_a_moment_of_its_own_meeting(
 ) -> None:
     with pool.connection() as conn:
         meeting_a, moment_a = seed_meeting_with_moment(conn, "mig-topics-a")
-        _meeting_b, moment_b = seed_meeting_with_moment(conn, "mig-topics-b")
+        meeting_b, moment_b = seed_meeting_with_moment(conn, "mig-topics-b")
         topic_id = add_topic(conn, meeting_a)
         # The straight case works…
         add_mention(conn, topic_id, moment_a, meeting_a)
@@ -115,6 +115,11 @@ def test_a_mention_may_only_name_a_moment_of_its_own_meeting(
     with pool.connection() as conn:
         with pytest.raises(errors.ForeignKeyViolation):
             add_mention(conn, topic_id, moment_b, meeting_a)
+    # Supplying meeting B consistently with moment B must not smuggle topic A
+    # across the meeting boundary either.
+    with pool.connection() as conn:
+        with pytest.raises(errors.ForeignKeyViolation):
+            add_mention(conn, topic_id, moment_b, meeting_b)
 
 
 def test_the_primary_key_makes_the_per_moment_collapse_a_constraint(

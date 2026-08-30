@@ -21,7 +21,8 @@ CREATE TABLE topic (
     -- `artifact.provenance` carries, so machine derivation is legible per row.
     provenance jsonb NOT NULL DEFAULT '{}'::jsonb,
     created_at timestamptz NOT NULL DEFAULT now(),
-    updated_at timestamptz NOT NULL DEFAULT now()
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (id, meeting_id)
 );
 
 -- Rerun replacement and the 10.2 projection both read by meeting.
@@ -36,11 +37,16 @@ CREATE TRIGGER topic_set_updated_at
 -- key makes that a constraint, not a stage convention. `anchor_ms` is the
 -- earliest stamp inside the moment.
 CREATE TABLE topic_mention (
-    topic_id   uuid NOT NULL REFERENCES topic (id) ON DELETE CASCADE,
+    topic_id   uuid NOT NULL,
     moment_id  uuid NOT NULL,
     meeting_id uuid NOT NULL,
     anchor_ms  bigint NOT NULL CHECK (anchor_ms >= 0),
     PRIMARY KEY (topic_id, moment_id),
+    -- Pin the denormalized meeting id to the topic as well as the moment. A
+    -- caller cannot make a cross-meeting edge internally consistent merely
+    -- by supplying the moment's meeting id.
+    FOREIGN KEY (topic_id, meeting_id)
+        REFERENCES topic (id, meeting_id) ON DELETE CASCADE,
     -- The composite edge 0009 added for `artifact`, reused: the pair pins
     -- `meeting_id` to the moment's own meeting, so a mention can never name
     -- another meeting's moment. CASCADE, unlike `artifact`'s deliberate
