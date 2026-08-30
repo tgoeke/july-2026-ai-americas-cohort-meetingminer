@@ -200,5 +200,5 @@
 - Final `make test-fast` — puller **128 passed**, web **291 passed**, eval harness **549 passed**, server fast set **1617 passed, 378 deselected**.
 - Final `make check-env && make check-test-stores` — passed; required twin reachability **1 passed**. Collection is **1617/1995**, 378 deselected.
 - `git diff --check` — passed.
-- `make check-reviews` — **passed:** every dispatched review has a committed report (run after commit `27804fb`).
+- Final `make check-reviews` — **passed:** every dispatched review has a committed report (run after report-bearing commit `78008d2`).
 - `make evals-run` was not run (paid judge role, expressly excluded).
