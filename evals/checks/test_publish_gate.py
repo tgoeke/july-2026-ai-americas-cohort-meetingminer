@@ -1,24 +1,34 @@
 """Check 2.11 — publish-gate projection assert — against the live system.
 
-The sequence per subject (eval-design §2.11, made precise in §2.11a): discover
-the meeting's artifacts and their lifecycle state through the read-only corpus
-connection; assert every non-``published`` artifact is in **neither** retrieval
-store (direct read-only Meilisearch/Neo4j reads — absence has no api surface,
-AD-4); approve through the public ``POST /moments/{id}/approve`` — the
-harness's one sanctioned mutation (AD-16); assert every ``published`` artifact
-is in **both** stores with citations resolving to its source moment. Assembly
-and verdict are the pure ``checks.publish_gate``; this file only observes.
+The sequence per subject (eval-design §2.11, reshaped by story 11.3):
+discover the meeting's artifacts and their lifecycle state through the
+read-only corpus connection; assert every non-``published`` artifact is in
+**neither** retrieval store and every ``published`` one is in **both** with
+citations resolving (direct read-only Meilisearch/Neo4j reads — absence has
+no api surface, AD-4); then measure the approve→project *transition* on one
+run-owned probe artifact (``gate_probe.py``): minted onto an eligible
+projected subject moment, approved through the public
+``POST /moments/{id}/approve`` — the harness's one sanctioned mutation
+(AD-16) — asserted in both stores, and erased with the cleanup verified.
+Assembly and verdict are the pure ``checks.publish_gate``; this file only
+observes and delegates.
+
+What story 11.3 changed: **subject artifacts are never approved.** The
+shared corpus's ``extracted`` rows survive every run, so two eval runs no
+longer consume each other's gate half, and the run's one write lands in a
+namespace it owns (the probe's title carries the run id) and erases on the
+way out. These tests read the shared dev stores read-only otherwise and are
+safe to run while another eval run or any suite is running.
 
 Two standing cautions:
 
-* **This check mutates the shared corpus.** Approval is one-way — there is no
-  unpublish — so a run consumes the subject's ``extracted`` artifacts and the
-  next run records the gate half unmeasurable (RUNBOOK step 2 notes).
-* **Only ``corpus: scripted`` meetings are ever approved.** The tag is re-read
-  from Postgres before any api call; anything else is a named refusal — the
-  real corpus is never approved by a machine.
-
-**These tests hold the shared Docker stores — one agent at a time (AGENTS.md).**
+* **Only ``corpus: scripted`` meetings ever host a probe.** The tag is
+  re-read from Postgres before any store handle is built or row minted;
+  anything else is a named refusal — the real corpus is never approved by a
+  machine, and never probed either.
+* **A run killed outright can strand its probe.** The erasure runs even
+  when the sequence is interrupted, but a process killed mid-probe leaves
+  the row, whose body text tells the finder exactly what to remove.
 """
 
 from __future__ import annotations
@@ -27,10 +37,10 @@ from collections.abc import Callable
 
 import pytest
 
+from evals.checks import gate_probe
 from evals.harness import checks, retrieval, stores
-from evals.harness.checks import ApproveOutcome, CheckResult, StorePresence
+from evals.harness.checks import CheckResult, StorePresence
 from evals.harness.corpus import Corpus, CorpusQueryError
-from evals.harness.retrieval import ApproveError
 from evals.harness.run import Run
 from evals.harness.stores import StoreAssertError
 from evals.harness.subjects import Subject
@@ -71,7 +81,8 @@ def test_publish_gate_projection(
     app_config: object,
     pytestconfig: pytest.Config,
 ) -> None:
-    """Check 2.11: unpublished in neither store; published in both, cited."""
+    """Check 2.11: unpublished in neither store; published in both; the gate
+    transition measured on the run-owned probe and erased behind it."""
     name = checks.PUBLISH_GATE_PROJECTION
     if subject.meeting_id is None:
         result = _not_applicable(
@@ -94,13 +105,15 @@ def test_publish_gate_projection(
             f"REFUSED: publish-gate check 2.11 only runs against a local API"
             f" because its direct Postgres, Meilisearch, and Neo4j reads use"
             f" this checkout's configured stores; {base_url!r} is not a"
-            " loopback API target, so no store read or approval call was made",
+            " loopback API target, so no store read, approval call or probe"
+            " row was made",
         )
         assert result.passed, result.summary()
         return
 
     # The refusal guard, before anything else: the corpus tag re-read from the
-    # database the approval would mutate. Named failure, no api call.
+    # database the probe would be minted into. Named failure, no api call, no
+    # store handle, no row.
     try:
         tag = corpus.meeting_corpus(meeting_id)
         artifacts = corpus.artifacts_for(meeting_id)
@@ -123,26 +136,14 @@ def test_publish_gate_projection(
         assert result.passed, result.summary()
         return
 
-    if not artifacts:
-        # `publish_gate` renders this as the blocking not-applicable naming
-        # the meeting; no store connection is worth opening for it.
-        result = _record(
-            run,
-            subject,
-            name,
-            lambda: checks.publish_gate(
-                meeting_id, artifacts, {}, ApproveOutcome(attempted=False), {}
-            ),
-        )
-        assert result.passed, result.summary()
-        return
-
-    # The read-only store handles. Unreachable stores are a named blocking
-    # not-applicable with the diagnosis kept in the run problems — and any
-    # *other* construction exception (a malformed URL, a driver surprise) is
-    # recorded the same way and re-raised, so no path through construction
-    # can leave the check silently absent from the report (the 5-2
-    # record-and-reraise shape).
+    # The read-only store handles — needed even for a meeting with no
+    # artifacts, because the probe still measures the gate transition (and
+    # the no-artifacts branch stays a named blocking not-applicable in the
+    # pure assembly). Unreachable stores are a named blocking not-applicable
+    # with the diagnosis kept in the run problems — and any *other*
+    # construction exception is recorded the same way and re-raised, so no
+    # path through construction can leave the check silently absent from the
+    # report (the 5-2 record-and-reraise shape).
     graph = None
     try:
         search = stores.search_client(app_config)
@@ -169,89 +170,57 @@ def test_publish_gate_projection(
             graph.close()
         raise
 
-    def membership(artifact_id: str) -> dict[str, StorePresence]:
-        return {
-            checks.SEARCH_STORE: stores.artifact_in_search(search, artifact_id),
-            checks.GRAPH_STORE: stores.artifact_in_graph(graph, artifact_id),
-        }
-
     try:
+        # The subject halves: one membership read per artifact, no mutation.
         try:
-            pre = {str(a.id): membership(str(a.id)) for a in artifacts}
+            membership: dict[str, dict[str, StorePresence]] = {
+                str(artifact.id): {
+                    checks.SEARCH_STORE: stores.artifact_in_search(
+                        search, str(artifact.id)
+                    ),
+                    checks.GRAPH_STORE: stores.artifact_in_graph(
+                        graph, str(artifact.id)
+                    ),
+                }
+                for artifact in artifacts
+            }
         except StoreAssertError as exc:
             result = _not_applicable(
                 run,
                 subject,
                 name,
-                f"the pre-approval membership read failed for meeting"
+                f"the subject membership read failed for meeting"
                 f" {meeting_id}: {exc}",
             )
             assert result.passed, result.summary()
             return
 
-        # Approve: one call per moment that still holds an `extracted`
-        # artifact, in discovery order. The harness's only mutation.
-        moments_to_approve: list[str] = []
-        for artifact in artifacts:
-            moment_id = str(artifact.moment_id)
-            if (
-                artifact.state == checks.EXTRACTED_STATE
-                and moment_id not in moments_to_approve
-            ):
-                moments_to_approve.append(moment_id)
-        published_ids: list[str] = []
-        if moments_to_approve:
-            outcome_detail: str | None = None
-            ok = True
-            try:
-                for moment_id in moments_to_approve:
-                    returned = retrieval.approve_moment(base_url, moment_id)
-                    published_ids.extend(
-                        str(item["id"])
-                        for item in returned
-                        if item.get("state") == checks.PUBLISHED_STATE
-                    )
-            except ApproveError as exc:
-                ok = False
-                outcome_detail = str(exc)
-            outcome = ApproveOutcome(
-                attempted=True,
-                ok=ok,
-                detail=outcome_detail,
-                published_ids=tuple(published_ids),
-            )
-        else:
-            outcome = ApproveOutcome(attempted=False)
-
-        post_ids = sorted(
-            set(outcome.published_ids)
-            | {
-                str(a.id)
-                for a in artifacts
-                if a.state == checks.PUBLISHED_STATE
-            }
+        # The probe and the assembly, inside the record-and-reraise shape:
+        # the probe layer names its own refusals and interruptions on the
+        # GateProbe (and erases whatever it minted either way); anything
+        # that still raises — a database the mint cannot reach — is
+        # recorded as measured-nothing and re-raised.
+        result = _record(
+            run,
+            subject,
+            name,
+            lambda: checks.publish_gate(
+                meeting_id,
+                artifacts,
+                membership,
+                gate_probe.run_gate_probe(
+                    run_id=run.run_id,
+                    manifest_id=subject.manifest.id,
+                    meeting_id=meeting_id,
+                    base_url=base_url,
+                    config=app_config,
+                    corpus=corpus,
+                    search=search,
+                    graph=graph,
+                ),
+            ),
         )
-        try:
-            post = {artifact_id: membership(artifact_id) for artifact_id in post_ids}
-        except StoreAssertError as exc:
-            result = _not_applicable(
-                run,
-                subject,
-                name,
-                f"the post-approval membership read failed for meeting"
-                f" {meeting_id}: {exc} — the approval WAS attempted"
-                f" ({outcome.attempted}), so rerun implications apply"
-                " (RUNBOOK: the lifecycle is one-way)",
-            )
-            assert result.passed, result.summary()
-            return
     finally:
         graph.close()
 
-    result = _record(
-        run,
-        subject,
-        name,
-        lambda: checks.publish_gate(meeting_id, artifacts, pre, outcome, post),
-    )
     assert result.passed, result.summary()
