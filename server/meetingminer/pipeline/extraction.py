@@ -368,7 +368,7 @@ _STATUS_CELL = re.compile(
 
 # Header labels that name the column carrying an item's own anchor. Read only
 # to *find* that column; the parser never depends on a label existing.
-_TIMESTAMP_HEADERS = ("timestamp", "time", "when", "stamp", "anchor")
+_TIMESTAMP_HEADERS = ("timestamp", "time", "when", "stamp")
 
 # Header labels that name the column carrying an action item's owner.
 _OWNER_HEADERS = ("owner", "assignee", "who")
@@ -1065,7 +1065,7 @@ def parse_extraction_document(text: str, document_kind: str) -> ParsedDocument:
 
 
 # Header labels whose cell is timestamp bookkeeping rather than gist text.
-_GIST_SKIP_LABELS = ("timestamp", "time", "when", "stamp", "anchor")
+_GIST_SKIP_LABELS = ("timestamp", "time", "when", "stamp")
 
 
 def topic_gist(artifact: ProposedArtifact) -> str:

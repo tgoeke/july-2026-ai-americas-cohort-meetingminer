@@ -357,6 +357,17 @@ def test_a_topic_uses_the_exact_anchors_column_not_an_unrelated_time_header() ->
     assert topic.anchors_ms == (10_000,)
 
 
+def test_an_anchors_header_is_an_authoritative_topic_timestamp_field() -> None:
+    document = (
+        "## Topics\n\n"
+        "| ID | Topic | Gist | Anchors |\n"
+        "|----|-------|------|---------|\n"
+        "| T1 | Vendor feed transport | Moving to SFTP | [0:10], [99:99] |\n"
+    )
+    with pytest.raises(core.ArtifactParseError, match="T1.*Timestamps"):
+        core.parse_extraction_document(document, core.DOC_TOPICS)
+
+
 # --- the prompt builder and the config binding -------------------------------
 
 
