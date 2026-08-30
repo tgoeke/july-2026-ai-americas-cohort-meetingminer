@@ -423,6 +423,30 @@ _PROBE_FORBIDDEN_QUERY_CLAUSES = (
     "UPDATE",
 )
 
+_ALLOWED_PROBE_QUERIES = {
+    "INSERT INTO artifact (moment_id, meeting_id, kind, title, body) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+    "DELETE FROM artifact WHERE id = %s",
+    "MATCH (a {id: $id}) DETACH DELETE a",
+}
+
+
+def normalized_query(query: str) -> str:
+    return " ".join(query.split())
+
+
+def unsafe_probe_query(query: str) -> bool:
+    """Whether a write-shaped SQL/Cypher query exceeds the exact sanction."""
+    normalized = normalized_query(query)
+    if normalized in _ALLOWED_PROBE_QUERIES:
+        return False
+    return bool(
+        re.search(
+            r"\b(?:insert|delete|merge|create|set|remove|foreach|update)\b",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+    )
+
 
 def probe_write_references(text: str) -> list[str]:
     """Every creation-shaped store token in ``text``, or an empty list."""
@@ -464,6 +488,47 @@ def test_the_probe_pin_still_catches_the_creation_surface() -> None:
         'conn.execute("UPDATE artifact SET state = %s")',
     ):
         assert probe_write_references(call), f"the probe pin missed {call!r}"
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "match (a {id: $id}) set a.state = 'published'",
+        "mErGe (a:Artifact {id: $id})",
+        "INSERT INTO artifact (moment_id, meeting_id, kind, title, body, state) VALUES (%s, %s, %s, %s, %s, 'published') RETURNING id",
+        "INSERT INTO artifact (moment_id, meeting_id, kind, title, body) VALUES (%s, %s, %s, %s, %s), (%s, %s, %s, %s, %s) RETURNING id",
+        "DELETE FROM artifact",
+        "MATCH (a) DETACH DELETE a",
+    ],
+)
+def test_the_probe_query_allowlist_rejects_mutation_canaries(query: str) -> None:
+    assert unsafe_probe_query(query), f"the exact query pin admitted {query!r}"
+
+
+def test_the_probe_query_allowlist_is_exactly_the_three_sanctioned_shapes() -> None:
+    source = (EVALS_ROOT / "checks" / "gate_probe.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    assigned: dict[str, str] = {}
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+        ):
+            try:
+                value = ast.literal_eval(node.value)
+            except (ValueError, TypeError):
+                continue
+            if isinstance(value, str):
+                assigned[node.targets[0].id] = normalized_query(value)
+
+    actual = {
+        assigned["_INSERT_PROBE"],
+        assigned["_DELETE_PROBE"],
+        assigned["_ERASE_NODE"],
+    }
+    assert actual == _ALLOWED_PROBE_QUERIES
+    assert all(not unsafe_probe_query(query) for query in actual)
 
 
 def test_the_probe_pin_leaves_the_erasure_vocabulary_alone() -> None:
