@@ -254,8 +254,10 @@ def _downs(fake: _FakeDocker) -> list[str]:
     return [call[3] for call in fake.calls if call[:3] == ["docker", "compose", "-p"]]
 
 
-def _our_volumes(project: str) -> str:
-    return "\n".join(f"{project}_{name}\t{project}" for name in ws.VOLUME_NAMES)
+def _our_volumes(project: str, stack_id: str = "") -> str:
+    return "\n".join(
+        f"{project}_{name}\t{project}\t{stack_id}" for name in ws.VOLUME_NAMES
+    )
 
 
 def test_prune_classifies_owned_orphaned_foreign_and_main(tmp_path: Path) -> None:
@@ -679,3 +681,74 @@ def test_declared_owners_counts_only_valid_worktree_stack_names(tmp_path: Path) 
     (main_name / ".env.worktree").write_text("MM_STACK_NAME=meetingminer\n", encoding="utf-8")
     owners = ws.declared_owners(root)
     assert owners == {"meetingminer-good": good}
+
+
+# --- remediation 2026-08-30: the pruner proves ownership (findings 2, 3) ----
+
+
+@pytest.mark.parametrize(
+    "project",
+    ["meetingminer-Foo", "meetingminer-", "meetingminer-.backup", "meetingminer-UPPER"],
+)
+def test_a_prefix_with_an_invalid_slug_is_not_a_worktree_project(project: str) -> None:
+    """Only meetingminer-<valid slug> can be a stack this tool provisioned."""
+    assert not ws._is_worktree_project(project)
+
+
+def test_prune_reports_a_malformed_prefix_project_as_foreign_and_never_removes_it(
+    tmp_path: Path,
+) -> None:
+    """`meetingminer-Foo` with a missing working-dir owner cannot be ours —
+    it must be reported and skipped, never torn down."""
+    root = tmp_path / "wt"
+    root.mkdir()
+    gone = tmp_path / "nowhere" / "Foo" / "infra"
+    ps = f"meetingminer-Foo\t{gone}\t"
+    volumes = "meetingminer-Foo_postgres-data\tmeetingminer-Foo\t"
+    fake = _FakeDocker(ps, volumes)
+    lines: list[str] = []
+    assert ws.prune(root, run=fake, out=lines.append) == []
+    assert _downs(fake) == []
+    assert any(line.startswith("skipped foreign meetingminer-Foo") for line in lines)
+
+
+def test_prune_container_backed_project_with_a_foreign_volume_is_unknown(
+    tmp_path: Path,
+) -> None:
+    """A container label must not bypass volume recognition: a valid-prefix
+    project with a missing owner and a foreign volume is unknown, in the
+    general sweep and in --project mode."""
+    root = tmp_path / "wt"
+    root.mkdir()
+    gone = root / "probe" / "infra"  # missing
+    ps = f"meetingminer-probe\t{gone}\t"
+    volumes = (
+        _our_volumes("meetingminer-probe")
+        + "\nmeetingminer-probe_foreign-data\tmeetingminer-probe\t"
+    )
+    fake = _FakeDocker(ps, volumes)
+    lines: list[str] = []
+    assert ws.prune(root, run=fake, out=lines.append) == []
+    assert _downs(fake) == []
+    assert "skipped unknown meetingminer-probe" in lines
+
+    fake2 = _FakeDocker(ps, volumes)
+    with pytest.raises(ws.StackError, match="does not recognise"):
+        ws.prune(root, run=fake2, out=lambda _l: None, project="meetingminer-probe")
+    assert _downs(fake2) == []
+
+
+def test_worktree_stacks_carries_container_and_volume_ids(tmp_path: Path) -> None:
+    """The third label column: container ids and volume ids are collected
+    separately, an unlabeled volume as the empty string."""
+    root = tmp_path / "wt"
+    root.mkdir()
+    ps = f"meetingminer-probe\t{root / 'probe' / 'infra'}\tdeadbeef0001"
+    volumes = _our_volumes("meetingminer-probe", "deadbeef0001") + (
+        "\nmeetingminer-probe_postgres-data\tmeetingminer-probe\t"
+    )
+    stacks, foreign = ws.worktree_stacks(ps, volumes, root)
+    assert foreign == []
+    stack = stacks["meetingminer-probe"]
+    assert stack.ids == {"deadbeef0001"}
+    assert stack.volume_ids == {"deadbeef0001", ""}
