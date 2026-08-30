@@ -1239,3 +1239,194 @@ def test_puller_suite_cannot_skip_its_drop_schema_cases() -> None:
         "infra/Makefile's `puller-test` must run the suite with "
         "MM_REQUIRE_DROP_SCHEMA=1 so the drop-schema cases cannot skip here"
     )
+
+
+# --- rows: worktree provision / bad slug / remove (story 11.2) --------------
+#
+# The real infra/Makefile, worktree_stack.py and docker-compose.yml run against
+# a throwaway git repository under tmp_path, so nothing here touches this
+# repository, its branches, or Docker: the Makefile derives ROOT from its own
+# location and WT_ROOT from that repo's git common dir, and `docker` on PATH
+# is a decoy that records its argv. python3 is the real one (worktree_stack.py
+# is stdlib-only and probes real loopback ports, which is what `make worktree`
+# does too).
+
+WORKTREE_DOCKER_BODY = """#!/bin/bash
+echo "$*" >> "__ARGV__"
+if [ "$1" = "info" ]; then exit __INFO_EXIT__; fi
+case "$*" in
+  "ps -aq --filter "*) echo "deadbeefcafe" ;;
+esac
+exit 0
+"""
+
+_GIT_ID = ["-c", "user.name=test", "-c", "user.email=test@example.invalid"]
+
+
+def _git(repo: Path, *args: str) -> str:
+    proc = subprocess.run(
+        ["git", *_GIT_ID, "-C", str(repo), *args], capture_output=True, text=True, timeout=60
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    return proc.stdout.strip()
+
+
+def _throwaway_repo(tmp_path: Path, *, docker_info_exit: int = 0) -> tuple[Path, Path, Path]:
+    """A committed `main` with the real infra files, a `.env`, and a decoy docker.
+
+    Returns (repo, docker_bin, argv_log). The `.gitignore` ignores `.env` and
+    `.env.*` the way the real one does — `git worktree remove` counts
+    untracked files as dirt, so the generated `.env.worktree` and the `.env`
+    link must be ignored for a clean removal, exactly as in this repository.
+    """
+    repo = tmp_path / "repo"
+    infra = repo / "infra"
+    infra.mkdir(parents=True)
+    for name in ("Makefile", "worktree_stack.py", "docker-compose.yml"):
+        (infra / name).write_bytes((REPO_ROOT / "infra" / name).read_bytes())
+    (repo / ".gitignore").write_text(".env\n.env.*\n", encoding="utf-8")
+    (repo / ".env").write_text(f"POSTGRES_PASSWORD=x\nMM_DROPS_ROOT={tmp_path}\n", encoding="utf-8")
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "add", ".gitignore", "infra")
+    _git(repo, "commit", "-q", "-m", "base")
+    docker_bin = tmp_path / "path"
+    argv_log = tmp_path / "docker-argv.txt"
+    _write_script(
+        docker_bin / "docker",
+        WORKTREE_DOCKER_BODY.replace("__ARGV__", str(argv_log)).replace(
+            "__INFO_EXIT__", str(docker_info_exit)
+        ),
+    )
+    return repo, docker_bin, argv_log
+
+
+def _make_at(
+    repo: Path, docker_bin: Path, targets: list[str], variables: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    """`make -C <repo>/infra <targets> VAR=value ...` with the decoy docker on PATH."""
+    env = _path_env(docker_bin)
+    for key in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL"):
+        env.pop(key, None)
+    return subprocess.run(
+        ["make", "-C", str(repo / "infra"), *targets, *(f"{k}={v}" for k, v in (variables or {}).items())],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=180,
+    )
+
+
+def _argv_lines(argv_log: Path) -> list[str]:
+    return argv_log.read_text(encoding="utf-8").splitlines() if argv_log.exists() else []
+
+
+def test_worktree_provisions_and_starts_a_private_stack(tmp_path: Path) -> None:
+    """Row `Provision`, Docker up: worktree on story/<slug> from main beside the
+    repo, `.env` linked, `.env.worktree` written, compose told the stack's
+    name and both env files, and the banner naming it."""
+    repo, docker_bin, argv_log = _throwaway_repo(tmp_path)
+    proc = _make_at(repo, docker_bin, ["worktree"], {"STORY": "probe"})
+    output = proc.stdout + proc.stderr
+    assert proc.returncode == 0, output
+
+    worktree = tmp_path / "meetingminer-wt" / "probe"  # WT_ROOT from the git common dir
+    assert worktree.is_dir(), output
+    assert _git(repo, "rev-parse", "--verify", "refs/heads/story/probe")
+    assert _git(worktree, "rev-parse", "--abbrev-ref", "HEAD") == "story/probe"
+    assert (worktree / ".env").is_symlink()
+    assert (worktree / ".env").resolve() == (repo / ".env").resolve()
+    env_lines = (worktree / ".env.worktree").read_text(encoding="utf-8").splitlines()
+    assert "MM_STACK_NAME=meetingminer-probe" in env_lines
+    ports = [line for line in env_lines if re.match(r"^MM_[A-Z0-9_]+_PORT=\d+$", line)]
+    assert len(ports) == 7, env_lines
+
+    expected_up = (
+        f"compose --env-file {worktree / '.env'} --env-file {worktree / '.env.worktree'}"
+        f" -p meetingminer-probe -f {worktree / 'infra' / 'docker-compose.yml'} up -d --wait"
+    )
+    assert expected_up in _argv_lines(argv_log), _argv_lines(argv_log)
+    assert "stack meetingminer-probe is up" in output
+    assert "MM_STACK_NAME=meetingminer-probe" in output
+
+
+def test_worktree_branches_from_base_when_given(tmp_path: Path) -> None:
+    repo, docker_bin, _argv_log = _throwaway_repo(tmp_path)
+    _git(repo, "checkout", "-q", "-b", "other")
+    (repo / "marker.txt").write_text("other\n", encoding="utf-8")
+    _git(repo, "add", "marker.txt")
+    _git(repo, "commit", "-q", "-m", "other")
+    other_head = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "checkout", "-q", "main")
+    assert _git(repo, "rev-parse", "HEAD") != other_head
+
+    proc = _make_at(repo, docker_bin, ["worktree"], {"STORY": "probe2", "BASE": "other"})
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    worktree = tmp_path / "meetingminer-wt" / "probe2"
+    assert _git(worktree, "rev-parse", "HEAD") == other_head
+    assert (worktree / "marker.txt").is_file()
+
+
+def test_worktree_with_docker_down_keeps_the_checkout_and_names_the_retry(tmp_path: Path) -> None:
+    """Row `Provision`, Docker down: non-zero, but the worktree and its
+    `.env.worktree` stay and the error says `cd <wt> && make infra-up`."""
+    repo, docker_bin, argv_log = _throwaway_repo(tmp_path, docker_info_exit=1)
+    proc = _make_at(repo, docker_bin, ["worktree"], {"STORY": "probe"})
+    output = proc.stdout + proc.stderr
+    assert proc.returncode != 0, output
+
+    worktree = tmp_path / "meetingminer-wt" / "probe"
+    assert worktree.is_dir()
+    assert (worktree / ".env").is_symlink()
+    env_lines = (worktree / ".env.worktree").read_text(encoding="utf-8").splitlines()
+    assert "MM_STACK_NAME=meetingminer-probe" in env_lines
+    assert sum(bool(re.match(r"^MM_[A-Z0-9_]+_PORT=\d+$", line)) for line in env_lines) == 7
+    assert "Docker daemon is not running" in output
+    assert f"cd {worktree} && make infra-up" in output
+    assert not any(" up " in line for line in _argv_lines(argv_log))
+
+
+def test_worktree_refuses_a_bad_slug_before_any_git_action(tmp_path: Path) -> None:
+    """Row `Bad slug`: exit 1 with the rule; no directory, no branch."""
+    repo, docker_bin, argv_log = _throwaway_repo(tmp_path)
+    proc = _make_at(repo, docker_bin, ["worktree"], {"STORY": "Foo_Bar!"})
+    output = proc.stdout + proc.stderr
+    assert proc.returncode != 0, output
+    assert "STORY must match [a-z0-9][a-z0-9._-]*" in output
+    assert not (tmp_path / "meetingminer-wt").exists()
+    assert _git(repo, "branch", "--list", "story/Foo_Bar!") == ""
+    assert len(_git(repo, "worktree", "list").splitlines()) == 1
+    assert _argv_lines(argv_log) == []
+
+
+def test_worktree_remove_tears_the_stack_down_after_git_removes_the_checkout(tmp_path: Path) -> None:
+    """Row `Remove`, clean: the checkout goes, then `down -v` for its project."""
+    repo, docker_bin, argv_log = _throwaway_repo(tmp_path)
+    assert _make_at(repo, docker_bin, ["worktree"], {"STORY": "probe"}).returncode == 0
+    argv_log.write_text("", encoding="utf-8")
+
+    proc = _make_at(repo, docker_bin, ["worktree-remove"], {"STORY": "probe"})
+    output = proc.stdout + proc.stderr
+    assert proc.returncode == 0, output
+    assert not (tmp_path / "meetingminer-wt" / "probe").exists()
+    assert len(_git(repo, "worktree", "list").splitlines()) == 1
+    assert _git(repo, "rev-parse", "--verify", "refs/heads/story/probe")  # branch kept
+    assert "removed stack meetingminer-probe" in output
+    lines = _argv_lines(argv_log)
+    assert "compose -p meetingminer-probe down -v --remove-orphans" in lines, lines
+    assert lines.index("info") < lines.index("compose -p meetingminer-probe down -v --remove-orphans")
+
+
+def test_worktree_remove_of_a_dirty_checkout_leaves_the_stack_intact(tmp_path: Path) -> None:
+    """Row `Remove`, dirty: git refuses as before and no teardown runs."""
+    repo, docker_bin, argv_log = _throwaway_repo(tmp_path)
+    assert _make_at(repo, docker_bin, ["worktree"], {"STORY": "probe"}).returncode == 0
+    worktree = tmp_path / "meetingminer-wt" / "probe"
+    (worktree / "scratch.txt").write_text("uncommitted\n", encoding="utf-8")
+    argv_log.write_text("", encoding="utf-8")
+
+    proc = _make_at(repo, docker_bin, ["worktree-remove"], {"STORY": "probe"})
+    output = proc.stdout + proc.stderr
+    assert proc.returncode != 0, output
+    assert worktree.is_dir()
+    assert "Stack meetingminer-probe is left intact" in output
+    assert not any("down" in line for line in _argv_lines(argv_log))
