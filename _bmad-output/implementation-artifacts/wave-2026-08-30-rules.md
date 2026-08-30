@@ -62,6 +62,27 @@ record it in the spec's change log with the exact file and reason, keep
 building the rest, and leave the story in `review` with the gap named. Do not
 widen quietly.
 
+## When you write the reviewer handoff prompt
+
+**The review lane fixes what it finds.** Owner ruling, 2026-08-30. Your
+generated `review-prompt-story-<id>-<date>.md` must say so explicitly:
+
+> Report every finding in the report file first (report-first, committed
+> before reading code), then FIX the patchable ones yourself on
+> `story/<id>-review` in your own worktree, red-first — the test observed
+> failing against the unfixed code, then the fix, then green — committing each
+> with its finding number. Leave unfixed, and clearly marked open, only what
+> needs an owner decision or is rooted in the frozen spec. Never commit to
+> `main`, never work in the main checkout, never merge — the owner runs
+> `integrate`.
+
+**Do not copy the older `review-prompt-story-*.md` files in this directory.**
+Several of them predate this ruling and carry the line "Report findings — do
+NOT fix them". That instruction is retired; it made every review hand its
+findings back to a builder and cost this wave a full round-trip per story.
+Those files are kept as the historical record of what was dispatched, not as
+templates.
+
 ## Git and process
 
 - Read `AGENTS.md` first. Commit each coherent unit as it completes; stage only
