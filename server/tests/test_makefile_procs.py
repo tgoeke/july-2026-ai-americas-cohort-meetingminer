@@ -1903,3 +1903,45 @@ def test_docker_down_creation_retry_sweeps_a_stale_incarnation(tmp_path: Path) -
     assert retry2.returncode == 0, retry2_output
     assert "kept stack meetingminer-probe" in retry2_output
     assert not any(" down" in line for line in _argv_lines(argv_log)), _argv_lines(argv_log)
+
+
+# --- remediation 2026-08-30: cleanup status propagation (finding 6) ---------
+
+
+def test_worktree_remove_fails_when_stack_inventory_fails(tmp_path: Path) -> None:
+    """A failed `docker ps -aq` must be a named error, never mistaken for an
+    absent stack."""
+    repo, docker_bin, _argv_log = _throwaway_repo(tmp_path, ps_q_exit=3)
+    assert _make_at(repo, docker_bin, ["worktree"], {"STORY": "probe"}).returncode == 0
+    proc = _make_at(repo, docker_bin, ["worktree-remove"], {"STORY": "probe"})
+    output = proc.stdout + proc.stderr
+    assert proc.returncode != 0, output
+    assert "already gone" not in output
+    assert "removed stack meetingminer-probe" not in output
+    assert "ps -aq" in output  # the inventory failure is named
+
+
+def test_worktree_remove_propagates_a_failed_teardown(tmp_path: Path) -> None:
+    repo, docker_bin, _argv_log = _throwaway_repo(tmp_path, down_exit=1)
+    assert _make_at(repo, docker_bin, ["worktree"], {"STORY": "probe"}).returncode == 0
+    proc = _make_at(repo, docker_bin, ["worktree-remove"], {"STORY": "probe"})
+    output = proc.stdout + proc.stderr
+    assert proc.returncode != 0, output
+    assert not (tmp_path / "meetingminer-wt" / "probe").exists()  # checkout went
+    assert "removed stack meetingminer-probe" not in output
+    assert "down -v --remove-orphans failed" in output  # the teardown failure is named
+
+
+def test_worktree_prune_propagates_a_failed_teardown_but_still_deletes_the_branch(
+    tmp_path: Path,
+) -> None:
+    """The checkout is already gone when the teardown fails, so the branch
+    delete still happens — but its `|| true` must not mask the failure."""
+    repo, docker_bin, _argv_log = _throwaway_repo(tmp_path, down_exit=1, origin=True)
+    assert _make_at(repo, docker_bin, ["worktree"], {"STORY": "probe"}).returncode == 0
+    proc = _make_at(repo, docker_bin, ["worktree-prune"])
+    output = proc.stdout + proc.stderr
+    assert proc.returncode != 0, output
+    assert not (tmp_path / "meetingminer-wt" / "probe").exists()
+    assert _git(repo, "branch", "--list", "story/probe") == ""
+    assert "down -v --remove-orphans failed" in output

@@ -852,3 +852,117 @@ def test_cli_claim_reports_the_result(tmp_path: Path, monkeypatch: pytest.Monkey
     )
     assert rc == 0
     assert "no stale stack meetingminer-probe" in capsys.readouterr().out
+
+
+# --- remediation 2026-08-30: teardown never reports success on failure ------
+
+
+class _FakeDownDocker:
+    """Answers the `down` subcommand's docker calls with programmable faults."""
+
+    def __init__(
+        self,
+        info_ok: bool = True,
+        containers: str = "cid\n",
+        volumes: str = "",
+        ps_fail: bool = False,
+        vol_fail: bool = False,
+        down_fail: bool = False,
+    ) -> None:
+        self.info_ok = info_ok
+        self.containers = containers
+        self.volumes = volumes
+        self.ps_fail = ps_fail
+        self.vol_fail = vol_fail
+        self.down_fail = down_fail
+        self.calls: list[list[str]] = []
+
+    def __call__(self, argv: list[str]) -> str:
+        self.calls.append(list(argv))
+        if argv == ["docker", "info"]:
+            if not self.info_ok:
+                raise ws.StackError("docker unavailable: simulated")
+            return ""
+        if argv[:3] == ["docker", "ps", "-aq"]:
+            if self.ps_fail:
+                raise ws.StackError("docker ps -aq failed: simulated")
+            return self.containers
+        if argv[:4] == ["docker", "volume", "ls", "-q"]:
+            if self.vol_fail:
+                raise ws.StackError("docker volume ls -q failed: simulated")
+            return self.volumes
+        if argv[:3] == ["docker", "compose", "-p"]:
+            if self.down_fail:
+                raise ws.StackError("down failed: simulated")
+            return ""
+        raise AssertionError(f"unexpected docker call: {argv}")
+
+
+@pytest.mark.parametrize("project", ["meetingminer", "meetingminer-Foo", "backend", ""])
+def test_down_refuses_anything_but_a_worktree_stack_name(project: str) -> None:
+    fake = _FakeDownDocker()
+    with pytest.raises(ws.StackError, match="refusing"):
+        ws.down(project, run=fake, out=lambda _l: None)
+    assert fake.calls == []
+
+
+def test_down_with_docker_off_is_a_note_not_a_teardown() -> None:
+    fake = _FakeDownDocker(info_ok=False)
+    lines: list[str] = []
+    ws.down("meetingminer-probe", run=fake, out=lines.append)
+    assert _downs(fake) == []
+    assert lines == [
+        "note: Docker daemon not running — stack meetingminer-probe left in"
+        " place; 'make test-db-prune' sweeps it once its worktree is gone"
+    ]
+
+
+@pytest.mark.parametrize("fault", ["ps_fail", "vol_fail"])
+def test_down_inventory_failure_is_an_error_never_already_gone(fault: str) -> None:
+    fake = _FakeDownDocker(**{fault: True})
+    lines: list[str] = []
+    with pytest.raises(ws.StackError, match="simulated"):
+        ws.down("meetingminer-probe", run=fake, out=lines.append)
+    assert _downs(fake) == []
+    assert not any("already gone" in line for line in lines)
+
+
+@pytest.mark.parametrize(
+    ("containers", "volumes"),
+    [("cid\n", ""), ("", "meetingminer-probe_postgres-data\n"), ("cid\n", "v\n")],
+    ids=["containers-only", "volumes-only", "both"],
+)
+def test_down_removes_present_resources_and_reports(containers: str, volumes: str) -> None:
+    fake = _FakeDownDocker(containers=containers, volumes=volumes)
+    lines: list[str] = []
+    ws.down("meetingminer-probe", run=fake, out=lines.append)
+    assert _downs(fake) == ["meetingminer-probe"]
+    assert ["docker", "compose", "-p", "meetingminer-probe", "down", "-v", "--remove-orphans"] in fake.calls
+    assert lines == ["removed stack meetingminer-probe"]
+
+
+def test_down_notes_an_absent_stack() -> None:
+    fake = _FakeDownDocker(containers="", volumes="")
+    lines: list[str] = []
+    ws.down("meetingminer-probe", run=fake, out=lines.append)
+    assert _downs(fake) == []
+    assert lines == ["note: stack meetingminer-probe was already gone"]
+
+
+def test_down_propagates_a_failed_teardown() -> None:
+    fake = _FakeDownDocker(down_fail=True)
+    lines: list[str] = []
+    with pytest.raises(ws.StackError, match="down failed"):
+        ws.down("meetingminer-probe", run=fake, out=lines.append)
+    assert "removed stack meetingminer-probe" not in lines
+
+
+def test_cli_down_reports_and_propagates(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(ws, "run_docker", _FakeDownDocker(containers="", volumes=""))
+    assert ws.main(["down", "--project", "meetingminer-probe"]) == 0
+    assert "already gone" in capsys.readouterr().out
+    monkeypatch.setattr(ws, "run_docker", _FakeDownDocker(ps_fail=True))
+    assert ws.main(["down", "--project", "meetingminer-probe"]) == 1
+    assert "simulated" in capsys.readouterr().err
