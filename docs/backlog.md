@@ -132,6 +132,27 @@ while 6.6 was in flight — 11.1 has landed, so nothing blocks this now.
 **Done when:** a recorded YouTube meeting's moments carry the deep link on all
 three models and the 6.6 secondary link shows on search hits and citations.
 
+### B-35 · Surface total projection refusal from approve — M
+
+The Story 11.3 live concurrency measurement at main commit `5a9676d` captured
+`POST /moments/{moment_id}/approve` publishing a probe in Postgres, logging
+`artifacts.projection.failed` with `ProjectionLockedError` when the projection
+writer lock refused the entire store write, and then returning `200 OK`. The
+probe was absent from both Meilisearch and Neo4j. A caller such as eval check
+2.11 cannot distinguish that transient refusal from a real publish-gate
+regression. This server behavior is independent of eval namespace ownership and
+is outside Story 11.3's frozen footprint.
+
+**Do:** give the approve response an explicit failure contract for total
+projection refusal (for example a non-2xx problem response or a typed projection
+outcome) and pin the behavior with an API regression. Preserve the durable
+Postgres publication and the existing recovery hint so clients know whether to
+retry, rebuild, or report a gate defect.
+
+**Done when:** a caller can distinguish total projection refusal from successful
+projection without scraping logs, and check 2.11 reports lock contention rather
+than a false story-4.4 regression.
+
 ## Robustness and hygiene
 
 ### B-14 · Make the projection-lock timeout test independent — S
