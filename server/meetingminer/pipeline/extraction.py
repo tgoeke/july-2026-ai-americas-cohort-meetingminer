@@ -526,8 +526,14 @@ def _split_bullet(line: str) -> list[str] | None:
     # is what makes the two layouts yield the same artifacts instead of one
     # of them yielding a single fused blob. A prose bullet with no spaced dash
     # simply stays one cell.
+    rest = match.group("rest").strip()
+    # The ID matcher consumes the first separator. If another separator
+    # follows immediately, preserve the empty first field so topic parsing can
+    # report a missing name instead of promoting the gist into its place.
+    if rest.startswith("- "):
+        rest = " " + rest
     return [_clean(match.group("id"))] + [
-        _clean(cell) for cell in _BULLET_FIELD.split(match.group("rest").strip())
+        _clean(cell) for cell in _BULLET_FIELD.split(rest)
     ]
 
 
@@ -685,6 +691,46 @@ def _title_and_body(
         )
         lines.append(f"{label}: {cell}" if label else cell)
     return title.strip(), "\n".join(lines).strip()
+
+
+def _topic_title_and_body(
+    cells: Sequence[str], headers: Sequence[str] | None, item_id: str
+) -> tuple[str, str]:
+    """Read the topic name and gist as distinct, required fields.
+
+    The configured table names both columns. Headerless tables and bullets use
+    the prompt's pinned ordering: topic, gist, then timestamps. This stays
+    separate from the artifact title heuristic because a two-character topic
+    name is valid and neither required field may be synthesized from the
+    other.
+    """
+    topic_index = _labelled(headers, ("topic",))
+    gist_index = _labelled(headers, ("gist",))
+    if topic_index is None or gist_index is None:
+        topic_index, gist_index = 0, 1
+
+    topic = cells[topic_index].strip() if topic_index < len(cells) else ""
+    gist = cells[gist_index].strip() if gist_index < len(cells) else ""
+    if not topic or _is_bare_stamp(topic):
+        raise ArtifactParseError(
+            f"item {item_id} in the topics document has no Topic value"
+        )
+    if not gist or _is_bare_stamp(gist):
+        raise ArtifactParseError(
+            f"item {item_id} in the topics document has no Gist value"
+        )
+
+    lines: list[str] = []
+    for position, cell in enumerate(cells):
+        if not cell or position == topic_index:
+            continue
+        label = (
+            headers[position]
+            if headers is not None and position < len(headers) and headers[position]
+            else None
+        )
+        lines.append(f"{label}: {cell}" if label else cell)
+    return topic, "\n".join(lines).strip()
 
 
 def _truncate_title(title: str) -> str:
@@ -865,7 +911,10 @@ def parse_extraction_document(text: str, document_kind: str) -> ParsedDocument:
                 f"item {item_id} in the {document_kind} document carries no [m:ss]"
                 f" anchor, so it could never be cited: {raw_line.strip()[:200]!r}"
             )
-        title, body = _title_and_body(rest, rest_headers, owner_index)
+        if document_kind == DOC_TOPICS:
+            title, body = _topic_title_and_body(rest, rest_headers, item_id)
+        else:
+            title, body = _title_and_body(rest, rest_headers, owner_index)
         if not title:
             raise ArtifactParseError(
                 f"item {item_id} in the {document_kind} document has no text beyond"

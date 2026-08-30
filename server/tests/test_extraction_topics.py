@@ -82,6 +82,57 @@ def test_the_bullet_layout_parses_the_same_topics() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    "document",
+    [
+        (
+            "## Topics\n\n"
+            "| ID | Topic | Gist | Timestamps |\n"
+            "|----|-------|------|------------|\n"
+            "| T1 | AI | Artificial intelligence planning | [0:10] |\n"
+        ),
+        "## Topics\n\n- T1 - AI - Artificial intelligence planning - [0:10]\n",
+    ],
+)
+def test_a_short_topic_name_is_not_promoted_out_of_the_name_field(
+    document: str,
+) -> None:
+    [topic] = core.parse_extraction_document(document, core.DOC_TOPICS).artifacts
+    assert topic.title == "AI"
+    assert core.topic_gist(topic) == "Artificial intelligence planning"
+
+
+@pytest.mark.parametrize(
+    ("document", "missing_field"),
+    [
+        (
+            "## Topics\n\n"
+            "| ID | Topic | Gist | Timestamps |\n"
+            "|----|-------|------|------------|\n"
+            "| T1 | | Artificial intelligence planning | [0:10] |\n",
+            "Topic",
+        ),
+        (
+            "## Topics\n\n"
+            "| ID | Topic | Gist | Timestamps |\n"
+            "|----|-------|------|------------|\n"
+            "| T1 | AI | | [0:10] |\n",
+            "Gist",
+        ),
+        (
+            "## Topics\n\n- T1 -  - Artificial intelligence planning - [0:10]\n",
+            "Topic",
+        ),
+        ("## Topics\n\n- T1 - AI -  - [0:10]\n", "Gist"),
+    ],
+)
+def test_a_topic_requires_separate_name_and_gist_fields(
+    document: str, missing_field: str
+) -> None:
+    with pytest.raises(core.ArtifactParseError, match=rf"T1.*{missing_field}"):
+        core.parse_extraction_document(document, core.DOC_TOPICS)
+
+
 def test_range_and_comma_stamps_all_land_in_anchors_ms() -> None:
     document = (
         "## Topics\n"
