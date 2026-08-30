@@ -159,4 +159,5 @@
 - `make check-env` — passed for this worktree's validated ownership record.
 - `make test` — after the documented one-time `make bootstrap` installed missing worktree-local puller/web dependencies: puller **128 passed**, web **291 passed**, eval harness **549 passed**, server **1984 passed** in 579.13s, production web build succeeded.
 - `git diff --check` — passed.
+- `make check-reviews` — **passed:** every dispatched review has a committed report (run after commit `27804fb`).
 - `make evals-run` was not run (paid judge role, expressly excluded).
