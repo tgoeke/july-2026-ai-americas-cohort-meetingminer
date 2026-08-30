@@ -27,3 +27,11 @@
 - Finding: F5 adds a per-moment lock, but `run_gate_probe` rejects moments containing any `extracted` row before acquiring that lock. A sibling paused after mint on a one-moment meeting therefore makes the second run refuse immediately instead of waiting for sibling cleanup, so the claimed overlapping-run behavior remains false.
 - Evidence: `eligible_moments()` includes probe-marked rows in its blocking set at lines 152–157; `run_gate_probe()` returns from the empty-eligibility branch at lines 564–593; `_moment_probe_lock` is not reached until line 621. The F5 regression `test_a_sibling_probe_waits_until_the_owner_has_cleaned` calls `_moment_probe_lock` directly and never feeds the live sibling row through `run_gate_probe`, so it does not cover this ordering.
 - Resolution: Fixed in this review. A caller-level regression first failed with `entered == False`. Initial eligibility now defers probe-marked rows to the moment lock; the locked refresh either observes the live sibling's cleanup and proceeds, or names a persistent marker as stranded cleanup debt without minting over or deleting it. The full `test_gate_probe.py` file passes (`37 passed`).
+
+### Finding 3 — Check glue still judges sibling probes as subject artifacts before locking
+
+- Location: `evals/checks/test_publish_gate.py:117`
+- Severity: high
+- Finding: The glue's subject snapshot includes every artifact row and reads membership before `run_gate_probe` acquires the per-moment lock. A sibling probe captured as `published` can be correctly erased by its owner before these reads, causing this run to report the transient row as a published subject artifact missing from both stores.
+- Evidence: `artifacts = corpus.artifacts_for(meeting_id)` at line 119 is passed unchanged into the subject membership loop at lines 177–186 and pure assembly at lines 203–206. `gate_probe.run_gate_probe`—the first code that can coordinate by moment—does not run until line 210. No F5 test sends a probe-marked row through this glue snapshot.
+- Resolution: Open — add a red glue regression proving probe-marked rows are excluded from immutable subject membership and assembly while the probe orchestrator still receives the corpus seam needed to coordinate/diagnose them; then implement the narrow marker filter.
