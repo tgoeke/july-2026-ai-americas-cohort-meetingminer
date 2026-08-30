@@ -140,3 +140,74 @@ All configured layers completed: Blind Hunter, Edge Case Hunter, Verification Ga
 - `make -n` demonstrated that a quote/semicolon in `URL` breaks out into shell commands in both target recipe lines (F10); no injected command was executed.
 
 No implementation files were changed during this review.
+
+## Remediation results — 2026-08-30
+
+F1-F12 are resolved on `story/6-2-review`; F13 remains open by contract.
+
+- **F1 resolved** in commit
+  `271d6c7994c112f3901f47aa4a5c9a1314626566`. `mint()` rejects sorted
+  collisions with mint-owned provenance keys before file classification or the
+  identity lock, while preserving the intentional `tool` override and default
+  `mint-drop` behavior. The regression failed before the fix because no
+  `MintError` was raised.
+- **F2-F5 resolved** in commit
+  `0cd2435fed75749174173ae2dfb998a19cceb6a2`, with the downloaded-boundary
+  matrix completed in `46cde087d04905d9a585b8395ce6d721b3470e87`.
+  Probe and downloaded metadata now cross the same fail-closed boundary:
+  finite non-negative capped duration, requested video identity, usable wall
+  clock, channel, video stream, and (after download) selected format. The five
+  downloaded-boundary cases all failed against the pre-fix implementation by
+  reaching `mint()` or escaping as a raw timestamp error, and all pass now.
+- **F6 resolved** in commit
+  `0cd2435fed75749174173ae2dfb998a19cceb6a2`. `ffprobe` joins `yt-dlp` and
+  `ffmpeg` in the pre-network tool gate and names `brew install ffmpeg` as its
+  remediation.
+- **F7 resolved** in commit
+  `0cd2435fed75749174173ae2dfb998a19cceb6a2`. Non-finite and out-of-range
+  release timestamps use a valid upload-date fallback; otherwise the command
+  raises the named wall-clock refusal.
+- **F8 resolved** in commit
+  `0cd2435fed75749174173ae2dfb998a19cceb6a2`. A selected manual or automatic
+  English caption track that produces no VTT is a named refusal, never a silent
+  recording-only downgrade.
+- **F9 resolved** in commit
+  `176580d17f5e9a9b824b7d4132692717e2054ffe`. `main()` classifies the URL
+  before config-dependent root resolution can write-probe `.staging`; the
+  regression observed the pre-fix mutation and now proves the root untouched.
+- **F10 resolved** in commit
+  `176580d17f5e9a9b824b7d4132692717e2054ffe`. Make exports the raw URL through
+  `MM_YOUTUBE_URL` using `$(value URL)` and the shell expands it only inside a
+  quoted argument. The regression executed the old quote/semicolon payload in
+  a temporary directory and now proves no command is executed and the exact
+  hostile value reaches Python as one argument.
+- **F11 closed as coverage-only** in commit
+  `176580d17f5e9a9b824b7d4132692717e2054ffe`. `_run()`-level offline tests pin
+  the complete selector, merge/info-json/output arguments, manual and automatic
+  subtitle flags, VTT conversion, output discovery, and recording-only path.
+  No fabricated red state is claimed for the already-correct command builder.
+- **F12 closed as coverage-only** in commit
+  `176580d17f5e9a9b824b7d4132692717e2054ffe`. Direct `main()` tests pin
+  created/exists POST behavior, duplicate reporting, `--no-post` recovery,
+  resolver forwarding, configured cap forwarding, and non-zero intake failure
+  with exact re-POST guidance. These tests passed before the CLI ordering fix;
+  no behavioral defect is claimed.
+
+### Remediation verification
+
+- `uv run --project server pytest server/tests/test_youtube.py -q` — **78
+  passed, 1 skipped** (named network gate).
+- `make test-fast` — **128 puller, 291 web, 549 eval, and 1479 server tests
+  passed**; one named YouTube network skip, 326 slow tests deselected.
+- `make check-reviews` — every dispatched review has a committed report.
+- `python3 _bmad/scripts/branch_conflicts.py --against story/6-2-review` — 18
+  clean pairs and 7 artifact conflicts reported for integration awareness;
+  clean against `main` and `story/6-2`.
+
+### Post-remediation verdict
+
+**The patch findings F1-F12 pass remediation. The story still cannot receive a
+fully clean verdict while F13 remains undecided.** F13 is the explicit conflict
+between the frozen defaulted acquisition settings and AD-10's single source of
+thresholds; resolving it requires human-owned specification or architecture
+direction and was intentionally not attempted here.

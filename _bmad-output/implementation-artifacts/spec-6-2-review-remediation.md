@@ -51,12 +51,12 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `server/tests/test_youtube.py`, `server/meetingminer/mintdrop.py` -- reproduce and fix F1 without changing default callers.
-- [ ] `server/tests/test_youtube.py`, `server/meetingminer/youtube.py` -- reproduce and fix F2-F8 through shared fail-closed validators.
-- [ ] `server/tests/test_youtube.py`, `server/meetingminer/youtube.py` -- close F9/F12 CLI ordering and behavior coverage.
-- [ ] `server/tests/test_youtube.py`, `server/meetingminer/youtube.py` -- close F8/F11 download-output and command coverage.
-- [ ] `server/tests/test_youtube.py`, `infra/Makefile` -- reproduce and fix F10 shell injection.
-- [ ] Review artifacts -- record F1-F12 resolved, F13 open, and the evidence-backed verdict.
+- [x] `server/tests/test_youtube.py`, `server/meetingminer/mintdrop.py` -- reproduce and fix F1 without changing default callers.
+- [x] `server/tests/test_youtube.py`, `server/meetingminer/youtube.py` -- reproduce and fix F2-F8 through shared fail-closed validators.
+- [x] `server/tests/test_youtube.py`, `server/meetingminer/youtube.py` -- close F9/F12 CLI ordering and behavior coverage.
+- [x] `server/tests/test_youtube.py`, `server/meetingminer/youtube.py` -- close F8/F11 download-output and command coverage.
+- [x] `server/tests/test_youtube.py`, `infra/Makefile` -- reproduce and fix F10 shell injection.
+- [x] Review artifacts -- record F1-F12 resolved, F13 open, and the evidence-backed verdict.
 
 **Acceptance Criteria:**
 - Given each reproducible defect, when its regression runs against the unfixed implementation, then it fails for the reported reason before the corresponding fix is applied.
@@ -66,6 +66,11 @@ context:
 
 ## Spec Change Log
 
+- 2026-08-30 (implementation): F1-F12 remediated with red-first regressions for
+  the reproducible defects and coverage-only tests for the already-correct
+  F11/F12 behavior. F13 remains an unresolved human-owned architecture/spec
+  decision and was not changed.
+
 ## Verification
 
 **Commands:**
@@ -73,3 +78,13 @@ context:
 - `make test-fast` -- complete foreground fast gate passes.
 - `make check-reviews` -- every dispatched review has a committed report.
 - `python3 _bmad/scripts/branch_conflicts.py --against story/6-2-review` -- wave conflicts reported for integration awareness.
+
+**Results (2026-08-30):**
+- `uv run --project server pytest server/tests/test_youtube.py -q` -- 78 passed,
+  1 skipped by the named `MM_YOUTUBE_NETWORK_TEST` gate.
+- `make test-fast` -- puller 128, web 291, evals 549, server 1479 passed;
+  1 named YouTube network skip and 326 slow tests deselected.
+- `make check-reviews` -- every dispatched review has a committed report.
+- `python3 _bmad/scripts/branch_conflicts.py --against story/6-2-review` -- 18
+  clean pairs and 7 artifact conflicts reported; this branch is clean against
+  `main`, `story/6-2`, and all implementation files in the reported wave.
