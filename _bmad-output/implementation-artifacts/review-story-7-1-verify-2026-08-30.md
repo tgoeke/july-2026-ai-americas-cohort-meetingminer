@@ -84,6 +84,7 @@ Blind Hunter, Edge Case Hunter, Verification Gap Reviewer, and Acceptance Audito
 - `make diarize-extra-test` — passed after installing 166 packages in the disposable environment. V5 remains open because this target itself omits `--locked`.
 - Real-wheel telemetry proof, run with `uv run --locked --isolated --project server --extra diarize`: locked `pyannote.audio==4.0.7` reported endpoint `https://otel.pyannote.ai/v1/traces` and metrics enabled before the adapter call; with only `Pipeline.from_pretrained` mocked to prevent a model/network operation, `_load_pipeline` made the provider's own `is_metrics_enabled()` false before that call. Output: `before=true before_load=false`.
 - `make test-fast` in the foreground — puller `128 passed`; web `291 passed`; evals `549 passed`; server `1430 passed, 1 skipped, 326 deselected`.
+- `make check-reviews` — passed: `every dispatched review has a committed report`.
 - `make evals-run` was not run.
 
 ## Verdict
