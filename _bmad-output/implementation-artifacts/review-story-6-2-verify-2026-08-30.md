@@ -12,7 +12,7 @@
 
 ### VF1 — The supplied remediation range contains unrelated edits outside Story 6.2's frozen footprint
 
-Location: `.claude/skills/integrate/dispatch.md:4` · Severity: medium · Finding: The exact range is not limited to Story 6.2 remediation. It changes integration policy and Story 11.2 artifacts that neither the original Story 6.2 footprint nor the remediation spec permits. · Evidence: `git diff --name-status 9b51bc7..a0a3da6` includes `.claude/skills/integrate/dispatch.md`, `_bmad-output/implementation-artifacts/build-prompt-story-11-2-remediation-2026-08-30.md`, and `_bmad-output/implementation-artifacts/spec-11-2-per-run-store-isolation.md`; `git log --reverse 9b51bc7..a0a3da6` attributes them to `b902420`, `211857c`, `73257eb`, and `a011695`, before the Story 6.2 remediation commits. · Resolution: Open — owner decision required. Reverting shared integration and Story 11.2 work on this lane would widen the review again and could undo work already present on `main`; the owner must either narrow the declared remediation range to the actual fix commits or explicitly accept these ancestors as range noise.
+Location: `.claude/skills/integrate/dispatch.md:4` · Severity: medium · Finding: The exact range is not limited to Story 6.2 remediation. It changes integration policy and Story 11.2 artifacts that neither the original Story 6.2 footprint nor the remediation spec permits. · Evidence: `git diff --name-status 9b51bc7..a0a3da6` includes `.claude/skills/integrate/dispatch.md`, `_bmad-output/implementation-artifacts/build-prompt-story-11-2-remediation-2026-08-30.md`, and `_bmad-output/implementation-artifacts/spec-11-2-per-run-store-isolation.md`; `git log --reverse 9b51bc7..a0a3da6` attributes the merge-side baseline history to the main-owned commits `b902420`, `211857c`, `73257eb`, and `a011695`, before the Story 6.2 remediation commits. The same main-owned policy lineage was subsequently made explicit by `f17b87a`, which corrected `_bmad/custom/bmad-build-auto.toml` and added `_bmad-output/implementation-artifacts/owner-decisions-2026-08-30.md` carrying Story 7.1's telemetry ruling; `f17b87a` postdates this range and is named here to identify the owner-disposed shared policy, not as a reachable commit in `9b51bc7..a0a3da6`. · Resolution: Resolved by owner disposition (2026-08-30). The owner accepts the merge-baseline exception. These are main-owned changes outside Story 6.2's footprint by construction, not builder overreach; the reviewer-facing error was defining the range from the story-branch tip across a remediation merge. No shared policy was reverted and history was not rewritten.
 
 ### VF2 — Valid-URL refusals still write-probe the drops root before refusing
 
@@ -85,9 +85,8 @@ VF2 used the pre-fix implementation directly rather than an artificial mutation:
 
 ## Open items
 
-- **VF1 — owner range decision:** the exact supplied range contains unrelated integration-policy and Story 11.2 ancestors. No unrelated work was reverted on this lane.
 - **F13 — owner architecture/spec decision, intentionally untouched:** decide whether `acquisition.youtube.max_duration_minutes` may retain code defaults or must be required in versioned `config.yaml` under AD-10.
-- **Known integration item, not a finding:** `server/meetingminer/mintdrop.py` still overlaps `story/6-3`'s contracted keyword-override extension. This review did not attempt reconciliation.
+- **Known integration item, not a finding:** `server/meetingminer/mintdrop.py` has an already-rehearsed union with `story/6-3`. That builder took the `mint()` / `build_metadata()` override hunk verbatim from `7625b79`, so the branches were clean at that shared change. Story 6.3 also executed and tested the exact later merge resolution with this lane's `provenance_extra` mint-owned-key refusal; `transcriptDialect` is not a mint-owned key. Integrate still owns the union, but no speculative reconciliation belongs on this branch.
 
 ## Verdict
 
