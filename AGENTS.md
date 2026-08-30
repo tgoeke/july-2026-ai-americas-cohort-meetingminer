@@ -150,13 +150,18 @@ never contend; one eval run at a time.**
   test suites, but not another eval run or a dev-store writer.
 
 Memory is the bound, and it is the Docker VM's, not the host's. Measured
-2026-08-30 with `docker stats`, one stack idle after a full `make test`:
-neo4j-test 1.21 GiB, neo4j 578 MiB, meilisearch-test 111 MiB, postgres 89 MiB,
-meilisearch 43 MiB — about 2.0 GiB per stack. OrbStack's VM reports 23.5 GiB
-against the host's 128 GB, and every other project's containers share it, so
-a handful of stacks fit and a dozen idle ones would fill it; nothing in
-compose caps Neo4j or Meilisearch. `docker stats --no-stream` shows the
-current figure. The port range (400 bases) is not the limit.
+2026-08-30 with `docker stats`, each stack idle after a full `make test`: the
+main stack 2.0 GiB (neo4j-test 1.20 GiB, neo4j 578 MiB, meilisearch-test
+99 MiB, postgres 88 MiB, meilisearch 39 MiB); two worktree stacks 1.87 GiB and
+1.78 GiB, with the same shape — Neo4j is nine tenths of it. Under two
+concurrent full runs the figures were the same within 100 MiB. OrbStack's VM
+reports 23.5 GiB against the host's 128 GB, and every other project's
+containers share it, so a handful of stacks fit and a dozen idle ones would
+fill it; nothing in compose caps Neo4j or Meilisearch. `docker stats
+--no-stream` shows the current figure. The port range (400 bases) is not the
+limit. Two full `make test` runs in two worktrees at once took 9m27s and
+9m31s wall-clock against 9m49s for one alone (2026-08-30, `868ff0f`): neither
+waited on the other.
 
 Store-free suites are always safe to run concurrently — `make web-test`
 (vitest, no stores), `make puller-test`, and `make evals-test` (the eval
