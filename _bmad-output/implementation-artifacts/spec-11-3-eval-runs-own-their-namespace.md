@@ -3,7 +3,7 @@ title: 'Eval Runs Own Their Namespace'
 type: 'chore'
 created: '2026-08-30'
 baseline_revision: '5cdfce72813d68c2d81f5e02f715b8863f8492af'
-status: 'in-progress'
+status: 'in-review'
 review_loop_iteration: 0
 followup_review_recommended: false
 context: ['{project-root}/AGENTS.md']
@@ -108,6 +108,32 @@ deferred:
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-08-30 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 17: (high 1, medium 8, low 8)
+- defer: 0
+- reject: 9
+- addressed_findings:
+  - `[high]` `[patch]` A sibling approving the shared moment between mint and pre-read published the probe early, and the pre-read's presence fired a false GATE VIOLATION on a healthy concurrent run — resolved by re-reading the probe's own row at a present pre-read: `published` marks the probe `raced` (no own approve call, pre-absence not asserted, positive half and cleanup still held); `extracted`+present stays the genuine violation (`200ea34`).
+  - `[medium]` `[patch]` `_probe_cleanup_problems` matched field names that `cleanup_probe`'s prose never contains, adding a false "no recorded reason" line to every real leftover — keyword map per target, pinned by an algorithm test against the verbatim wording (`200ea34`).
+  - `[medium]` `[patch]` An export leftover was suppressed whenever an earlier target had already recorded a problem (`and not problems` over the shared list) — export-scoped problem variable (`200ea34`).
+  - `[medium]` `[patch]` `_search_absent` counted an unclassifiable error (code None) as verified absence — strict now: only the not-found codes or 404 prove erasure; the fakes speak the real error shape (`200ea34`).
+  - `[medium]` `[patch]` An unexpected exception between mint and post-read discarded the CleanupReport — converted to a named interruption (type + message) so the cleanup verdict always reaches the report (`200ea34`).
+  - `[medium]` `[patch]` The delete-only pin saw driver method names but not the raw query channel the module writes through — `MERGE`/`CREATE`/`SET`/`REMOVE`/`FOREACH`/`UPDATE` clause scan added with canaries (`200ea34`).
+  - `[medium]` `[patch]` `applicable` read False for a measured probe regression on a zero-artifact meeting — measured probe problems now keep the result applicable (`200ea34`).
+  - `[medium]` `[patch]` A stranded sibling probe was indistinguishable from subject state — the consumed-moments refusal names `eval-gate-probe-` rows with the erasure remedy (`200ea34`).
+  - `[medium]` `[patch]` The residual window (a subject `extracted` row landing on the chosen moment mid-probe, consumed by the approval) was tolerated as a plain foreign row — the assembly detects a foreign published id the discovery saw as `extracted`, fails the check naming the ids, and the window is documented in gate_probe.py and the RUNBOOK (`200ea34`).
+  - `[low]` `[patch]` 409 race matched by substring — `ApproveError` carries the RFC 9457 slug structurally and the probe matches it (`200ea34`).
+  - `[low]` `[patch]` `stage_status` trusted planner order — `ORDER BY created_at DESC, id DESC` with the no-uniqueness rationale (`200ea34`).
+  - `[low]` `[patch]` `stage_status → None` had no consumer test — probe-layer refusal test added (`200ea34`).
+  - `[low]` `[patch]` RUNBOOK asserted "queues rather than fails" for the projection lock — reworded to the sourced mechanism: bounded wait, named logged error, `rebuild --meeting` recovery (`200ea34`).
+  - `[low]` `[patch]` Hand save/restore of a monkeypatched seam — `monkeypatch.setattr` (`200ea34`).
+  - `[low]` `[patch]` The 64-byte BLAKE2b key cap was unexercised — a test documents that run ids sharing their first 64 bytes share an order (`200ea34`).
+  - `[low]` `[patch]` A published probe with no export file at the configured path read as verified — `expect_export` names the publish-root divergence (`200ea34`).
+  - `[low]` `[patch]` A minted probe with no moment id skipped citation checks silently — named divergence line (`200ea34`).
+- rejected (with reasons): export-path glob cross-check (the `<kind>/<id>.md` shape is the route's pinned contract); spec status/steps-9-10 markers absent from the diff (workflow-sequenced, recorded here); runs-root enforcement missing (already enforced by `runs_folder_untouched` in `evals/tests/conftest.py`); `split_owned` KeyError on a malformed row (`approve_moment` validates the shape upstream); orphaned `retrieval` import (false — the glue uses `is_local_api_base_url`); "all writes through the api" and literal "run-id-prefixed ids" readings (foreclosed by the intent's own footprint: no api create/delete surface exists and server edits are forbidden — recorded for the human reviewer); evals docs stating the concurrent truth ahead of the owner's live measurement (the contract routes the measurement to this spec's Verification for the owner); AGENTS.md still contradicting evals docs mid-run (the one-sentence edit is contractually last, after rebase).
 
 ## Design Notes
 
