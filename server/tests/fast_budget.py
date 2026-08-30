@@ -24,7 +24,17 @@ error naming the key and the value.
 listing every offending node id — never a silent mark: every ``slow`` mark
 carries a non-empty ``reason=``, and a test with no ``slow`` mark may not
 request ``projection_stores`` or ``stores_up`` — a twin-bound test belongs in
-the slow set.
+the slow set. The collection check reads each item's static fixture closure,
+which a ``request.getfixturevalue("projection_stores")`` inside the test body
+is not part of, so the twin rule is enforced a second time when either
+fixture is set up: an unmarked requester fails there, before the fixture
+function runs and before anything is cached, so a later ``slow`` test sets the
+fixture up normally. The collection check stays because it names every
+offender at once before anything runs; the setup check is the backstop for
+the dynamic path. ``stores_up`` is session-scoped, so its setup check fires
+for the first request of the session — a cached ``stores_up`` is a skip gate
+that already passed, not the wiping fixture, which is ``projection_stores``,
+per test.
 
 **The by-path hint.** The collection hook also records whether every
 collected item carried ``slow`` — the case where the default expression alone
@@ -36,8 +46,9 @@ clearing the marker expression would not help there.
 
 from __future__ import annotations
 
+import functools
 import math
-from typing import Generator
+from typing import Generator, Iterable
 
 import pytest
 
@@ -74,6 +85,31 @@ def _has_reason(mark: pytest.Mark) -> bool:
     return isinstance(reason, str) and bool(reason.strip())
 
 
+def _twin_rule(nodeids: Iterable[str]) -> str:
+    """The one diagnostic for the twin rule, whichever check raised it."""
+    return (
+        "a test that requests projection_stores or stores_up is bound by the test "
+        "twins and belongs in the slow set; add @pytest.mark.slow(reason=...) to: "
+        + ", ".join(nodeids)
+    )
+
+
+def _requesting_item(request: pytest.FixtureRequest) -> pytest.Item | None:
+    """The test whose request is setting a fixture up.
+
+    ``request.node`` is the node of the fixture's scope — the item for a
+    function-scoped fixture, the session for ``stores_up`` — while the test
+    that asked is ``_pyfuncitem`` on every request scope; pytest exposes no
+    public name for it. A request with neither is not a test's (nothing to
+    check).
+    """
+    item = getattr(request, "_pyfuncitem", None)
+    if isinstance(item, pytest.Item):
+        return item
+    node = request.node
+    return node if isinstance(node, pytest.Item) else None
+
+
 @pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     unreasoned: list[str] = []
@@ -96,13 +132,40 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             + ", ".join(unreasoned)
         )
     if twin_bound:
-        problems.append(
-            "a test that requests projection_stores or stores_up is bound by the test "
-            "twins and belongs in the slow set; add @pytest.mark.slow(reason=...) to: "
-            + ", ".join(twin_bound)
-        )
+        problems.append(_twin_rule(twin_bound))
     if problems:
         raise pytest.UsageError("\n".join(problems))
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_fixture_setup(
+    fixturedef: pytest.FixtureDef[object], request: pytest.FixtureRequest
+) -> None:
+    """The twin rule again, as the fixture is set up: catches a request the
+    static closure does not show (``request.getfixturevalue``). Runs before
+    pytest's own setup implementation, so failing here means the fixture
+    function never ran. Returns None otherwise so that implementation runs.
+
+    The failure is recorded the way pytest's own implementation records one:
+    ``FixtureDef.execute`` registers the post-finalizer before it calls this
+    hook, and ``FixtureDef.finish`` returns early while ``cached_result`` is
+    None — leaving that finalizer behind for the next requester to trip over
+    — so the exception is cached, and the cache is torn down with the
+    offending test rather than with the fixture's scope, so a later ``slow``
+    test sets a session-scoped ``stores_up`` up afresh.
+    """
+    if fixturedef.argname not in _TWIN_FIXTURES:
+        return
+    item = _requesting_item(request)
+    if item is None or item.get_closest_marker("slow") is not None:
+        return
+    failure = pytest.fail.Exception(
+        _twin_rule([item.nodeid]) + f" (requested {fixturedef.argname} at run time)",
+        pytrace=False,
+    )
+    fixturedef.cached_result = (None, fixturedef.cache_key(request), (failure, None))
+    item.addfinalizer(functools.partial(fixturedef.finish, request=request))
+    raise failure
 
 
 @pytest.hookimpl(wrapper=True)
