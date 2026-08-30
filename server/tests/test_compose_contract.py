@@ -299,18 +299,44 @@ def test_make_test_fast_runs_check_client_lint_typecheck_then_every_store_free_s
     steps = _dry_run_steps("test-fast")
     targets = [target for target, _ in steps]
     edit = "the `test-fast:` rule line and TEST_FAST_PREREQUISITES in test_compose_contract.py"
-    assert targets[0] == TEST_FAST_PREREQUISITES[0], f"check-client must run first; got {targets}"
+    required_prefix = list(TEST_FAST_PREREQUISITES[:3])
+    assert targets[:3] == required_prefix, (
+        f"check-client, lint and typecheck must run directly at the start; got {targets}"
+    )
     assert targets[-1] == "test-fast", targets
     # The order among the three suites is deliberately unconstrained; the set
     # is exact, transitively — a prerequisite of a prerequisite would appear here too.
-    assert set(targets[1:-1]) == set(TEST_FAST_PREREQUISITES[1:]), (
-        f"test-fast ran {targets[1:-1]} before the fast set, expected exactly "
-        f"{list(TEST_FAST_PREREQUISITES[1:])}; edit both {edit}"
+    assert set(targets[3:-1]) == set(TEST_FAST_PREREQUISITES[3:]), (
+        f"test-fast ran {targets[3:-1]} after its fail-fast prefix, expected exactly "
+        f"{list(TEST_FAST_PREREQUISITES[3:])}; edit both {edit}"
     )
     with_server_pytest = [
         target for target, lines in steps if any(_server_pytest_words(line) for line in lines)
     ]
     assert with_server_pytest == ["test-fast"], with_server_pytest
+
+
+def test_make_test_fast_order_contract_rejects_suites_before_lint_and_typecheck(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keeping every prerequisite is insufficient when slower suites move ahead of tools."""
+    steps = _dry_run_steps("test-fast")
+    by_target = {target: (target, commands) for target, commands in steps}
+    reordered = [
+        by_target[target]
+        for target in (
+            "check-client",
+            "puller-test",
+            "web-test",
+            "lint",
+            "typecheck",
+            "evals-test",
+            "test-fast",
+        )
+    ]
+    monkeypatch.setattr("test_compose_contract._dry_run_steps", lambda target: reordered)
+    with pytest.raises(AssertionError, match="lint and typecheck must run directly"):
+        test_make_test_fast_runs_check_client_lint_typecheck_then_every_store_free_suite_before_the_fast_set()
 
 
 def test_make_test_fast_recipe_is_the_one_whole_server_pytest_command() -> None:
