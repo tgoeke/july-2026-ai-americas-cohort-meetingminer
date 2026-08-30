@@ -1058,6 +1058,38 @@ def test_acquisition_config_defaults_and_the_committed_block_agree() -> None:
     assert committed["acquisition"]["youtube"]["max_duration_minutes"] == 180
 
 
+def test_main_refuses_when_duration_cap_setting_is_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from meetingminer.config import load_config
+
+    missing_cap = yaml.safe_load(
+        (REPO_ROOT / "config.yaml").read_text(encoding="utf-8")
+    )
+    del missing_cap["acquisition"]["youtube"]["max_duration_minutes"]
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(missing_cap), encoding="utf-8")
+    no_env = tmp_path / "absent.env"
+
+    monkeypatch.setattr(
+        youtube,
+        "_load_cli_config",
+        lambda: load_config(config_path, no_env),
+    )
+    monkeypatch.setattr(
+        youtube,
+        "resolve_api_url",
+        _must_not_run("api resolution after missing duration cap"),
+    )
+
+    assert youtube.main([WATCH_URL]) == 1
+    error = capsys.readouterr().err
+    assert "fatal: youtube-drop refused:" in error
+    assert youtube.MAX_DURATION_CONFIG_KEY in error
+
+
 def test_readme_distinguishes_temporary_downloads_from_permanent_writes() -> None:
     readme = (REPO_ROOT / "docs" / "README.md").read_text(encoding="utf-8")
     section = readme.split("## Ingesting a YouTube video", 1)[1].split("\n## ", 1)[0]
