@@ -31,9 +31,10 @@ how proximity conflicts stay rare enough for integrate to absorb.
    a file in `meetingminer/api/`, a screen is a `*.route.tsx` file.)
 2. **Stores and suites.** Server suites may overlap since story 2.7: each run
    owns a per-run Postgres database, and projection tests queue on a bounded
-   cross-worktree file lock. `make evals-run` may overlap another eval run
-   and any suite: each run owns its folder and its probe namespace, erased on
-   exit (story 11.3).
+   cross-worktree file lock. `make evals-run` must not overlap another eval run
+   or a dev-store writer until Story 11.3's owner-gated live concurrency
+   procedure is recorded; its folder/probe ownership is fake-proven, not yet an
+   operational permission. It may overlap store-free suites.
 3. **Operational gates.** A story that requires the worker to run is gated by
    the paid-ops hold regardless of how clean its files are.
 4. **Contract dependency.** A story whose acceptance criteria reference an

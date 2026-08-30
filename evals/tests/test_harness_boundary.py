@@ -540,6 +540,22 @@ def test_the_probe_cleanup_delegates_every_store_read_to_stores() -> None:
     assert "stores.artifact_in_graph(graph, artifact_id)" in text
 
 
+def test_operational_docs_keep_evals_single_flight_until_live_acceptance() -> None:
+    """F11: fake-proven concurrency is not yet an operator permission."""
+    repo = EVALS_ROOT.parent
+    agents = (repo / "AGENTS.md").read_text(encoding="utf-8")
+    dispatch = (repo / ".claude/skills/integrate/dispatch.md").read_text(
+        encoding="utf-8"
+    )
+    runbook = (EVALS_ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+
+    assert "**`make evals-run` is still one at a time.**" in agents
+    assert "may overlap another eval run" not in agents
+    assert "must not overlap another eval run" in dispatch
+    assert "Run only one `make evals-run` at a time" in runbook
+    assert "do not contend" not in runbook
+
+
 def test_the_probe_pin_leaves_the_erasure_vocabulary_alone() -> None:
     for benign in (
         "index.delete_document(doc_id)",

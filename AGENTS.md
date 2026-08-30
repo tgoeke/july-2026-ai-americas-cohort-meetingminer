@@ -120,14 +120,14 @@ at a time.** Story 2.7 fixed the suite; the remaining limit is `make evals-run`.
   `MM_PROJECTION_LOCK_TIMEOUT_SECONDS` (default 300s), then fails that
   meeting with the named refusal rather than writing anyway. Do not start a
   rebuild expecting it to interleave with anything that writes the stores.
-- **`make evals-run` may overlap another eval run and any suite (story 11.3).**
-  It reads Postgres directly (read-only), lists the corpus through the api, and
-  writes an immutable run folder its run id owns — an existing folder is
-  refused by name, never reused. Its one store mutation is check 2.11's
-  run-owned probe: minted onto a subject moment, approved through the public
-  api, and erased with per-target verification; a concurrent approval resolves
-  as a named race, never a failure. The live concurrent measurement procedure
-  is in the story spec's Verification section.
+- **`make evals-run` is still one at a time.** Story 11.3 gives every run an
+  immutable folder and a run-owned check-2.11 probe, coordinates probes that
+  share a subject moment, waits for raced projection, and erases under the
+  projection-writer lock. Those mechanisms are proven store-free; the owner
+  has not yet run the story spec's live two-run Verification procedure against
+  the shared stack. Until that acceptance is recorded, announce an eval run,
+  run it alone, and release it. It may overlap store-free suites, but not
+  another eval run or a dev-store writer.
 
 Note what the projection lock means in practice: concurrent server suites will
 serialize on the handful of projection tests and run in parallel everywhere
@@ -140,9 +140,9 @@ harness: ground-truth validation, subject selection, the check algorithms over
 synthetic captures, and the run-artifact rules; no stores, no api, and no run
 folder created).
 
-The remaining isolation work is for `make evals-run`: per-run eval namespaces
-and run-artifact ownership would be needed before those runs can overlap. It
-is recorded in `docs/backlog.md` and
+The remaining eval-run work is live acceptance, not another namespace design:
+Story 11.3 built per-run folder/probe ownership, but the single-flight rule
+above remains until its owner-gated concurrent Verification is recorded. It
 does not limit concurrent server suites.
 
 ## Fast loop and full gate

@@ -95,16 +95,14 @@ but checking them first turns its refusals into things you expected.
    for triage of the matched subject, never for a PASS verdict: ground truth
    that measured nothing must fail the run rather than quietly shrink it.
 
-5. **Runs overlap safely (story 11.3).** `make evals-run` reads the shared
-   Docker stores read-only; its one write is check 2.11's run-owned probe,
-   minted through the public api and erased on the way out. Two runs, or a
-   run beside any test suite, do not contend — each run owns its folder and
-   its probe namespace. What can still briefly serialize is the approve
-   route's post-commit projection, which takes the same store file lock and
-   Postgres advisory lock as every dev-store writer (AGENTS.md, stores
-   section): a concurrent holder means a bounded wait, and a timeout is a
-   named error the route logs — `rebuild --meeting <id>` closes the gap
-   while the route itself still answers.
+5. **Run only one `make evals-run` at a time.** Story 11.3 gives each run its
+   own folder and check-2.11 probe and includes coordination for shared moments,
+   raced projection, and locked cleanup. The deterministic suite proves those
+   mechanisms without touching the live stack; the owner-gated two-run
+   Verification has not yet been recorded. Until it is, do not overlap an eval
+   run with another eval run, `rebuild`, or the worker. Store-free suites may
+   continue beside it. Announce the run, wait for other dev-store writers to
+   finish, execute it, then release the lane.
 
 ## Step 2 — Deterministic suite
 
