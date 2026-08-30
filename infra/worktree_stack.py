@@ -1,33 +1,65 @@
 #!/usr/bin/env python3
-"""Per-worktree compose stacks (story 11.2): allocate ports, render, prune.
+"""Per-worktree compose stacks (story 11.2): allocate, render, claim, prune.
 
 Every checkout used to share one compose stack on fixed ports with fixed
 container names, so two worktrees running store-backed suites queued on the
 cross-worktree projection lock. ``make worktree STORY=<slug>`` now provisions
 a private stack per worktree -- compose project ``meetingminer-<slug>`` on the
 ports allocated here -- and records it in the worktree's gitignored
-``.env.worktree``. That file carries stack keys only (the project name, the
-seven host ports and the two test-twin URLs); ``infra/Makefile``
-(``-include``), ``docker compose`` (a second ``--env-file``) and the config
-loader (``meetingminer.config.merged_env``) each read those keys, and the
-loader refuses any other key there.
+``.env.worktree``: the stack name, the seven host ports, the incarnation id
+``MM_STACK_ID`` and the two test-twin URLs, exactly (``STACK_KEYS``).
+``infra/Makefile`` (``-include``), ``docker compose`` (a second
+``--env-file``) and the config loader (``meetingminer.config.merged_env``)
+each read those keys, and every reader refuses a file that is incomplete,
+incoherent, or carries any other key. The slug is always the checkout's
+directory name, so ``git worktree move`` is not supported for a worktree
+with a stack -- a renamed directory is refused by name.
+
+Ownership has two layers, and each subcommand names the one it uses:
+
+- **Directory ownership** (the general prune rule, ``make test-db-prune``):
+  a ``meetingminer-<slug>`` project whose checkout directory exists is
+  ``skipped owned``; one whose directory is gone and whose volumes are all
+  recognised is removed; anything else is ``skipped unknown``, and a
+  ``meetingminer-…`` name whose suffix is not a valid slug is
+  ``skipped foreign``. ``meetingminer`` itself is never a candidate.
+- **Incarnation ownership** (creation and every start, ``claim``): a project
+  is *this worktree's* only when every one of its containers and volumes
+  carries the ``com.meetingminer.stack-id`` label equal to the worktree
+  file's ``MM_STACK_ID``. Anything else under that name -- no id, another
+  id, a mix -- is a stale incarnation and is torn down before compose
+  starts, never attached to.
+
+``provision``, ``claim`` and ``prune`` all hold
+``<worktree_root>/.provision.lock``, so allocation, publication, claiming
+and destructive sweeps never interleave.
 
 Standard library only: the Makefile runs this with the system ``python3``
-before the worktree has a venv.
+before the worktree has a venv. The ``.env.worktree`` schema is therefore
+spelled here *and* in ``meetingminer.config`` (which cannot import from
+``infra/``); ``test_config.py`` pins the two equal.
 
 Subcommands::
 
     provision --slug <slug> --worktree <dir> --worktree-root <dir>
+        Write ``<dir>/.env.worktree`` atomically (keep a valid existing one,
+        refuse a bad one by name) and print its lines.
+    check --worktree <dir>
+        Validate ``<dir>/.env.worktree`` against the directory name; exit 0
+        silently, else the named error.
+    claim --worktree <dir> --worktree-root <root>
+        Make the worktree's project safe to start: keep it when every
+        container and volume carries the file's id, tear down a stale
+        incarnation, refuse another checkout's stack or an unknown layout.
+        ``infra-up``'s ``check-stack`` runs this before every start.
+    down --project meetingminer-<slug>
+        Tear one stack and its volumes down; Docker off or an absent stack
+        is a note, but a failed inventory or teardown is a named error.
     prune --worktree-root <dir> [--project meetingminer-<slug>]
-
-``provision`` writes ``<dir>/.env.worktree`` (keeping a complete existing
-one, refusing an incomplete one by name) and prints its lines. ``prune``
-tears down every compose project named ``meetingminer-<slug>`` whose owning
-checkout directory no longer exists; ``meetingminer`` itself and any other
-project are never listed, and a project whose volumes this tool does not
-recognise is reported and left alone. With ``--project`` it acts on that one
-project only, and an owner that still exists is an error rather than a skip
-(``make worktree`` runs it before provisioning a slug).
+        Tear down every worktree stack whose checkout directory is gone.
+        With ``--project`` only that project, and an owner that still exists
+        or an unknown layout is an error (``make worktree`` runs it before
+        provisioning a slug).
 """
 
 from __future__ import annotations

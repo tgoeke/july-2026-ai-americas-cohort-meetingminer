@@ -225,7 +225,7 @@ every target to [`infra/Makefile`](infra/Makefile), where the logic lives.
 | `make test` | the full gate — see [Testing and evaluation](#testing-and-evaluation) |
 | `make evals-run` | one eval run against the ingested scripted corpus |
 | `make test-db-prune` | drop leaked, unowned `meetingminer_test_*` databases, and tear down worktree stacks whose checkout is gone |
-| `make worktree STORY=<slug>` | an isolated checkout, branch and private Docker stack for one piece of work (`worktree-list`; `worktree-remove` and `worktree-prune` tear the stack down with the checkout) |
+| `make worktree STORY=<slug>` | an isolated checkout, branch and private Docker stack for one piece of work (`worktree-list`; `worktree-remove` and `worktree-prune` tear the stack down with the checkout; `worktree-start STORY=<slug>` retries a start that failed, from the main checkout) |
 
 Two targets still need care. `make rebuild` is single-flight per stack: it
 takes the same endpoint-keyed file lock the projection tests take, queues on
@@ -349,10 +349,15 @@ uv run --project server pytest server/tests/test_x.py
 Bare `pytest` runs outside it and will not resolve the dependencies.
 
 Each git worktree has its own stores: `make worktree` provisions a private
-compose stack (`meetingminer-<slug>`, its ports in the worktree's
-`.env.worktree`; about 2 GiB idle per stack — AGENTS.md carries the
-measurement and the Docker VM bound), so
-suites in two worktrees never contend. Server suites take a per-run Postgres
+compose stack (`meetingminer-<slug>`, its ports and its incarnation id
+`MM_STACK_ID` in the worktree's generated `.env.worktree` — a validated
+ownership record every reader refuses when it is incomplete, hand-edited or
+copied from another worktree), so suites in two worktrees never contend.
+Memory is the Docker VM's, not the host's: OrbStack's VM reports 23.5 GiB
+against the 128 GB host, a stack idles at about 2 GiB, so a handful of
+stacks fit and a dozen idle ones would fill the VM — `make down` in an idle
+worktree frees its memory and keeps its volumes (AGENTS.md carries the full
+measurement). Server suites take a per-run Postgres
 database; two suites in one checkout queue on a bounded endpoint-keyed file
 lock (a slow one is waiting, not hanging); `make test-db-prune` clears
 databases a killed run left behind and tears down stacks whose worktree is

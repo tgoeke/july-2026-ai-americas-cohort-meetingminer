@@ -305,8 +305,12 @@ on the endpoint-keyed projection lock.
 
 **Worktree** — a separate checkout for one work item (`make worktree STORY=<slug>`) with its own branch
 and its own Docker stack: compose project `meetingminer-<slug>` on ports written to the worktree's
-generated `.env.worktree`. About 2 GiB idle per stack; AGENTS.md carries the measurement and the Docker
-VM bound. The api and web ports are still the same in every checkout.
+generated `.env.worktree`, together with the stack's incarnation id (`MM_STACK_ID`, stamped on its
+containers and volumes so a stale same-named stack is torn down rather than attached to). The bound is
+the Docker VM's memory: OrbStack's VM reports 23.5 GiB against the 128 GB host and a stack idles at
+about 2 GiB, so a handful fit and a dozen idle ones would fill the VM — `make down` in an idle worktree
+frees its memory and keeps its volumes (AGENTS.md carries the full measurement). The api and web ports
+are still the same in every checkout.
 
 **LAN model hosts** — on-prem inference machines: an Ollama host (embeddings) and VM 120 `cuda-asr`
 (an RTX 4080 serving `nvidia/parakeet-tdt-0.6b-v3` for speech recognition). Operator-scheduled and

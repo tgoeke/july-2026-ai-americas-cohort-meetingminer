@@ -47,14 +47,25 @@ make bootstrap                    # per-worktree venv + node_modules (one-time)
 ```
 
 `make worktree` also writes the worktree's `.env.worktree` — its compose
-project name and the seven host ports allocated for it (a slug matches
-`[a-z0-9][a-z0-9_-]*`; compose rejects `.` in a project name) — sweeps a
-stale stack of that name left by a hand-deleted worktree, and brings the new
-stack up through the *invoking* checkout's Makefile and compose file, so a
-worktree checked out from a pre-11.2 ref cannot start the main stack. Docker
-down: the worktree and the file stay, store-backed tests there skip with
-named reasons until the stack is up, and the error names
-`cd <worktree> && make infra-up`. If the file could not be written,
+project name, the seven host ports allocated for it (a slug matches
+`[a-z0-9][a-z0-9_-]*`; compose rejects `.` in a project name) and the
+stack's incarnation id `MM_STACK_ID` — and starts the stack through
+`make worktree-start STORY=<slug>`: provisioning plus `infra-up`, driven by
+the *invoking* checkout's Makefile and compose file, so a worktree checked
+out from a pre-11.2 ref cannot start the main stack. Before every start
+that has a stack file, `infra-up` runs `worktree_stack.py claim`: it
+compares the file's id with the `com.meetingminer.stack-id` label on the
+project's containers and volumes and tears down anything under that name
+not carrying it on every one — a hand-deleted worktree's leavings, an
+id-less pre-remediation stack — rather than attaching to stale volumes; a
+project owned by another existing checkout, or one whose layout the tool
+does not recognise, is a named error. Docker down at creation: the worktree
+and the file stay, store-backed tests there skip with named reasons until
+the stack is up, and every failure message prints a retry that is safe for
+the ref — `cd <worktree> && make infra-up` for a post-11.2 tree (its own
+`infra-up` claims first), otherwise `make worktree-start STORY=<slug>` from
+the invoking checkout; no message ever names a command that would run an
+old `infra/Makefile`'s stack logic. If the file is missing,
 `make worktree-provision` in that worktree writes it and starts the stack.
 `BASE=<ref>` branches from something other than `main`. When the work is
 done and pushed, remove it:
@@ -76,12 +87,23 @@ Notes that matter:
   target symlinks the main checkout's `.env` so secrets and both storage roots
   — `MM_CONTENT_ROOT` and `MM_DROPS_ROOT` — are shared rather than re-entered.
 - `.env.worktree` is generated, gitignored (the `.env.*` rule), and never
-  hand-edited. It carries stack keys only — `MM_STACK_NAME`, the seven
-  `MM_*_PORT`s, `MM_TEST_NEO4J_URI`, `MM_TEST_MEILI_URL` — and the loader
-  refuses any other key there (a secret cannot be overridden from it) and
-  refuses the stack name or a port key in `.env` (the Makefile never reads
-  them from there). `infra/Makefile` (`-include`) and `docker compose` (a
-  second `--env-file`) read its stack keys; the loader reads it after `.env`
+  hand-edited: it is the worktree's stack **ownership record**. It carries
+  exactly the stack keys — `MM_STACK_NAME`, the seven `MM_*_PORT`s,
+  `MM_STACK_ID` (the incarnation id, stamped on the stack's containers and
+  volumes), `MM_TEST_NEO4J_URI`, `MM_TEST_MEILI_URL` — and every reader
+  validates the whole file: one that is truncated, hand-edited, blank- or
+  foreign-keyed, or copied (naming another slug, a main-checkout default
+  port, duplicate ports, or twin URLs that do not match its declared test
+  ports) is refused by name by `worktree_stack.py` (`check`/`provision`),
+  the Makefile (`check-env`, plus a parse-time guard that refuses foreign
+  keys before `-include` could assign them), the loader (`merged_env`) and
+  the test session's import, each naming the remedy. A secret cannot be
+  overridden from it; the stack name or a port key in `.env` is refused
+  too (the Makefile never reads them from there); and because every guard
+  requires `MM_STACK_NAME` to equal `meetingminer-<directory name>`,
+  `git worktree move` is not supported for a worktree with a stack.
+  `infra/Makefile` (`-include`) and `docker compose` (a second
+  `--env-file`) read its stack keys; the loader reads it after `.env`
   (`merged_env`: `.env`, then `.env.worktree`, then the process environment,
   a blank process value never masking a file value). A linked worktree
   without the file is refused by name — `make check-env` and the test
@@ -111,7 +133,9 @@ hashed from the slug, stepping to the next base when a port is bound or
 declared by a sibling's `.env.worktree`). One compose file serves every
 stack: its project name, container names and host ports interpolate
 `MM_STACK_NAME` and the `MM_*_PORT` variables with today's values as the
-defaults.
+defaults, and every container and volume carries the stack's
+`com.meetingminer.stack-id` label (`MM_STACK_ID`; empty for the main
+stack) — the incarnation identity `claim` checks before any start.
 
 **Consequence: server suites, rebuilds and workers in different worktrees
 never contend; one eval run at a time.**
@@ -144,8 +168,13 @@ never contend; one eval run at a time.**
   worktree left: per-run databases with no live owner (it refuses any with a
   live backend), then worktree stacks — `meetingminer-<slug>` projects whose
   checkout directory no longer exists get `down -v`, volumes included. A
-  stack whose directory exists is reported `skipped owned`; `meetingminer`
-  is never a candidate. Safe to run while another suite is going.
+  stack whose directory exists is reported `skipped owned`; only an exact
+  `meetingminer-<slug>` name is ever a candidate (any other
+  `meetingminer-…` is `skipped foreign`); a project with a volume the tool
+  does not recognise is `skipped unknown`; `meetingminer` is never listed.
+  The sweep holds the same provisioning lock `make worktree` holds and
+  re-resolves ownership immediately before each teardown, so it cannot
+  race a creation. Safe to run while another suite is going.
 - `make migrate`, `make rebuild`, `make purge` and the worker write the
   checkout's own stores. In the main checkout that is the live corpus, so
 - **`make evals-run` is still one at a time.** Story 11.3 gives every run an
