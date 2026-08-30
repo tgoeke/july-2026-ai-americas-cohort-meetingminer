@@ -32,6 +32,24 @@ CREATE TRIGGER topic_set_updated_at
     BEFORE UPDATE ON topic
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- A topic and its first mention are inserted in one transaction by the
+-- extraction stage, so the parent-side invariant must be checked at commit,
+-- after the mention has had a chance to arrive. It also covers direct SQL:
+-- no transaction may commit a topic that was never given a mention.
+CREATE FUNCTION require_topic_mention() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM topic WHERE id = NEW.id)
+       AND NOT EXISTS (
+           SELECT 1 FROM topic_mention WHERE topic_id = NEW.id
+       ) THEN
+        RAISE EXCEPTION 'topic % requires at least one mention', NEW.id
+            USING ERRCODE = '23514';
+    END IF;
+    RETURN NULL;
+END;
+$$;
+
 -- One mention per (topic, containing moment): the moment is the citation
 -- unit, so two stamps inside one moment collapse onto one row — the primary
 -- key makes that a constraint, not a stage convention. `anchor_ms` is the
@@ -57,6 +75,11 @@ CREATE TABLE topic_mention (
         REFERENCES moment (id, meeting_id) ON DELETE CASCADE
 );
 
+CREATE CONSTRAINT TRIGGER topic_requires_mention
+    AFTER INSERT ON topic
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION require_topic_mention();
+
 -- A topic without a mention is navigation to nowhere. Enforce that invariant
 -- at the record, not in one pipeline stage: a moment cascade can happen while
 -- extract remains settled during augmentation. Locking the topic serializes
@@ -75,9 +98,23 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER topic_mention_delete_orphan_topic
-    AFTER DELETE ON topic_mention
+CREATE TRIGGER topic_mention_delete_or_move_orphan_topic
+    AFTER DELETE OR UPDATE OF topic_id ON topic_mention
     FOR EACH ROW EXECUTE FUNCTION delete_topic_when_last_mention_removed();
+
+-- Row triggers do not run for TRUNCATE. A statement-level trigger closes that
+-- route so bulk removal preserves the same no-orphan invariant.
+CREATE FUNCTION delete_topics_when_mentions_truncated() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    DELETE FROM topic;
+    RETURN NULL;
+END;
+$$;
+
+CREATE TRIGGER topic_mention_truncate_topics
+    AFTER TRUNCATE ON topic_mention
+    FOR EACH STATEMENT EXECUTE FUNCTION delete_topics_when_mentions_truncated();
 
 -- The 10.2 projection and the moment views read mentions by moment.
 CREATE INDEX topic_mention_moment_id_idx ON topic_mention (moment_id);

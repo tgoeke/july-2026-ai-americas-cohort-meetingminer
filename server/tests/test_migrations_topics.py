@@ -8,7 +8,9 @@ edge under test and nothing a richer fixture happens to bring along.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime, timezone
+from threading import Event
 from uuid import UUID
 
 import pytest
@@ -147,9 +149,19 @@ def test_a_negative_anchor_is_refused(pool: ConnectionPool) -> None:
     with pool.connection() as conn:
         meeting_id, moment_id = seed_meeting_with_moment(conn, "mig-topics-neg")
         topic_id = add_topic(conn, meeting_id)
+        add_mention(conn, topic_id, moment_id, meeting_id)
     with pool.connection() as conn:
         with pytest.raises(errors.CheckViolation):
             add_mention(conn, topic_id, moment_id, meeting_id, anchor_ms=-1)
+
+
+def test_a_topic_cannot_commit_without_a_mention(pool: ConnectionPool) -> None:
+    with pytest.raises(errors.CheckViolation, match="requires at least one mention"):
+        with pool.connection() as conn:
+            meeting_id, _moment_id = seed_meeting_with_moment(
+                conn, "mig-topics-no-mention"
+            )
+            add_topic(conn, meeting_id)
 
 
 def test_deleting_a_topic_cascades_its_mentions(pool: ConnectionPool) -> None:
@@ -199,6 +211,78 @@ def test_deleting_one_of_two_mentioned_moments_preserves_the_topic(
         conn.execute("DELETE FROM moment WHERE id = %s", (first_moment,))
         assert count(conn, "topic_mention") == 1
         assert count(conn, "topic") == 1
+
+
+def test_moving_a_topics_last_mention_deletes_the_old_topic(
+    pool: ConnectionPool,
+) -> None:
+    with pool.connection() as conn:
+        meeting_id, first_moment = seed_meeting_with_moment(
+            conn, "mig-topics-move-mention"
+        )
+        second_moment = add_moment(conn, meeting_id, 20_000)
+        old_topic = add_topic(conn, meeting_id, "Old topic")
+        surviving_topic = add_topic(conn, meeting_id, "Surviving topic")
+        add_mention(conn, old_topic, first_moment, meeting_id)
+        add_mention(
+            conn, surviving_topic, second_moment, meeting_id, anchor_ms=20_000
+        )
+        conn.execute(
+            "UPDATE topic_mention SET topic_id = %s WHERE topic_id = %s",
+            (surviving_topic, old_topic),
+        )
+        assert conn.execute(
+            "SELECT count(*) FROM topic WHERE id = %s", (old_topic,)
+        ).fetchone()[0] == 0
+        assert conn.execute(
+            "SELECT count(*) FROM topic_mention WHERE topic_id = %s",
+            (surviving_topic,),
+        ).fetchone()[0] == 2
+
+
+def test_truncating_mentions_deletes_all_topics(pool: ConnectionPool) -> None:
+    with pool.connection() as conn:
+        meeting_id, moment_id = seed_meeting_with_moment(
+            conn, "mig-topics-truncate-mentions"
+        )
+        topic_id = add_topic(conn, meeting_id)
+        add_mention(conn, topic_id, moment_id, meeting_id)
+        conn.execute("TRUNCATE topic_mention")
+        assert count(conn, "topic") == 0
+
+
+def test_concurrent_last_mention_removals_cannot_leave_an_orphan(
+    pool: ConnectionPool,
+) -> None:
+    with pool.connection() as conn:
+        meeting_id, first_moment = seed_meeting_with_moment(
+            conn, "mig-topics-concurrent-removals"
+        )
+        second_moment = add_moment(conn, meeting_id, 20_000)
+        topic_id = add_topic(conn, meeting_id)
+        add_mention(conn, topic_id, first_moment, meeting_id)
+        add_mention(conn, topic_id, second_moment, meeting_id, anchor_ms=20_000)
+
+    second_started = Event()
+
+    def delete_second_moment() -> None:
+        with pool.connection() as second_conn:
+            second_started.set()
+            second_conn.execute("DELETE FROM moment WHERE id = %s", (second_moment,))
+
+    with pool.connection() as first_conn:
+        first_conn.execute("DELETE FROM moment WHERE id = %s", (first_moment,))
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            second_delete = executor.submit(delete_second_moment)
+            assert second_started.wait(timeout=1)
+            with pytest.raises(FutureTimeoutError):
+                second_delete.result(timeout=0.5)
+            first_conn.commit()
+            second_delete.result(timeout=2)
+
+    with pool.connection() as conn:
+        assert count(conn, "topic_mention") == 0
+        assert count(conn, "topic") == 0
 
 
 def test_extraction_source_accepts_topics_and_rejects_a_fourth_kind(
