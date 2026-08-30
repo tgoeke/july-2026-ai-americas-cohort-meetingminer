@@ -57,6 +57,14 @@
 - **Evidence:** Before fixing either test, the widened target ran `test_diarize_pyannote.py`, `test_stt_adapter.py`, and `test_worker_transcripts.py` under `--extra diarize` and failed on the reported `AttributeError`, the stale worker error assertion, and the real provider probe exceeding the ordinary 2-second fast budget (16.01 seconds in the fresh isolated environment). The gate contract was itself red before the Makefile changed, and the two-way source inventory already discovered exactly those three modules.
 - **Resolution:** **RESOLVED — `0b3be4f`.** The widened target owns `check-tools` and `infra-up`, runs the exact three-module inventory under `--locked --isolated --extra diarize`, and uses a target-local 60-second budget for the measured cold import. The STT `Binding` now supplies `token_env`; both affected assertions clear a test-only token variable and accept only the valid missing-extra or missing-token fail-closed reason. Installed-extra passed `90`; locked isolated extra-free passed `89` with the one named provider skip. The adapter was not weakened.
 
+### V7. The landed lint gate rejects the diarizer remediation
+
+- **Location:** `server/meetingminer/adapters/diarize/__init__.py:59`; `server/meetingminer/adapters/diarize/pyannote.py:59-60`
+- **Severity:** Medium
+- **Finding:** After Story 11-4 landed during this review, its new `lint` prerequisite made `make test-fast` reject the remediated diarizer. The availability probe deliberately catches arbitrary provider-import failures but lacks the required documented `BLE001` exception; turn conversion also wraps integer-returning `round(...)` calls in redundant `int(...)` casts.
+- **Evidence:** On the branch rebased onto `origin/main` at `33263f4`, foreground `make test-fast` stopped in `ruff check` with exactly one `BLE001` at `__init__.py:59` and two `RUF046` violations at `pyannote.py:59-60`; no later prerequisite ran.
+- **Resolution:** **OPEN.** Preserve the fail-closed catch boundary with an explicit, justified lint exception; remove the behavior-neutral casts; then prove lint and the full fast gate green.
+
 ## Mutation Audit
 
 The five claimed fixes were tested in remediation-commit order. Every restored fix was green; two narrower follow-up mutations exposed V2 and V3.
