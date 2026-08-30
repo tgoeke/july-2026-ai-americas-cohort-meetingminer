@@ -129,6 +129,15 @@ The follow-up review (`review-story-11-2-2026-08-30.md`, reviewed head `fa86b86`
 - `pytest` needs a path under `server/tests`; a `slow` module by path needs `-m ""`; the fast set is budgeted at 2.0s per test (`server/tests/fast_budget.py`) and a new `slow` mark is also an edit of `SLOW_MODULES`/`SLOW_TESTS` in `server/tests/test_compose_contract.py`.
 - **Red first.** For every defect below, write the regression, run it against the unfixed tree and record the observed failure (test id + the assertion that failed) in `## Auto Run Result` before changing production code. A test never seen red does not count. Run the red tests with `git stash` NOT allowed — instead commit the tests first (they fail), then the fix (they pass); or run them from a scratch copy of the pre-fix module. The commit sequence "tests red → fix green" is the evidence.
 
+### Harness addendum 2026-08-30 (~14:00) — the wave context
+
+Binding, from `build-prompt-story-11-2-remediation-2026-08-30.md` and `wave-2026-08-30-rules.md` beside this spec (read both). Where this conflicts with the Harness bullets above, this wins:
+
+- `_bmad-output/` is now **tracked on main** (owner decision; main moved `de0fc08` -> `211857c`). Before anything else in the worktree: `rm _bmad-output` (it is a hand-made symlink; this removes the link only), then `git fetch origin && git rebase origin/main` on `story/11-2`. Expect a conflict on `.claude/skills/integrate/dispatch.md` (both sides edited it): keep main's new dispatch-doctrine text and re-apply the story's stack note within it. After the rebase the directory — this spec included — comes from git; commit spec/status/notes edits on `story/11-2` like any other path; never `git add -f`. Record the old->new SHA mapping of the rebased commits (old head `fa86b86`) in the report — the follow-up reviewer needs it to tell a rebase from a regression.
+- The Harness bullets saying `_bmad-output` is a symlink and that the sandbox denies writes outside the main checkout are stale after that rebase; everything else above stands.
+- Five lanes build in parallel beside this one (`story/6-2`, `story/10-1`, `story/7-1`, `story/11-3`, `story/11-4`) with footprints disjoint from this story's. Before **every** push: `python3 _bmad/scripts/branch_conflicts.py --against story/11-2` — `story/11-2-review` conflicting on this spec file is expected and resolved at integrate; every other pair must be clean. A fix that needs a region another lane owns is stopped, recorded in the Spec Change Log, and the rest continues.
+- Finding 10's doc rewrites must also correct any sentence in README, `project-context.md`, `docs/glossary.md` or `AGENTS.md` still saying `_bmad-output/` is local-only or never pushed — the owner reversed that rule.
+
 ### The one missing concept: a stack's incarnation identity
 
 Every high finding is a symptom of ownership being inferred from things two incarnations of the same slug share: the directory (`<WT_ROOT>/<slug>`), the compose project name, and — because the allocator is deterministic — usually the ports. A worktree hand-deleted and re-created under the same slug is indistinguishable from the original by any of them, which is why the Docker-down retry can attach to abandoned volumes (finding 5) and why the pruner's ownership tests are unverifiable. The fix is one new fact:
@@ -231,6 +240,7 @@ The 11-2 worktree's `.env.worktree` predates `MM_STACK_ID`, so after Theme 1 lan
 
 ## Spec Change Log
 
+- 2026-08-30 ~14:30: `### Harness addendum 2026-08-30` added under the Remediation Plan — `_bmad-output` tracked on main, rebase-first, wave conflict checks, finding-10 wording; from the coordinator's addendum, intent unchanged.
 - 2026-08-30 (follow-up review): `## Remediation Plan — follow-up review 2026-08-30` added; frontmatter `reviewed_head` records the head the review read (`fa86b86`); intent-contract unchanged.
 
 ## Review Triage Log
