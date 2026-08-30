@@ -85,9 +85,9 @@ context:
 - `make test-fast` -- puller 128, web 291, evals 549, server 1497 passed;
   1 named YouTube network skip and 326 slow tests deselected.
 - `make check-reviews` -- every dispatched review has a committed report.
-- `python3 _bmad/scripts/branch_conflicts.py --against story/6-2-review` -- 18
-  clean pairs and 7 artifact conflicts reported; this branch is clean against
-  `main`, `story/6-2`, and all implementation files in the reported wave.
+- `python3 _bmad/scripts/branch_conflicts.py --against story/6-2-review` -- 21
+  clean pairs and 8 conflicts reported. This branch is clean against `main`
+  and `story/6-2`; integration must reconcile `mintdrop.py` with `story/6-3`.
 
 ## Suggested Review Order
 

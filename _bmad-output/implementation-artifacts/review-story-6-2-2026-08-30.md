@@ -277,6 +277,10 @@ network-test slow-mark change. **F13 remains open and untouched.**
   changing the frozen defaulting intent and amending AD-10.
 - **Deferred by the supplied scope:** the network test's `slow` mark and
   `SLOW_TESTS` pin.
+- **Integration awareness, not a review finding:** the branch-conflict audit
+  reports 21 clean pairs and 8 conflicting pairs. The only implementation-file
+  overlap involving this lane is `server/meetingminer/mintdrop.py` with
+  `story/6-3`; the wave owner must reconcile it during integration.
 
 **Final verdict: the review lane's patch findings pass. Story 6.2 remains
 conditionally held on F13 and therefore does not receive an unconditional
