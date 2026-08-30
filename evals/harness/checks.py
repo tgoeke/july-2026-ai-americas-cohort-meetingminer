@@ -991,6 +991,12 @@ class GateProbe:
     #: recorded in the detail and ignored for ownership asserts — never a
     #: divergence.
     foreign_ids: tuple[str, ...] = ()
+    #: Foreign rows this approval could have advanced: rows returned as
+    #: ``published`` that were ``extracted`` at discovery, plus response ids
+    #: absent from discovery (the late-arrival window). Kept separate from
+    #: already-published context rows so an independent settled row is never
+    #: blamed on this run.
+    consumed_foreign_ids: tuple[str, ...] = ()
 
 
 def _membership_of(
@@ -1221,7 +1227,6 @@ def publish_gate(
     constraint broken (AD-4).
     """
     thresholds = PUBLISH_GATE_THRESHOLDS
-    by_id = {str(artifact.id): artifact for artifact in artifacts}
     states: dict[str, int] = {}
     for artifact in artifacts:
         states[artifact.state] = states.get(artifact.state, 0) + 1
@@ -1298,12 +1303,7 @@ def publish_gate(
     # between the eligibility read and the approval (the accepted residual
     # window, named in gate_probe.py and the RUNBOOK). The remaining foreign
     # rows — already published before this run — stay recorded-only.
-    consumed = sorted(
-        foreign_id
-        for foreign_id in probe.foreign_ids
-        if (row := by_id.get(foreign_id)) is not None
-        and row.state == EXTRACTED_STATE
-    )
+    consumed = sorted(probe.consumed_foreign_ids)
     if consumed:
         probe_problems.append(
             "the probe's approval consumed subject rows the discovery saw as"
@@ -1353,6 +1353,7 @@ def publish_gate(
                 "published_ids": list(probe.approve.published_ids),
             },
             "foreign_rows": list(probe.foreign_ids),
+            "consumed_foreign_rows": list(probe.consumed_foreign_ids),
             "pre": presence_dicts(probe.pre),
             "post": presence_dicts(probe.post),
             "cleanup": (

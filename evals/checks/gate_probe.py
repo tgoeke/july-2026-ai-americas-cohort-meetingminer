@@ -578,6 +578,7 @@ def run_gate_probe(
     post: dict[str, StorePresence] | None = None
     approve = ApproveOutcome(attempted=False)
     foreign: tuple[str, ...] = ()
+    consumed_foreign: tuple[str, ...] = ()
     problem: str | None = None
 
     with opener(_writable_conninfo(config), autocommit=True) as conn:
@@ -621,8 +622,13 @@ def run_gate_probe(
                         published_ids=(artifact_id,),
                     )
             if not raced:
-                approve, foreign, raced = _approve(
-                    base_url, moment_id, artifact_id, conn, transport
+                approve, foreign, consumed_foreign, raced = _approve(
+                    base_url,
+                    moment_id,
+                    artifact_id,
+                    {str(artifact.id): artifact.state for artifact in artifacts},
+                    conn,
+                    transport,
                 )
             post = _membership(search, graph, artifact_id)
         except StoreAssertError as exc:
@@ -665,6 +671,7 @@ def run_gate_probe(
         problem=problem,
         raced=raced,
         foreign_ids=foreign,
+        consumed_foreign_ids=consumed_foreign,
     )
 
 
@@ -672,9 +679,10 @@ def _approve(
     base_url: str,
     moment_id: str,
     artifact_id: str,
+    initial_states: Mapping[str, str],
     conn: Any,
     transport: httpx.BaseTransport | None,
-) -> tuple[ApproveOutcome, tuple[str, ...], bool]:
+) -> tuple[ApproveOutcome, tuple[str, ...], tuple[str, ...], bool]:
     """The one mutation, with the concurrent-run race resolved by ownership.
 
     A 409 ``nothing-to-approve`` — matched on the structured problem slug
@@ -703,8 +711,25 @@ def _approve(
                         published_ids=(artifact_id,),
                     ),
                     (),
+                    (),
                     True,
                 )
-        return ApproveOutcome(attempted=True, ok=False, detail=str(exc)), (), False
+        return (
+            ApproveOutcome(attempted=True, ok=False, detail=str(exc)),
+            (),
+            (),
+            False,
+        )
     owned, foreign = split_owned(returned, artifact_id)
-    return ApproveOutcome(attempted=True, ok=True, published_ids=owned), foreign, False
+    consumed = tuple(
+        row_id
+        for row_id in foreign
+        if initial_states.get(row_id, checks.EXTRACTED_STATE)
+        == checks.EXTRACTED_STATE
+    )
+    return (
+        ApproveOutcome(attempted=True, ok=True, published_ids=owned),
+        foreign,
+        consumed,
+        False,
+    )

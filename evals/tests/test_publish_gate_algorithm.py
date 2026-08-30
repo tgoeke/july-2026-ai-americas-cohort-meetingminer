@@ -287,6 +287,20 @@ def test_foreign_rows_in_the_approve_response_are_recorded_never_a_problem() -> 
     assert result.detail[-1]["foreign_rows"] == [foreign]
 
 
+def test_a_late_foreign_row_consumed_by_approval_fails_loudly() -> None:
+    """F2: a post-discovery row is not in ``artifacts`` but is still owned."""
+    foreign = "ffffffff-ffff-7fff-8fff-ffffffffffff"
+    probe = clean_probe(
+        foreign_ids=(foreign,), consumed_foreign_ids=(foreign,)
+    )
+    extracted = FakeArtifact(ARTIFACT, MOMENT, "extracted")
+
+    result = gate([extracted], {ARTIFACT: absent()}, probe)
+
+    assert not result.passed
+    assert any(foreign in problem and "consumed" in problem for problem in result.problems)
+
+
 def test_an_ok_approval_that_left_the_probe_unpublished_is_a_divergence() -> None:
     probe = clean_probe(
         approve=ApproveOutcome(attempted=True, ok=True, published_ids=())
@@ -447,7 +461,9 @@ def test_a_foreign_row_discovered_extracted_is_a_consumed_subject_row() -> None:
     subject row that landed after the eligibility read — named, never
     tolerated silently like an already-published foreign row."""
     landed = "eeeeeeee-eeee-7eee-8eee-eeeeeeeeeeee"
-    probe = clean_probe(foreign_ids=(landed,))
+    probe = clean_probe(
+        foreign_ids=(landed,), consumed_foreign_ids=(landed,)
+    )
     result = gate(
         [FakeArtifact(landed, MOMENT, "extracted")],
         {landed: absent()},

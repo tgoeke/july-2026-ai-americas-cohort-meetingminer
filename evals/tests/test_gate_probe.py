@@ -558,10 +558,25 @@ def test_the_clean_probe_sequence_over_fakes(tmp_path: Path) -> None:
     assert probe.approve.ok
     assert probe.approve.published_ids == (PROBE_ID,)
     assert probe.foreign_ids == (FOREIGN_ID,)
+    assert probe.consumed_foreign_ids == (FOREIGN_ID,)
     assert probe.cleanup is not None and probe.cleanup.verified
     insert_sql, insert_params = connection.statements[0]
     assert insert_sql.startswith("INSERT INTO artifact")
     assert gate_probe.probe_title("2026-08-30-left") in insert_params
+
+
+def test_a_late_foreign_row_is_classified_as_consumed(tmp_path: Path) -> None:
+    """F2: response rows absent from discovery cannot disappear from triage."""
+    probe = run_probe(
+        tmp_path,
+        corpus=FakeCorpus(),
+        search=ProbeSearchClient(),
+        graph=ProbeGraphDriver(),
+        connection=FakeConnection(row_state=None),
+    )
+
+    assert probe.foreign_ids == (FOREIGN_ID,)
+    assert probe.consumed_foreign_ids == (FOREIGN_ID,)
 
 
 def test_an_unsettled_extract_stage_refuses_by_name(tmp_path: Path) -> None:
