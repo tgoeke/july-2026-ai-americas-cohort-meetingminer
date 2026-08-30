@@ -102,3 +102,11 @@
 - **Red regression:** `test_worktree_prune_propagates_git_worktree_removal_failure` failed at `assert proc.returncode != 0`: an injected `git worktree remove` exit 23 printed its failure, but `make worktree-prune` returned 0 while the checkout, branch, and stack all remained.
 - **Resolution:** Fixed on the review branch. A failed Git removal now names the kept candidate, sets the aggregate failure status, and gates branch deletion on successful checkout removal; the sweep can continue without misreporting completion.
 - **Green verification:** The red Git-removal regression and the existing failed-Docker-teardown prune regression both passed.
+
+### Finding 9 — The ownership-recheck regression does not exercise the recheck
+
+- **Location:** `server/tests/test_worktree_stack.py:972`
+- **Severity:** low
+- **Finding:** The test claimed to close prior finding 7 by proving ownership is re-resolved immediately before teardown, but it creates worktree `b` while tearing down `a`. Even the pre-fix loop first evaluates `b.present_owner` only after that creation, so the test passes without the newly added second check and cannot prevent its removal.
+- **Evidence:** The red-test commit itself records that “present_owner was already evaluated lazily per iteration, so no red was observable for that half.” In the committed scenario, `_CreatingDocker` creates `owner_b` during `meetingminer-a`'s down; both the parent implementation (one check) and remediation (two checks) then skip `b` at their first ownership evaluation, yielding the same assertions.
+- **Suggested direction:** Trigger directory creation after the target stack's first ownership evaluation but before its final teardown check, and mutation-prove that deleting the second check makes the regression fail by issuing `down -v` for that target.
