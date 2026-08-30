@@ -249,10 +249,20 @@ def test_make_typecheck_runs_mypy_bare_from_server() -> None:
     assert words[0] == "cd" and Path(words[1]).resolve() == SERVER_DIR, (
         f"mypy must run from server/ so it discovers pyproject's [tool.mypy]; got {words}"
     )
-    assert words[words.index("-m") + 1] == "mypy", words
-    assert words[-1] == "mypy", (
-        f"the recipe must stay bare — scope belongs in `[tool.mypy] files`, not argv: {words}"
+    assert _uv_argv(words) == ["python", "-m", "mypy"], (
+        "`make typecheck` must execute exactly `python -m mypy`; scope belongs in "
+        f"`[tool.mypy] files`, not argv, and intermediary commands are forbidden: {words}"
     )
+
+
+def test_typecheck_contract_rejects_a_command_that_only_mentions_mypy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An echo containing `python -m mypy` is not a typecheck invocation."""
+    recipe = f"cd {SERVER_DIR} && uv run --project {SERVER_DIR} echo python -m mypy"
+    monkeypatch.setattr(sys.modules[__name__], "_dry_run", lambda target: recipe)
+    with pytest.raises(AssertionError):
+        test_make_typecheck_runs_mypy_bare_from_server()
 
 
 def test_make_test_fast_runs_lint_and_typecheck_before_the_fast_set() -> None:
