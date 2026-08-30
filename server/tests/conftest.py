@@ -46,7 +46,13 @@ from meetingminer.adapters.ocr.tesseract import TesseractOcr
 from meetingminer.adapters.stt.mlx_whisper import MlxWhisperStt
 from meetingminer.adapters.stt.parakeet_mlx import ParakeetMlxStt
 from meetingminer.adapters.stt.port import SttResult, SttSegment
-from meetingminer.config import AppConfig, ConfigError, load_config, merged_env
+from meetingminer.config import (
+    AppConfig,
+    ConfigError,
+    load_config,
+    merged_env,
+    validated_worktree_env,
+)
 
 # The repo root lives in its own module so tests do not import the plugin
 # module for one constant (story 11.1); see repo_paths.py for the rule.
@@ -234,14 +240,15 @@ def linked_worktree_refusal(root: Path) -> str | None:
             )
         return None
     try:
-        env = merged_env(root / ".env")
+        declared = validated_worktree_env(root / ".env")
+        merged_env(root / ".env")  # also validates the base .env contract
     except ConfigError as exc:
         return str(exc)
     expected = f"meetingminer-{root.name}"
-    if env.get("MM_STACK_NAME") != expected:
+    if declared.get("MM_STACK_NAME") != expected:
         return (
             f"{stack_file} declares MM_STACK_NAME="
-            f"{env.get('MM_STACK_NAME')!r} but this checkout is {root.name!r},"
+            f"{declared.get('MM_STACK_NAME')!r} but this checkout is {root.name!r},"
             f" whose stack is {expected!r} — a copied or moved file must not"
             " point the test session at another worktree's stack ('git"
             " worktree move' is not supported for a worktree with a stack)."

@@ -914,6 +914,21 @@ def _validate_worktree_env(path: Path, values: dict[str, str]) -> None:
         )
 
 
+def validated_worktree_env(env_path: Path) -> dict[str, str]:
+    """The validated ownership record beside ``env_path``, or an empty dict.
+
+    Unlike :func:`merged_env`, this returns the file's declarations before
+    process-environment precedence. Directory-ownership guards must compare
+    this immutable source record, not an overridable merged value.
+    """
+    worktree_env = env_path.parent / WORKTREE_ENV_FILENAME
+    if not worktree_env.is_file():
+        return {}
+    values = _read_env_file(worktree_env)
+    _validate_worktree_env(worktree_env, values)
+    return values
+
+
 def merged_env(env_path: Path) -> dict[str, str]:
     """The environment the loader sees: ``.env``, then ``.env.worktree``
     beside it, then the process environment — each overriding the last.
@@ -946,11 +961,7 @@ def merged_env(env_path: Path) -> dict[str, str]:
                 f" {WORKTREE_ENV_FILENAME} (written by 'make worktree'), never in .env"
             )
         merged.update(base)
-    worktree_env = env_path.parent / WORKTREE_ENV_FILENAME
-    if worktree_env.is_file():
-        overrides = _read_env_file(worktree_env)
-        _validate_worktree_env(worktree_env, overrides)
-        merged.update(overrides)
+    merged.update(validated_worktree_env(env_path))
     for key, value in os.environ.items():
         if value.strip() or key not in merged:
             merged[key] = value
