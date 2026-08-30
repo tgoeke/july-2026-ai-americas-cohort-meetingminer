@@ -162,3 +162,39 @@ precision pair, the embedded provenance, and the atomic finalize right, and a
 drop that gets any of them wrong is write-once and unusable. Use the command; it
 validates what it produces against `source-drop.schema.json` before the drop
 becomes visible.
+
+## Ingesting a YouTube video
+
+`make youtube-drop URL=<url>` turns a published YouTube video into a source
+drop and hands it to the same intake door as everything else:
+
+    make youtube-drop URL='https://www.youtube.com/watch?v=jNQXAC9IVRw'
+
+Watch, `youtu.be`, and Shorts URLs all work; a `&list=` on a watch URL is
+ignored (the single video is acquired — playlists are not supported). The
+recording lands as a browser-playable MP4; the caption track is English manual
+captions when the video has them, otherwise the auto-generated ones, converted
+to VTT — a video with no English captions still mints a valid, recording-only
+drop. `corpus` is always `real`, and `startedAt` comes from the video's own
+publish metadata (`release_timestamp` at second precision, else `upload_date`
+at day precision).
+
+Like `mint-drop`, it refuses **before writing anything**, each refusal named:
+
+- the URL is not a YouTube *video* URL (a playlist-only URL is refused);
+- `yt-dlp` or `ffmpeg` is not on PATH (`brew install yt-dlp ffmpeg`) — checked
+  at run time, by name; `make check-tools` knows nothing about them;
+- the video is private or removed (the refusal carries yt-dlp's own message);
+- the video has no video stream;
+- it is longer than `acquisition.youtube.max_duration_minutes` (config.yaml,
+  default 180);
+- it carries neither `release_timestamp` nor `upload_date` — a wall clock is
+  never guessed from a file's mtime.
+
+Re-running on a video already minted reports `exists` before anything is
+downloaded — `youtube:<videoId>` is the drop's `sourceId`, so the check needs
+no network — and still POSTs that drop, which is how a dropped hand-off is
+recovered. `--no-post`, `--drops`, and `--api` behave exactly as `mint-drop`'s
+(pass them in `YT_ARGS='--no-post'`); the sections above on what the output
+means and what the command never does apply here unchanged. The video's
+`info.json` is read for metadata and never copied into the drop.
