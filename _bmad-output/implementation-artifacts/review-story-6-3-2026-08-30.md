@@ -146,6 +146,8 @@ Story 6.3 footprint and treats the verbatim Story 6.2 override hunk as context.
 - `python3 _bmad/scripts/branch_conflicts.py --against story/6-3-review` —
   clean against `main`, `story/6-2`, and `story/6-3`; the documented one-block
   conflict remains against `story/6-2-review`.
+- `make check-reviews` — passed; every dispatched review has a committed
+  report.
 
 ## Verdict
 
