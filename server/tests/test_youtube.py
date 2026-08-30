@@ -1153,6 +1153,7 @@ def test_main_no_post_prints_exact_recovery_and_suppresses_intake(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     root = tmp_path / "drops"
+    root.mkdir()
     result = cli_result(tmp_path)
     monkeypatch.setattr(youtube, "_load_cli_config", lambda: cli_config(root))
     monkeypatch.setattr(youtube, "resolve_api_url", lambda explicit: "http://api.test")
@@ -1176,6 +1177,7 @@ def test_main_reports_duplicate_intake(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     root = tmp_path / "drops"
+    root.mkdir()
     result = cli_result(tmp_path, status="exists")
     monkeypatch.setattr(youtube, "_load_cli_config", lambda: cli_config(root))
     monkeypatch.setattr(youtube, "resolve_api_url", lambda explicit: "http://api.test")
@@ -1196,6 +1198,7 @@ def test_main_intake_failure_is_nonzero_with_exact_repost_guidance(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     root = tmp_path / "drops"
+    root.mkdir()
     result = cli_result(tmp_path)
     monkeypatch.setattr(youtube, "_load_cli_config", lambda: cli_config(root))
     monkeypatch.setattr(youtube, "resolve_api_url", lambda explicit: "http://api.test")
