@@ -2624,6 +2624,33 @@ owner's yes, 2026-08-30 ~09:45.
 share `infra/Makefile` / `conftest.py` / AGENTS.md with it; 6-2 waits for
 11-2 (Addendum 2); everything else chains behind one of those.
 
+### `6-2-youtube-acquisition-command` — review, 2026-08-30
+
+Built inside the wave footprint. `server/meetingminer/youtube.py` (new) owns
+URL classification, the named refusal matrix, caption selection, the
+`yt-dlp` download, and the `info.json` -> metadata mapping; assembly goes
+through `mint()` via three new keyword overrides (`source_id`,
+`started_at_override`, `provenance_extra`) that default to today's behaviour
+— `test_mint_drop.py` and `test_config.py` unchanged and green.
+`AcquisitionConfig`/`YoutubeAcquisitionConfig` sit immediately before
+`Settings` with `acquisition` as its last, defaulted field; `config.yaml`
+carries the block explicitly at EOF; `youtube-drop:` sits directly after the
+`mint-drop` recipe with a named `URL=` guard; `docs/README.md` gained
+"Ingesting a YouTube video" at the end of the file, after "Bringing your own
+recording".
+
+Verified: `server/tests/test_youtube.py` 43 passed offline (network test
+skipped by name); `make test-fast` 1444 passed; the env-flagged network test
+passed for real against a 19-second public video (real download, minted drop
+schema-valid, `exists` on re-run, no POST). The machine's Homebrew `yt-dlp`
+had gone stale (2026.07.04 -> HTTP 403 on media); upgraded to 2026.08.19,
+after which the real run passed — expect the same on other machines.
+
+Deferred (recorded in the spec frontmatter): the network test is env-flagged
+but not `slow`-marked; at integrate add the `pytest.mark.slow` decorator plus
+the one-line `SLOW_TESTS` pin in `test_compose_contract.py`, which is outside
+this story's footprint.
+
 ## Sprint-planning, 2026-08-30 ~13:30 — the dispatch rule is measured now; six lanes
 
 **Owner direction (verbatim in substance).** "The whole reorg and redesign of

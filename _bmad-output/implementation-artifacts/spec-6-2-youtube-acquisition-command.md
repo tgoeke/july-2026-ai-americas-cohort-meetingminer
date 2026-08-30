@@ -2,7 +2,7 @@
 title: 'Story 6.2: YouTube Acquisition Command'
 type: 'feature'
 created: '2026-08-30'
-status: 'in-progress'
+status: 'review'
 baseline_revision: '5cdfce72813d68c2d81f5e02f715b8863f8492af'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -123,3 +123,45 @@ deferred:
 - `make test` -- expected: green once before status flips to review (twins up; runs `test_compose_contract` slow-pin checks against this branch).
 - `python3 _bmad/scripts/branch_conflicts.py --against story/6-2` -- expected: `clean` against `main` and every `story/*` except pairs involving `story/11-2-review`.
 - One real run (free, allowed): `make youtube-drop URL=<short public video> YT_ARGS='--no-post --drops <scratch child of MM_DROPS_ROOT>'` -- expected: `created`, schema-valid metadata with the AC field list; do NOT POST to the shared api.
+
+## Auto Run Result
+
+Status: review (per the wave contract this run never marks the story done;
+adversarial review is external, carried by
+`review-prompt-story-6-2-2026-08-30.md` — the in-session reviewer layers were
+not run as subagents, matching the repo's established external-review path).
+
+**Summary.** `make youtube-drop URL=<url>` acquires a published YouTube video
+as a source drop through the one intake door: offline URL classification,
+`exists` on `youtube:<videoId>` before any yt-dlp invocation, the named
+refusal matrix at probe time, MP4+captions download into a private temp dir,
+and assembly through `mint()` via three new default-preserving keyword
+overrides.
+
+**Files changed.**
+- `server/meetingminer/youtube.py` (new) — the acquisition command and `__main__` entry.
+- `server/meetingminer/mintdrop.py` — `source_id`, `started_at_override`, `provenance_extra` keyword overrides on `mint()`/`build_metadata()`, defaulting to today's behaviour.
+- `server/meetingminer/config.py` — `YoutubeAcquisitionConfig`/`AcquisitionConfig` before `Settings`; `acquisition` as last, defaulted `Settings` field.
+- `config.yaml` — `acquisition:` block appended at EOF (cap 180).
+- `infra/Makefile` — `youtube-drop:` target after `mint-drop`, `URL=` guarded, `YT_ARGS` pass-through.
+- `docs/README.md` — "Ingesting a YouTube video" section after "Bringing your own recording".
+- `server/tests/test_youtube.py` + `server/tests/fixtures/youtube/` (new) — 43 offline tests + env-flagged network test.
+- Sprint artifacts: `sprint-status.yaml` (`6-2-youtube-acquisition-command: review`), `sprint-notes.md` entry, this spec.
+
+**Review findings breakdown.** No in-session review pass ran (external review
+pending via the reviewer prompt); patched 0, deferred 1 (the SLOW_TESTS pin,
+recorded in frontmatter at planning time), rejected 0. Follow-up review
+recommendation: false (score 0).
+
+**Verification performed.**
+- `uv run --project server pytest server/tests/test_youtube.py -q` — 43 passed, 1 skipped (network test, named reason).
+- `make test-fast` — 1444 passed, 1 skipped.
+- `make test` — 1770 passed, 1 skipped (the env-flagged network test), web build green, exit 0.
+- `MM_YOUTUBE_NETWORK_TEST=1 … test_real_youtube_acquisition_end_to_end -o mm_fast_test_budget_seconds=600` — passed against a real 19s public video (created + exists, schema-valid, no POST) after upgrading the machine's stale Homebrew yt-dlp 2026.07.04 → 2026.08.19.
+- Manual CLI: `--no-post` run minted a schema-valid drop into a scratch child root; re-run reported `exists`; refusals verified by name.
+- `python3 _bmad/scripts/branch_conflicts.py --against story/6-2` — clean except pairs involving `story/11-2-review` (expected per wave rules); re-run before the final push.
+
+**Residual risks.**
+- The network test is env-flagged but not `slow`-marked until the deferred `SLOW_TESTS` pin lands at integrate.
+- `provenance.files[].sourcePath` for a YouTube drop names the transient download directory — honest provenance of the copy, but a path that no longer exists after the run.
+- Extractor drift: a stale yt-dlp fails the real download (HTTP 403 seen with 2026.07.04); the refusal carries yt-dlp's own message, and `ytDlpVersion` in provenance records what ran.
