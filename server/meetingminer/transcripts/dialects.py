@@ -242,7 +242,9 @@ def _convert_zoom(paths: Sequence[str], *, into: Path) -> Conversion:
                 },
                 "cueCount": len(cues),
                 "turnCount": len(turns),
-                "speakerLabels": _distinct(turn.speaker for turn in turns),
+                "speakerLabels": _distinct(
+                    cue.speaker for cue in cues if cue.speaker is not None
+                ),
             }
         },
     )
@@ -449,7 +451,7 @@ def zoom_turns(cues: Sequence[ZoomCue]) -> tuple[Turn, ...]:
     turns: list[Turn] = []
     for cue in cues:
         label = cue.speaker or transcripts.UNKNOWN_SPEAKER
-        if turns and turns[-1].speaker == label:
+        if cue.speaker is not None and turns and turns[-1].speaker == label:
             previous = turns[-1]
             turns[-1] = Turn(
                 start_ms=previous.start_ms,

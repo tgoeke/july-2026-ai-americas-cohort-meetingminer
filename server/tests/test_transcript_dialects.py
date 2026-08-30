@@ -295,6 +295,37 @@ def test_a_cue_with_no_recognised_prefix_never_inherits_the_previous_speaker(
     assert speakers.is_placeholder_label(transcripts.UNKNOWN_SPEAKER)
 
 
+def test_consecutive_unknown_cues_remain_separate_and_are_not_speaker_labels(
+    tmp_path: Path, workspace: Path
+) -> None:
+    source = tmp_path / "sync.vtt"
+    source.write_text(
+        vtt(
+            ("00:00:01.000", "00:00:02.000", "Alice Chen: Named."),
+            ("00:00:03.000", "00:00:04.000", "first unknown cue"),
+            ("00:00:05.000", "00:00:06.000", "second unknown cue"),
+        ),
+        encoding="utf-8",
+    )
+
+    conversion = convert(source, workspace)
+    parsed = transcripts.parse_text_transcript(
+        written(conversion, ".txt").read_text(encoding="utf-8")
+    )
+    record = conversion.provenance_extra[dialects.PROVENANCE_KEY]
+
+    assert [segment.speaker_label for segment in parsed.segments] == [
+        "Alice Chen",
+        transcripts.UNKNOWN_SPEAKER,
+        transcripts.UNKNOWN_SPEAKER,
+    ]
+    assert [segment.text for segment in parsed.segments[1:]] == [
+        "first unknown cue",
+        "second unknown cue",
+    ]
+    assert record["speakerLabels"] == ["Alice Chen"]
+
+
 def test_only_the_first_payload_line_can_supply_a_speaker(
     tmp_path: Path, workspace: Path
 ) -> None:
