@@ -1076,26 +1076,32 @@ def test_cli_down_reports_and_propagates(
 # --- remediation 2026-08-30: no teardown on a stale snapshot (finding 7) ----
 
 
-def test_prune_rechecks_ownership_immediately_before_teardown(tmp_path: Path) -> None:
-    """A worktree directory that appears after the classification snapshot
-    wins: ownership is re-resolved immediately before every `down -v`, so a
-    stack whose owner landed mid-sweep is skipped owned, never torn down
-    from stale knowledge."""
+def test_prune_rechecks_ownership_immediately_before_teardown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A directory appearing after this stack's first ownership check wins."""
     root = tmp_path / "wt"
     root.mkdir()
     owner_b = root / "b"
+    original_owner = ws.Stack.present_owner.fget
+    assert original_owner is not None
+    checks = 0
 
-    class _CreatingDocker(_FakeDocker):
-        def __call__(self, argv: list[str]) -> str:
-            if argv[:3] == ["docker", "compose", "-p"] and argv[3] == "meetingminer-a":
-                owner_b.mkdir()  # `make worktree STORY=b` lands mid-sweep
-            return super().__call__(argv)
+    def owner_after_first_check(stack: ws.Stack) -> Path | None:
+        nonlocal checks
+        owner = original_owner(stack)
+        if stack.project == "meetingminer-b" and checks == 0:
+            checks += 1
+            assert owner is None
+            owner_b.mkdir()
+            return None
+        return owner
 
-    volumes = _our_volumes("meetingminer-a") + "\n" + _our_volumes("meetingminer-b")
-    fake = _CreatingDocker("", volumes)
+    monkeypatch.setattr(ws.Stack, "present_owner", property(owner_after_first_check))
+    fake = _FakeDocker("", _our_volumes("meetingminer-b"))
     lines: list[str] = []
-    assert ws.prune(root, run=fake, out=lines.append) == ["meetingminer-a"]
-    assert _downs(fake) == ["meetingminer-a"]
+    assert ws.prune(root, run=fake, out=lines.append) == []
+    assert _downs(fake) == []
     assert f"skipped owned meetingminer-b ({owner_b})" in lines
 
 

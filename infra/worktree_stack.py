@@ -855,12 +855,6 @@ def prune(
                     )
                 out(f"skipped unknown {name}")
                 continue
-            # Re-resolve immediately before the teardown: the owner directory
-            # may have appeared since the check above.
-            owner = stack.present_owner
-            if owner is not None:
-                out(f"skipped owned {name} ({owner})")
-                continue
             try:
                 run(["docker", "compose", "-p", name, "down", "-v", "--remove-orphans"])
             except StackError as exc:
