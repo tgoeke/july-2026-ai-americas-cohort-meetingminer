@@ -2859,3 +2859,43 @@ Integration note: `branch_conflicts.py` is clean everywhere except the
 excepted story/11-2-review pairs and story/7-1 x story/11-4 on
 `server/uv.lock` — the spec's named merge surface; take either side and
 re-run `uv sync --project server` after the merge.
+
+## 11-4 landed, 2026-08-30 ~18:05 — the fast loop now lints and typechecks
+
+`main` at `c3149f5`. `make lint` and `make typecheck` run inside `make
+test-fast`, pinned by `test_lint_contract.py` and the compose contract.
+
+**Measured cost, because the story sits inside a speed epic and the question is
+fair:** `make lint` 0.11s, `make typecheck` 0.25s — 0.36s on a ~55s fast loop.
+Not the wall-clock that matters; the friction does. From now on every branch
+must be lint-clean to pass integration.
+
+**It failed on first rebase, and that is the lesson.** 11.4 measured its ruff
+baseline before 10-1, 6-2 and 11-3 landed, so three violations in newly-landed
+code sat outside its dated ignore list. A baseline is a snapshot of a tree, and
+it goes stale the moment anything lands beside it — expect this whenever a
+lint-gate story is sequenced late in a wave. Resolved on `main` in `ec178b6`
+rather than by widening the baseline:
+
+- `test_extraction_topics.py` — two `ISC004` implicit concatenations inside a
+  `parametrize` collection. Ruff cannot tell a deliberate multi-line markdown
+  table from a forgotten comma, which is the whole point of the rule.
+  Parenthesized; no behaviour change.
+- `youtube.py:377` — `DTZ007` on a date-only `strptime`. A false positive:
+  only the date is taken and it is reformatted with an explicit `T00:00:00Z`
+  (the schema's `day` precision), so no naive instant is ever stored, and
+  attaching a timezone would assert a wall-clock time YouTube does not give us.
+  Annotated with that rationale instead of changing behaviour — a lint fix that
+  silently changes a timestamp is worse than the lint finding.
+
+**What is enforced:** seven mechanical codes are ignored tree-wide (import
+ordering, deprecated typing aliases, `subprocess` without `check=`, UP017) with
+a 49-pair per-file baseline that is shrink-only; every other rule is live in
+every file. `mypy` covers the 13 decision-core modules — the database-free,
+model-free logic where branch-heavy code hides type errors from tests. It fixes
+nothing that existed; its value is preventing new problems, and B-4 is closed.
+
+**Post-merge ops:** none owed — no migration, no API surface, no projected
+field. `server/pyproject.toml` gained the dev-group pins, so `uv sync --project
+server` was run in the main checkout; **every other clone and worktree owes the
+same sync** before `make lint` will work there.
