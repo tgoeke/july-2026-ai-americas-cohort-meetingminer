@@ -605,6 +605,47 @@ def test_a_rerun_replaces_the_topic_rows(
     assert states == {"extracted"}
 
 
+def test_an_early_exit_rerun_removes_existing_topics_and_mentions(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_extraction_drop: Callable[[str], Any],
+    fake_llm: Callable[..., FakeLlm],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    engine = fake_llm(replies=(TOPICS_DOC,))
+    job_id = enqueue(pool, make_extraction_drop("source-rerun-empty"), "source-rerun-empty")
+    assert runner.run_once(pool, app_config, content_root) is True
+    [meeting] = meetings(pool, job_id)
+    topics = topic_rows(pool, meeting["id"])
+    assert len(topics) == 2
+    assert sum(len(mention_rows(pool, topic["id"])) for topic in topics) == 3
+
+    with pool.connection() as conn:
+        conn.execute(
+            "DELETE FROM transcript_segment WHERE meeting_id = %s",
+            (meeting["id"],),
+        )
+
+    capsys.readouterr()
+    requeue_extract(pool, job_id)
+    assert runner.run_once(pool, app_config, content_root) is True
+    assert job_row(pool, job_id) == ("done", None)
+    assert len(engine.calls) == 1, "the empty rerun must exit before another model call"
+    assert topic_rows(pool, meeting["id"]) == []
+    assert topics_source(pool, meeting["id"]) is None
+
+    [summary] = [
+        event
+        for event in log_events(capsys)
+        if event["event"] == "stage.extract.summary"
+    ]
+    assert summary["skipped_reason"] == "no transcript text"
+    assert summary["topics_replaced"] == 2
+    assert summary["topics"] == 0
+    assert summary["topic_mentions"] == 0
+
+
 def test_superseded_mentions_are_skipped_and_an_unmentioned_topic_dropped(
     pool: ConnectionPool,
     app_config: AppConfig,
