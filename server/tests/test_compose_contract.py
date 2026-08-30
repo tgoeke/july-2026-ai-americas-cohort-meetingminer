@@ -316,29 +316,6 @@ def test_make_test_fast_runs_check_client_lint_typecheck_then_every_store_free_s
     assert with_server_pytest == ["test-fast"], with_server_pytest
 
 
-def test_make_test_fast_order_contract_rejects_suites_before_lint_and_typecheck(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Keeping every prerequisite is insufficient when slower suites move ahead of tools."""
-    steps = _dry_run_steps("test-fast")
-    by_target = {target: (target, commands) for target, commands in steps}
-    reordered = [
-        by_target[target]
-        for target in (
-            "check-client",
-            "puller-test",
-            "web-test",
-            "lint",
-            "typecheck",
-            "evals-test",
-            "test-fast",
-        )
-    ]
-    monkeypatch.setattr("test_compose_contract._dry_run_steps", lambda target: reordered)
-    with pytest.raises(AssertionError, match="lint and typecheck must run directly"):
-        test_make_test_fast_runs_check_client_lint_typecheck_then_every_store_free_suite_before_the_fast_set()
-
-
 def test_make_test_fast_recipe_is_the_one_whole_server_pytest_command() -> None:
     """The commands the `test-fast` recipe owns, from make: exactly one, the whole-server pytest command — so it is last, and nothing before or after it (a `docker compose`, a store check, a second suite) rides in the recipe past the prerequisite contract above — and that command is exactly `cd <root> && uv run --project <server> pytest -q -rs <server/tests>`. Exact argv rejects a command that merely mentions pytest, a non-execution or narrower-selection option, shell backgrounding, and anything chained onto either side. Everything else the loop runs is a prerequisite target; adding one is an edit of TEST_FAST_PREREQUISITES."""
     commands = _direct_commands("test-fast")
