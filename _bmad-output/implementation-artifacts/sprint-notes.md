@@ -2713,3 +2713,29 @@ both suites re-run; sequence only for same-statement disagreement risk,
 contract dependency, or an operational gate. Footprints in build prompts keep
 conflicts rare; `branch_conflicts.py` keeps them visible. Wave A launched as
 six unattended lanes (11-2 remediation, 6-2, 10-1, 7-1, 11-3, 11-4) at ~14:00.
+## 10-1 topic extraction — built, in review, 2026-08-30
+
+Story 10.1 built on `story/10-1` (worktree `../meetingminer-wt/10-1`, cut from
+`5cdfce7`). The third extraction document lands: `DOC_TOPICS` through the same
+port, parser machinery, and one-retry discipline as the summary and action
+items; migration 0014 adds worker-owned `topic`/`topic_mention` (one mention
+per containing moment, composite FK, cascade — navigation metadata, not cited
+evidence) and widens `extraction_source`'s kind CHECK; the prompt is committed
+config served as `kind="topic"`; the prompts UI renders whatever the endpoint
+returns; client regenerated from the in-process schema (2.2 pattern).
+
+Four named footprint deviations, each mechanically forced, all recorded in the
+spec's change log and verified pairwise clean with `branch_conflicts.py`
+(notably `story/10-1 × story/11-2` is clean):
+
+- `conftest.py` `EVIDENCE_TABLES` += topic, topic_mention (TRUNCATE's static
+  FK refusal — without it every DB-backed test fails once 0014 applies).
+- `test_worker_extract.py` — expectation counts only (+1 call for the
+  always-generated topics pass, sources 2→3, adopted/generated split).
+- `test_config.py` — one fixture line: the now-required `topics_prompt` key.
+- `test_api_prompts.py` — 2→3 entries, kind set gains `topic`.
+
+Build interrupted once mid-lane by an API rate limit; resumed from the
+committed tree with no loss. Pre-existing and not mine: `main × story/11-2`
+conflicts on 11-2's own spec file (remediation divergence; resolves at its
+integrate).

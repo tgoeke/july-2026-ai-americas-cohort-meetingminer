@@ -1,8 +1,9 @@
 """`GET /extraction/prompts` serves the topics prompt beside the other two (story 10.1).
 
-Field-set-literal pinning, the same style as `test_api_prompts.py` — which
-stays frozen at two entries by the wave footprint; the three-kind contract
-lives here.
+Field-set-literal pinning, the same style as `test_api_prompts.py`. That
+file keeps story 4.2's two-kind concern (updated only in the counts the
+third kind shifts); the full three-kind contract and the topic text's
+verbatim pin live here.
 """
 
 from __future__ import annotations

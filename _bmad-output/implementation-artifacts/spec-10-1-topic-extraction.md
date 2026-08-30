@@ -3,7 +3,7 @@ title: 'Story 10.1: Topic Extraction'
 type: 'feature'
 created: '2026-08-30'
 baseline_revision: '5cdfce72813d68c2d81f5e02f715b8863f8492af'
-status: 'in-progress'
+status: 'review'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -101,6 +101,17 @@ deferred: []
   All verified clean against every in-flight `story/*` branch with `branch_conflicts.py` before the final push.
 - 2026-08-30 (planning): `server/tests/conftest.py` `EVIDENCE_TABLES` append recorded as a deliberate, named footprint deviation — mechanical necessity (Postgres TRUNCATE FK rule), pinned in Code Map, conflict-checked against every in-flight branch. Wave rule "do not widen quietly" satisfied by this entry + review-prompt callout.
 
+## Review Triage Log
+
+### 2026-08-30 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 1: (high 0, medium 0, low 1)
+- defer: 0
+- reject: 2
+- addressed_findings:
+  - `low` `patch` The new API test file's docstring claimed `test_api_prompts.py` "stays frozen at two entries", made false by the consequential count update there — rewritten to describe the actual split. Rejected as noise: duplicate topic names per meeting are permitted by design (10.2 normalizes); the code-owned "Meeting:" prompt header residue is story 6.7's already-filed deferred item.
+
 ## Design Notes
 
 - Permissive target sections for `DOC_TOPICS` (mirroring the action document) instead of a `topic`-keyword match: keeps the shared zero-artifact default document parseable everywhere, tolerates heading drift, and loses nothing — strictness lives in the T-id/anchor rules and the stage-level zero-topics signal keyed on meeting content.
@@ -115,3 +126,38 @@ deferred: []
 - `make test` — once before `review`: green (migration applies to the per-run database; twins required).
 - `make web-test` — expected: green including the new label/render tests.
 - `python3 _bmad/scripts/branch_conflicts.py --against story/10-1` — expected: `clean` for every pair not involving `story/11-2-review`.
+
+## Auto Run Result
+
+Status: review — implementation complete, internal review pass done, awaiting
+the external `bmad-code-review` pass
+(`review-prompt-story-10-1-2026-08-30.md`). Not merged, not done.
+
+**Implemented:** the topics document as the third whole-transcript extraction
+pass — same `Llm(extraction)` port, same parser machinery, one-retry
+discipline; `topic`/`topic_mention` rows (migration 0014) anchored to moments,
+worker-owned, machine-derived, replaced on rerun, outside the artifact
+lifecycle; `topics_prompt` in `config.yaml` served as `kind="topic"`; prompts
+UI renders whatever the endpoint returns; client regenerated in-process.
+
+**Files:** `config.py` (+1 field), `config.yaml` (+prompt block),
+`pipeline/extraction.py` (DOC_TOPICS, anchors_ms, topic_gist),
+`stages/extract.py` (third pass), `api/extraction.py` (+topic kind),
+`migrations/0014_topics.sql` (new), `docs/architecture.md` (data note),
+`web/src/features/moments/*` (+label, tests), `web/src/client/types.gen.ts`
+(regenerated), three new test files; consequential: `conftest.py`
+EVIDENCE_TABLES, `test_worker_extract.py` counts, `test_config.py` fixture
+key, `test_api_prompts.py` counts (all in the change log).
+
+**Review findings:** patch 1 (low — stale docstring, fixed), defer 0,
+reject 2. Followup score: 1 low = 1 < 5 → `followup_review_recommended:
+false` (0 high, 0 medium, 1 low patched).
+
+**Verification:** story files 31 passed ~9s; `make test-fast` 1432 passed /
+326 deselected / 0 skips, 50s; `make web-test` 294 passed; `make test` full
+gate exit 0 — 1758 passed, 13m17s, web build ok; `branch_conflicts.py`: all
+`story/10-1` pairs clean except the exempt `× story/11-2-review`.
+
+**Residual risks:** the real extraction model's topics output is unproven
+against the committed prompt (owner runs a real extraction after
+integration); `main × story/11-2` spec-file conflict pre-exists this story.
