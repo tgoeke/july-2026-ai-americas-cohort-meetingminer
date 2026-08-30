@@ -31,15 +31,17 @@ export type SourceLink =
  * Four states. `replay` is a meeting with a recording, where the player opens
  * at `startMs`; its `source` is the YouTube link to render beside the Replay
  * button, or `null` — another host's link is never offered next to replay
- * (story 2.2's rule, kept). `deepLink` is UX-DR11's transitional path: a
- * meeting with no replay evidence carries its source URL instead, and that
- * link is cleared once a recording arrives (AD-15). `inertLink` is a link the
- * app will not open, shown as text. `none` is a transcript-only meeting whose
+ * (story 2.2's rule, kept). `inertSource` preserves a refused address as text
+ * beside Replay instead of silently discarding it. `deepLink` is UX-DR11's
+ * transitional path: a meeting with no replay evidence carries its source URL
+ * instead, and that link is cleared once a recording arrives (AD-15).
+ * `inertLink` is a link the app will not open, shown as text. `none` is a
+ * transcript-only meeting whose
  * drop carried no link either — it exists, and offering a dead button for it
  * would be worse than offering nothing.
  */
 export type Affordance =
-  | { kind: 'replay'; source: SourceLink | null }
+  | { kind: 'replay'; source: SourceLink | null; inertSource: string | null }
   | { kind: 'deepLink'; source: SourceLink }
   | { kind: 'inertLink'; text: string }
   | { kind: 'none' }
@@ -148,7 +150,13 @@ export function affordanceOf(evidence: ReplayEvidence, offsetMs: number | null =
     // recording wins (story 2.2's rule, now a tested branch rather than four
     // `if`s in four components).
     const source = sourceLinkOf(evidence.sourceDeepLink, offsetMs)
-    return { kind: 'replay', source: source?.provider === 'youtube' ? source : null }
+    return {
+      kind: 'replay',
+      source: source?.provider === 'youtube' ? source : null,
+      // An unsafe address is still provenance. Keep it visible as inert text;
+      // safe non-YouTube links retain the separate "replay wins" rule.
+      inertSource: evidence.sourceDeepLink && source === null ? evidence.sourceDeepLink : null,
+    }
   }
   if (evidence.sourceDeepLink) {
     const source = sourceLinkOf(evidence.sourceDeepLink, offsetMs)

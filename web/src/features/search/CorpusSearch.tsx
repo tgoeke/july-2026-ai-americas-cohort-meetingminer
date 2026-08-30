@@ -401,6 +401,14 @@ export function CorpusSearch({ onOpenMoment }: CorpusSearchProps = {}) {
                           testId={`hit-youtube-link-${key}`}
                         />
                       )}
+                      {affordance.kind === 'replay' && affordance.inertSource !== null && (
+                        <span
+                          data-testid={`hit-unsafe-link-${key}`}
+                          className="break-all text-xs text-muted-foreground"
+                        >
+                          Source link not opened — unsupported address: {affordance.inertSource}
+                        </span>
+                      )}
                       {affordance.kind === 'deepLink' && (
                         // Labelled by provider (UX-DR12): a YouTube link is
                         // timed and named with its offset; any other host

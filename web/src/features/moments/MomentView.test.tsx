@@ -601,6 +601,17 @@ describe('MomentView', () => {
     expect(screen.queryByRole('link')).toBeNull()
   })
 
+  it('keeps an unsafe source inert beside Replay', async () => {
+    answers(detail({ sourceDeepLink: 'javascript:alert(1)' }))
+    render(<MomentView momentId="moment-1" />)
+
+    const replay = await screen.findByRole('button', { name: 'Replay recording at 0:44' })
+    const inert = screen.getByTestId('moment-unsafe-link')
+    expect(inert).toHaveTextContent('javascript:alert(1)')
+    expect(replay.compareDocumentPosition(inert)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(screen.queryByRole('link')).toBeNull()
+  })
+
   it('makes the timed YouTube link the sole affordance on a transcript-only moment', async () => {
     answers(
       detail({

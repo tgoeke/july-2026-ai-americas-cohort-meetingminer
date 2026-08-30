@@ -123,6 +123,7 @@ describe('affordanceOf', () => {
         href: 'https://www.youtube.com/watch?v=abc&t=754',
         offsetMs: 754_000,
       },
+      inertSource: null,
     })
   })
 
@@ -130,15 +131,19 @@ describe('affordanceOf', () => {
     expect(affordanceOf({ hasRecording: true, sourceDeepLink: SHAREPOINT }, 754_000)).toEqual({
       kind: 'replay',
       source: null,
+      inertSource: null,
     })
     expect(affordanceOf({ hasRecording: true, sourceDeepLink: null })).toEqual({
       kind: 'replay',
       source: null,
+      inertSource: null,
     })
-    // An unsafe scheme beside a recording is simply not offered either.
+    // A safe other-host URL stays hidden beside Replay, but a refused address
+    // remains visible as inert provenance.
     expect(affordanceOf({ hasRecording: true, sourceDeepLink: 'javascript:x' }, 1)).toEqual({
       kind: 'replay',
       source: null,
+      inertSource: 'javascript:x',
     })
   })
 

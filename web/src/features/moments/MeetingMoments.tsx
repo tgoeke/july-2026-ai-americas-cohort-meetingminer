@@ -349,9 +349,19 @@ export function MeetingMoments({ meetingId, onOpenMoment }: MeetingMomentsProps)
   const sourceControls = (key: string, startMs: number) => {
     if (data === null) return null
     const rowAffordance = affordanceOf(data, startMs)
-    if (rowAffordance.kind !== 'replay' || rowAffordance.source === null) return null
-    return (
-      <SourceLinkAnchor link={rowAffordance.source} testId={`drilldown-youtube-link-${key}`} />
+    if (rowAffordance.kind !== 'replay') return null
+    if (rowAffordance.source !== null) {
+      return (
+        <SourceLinkAnchor link={rowAffordance.source} testId={`drilldown-youtube-link-${key}`} />
+      )
+    }
+    return rowAffordance.inertSource === null ? null : (
+      <span
+        data-testid={`drilldown-unsafe-link-${key}`}
+        className="break-all text-xs text-muted-foreground"
+      >
+        Source link not opened — unsupported address: {rowAffordance.inertSource}
+      </span>
     )
   }
 

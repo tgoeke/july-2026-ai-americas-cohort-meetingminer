@@ -419,6 +419,14 @@ export function MomentView({ momentId }: MomentViewProps) {
                   // link timed at this moment, secondary to the Replay button.
                   <SourceLinkAnchor link={affordance.source} testId="moment-youtube-link" />
                 )}
+                {affordance?.kind === 'replay' && affordance.inertSource !== null && (
+                  <span
+                    data-testid="moment-unsafe-link"
+                    className="break-all text-xs text-muted-foreground"
+                  >
+                    Source link not opened — unsupported address: {affordance.inertSource}
+                  </span>
+                )}
                 {affordance?.kind === 'deepLink' && (
                   // UX-DR11: the transitional source deep link, exactly where
                   // the replay button would be, until augmentation supplies

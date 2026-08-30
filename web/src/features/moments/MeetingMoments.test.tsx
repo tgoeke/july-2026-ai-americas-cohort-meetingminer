@@ -548,6 +548,25 @@ describe('MeetingMoments', () => {
     expect(screen.queryByTestId('drilldown-deep-link')).toBeNull()
   })
 
+  it('keeps an unsafe source inert beside each recorded row Replay', async () => {
+    answers(response({ sourceDeepLink: 'javascript:alert(1)' }))
+    render(<MeetingMoments meetingId="meeting-1" />)
+
+    const shot = await screen.findByTestId('drilldown-screenshot-shot-1')
+    const replay = within(shot).getByRole('button', { name: 'Replay recording at 0:00' })
+    const inert = within(shot).getByTestId('drilldown-unsafe-link-shot:shot-1')
+    expect(inert).toHaveTextContent('javascript:alert(1)')
+    expect(replay.compareDocumentPosition(inert)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(inert.querySelector('a')).toBeNull()
+
+    expect(
+      within(screen.getByTestId('drilldown-segment-seg-1')).getByTestId(
+        'drilldown-unsafe-link-seg:seg-1',
+      ),
+    ).toHaveTextContent('javascript:alert(1)')
+    expect(screen.queryByTestId(/^drilldown-youtube-link-/)).toBeNull()
+  })
+
   it('labels the degraded header link Open on YouTube, untimed at meeting scope', async () => {
     answers(
       response({

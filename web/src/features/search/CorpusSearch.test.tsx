@@ -515,6 +515,18 @@ describe('CorpusSearch', () => {
     expect(screen.queryByRole('link')).toBeNull()
   })
 
+  it('keeps an unsafe source inert beside Replay', async () => {
+    answers(response({ hits: [hit({ sourceDeepLink: 'javascript:alert(1)' })] }))
+    render(<CorpusSearch />)
+    await type('purchase order')
+
+    const replay = await screen.findByRole('button', { name: 'Replay Data Hub Demo at 0:44' })
+    const inert = screen.getByTestId('hit-unsafe-link-moment-1')
+    expect(inert).toHaveTextContent('javascript:alert(1)')
+    expect(replay.compareDocumentPosition(inert)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(screen.queryByRole('link')).toBeNull()
+  })
+
   it('makes the timed YouTube link the sole affordance on a transcript-only hit', async () => {
     answers(
       response({
@@ -768,7 +780,7 @@ describe('hit display helpers', () => {
   })
 
   it('chooses replay, deep link, inert text, or neither', () => {
-    expect(affordanceOf(hit())).toEqual({ kind: 'replay', source: null })
+    expect(affordanceOf(hit())).toEqual({ kind: 'replay', source: null, inertSource: null })
     expect(
       affordanceOf(hit({ hasRecording: false, sourceDeepLink: 'https://x/y' })),
     ).toEqual({ kind: 'deepLink', source: { provider: 'other', href: 'https://x/y' } })
@@ -786,6 +798,7 @@ describe('hit display helpers', () => {
     expect(affordanceOf(hit({ sourceDeepLink: 'https://x/y' }))).toEqual({
       kind: 'replay',
       source: null,
+      inertSource: null,
     })
   })
 
@@ -799,6 +812,7 @@ describe('hit display helpers', () => {
         href: 'https://www.youtube.com/watch?v=abc&t=44',
         offsetMs: 44_000,
       },
+      inertSource: null,
     })
   })
 
