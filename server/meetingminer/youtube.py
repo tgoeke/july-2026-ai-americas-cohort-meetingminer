@@ -56,9 +56,9 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, NoReturn, TypeGuard
+from typing import Any, Callable, NoReturn, TypeGuard
 
-from meetingminer.config import ConfigError
+from meetingminer.config import AppConfig, ConfigError, validate_drops_root
 from meetingminer.domain.drops import (
     RECORDING_FILENAME,
     TRANSCRIPT_TEXT_FILENAME,
@@ -71,6 +71,7 @@ from meetingminer.mintdrop import (
     IntakeError,
     MintError,
     MintResult,
+    STAGING_DIRNAME,
     _iso_second_utc,
     _load_cli_config,
     _report,
@@ -593,6 +594,40 @@ def validate_existing_youtube_drop(
     return metadata
 
 
+def _resolve_drops_root_read_only(explicit: str | None, config: AppConfig) -> Path:
+    """Resolve the intake-visible root without the shared writer's probe.
+
+    The shared resolver deliberately creates ``.staging`` to prove writability.
+    YouTube must defer that probe until every URL/tool/metadata refusal has
+    passed, so this performs only the same path and namespace checks.
+    """
+    if explicit is None:
+        return validate_drops_root(config.secrets.mm_drops_root)
+    try:
+        root = validate_drops_root(Path(explicit).expanduser().resolve())
+    except ConfigError as exc:
+        raise MintError(f"--drops is not a usable drops root: {exc}") from exc
+    configured = config.secrets.mm_drops_root
+    if configured is None:
+        raise MintError(
+            "MM_DROPS_ROOT is not set — youtube-drop can only write where"
+            " intake can resolve permanent drops"
+        )
+    try:
+        relative = root.relative_to(configured.resolve())
+    except ValueError as exc:
+        raise MintError(
+            f"--drops must be MM_DROPS_ROOT or a directory below it: {root}"
+            f" is outside configured MM_DROPS_ROOT ({configured})"
+        ) from exc
+    if STAGING_DIRNAME in relative.parts:
+        raise MintError(
+            f"--drops must not point inside {STAGING_DIRNAME}: {root} is a"
+            " transient assembly area, not an intake-visible drops root"
+        )
+    return root
+
+
 def acquire(
     url: str,
     *,
@@ -600,6 +635,7 @@ def acquire(
     identity_root: Path | None,
     config_path: Path,
     max_duration_minutes: int,
+    prepare_drops_root: Callable[[], Path] | None = None,
 ) -> MintResult:
     """One video → one drop, or the drop already minted for it.
 
@@ -661,6 +697,14 @@ def acquire(
         if transcript is not None:
             supplied.append(str(transcript))
         title = downloaded.get("title")
+        if prepare_drops_root is not None:
+            prepared_root = prepare_drops_root()
+            if prepared_root.resolve() != drops_root.resolve():
+                raise YoutubeError(
+                    "drops-root resolution changed during acquisition — no drop"
+                    " was finalized; check --drops and MM_DROPS_ROOT, then retry"
+                )
+            drops_root = prepared_root
         return mint(
             supplied=supplied,
             corpus="real",
@@ -737,7 +781,7 @@ def main(argv: list[str] | None = None) -> int:
         # Before the acquisition, not after (mint-drop's rule): an unusable
         # api url must not first cost a download and a finalized drop.
         api_url = resolve_api_url(args.api)
-        drops_root = resolve_drops_root(args.drops, config)
+        drops_root = _resolve_drops_root_read_only(args.drops, config)
         result = acquire(
             args.url,
             drops_root=drops_root,
@@ -748,6 +792,7 @@ def main(argv: list[str] | None = None) -> int:
             max_duration_minutes=(
                 config.settings.acquisition.youtube.max_duration_minutes
             ),
+            prepare_drops_root=lambda: resolve_drops_root(args.drops, config),
         )
     except (ConfigError, MintError, YoutubeError) as exc:
         print(f"fatal: {PROGRAM} refused: {exc}", file=sys.stderr)

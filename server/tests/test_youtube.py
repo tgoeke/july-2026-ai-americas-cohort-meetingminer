@@ -1010,6 +1010,7 @@ def test_main_posts_created_and_existing_drops_with_resolver_and_cap_parity(
 ) -> None:
     root = tmp_path / "drops"
     placement = root / "imports"
+    placement.mkdir(parents=True)
     config = cli_config(root)
     result = cli_result(tmp_path, status=result_status)
     seen: dict[str, Any] = {}
@@ -1026,6 +1027,8 @@ def test_main_posts_created_and_existing_drops_with_resolver_and_cap_parity(
 
     def acquire(url: str, **kwargs: Any) -> mintdrop.MintResult:
         seen["acquire_url"] = url
+        prepare_drops_root = kwargs.pop("prepare_drops_root")
+        seen["prepared_root"] = prepare_drops_root()
         seen["acquire_kwargs"] = kwargs
         return result
 
@@ -1046,6 +1049,7 @@ def test_main_posts_created_and_existing_drops_with_resolver_and_cap_parity(
     assert seen["drops_arg"] == str(placement)
     assert seen["config"] is config
     assert seen["acquire_url"] == WATCH_URL
+    assert seen["prepared_root"] == placement
     assert seen["acquire_kwargs"] == {
         "drops_root": placement,
         "identity_root": root,
