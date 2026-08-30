@@ -91,7 +91,7 @@ help:
 	@echo "  make up          - start the data stores (Docker: 3 dev + 2 test twins), apply migrations, then api/worker/web (host, backgrounded)"
 	@echo "  make down        - stop host processes and containers"
 	@echo "  make test        - run the puller suite, the web suite, the eval suite, the server suite, and build the web app"
-	@echo "  make test-fast   - the iteration loop: the store-free suites plus the server suite's fast set (pytest -m 'not slow'); needs nothing up, store-backed tests skip with a reason"
+	@echo "  make test-fast   - the iteration loop: check-client, the store-free suites, then the server suite's fast set (pytest -m 'not slow'). Needs Postgres only: its Postgres-backed tests skip with a named reason when it is down; twin-bound tests are slow and deselected here — make test is the gate that requires the twins"
 	@echo "  make puller-test - run the puller's own suite (emit-drop + drop-schema validation)"
 	@echo "  make web-test    - run the web component suite (vitest)"
 	@echo "  make evals-test  - run the eval harness suite (schema, loader, subject selection, check algorithms, run artifacts; no stores, no api)"
@@ -283,12 +283,15 @@ test: check-client puller-test web-test evals-test infra-up check-dev-stores che
 # fails with its named message rather than as a Vite import error inside
 # web-test; then the three store-free suites; then the server suite under
 # pyproject's default `-m "not slow"` — the tests whose duration the test
-# process controls (1,381 of 1,707 at eb31e47; `pytest server/tests --co -q`
-# shows the current split). Nothing is required up: store-backed tests skip
-# with a named reason when a store is unreachable, and `-rs` prints every skip
-# with its reason, so an unrun suite is visible rather than silent. Skips
-# never set the exit code; failures and collection errors do. `make test` is
-# the gate.
+# process controls (1,382 of 1,708 at 722e521; `pytest server/tests --co -q`
+# shows the current split). The fast set needs Postgres only: when Postgres
+# is down its Postgres-backed tests skip with a named reason, and `-rs`
+# prints every skip with its reason, so an unrun suite is visible rather
+# than silent. Twin-bound tests are `slow` — or a collection error if
+# unmarked — so the default selection deselects them here and a twins-only
+# outage produces no skips; `make test` is the gate that requires the twins
+# (check-test-stores). Skips never set the exit code; failures and collection
+# errors do.
 test-fast: check-client puller-test web-test evals-test
 	cd $(ROOT) && uv run --project $(ROOT)/server pytest -q -rs $(ROOT)/server/tests
 
