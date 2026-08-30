@@ -2999,3 +2999,28 @@ four-row fixture less readable, so it carries a `noqa` with that rationale.
 
 **Post-merge ops:** `projections/locks.py` changed but the lock is a filesystem
 key, not a projected field — no `rebuild`, no `migrate`, no `client` owed.
+
+## Status regression at integrate, 2026-08-30 ~19:10 — the merge driver does not cover rebases
+
+`7-1` and `11-2` were both flipped to `done` on `main` as they landed, and both
+came back reading `review` a few merges later. `epic-11` likewise stayed
+`in-progress` with all four of its stories done. Restored here.
+
+**Cause, and it is structural rather than a slip.** `sprint-status.yaml` has a
+key-wise merge driver (`_bmad/scripts/merge_sprint_status.py`) that takes the
+furthest-along status on a two-sided change. It runs on **merge**. The
+integrate loop rebases each branch onto `main` and then fast-forwards — a
+fast-forward performs no merge at all, so the driver never runs, and the
+branch's own copy of the file (written before the flip existed) replaces
+main's. The protection everyone relies on is bypassed by the very workflow
+`SKILL.md` prescribes.
+
+**How to apply:** after landing a branch, re-read `sprint-status.yaml` and set
+the story's line again; do not assume the flip you made before the rebase
+survived. Better, and cheap: make the status flip the *last* commit on `main`
+after the merge, never before it. Both were done here in the wrong order —
+the flip preceded later merges — which is why it regressed twice.
+
+This is the third shared-file lesson from this wave, alongside `sprint-notes.md`
+having no driver at all and backlog ids being an uncoordinated counter. All
+three belong in `conflict-playbook.md`.
