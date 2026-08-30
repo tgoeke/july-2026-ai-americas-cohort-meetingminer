@@ -65,6 +65,7 @@ from meetingminer.domain.drops import (
     TRANSCRIPT_VTT_FILENAME,
     DropError,
     read_drop,
+    read_metadata,
     sha256_and_size,
 )
 from meetingminer.mintdrop import (
@@ -81,6 +82,7 @@ from meetingminer.mintdrop import (
     post_ingest,
     resolve_api_url,
     resolve_drops_root,
+    source_id_digest,
 )
 
 PROGRAM = "youtube-drop"
@@ -504,6 +506,38 @@ def _refuse_legacy_drop(path: Path, detail: str) -> NoReturn:
     )
 
 
+def _find_existing_youtube_drop(drops_root: Path, source_id: str) -> Path | None:
+    """Find the source-id match, refusing a digest-named identity conflict."""
+    existing = find_existing_drop(drops_root, source_id)
+    if existing is not None:
+        return existing
+
+    digest = source_id_digest(source_id)
+    try:
+        candidates = sorted(drops_root.rglob(f"*-{digest}"), key=str)
+    except OSError as exc:
+        raise MintError(
+            f"drops root could not be listed: {drops_root}: {exc}"
+        ) from exc
+    for candidate in candidates:
+        try:
+            relative = candidate.relative_to(drops_root)
+        except ValueError:
+            continue
+        if any(part.startswith(".") for part in relative.parts) or not candidate.is_dir():
+            continue
+        try:
+            metadata = read_metadata(candidate)
+        except DropError as exc:
+            _refuse_legacy_drop(candidate, str(exc))
+        if metadata.get("sourceId") != source_id:
+            _refuse_legacy_drop(
+                candidate, "sourceId does not match the requested video"
+            )
+        return candidate
+    return None
+
+
 def validate_existing_youtube_drop(
     path: Path,
     *,
@@ -570,11 +604,20 @@ def validate_existing_youtube_drop(
     files = provenance.get("files")
     if not isinstance(files, list):
         _refuse_legacy_drop(path, "provenance.files is not a list")
-    entries = {
-        entry.get("dropFilename"): entry
-        for entry in files
-        if isinstance(entry, dict) and isinstance(entry.get("dropFilename"), str)
-    }
+    entries: dict[str, dict[str, Any]] = {}
+    for entry in files:
+        if not isinstance(entry, dict):
+            _refuse_legacy_drop(path, "provenance.files contains a non-object row")
+        name = entry.get("dropFilename")
+        if not isinstance(name, str) or not name:
+            _refuse_legacy_drop(
+                path, "provenance.files contains a row without dropFilename"
+            )
+        if name in entries:
+            _refuse_legacy_drop(
+                path, f"provenance.files contains duplicate {name} rows"
+            )
+        entries[name] = entry
     actual = {RECORDING_FILENAME: contents.recording_path}
     if contents.transcript_vtt_path is not None:
         actual[TRANSCRIPT_VTT_FILENAME] = contents.transcript_vtt_path
@@ -649,7 +692,7 @@ def acquire(
     video_id = video_id_from_url(url)
     source_id = f"{YOUTUBE_SOURCE_ID_PREFIX}{video_id}"
     scope = (identity_root or drops_root).resolve()
-    existing = find_existing_drop(scope, source_id)
+    existing = _find_existing_youtube_drop(scope, source_id)
     if existing is not None:
         metadata = validate_existing_youtube_drop(
             existing,
