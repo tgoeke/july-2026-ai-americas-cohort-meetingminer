@@ -737,6 +737,43 @@ def test_existing_drop_with_false_evidence_digest_is_refused_without_yt_dlp(
         youtube.acquire(WATCH_URL, **acquire_kwargs(drops_root))
 
 
+def test_existing_drop_with_duplicate_manifest_rows_is_refused_without_yt_dlp(
+    drops_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    drop, metadata = write_existing_youtube_drop(drops_root)
+    metadata["provenance"]["files"].append(
+        dict(metadata["provenance"]["files"][0])
+    )
+    (drop / "metadata.json").write_text(
+        json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(youtube, "ensure_tools", _must_not_run("ensure_tools"))
+    monkeypatch.setattr(youtube, "probe", _must_not_run("probe"))
+    monkeypatch.setattr(youtube, "download", _must_not_run("download"))
+
+    with pytest.raises(youtube.YoutubeError, match=r"duplicate.*recording\.mp4"):
+        youtube.acquire(WATCH_URL, **acquire_kwargs(drops_root))
+
+
+def test_digest_named_drop_with_wrong_source_id_refuses_without_yt_dlp(
+    drops_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    drop, metadata = write_existing_youtube_drop(drops_root)
+    metadata["sourceId"] = "youtube:different01"
+    (drop / "metadata.json").write_text(
+        json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(youtube, "ensure_tools", _must_not_run("ensure_tools"))
+    monkeypatch.setattr(youtube, "probe", _must_not_run("probe"))
+    monkeypatch.setattr(youtube, "download", _must_not_run("download"))
+
+    with pytest.raises(
+        youtube.YoutubeError,
+        match=r"existing YouTube drop.*sourceId.*do not POST.*quarantine",
+    ):
+        youtube.acquire(WATCH_URL, **acquire_kwargs(drops_root))
+
+
 # --- acquisition end to end, offline ----------------------------------------
 
 
