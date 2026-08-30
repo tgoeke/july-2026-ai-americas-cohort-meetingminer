@@ -142,19 +142,30 @@ def probe_body(run_id: str, manifest_id: str) -> str:
 def eligible_moments(
     moments: Sequence[MomentRow], artifacts: Sequence[Any]
 ) -> tuple[MomentRow, ...]:
-    """The moments a probe may ride: none holding an ``extracted`` row.
+    """Moments with no subject-owned ``extracted`` row.
 
     Approving a moment advances *every* ``extracted`` artifact under it, so
     a moment carrying subject ``extracted`` state may never be chosen — the
     run would consume shared rows it does not own. ``approved`` and
-    ``published`` rows do not block: the route cannot advance them.
+    ``published`` rows do not block: the route cannot advance them. A marked
+    sibling probe is deferred to the per-moment lock: a live owner cleans it
+    before the locked refresh; a row still present then is stranded and gets
+    a named refusal, never approval or deletion by this run.
     """
     consumed = {
         str(artifact.moment_id)
         for artifact in artifacts
         if artifact.state == checks.EXTRACTED_STATE
+        and not _is_probe_artifact(artifact)
     }
     return tuple(moment for moment in moments if str(moment.id) not in consumed)
+
+
+def _is_probe_artifact(artifact: Any) -> bool:
+    """Whether a corpus row carries the eval probe ownership marker."""
+    return str(getattr(artifact, "title", "") or "").startswith(
+        PROBE_TITLE_PREFIX
+    )
 
 
 def choose_order(run_id: str, moments: Sequence[MomentRow]) -> tuple[MomentRow, ...]:
@@ -628,6 +639,16 @@ def run_gate_probe(
         )
         if blockers:
             blocker_ids = ", ".join(sorted(str(row.id) for row in blockers))
+            if all(_is_probe_artifact(row) for row in blockers):
+                return GateProbe(
+                    problem=(
+                        f"moment {moment_id} holds stranded probe row(s)"
+                        f" {blocker_ids} after acquiring probe ownership —"
+                        " no live sibling owns the moment lock, so delete each"
+                        " row and its search document, graph node, and export"
+                        " file by id; nothing was minted"
+                    )
+                )
             return GateProbe(
                 problem=(
                     f"moment {moment_id} gained extracted row(s) {blocker_ids}"

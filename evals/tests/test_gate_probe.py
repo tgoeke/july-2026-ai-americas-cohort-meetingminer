@@ -455,6 +455,27 @@ class ChangingCorpus(FakeCorpus):
         return (FakeArtifact(FOREIGN_ID, MOMENT_A, "extracted"),)
 
 
+class SiblingProbeClearsUnderLockCorpus(FakeCorpus):
+    """A live sibling is visible initially and gone once its lock releases."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.reads = 0
+
+    def artifacts_for(self, meeting_id: str) -> tuple[Any, ...]:
+        self.reads += 1
+        if self.reads == 1:
+            return (
+                SimpleNamespace(
+                    id=FOREIGN_ID,
+                    moment_id=MOMENT_A,
+                    state="extracted",
+                    title=gate_probe.probe_title("2026-08-30-right"),
+                ),
+            )
+        return ()
+
+
 class ProbeSearchClient(FakeSearchClient):
     """Absent until published, absent again after erasure."""
 
@@ -769,6 +790,77 @@ def test_eligibility_is_rechecked_after_the_moment_lock(tmp_path: Path) -> None:
     assert probe.artifact_id is None
     assert probe.problem is not None and "after acquiring" in probe.problem
     assert not any(sql.startswith("INSERT INTO artifact") for sql, _ in connection.statements)
+
+
+def test_a_live_sibling_probe_reaches_the_moment_lock_before_eligibility_refusal(
+    tmp_path: Path,
+) -> None:
+    """F2 verify: initial discovery must not misclassify sibling-owned state."""
+    corpus = SiblingProbeClearsUnderLockCorpus()
+    entered = False
+    connection = FakeConnection(row_state=None)
+    search = ProbeSearchClient()
+    graph = ProbeGraphDriver()
+
+    @contextmanager
+    def moment_lock(config: Any, moment_id: str, holder: str) -> Any:
+        nonlocal entered
+        entered = True
+        yield
+
+    def publish_on_approve(request: httpx.Request) -> httpx.Response:
+        search.published = True
+        graph.published = True
+        write_export(tmp_path)
+        return approve_transport(connection).handler(request)
+
+    probe = gate_probe.run_gate_probe(
+        run_id="2026-08-30-left",
+        manifest_id="demo-001",
+        meeting_id=MEETING,
+        base_url="http://127.0.0.1:8000",
+        config=probe_config(tmp_path),
+        corpus=corpus,
+        search=search,
+        graph=graph,
+        transport=httpx.MockTransport(publish_on_approve),
+        connect=lambda conninfo, autocommit: connection,
+        moment_lock=moment_lock,
+    )
+
+    assert entered
+    assert corpus.reads >= 2
+    assert probe.artifact_id == PROBE_ID
+    assert probe.problem is None
+    assert probe.cleanup is not None and probe.cleanup.verified
+
+
+def test_a_stranded_sibling_probe_is_named_but_never_minted_over(
+    tmp_path: Path,
+) -> None:
+    """A released lock plus a persistent marker is cleanup debt, not a subject."""
+    sibling = SimpleNamespace(
+        id=FOREIGN_ID,
+        moment_id=MOMENT_A,
+        state="extracted",
+        title=gate_probe.probe_title("2026-08-30-right"),
+    )
+    connection = FakeConnection(row_state=None)
+
+    probe = run_probe(
+        tmp_path,
+        corpus=FakeCorpus(artifacts=(sibling,)),
+        search=ProbeSearchClient(),
+        graph=ProbeGraphDriver(),
+        connection=connection,
+    )
+
+    assert probe.artifact_id is None
+    assert probe.problem is not None and "stranded probe" in probe.problem
+    assert FOREIGN_ID in probe.problem
+    assert not any(
+        sql.startswith("INSERT INTO artifact") for sql, _ in connection.statements
+    )
 
 
 def test_an_unprojected_meeting_refuses_naming_the_rebuild(tmp_path: Path) -> None:
