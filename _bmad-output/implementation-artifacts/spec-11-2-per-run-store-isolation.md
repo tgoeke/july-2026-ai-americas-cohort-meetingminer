@@ -3,6 +3,7 @@ title: 'Per-Run Store Isolation'
 type: 'chore'
 created: '2026-08-30'
 status: 'in-progress'
+baseline_commit: '947b9cfcde37b312003a97237658246b50030334'
 baseline_revision: 'de0fc0816c26a8131fdc153368719e6f3808f40e'
 reviewed_head: 'fa86b864c7101e2a45d2c278a9562669c72d962c'
 review_loop_iteration: 0
@@ -39,9 +40,9 @@ deferred:
 **Always:**
 - With no `.env.worktree` present, every default reproduces today's stack exactly: project `meetingminer`, container names `meetingminer-<service>`, ports 5433/7474/7687/7700/7475/7688/7701, volume names unchanged. The main checkout's live corpus volumes are never renamed, recreated, or removed.
 - `.env` stays the symlink to the main checkout's file; it is never rewritten. `.env.worktree` is a second file beside it, generated only by `make worktree`, covered by the existing `.env.*` gitignore rule.
-- Precedence for every reader: process environment > `.env.worktree` > `.env` (the existing blank-value rule kept). The three readers (Makefile `include`, compose `--env-file`, loader) read the same `KEY=value` lines.
+- Precedence for location values remains process environment > `.env.worktree` > `.env` (the existing blank-value rule kept). The ownership identity is the exception: `MM_STACK_NAME` and `MM_STACK_ID` come only from the checkout's validated `.env.worktree` (or the main-checkout defaults) and process values cannot override them. The three readers (Makefile `include`, compose `--env-file`, loader) read the same `KEY=value` lines.
 - Store endpoint overrides are ports only (`MM_POSTGRES_PORT`, `MM_NEO4J_BOLT_PORT`, `MM_MEILI_PORT`); host and credentials stay in `config.yaml`/`.env`. An invalid value is a named `ConfigError`, never a fallback.
-- `docs/architecture.md` AD-10 gains one sentence admitting a checkout's private stack name and ports to the environment; nothing else in the spine changes.
+- `docs/architecture.md` AD-10 gains one sentence admitting a checkout's private stack name, generated incarnation identity, and ports to the environment; nothing else in the spine changes.
 - `MM_PROJECTION_LOCK_KEY` is inactive by default; the unset derivation stays byte-identical (`test_lock_paths_stay_byte_compatible_with_the_conftest_scheme` must keep passing unchanged).
 - The `define PRUNE_TEST_DBS` block keeps its exact shape (`test_parallel_store_safety.py:187-277` execs it with fakes); stack pruning is a separate recipe line running `infra/worktree_stack.py`.
 - Stack pruning removes only projects named `meetingminer-<slug>` (never `meetingminer`, never another project) whose owning checkout directory no longer exists; anything with an existing directory is reported as owned and skipped.
@@ -240,6 +241,8 @@ The 11-2 worktree's `.env.worktree` predates `MM_STACK_ID`, so after Theme 1 lan
 
 ## Spec Change Log
 
+- 2026-08-30 (owner rulings on follow-up Findings 10–11): `MM_STACK_NAME` and `MM_STACK_ID` are non-overridable ownership identity read only from the checkout's `.env.worktree`; process precedence remains unchanged for ports and endpoints. Compose must also refuse immediately before execution if its effective name or id differs from the file. Story 11-2 owns the matching AD-10 amendment naming the generated incarnation identity; the owner will union Story 8-1's separate model-binding sentence during integration.
+
 - 2026-08-30 (remediation build): all ten follow-up findings closed red-then-green; `## Auto Run Result` carries the remediation record. Branch rebased onto main `a011695` mid-run (main gained the harness addendum and the duplicate-lane halt note in this file; the Auto Run Result conflict was resolved by keeping both paragraphs). One deferred non-edit: the `story/7-1` × `main` conflict on `sprint-notes.md` predates this lane and is 7-1's rebase debt — not touched from here (wave rule: never edit another lane's file to make room).
 
 - 2026-08-30 ~14:30: `### Harness addendum 2026-08-30` added under the Remediation Plan — `_bmad-output` tracked on main, rebase-first, wave conflict checks, finding-10 wording; from the coordinator's addendum, intent unchanged.
@@ -374,8 +377,8 @@ exactly how `claim` recognises a stale incarnation. Probe removed with
 
 ### Remediation Follow-up Review Findings — 2026-08-30
 
-- [ ] [Review][Decision] `claim` proves the file's identity while Compose may start a process-overridden project [infra/Makefile:626] — owner must decide whether generated name/id are non-overridable or claim must operate on the effective identity.
-- [ ] [Review][Decision] AD-10 omits the generated stack incarnation identity [docs/architecture.md:109] — architecture authority is owned by the in-flight 8-1 lane/integration owner.
+- [ ] [Review][Patch] Make stack name/id non-overridable and assert effective identity immediately before Compose [infra/Makefile:626] — owner decision 2026-08-30.
+- [ ] [Review][Patch] Add the generated stack incarnation identity to AD-10 [docs/architecture.md:109] — owner decision 2026-08-30; Story 11-2 owns this sentence.
 - [x] [Review][Patch] Worktree removal could tear down a copied record's foreign stack [infra/Makefile:382]
 - [x] [Review][Patch] A process name override could hide a copied record from the test-session guard [server/tests/conftest.py:237]
 - [x] [Review][Patch] Make directives and duplicate assignments bypassed the ownership-record grammar [infra/Makefile:25]
