@@ -15,7 +15,7 @@
 - **Severity:** Medium
 - **Finding:** Finding 4's remediation widened into two paths the frozen Story 7.1 contract does not permit. `infra/Makefile` is explicitly forbidden, and the contract requires new tests to live only in new files; `test_compose_contract.py` is an existing file outside the build-prompt footprint. The packaging gate is useful and mutation-proven, but correctness does not make the scope expansion authorized.
 - **Evidence:** Commit `0a39b59` adds `diarize-extra-test`, wires it into `make test`, and adds the contract test. The frozen spec says “Stay inside the build-prompt footprint. New tests only in new files” at line 74, says any widening beyond the recorded `server/uv.lock` exception must block at line 78, and explicitly says “No edit to ... `infra/Makefile`” at line 80. The build prompt independently lists `infra/Makefile` as “Not yours” at lines 35-38. Mutation `test: ... diarize-extra-test ...` → `test: ... evals-test infra-up ...` made `test_make_test_gates_the_optional_diarizer_extra_in_an_isolated_environment` fail; restoring it passed, confirming the edit works but remains out of scope.
-- **Resolution:** **OPEN — owner/spec decision required.** Either amend the frozen footprint to authorize the full-gate and existing contract-test edits, or remove/rehome Finding 4's packaging gate. This verifier cannot honestly resolve the conflict in code without choosing between the frozen scope and the claimed regression closure.
+- **Resolution:** **RESOLVED BY OWNER DECISION — 2026-08-30.** Keep the additions in `infra/Makefile` and `server/tests/test_compose_contract.py`; do not revert a real dependency gate for footprint bookkeeping. Stories 11-3 and 11-4 edit the same two files in disjoint regions, so these paths are a known union for integrate. The amended dispatch rule in `211857c` assigns proximity conflicts of this shape to integrate for union resolution.
 
 ### V2. The speaker-limit regression does not protect the valid upper boundary
 
@@ -47,7 +47,7 @@
 - **Severity:** Medium
 - **Finding:** The packaging smoke uses an isolated environment but omits `--locked`. `uv` may update `uv.lock` while preparing the command, allowing the gate to pass after repairing drift instead of rejecting an inconsistent committed pyproject/lock pair. The prior report's statement that the target installed “166 locked packages” is therefore not supported by the command it records.
 - **Evidence:** Local `uv run --help` defines `--isolated` only as “Run the command in an isolated virtual environment” and separately defines `--locked` as “Assert that the `uv.lock` will remain unchanged.” The target runs `uv run --isolated --project ... --extra diarize` with no `--locked`; its contract test pins that omission exactly.
-- **Resolution:** **OPEN — owner/spec decision required.** The technical repair is to add `--locked` and pin it in the gate regression, but both edits touch the already-forbidden paths in Finding V1. Apply only after the frozen footprint is amended or the gate is rehomed into an authorized path.
+- **Resolution:** **OWNER-AUTHORIZED REMEDIATION IN PROGRESS — 2026-08-30.** The V1 ruling removes the only blocker: add `--locked` to the isolated extra gate and pin it red-first in the contract regression. The two edited paths remain a known union for integrate with Stories 11-3 and 11-4.
 
 ## Mutation Audit
 
@@ -67,9 +67,9 @@ V4 used the actual unfixed cross-fix state rather than a synthetic mutation: a v
 
 ## Scope and Resolution Honesty
 
-- The remediation range changes eight paths. `infra/Makefile` and the pre-existing `server/tests/test_compose_contract.py` exceed the frozen footprint; V1 records the required block even though the change works.
+- The remediation range changes eight paths. `infra/Makefile` and the pre-existing `server/tests/test_compose_contract.py` exceed the original frozen footprint, but the 2026-08-30 owner ruling accepts both additions and assigns their disjoint proximity conflicts with Stories 11-3 and 11-4 to integrate for union resolution under `211857c`.
 - Findings 1–3 are behaviorally supported after V2–V4 remediation.
-- Finding 4's functional claim is supported by mutation and the isolated import, but its “resolved” status is not scope-honest until V1 receives an owner ruling. Its “locked packages” evidence is also overstated because `--locked` is absent (V5).
+- Finding 4's functional claim and scope are accepted after the V1 owner ruling. Its “locked packages” evidence remains overstated until the now-authorized V5 patch lands.
 - Finding 5 is supported both by the call-order regression and by the real locked provider probe below: telemetry is disabled before `Pipeline.from_pretrained`.
 
 ## Adversarial-Layer Triage
