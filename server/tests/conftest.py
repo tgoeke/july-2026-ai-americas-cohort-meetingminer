@@ -1,7 +1,9 @@
 """Shared fixtures for story 1.2 tests.
 
-DB-backed tests run against a ``meetingminer_test`` database on the compose
-Postgres (localhost:5433), created fresh per session with migrations applied.
+DB-backed tests run against a per-run ``meetingminer_test_<id>`` database on
+this checkout's compose Postgres (localhost:5433 in the main checkout; a
+worktree's private stack publishes its own port through ``.env.worktree``),
+created fresh per session with migrations applied.
 When that Postgres is unreachable, DB-backed tests skip with a named reason;
 schema/problem-handler tests run without it.
 
@@ -44,7 +46,7 @@ from meetingminer.adapters.ocr.tesseract import TesseractOcr
 from meetingminer.adapters.stt.mlx_whisper import MlxWhisperStt
 from meetingminer.adapters.stt.parakeet_mlx import ParakeetMlxStt
 from meetingminer.adapters.stt.port import SttResult, SttSegment
-from meetingminer.config import AppConfig, load_config
+from meetingminer.config import AppConfig, load_config, merged_env
 
 # The repo root lives in its own module so tests do not import the plugin
 # module for one constant (story 11.1); see repo_paths.py for the rule.
@@ -195,10 +197,13 @@ def valid_metadata(source_id: str = "source-1", **overrides: Any) -> dict[str, A
 
 
 #: The disposable test-store twins (infra/docker-compose.yml `neo4j-test` /
-#: `meilisearch-test`). Env-overridable so a differently mapped stack can be
-#: named without editing this file; the defaults match the compose ports.
-TEST_NEO4J_URI = os.environ.get("MM_TEST_NEO4J_URI", "bolt://localhost:7688")
-TEST_MEILI_URL = os.environ.get("MM_TEST_MEILI_URL", "http://localhost:7701")
+#: `meilisearch-test`), read through the loader's merged environment: a
+#: worktree's generated `.env.worktree` (story 11.2) names its private
+#: twins, the process environment still wins, and the defaults are the main
+#: checkout's compose ports.
+_STACK_ENV = merged_env(REPO_ROOT / ".env")
+TEST_NEO4J_URI = _STACK_ENV.get("MM_TEST_NEO4J_URI") or "bolt://localhost:7688"
+TEST_MEILI_URL = _STACK_ENV.get("MM_TEST_MEILI_URL") or "http://localhost:7701"
 REQUIRE_TEST_STORES_ENV = "MM_REQUIRE_TEST_STORES"
 
 _DEFAULT_ENDPOINT_PORTS = {

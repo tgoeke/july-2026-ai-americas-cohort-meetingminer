@@ -15,10 +15,14 @@ temp dir), the holder JSON sidecar, and the
 ``MM_PROJECTION_LOCK_TIMEOUT_SECONDS`` env knob are exactly the conftest
 scheme. That is deliberate: old and new code derive the same lock path, so
 they contend on the same file rather than each excluding only itself. The
-lock lives in the system temp dir, NOT the repo: worktrees have different
-roots but share one compose stack, so a repo-relative lock would give each
-worktree its own file and no mutual exclusion at all. It is keyed by the
-store URLs so a genuinely separate stack gets a separate lock.
+lock lives in the system temp dir, NOT the repo, and is keyed by the store
+URLs: every writer of the same endpoints — whichever checkout it runs from —
+contends on one file, and a separate stack (a worktree's private compose
+project on its own ports, story 11.2) gets a separate lock without anyone
+choosing one. ``MM_PROJECTION_LOCK_KEY`` replaces the derived key with a
+named one; it is process-wide, so a shell that exports it re-keys ``rebuild``
+and the worker too. It exists for a test that must own a lock nobody else
+can hold (``test_parallel_store_safety``), and for nothing else.
 
 The lock is **reentrant within one process**. A store-backed test already
 holds it through the ``projection_stores`` fixture for the length of the test,
@@ -38,6 +42,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import socket
 import tempfile
 import threading
@@ -47,18 +52,38 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Iterator
 
-from meetingminer.config import AppConfig
+from meetingminer.config import AppConfig, ConfigError
 from meetingminer.projections.stores import ProjectionLockedError
 
 TIMEOUT_ENV = "MM_PROJECTION_LOCK_TIMEOUT_SECONDS"
+#: Names the lock file instead of deriving it from the store URLs. A file
+#: name fragment, so it is held to a safe character set and a length.
+KEY_ENV = "MM_PROJECTION_LOCK_KEY"
+_KEY_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+
+def _lock_key(config: AppConfig) -> str:
+    override = os.environ.get(KEY_ENV)
+    if override is None:
+        stores = config.settings.stores
+        return hashlib.sha256(
+            f"{stores.neo4j.uri}|{stores.meilisearch.url}".encode()
+        ).hexdigest()[:16]
+    if not _KEY_RE.match(override):
+        raise ConfigError(
+            f"{KEY_ENV} must match [A-Za-z0-9._-]{{1,64}}, got {override!r}"
+        )
+    return override
 
 
 def store_lock_paths(config: AppConfig) -> tuple[Path, Path]:
-    """Return the shared store lock path and its holder metadata path."""
-    stores = config.settings.stores
-    key = hashlib.sha256(
-        f"{stores.neo4j.uri}|{stores.meilisearch.url}".encode()
-    ).hexdigest()[:16]
+    """Return the shared store lock path and its holder metadata path.
+
+    Keyed by the configured store URLs, or by ``MM_PROJECTION_LOCK_KEY``
+    when set; unset, the derivation is byte-identical to the historic
+    conftest scheme.
+    """
+    key = _lock_key(config)
     lock_path = Path(tempfile.gettempdir()) / f"meetingminer-projections-{key}.lock"
     return lock_path, lock_path.with_suffix(".holder.json")
 

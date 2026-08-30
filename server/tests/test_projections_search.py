@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 from uuid import UUID, uuid4
 
 import pytest
@@ -45,6 +46,8 @@ from meetingminer.projections.stores import (
 )
 
 from conftest import (
+    TEST_MEILI_URL,
+    TEST_NEO4J_URI,
     DownEmbedder,
     FakeEmbedder,
     _repoint_stores_at_test_twins,
@@ -624,20 +627,32 @@ def test_session_config_never_resolves_the_dev_stores(app_config: AppConfig) -> 
     )
 
 
-@pytest.mark.parametrize(
-    ("neo4j_uri", "meili_url", "store_name"),
-    (
-        ("bolt://127.0.0.1:7687", "http://localhost:7701", "Neo4j"),
-        ("bolt://localhost:7688", "http://127.0.0.1:7700", "Meilisearch"),
-    ),
-)
-def test_repoint_refuses_dev_store_hostname_aliases_before_any_wipe(
-    neo4j_uri: str, meili_url: str, store_name: str
-) -> None:
-    """Equivalent loopback spellings cannot escape the destructive guard."""
+def _loopback_alias(url: str) -> str:
+    """The same endpoint spelled with the other loopback name, port kept."""
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    alias = {"localhost": "127.0.0.1", "127.0.0.1": "localhost"}.get(host, host)
+    port = f":{parts.port}" if parts.port else ""
+    return urlunsplit((parts.scheme, f"{alias}{port}", parts.path, parts.query, parts.fragment))
+
+
+@pytest.mark.parametrize("store_name", ("Neo4j", "Meilisearch"))
+def test_repoint_refuses_dev_store_hostname_aliases_before_any_wipe(store_name: str) -> None:
+    """Equivalent loopback spellings cannot escape the destructive guard.
+
+    The alias is built from the dev config's actual endpoint — the other
+    loopback spelling on the same port — so the guard is exercised on the
+    ports this checkout's stack uses (a worktree's private ports, story
+    11.2), not on the main checkout's literals.
+    """
     from meetingminer.config import load_config
 
     dev = load_config(REPO_ROOT / "config.yaml", REPO_ROOT / ".env")
+    stores = dev.settings.stores
+    if store_name == "Neo4j":
+        neo4j_uri, meili_url = _loopback_alias(stores.neo4j.uri), TEST_MEILI_URL
+    else:
+        neo4j_uri, meili_url = TEST_NEO4J_URI, _loopback_alias(stores.meilisearch.url)
     with pytest.raises(RuntimeError, match=rf"refusing.*{store_name}"):
         _repoint_stores_at_test_twins(
             dev, neo4j_uri=neo4j_uri, meili_url=meili_url

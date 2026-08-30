@@ -15,7 +15,7 @@ from uuid import uuid4
 import psycopg
 import pytest
 
-from conftest import _projection_lock_paths, _projection_lock_timeout_seconds
+from conftest import RUN_ID, _projection_lock_paths, _projection_lock_timeout_seconds
 from repo_paths import REPO_ROOT
 
 pytestmark = pytest.mark.slow(reason="child pytest and lock-holder processes, projection lock waits: 12 tests, 8.6s at e5510c7")
@@ -321,11 +321,22 @@ with _projection_store_lock(config):
 {release_wait}"""
 
 
-def test_projection_lock_times_out_with_holder_details_then_releases(tmp_path: Path) -> None:
-    """A stuck holder is bounded and named; a later requester still succeeds."""
+def test_projection_lock_times_out_with_holder_details_then_releases(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stuck holder is bounded and named; a later requester still succeeds.
+
+    B-14: holder, waiter and this process all key the lock by
+    ``MM_PROJECTION_LOCK_KEY`` (one value per run), so a concurrent suite in
+    another checkout holding the URL-derived lock for the same twins can
+    never appear as this test's holder.
+    """
     ready = tmp_path / "holder-ready"
     release = tmp_path / "holder-release"
+    lock_key = f"b14-{RUN_ID}"
+    monkeypatch.setenv("MM_PROJECTION_LOCK_KEY", lock_key)
     env = os.environ.copy()
+    env["MM_PROJECTION_LOCK_KEY"] = lock_key
     env["PYTHONPATH"] = os.pathsep.join(
         [str(REPO_ROOT / "server"), str(REPO_ROOT / "server" / "tests"), env.get("PYTHONPATH", "")]
     )
@@ -341,9 +352,10 @@ def test_projection_lock_times_out_with_holder_details_then_releases(tmp_path: P
         _wait_for_path(ready)
         from meetingminer.config import load_config
 
-        _, holder_path = _projection_lock_paths(
+        lock_path, holder_path = _projection_lock_paths(
             load_config(REPO_ROOT / "config.yaml", REPO_ROOT / ".env")
         )
+        assert lock_path.name == f"meetingminer-projections-{lock_key}.lock"
         holder_metadata = json.loads(holder_path.read_text(encoding="utf-8"))
         assert holder_metadata["pid"] == holder.pid
         assert holder_metadata["host"]
@@ -379,7 +391,7 @@ except RuntimeError as exc:
         elapsed_text, diagnostic = waiter.stdout.strip().split("|", maxsplit=1)
         assert float(elapsed_text) < 0.8
         assert "timed out" in diagnostic
-        assert "meetingminer-projections-" in diagnostic
+        assert f"meetingminer-projections-{lock_key}.lock" in diagnostic
         holder_json = diagnostic.rsplit("holder metadata: ", maxsplit=1)[1]
         assert json.loads(holder_json) == holder_metadata
     finally:

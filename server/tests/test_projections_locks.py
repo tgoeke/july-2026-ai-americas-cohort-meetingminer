@@ -32,7 +32,7 @@ import pytest
 from psycopg_pool import ConnectionPool
 
 from meetingminer import projections
-from meetingminer.config import AppConfig
+from meetingminer.config import AppConfig, ConfigError
 from meetingminer.projections import locks
 from meetingminer.projections.stores import ProjectionLockedError
 
@@ -60,6 +60,32 @@ def test_lock_paths_stay_byte_compatible_with_the_conftest_scheme(
     lock_path, holder_path = locks.store_lock_paths(app_config)
     assert lock_path == expected
     assert holder_path == expected.with_suffix(".holder.json")
+
+
+def test_lock_key_env_override_names_its_own_file(
+    app_config: AppConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B-14: a test-owned key is a lock nobody derives from the store URLs."""
+    monkeypatch.setenv(locks.KEY_ENV, "b14-abc.DEF_1")
+    lock_path, holder_path = locks.store_lock_paths(app_config)
+    assert lock_path == (
+        Path(tempfile.gettempdir()) / "meetingminer-projections-b14-abc.DEF_1.lock"
+    )
+    assert holder_path == lock_path.with_suffix(".holder.json")
+    monkeypatch.delenv(locks.KEY_ENV)
+    assert locks.store_lock_paths(app_config)[0] != lock_path
+
+
+@pytest.mark.parametrize(
+    "value", ["", " ", "has space", "a/b", "../x", "x" * 65, "\u00fc", "k=v"]
+)
+def test_lock_key_env_override_rejects_bad_values(
+    app_config: AppConfig, monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """The key is a file-name fragment: a bad value is a named ConfigError, not a path."""
+    monkeypatch.setenv(locks.KEY_ENV, value)
+    with pytest.raises(ConfigError, match=locks.KEY_ENV):
+        locks.store_lock_paths(app_config)
 
 
 def test_conftest_fixture_delegates_to_the_shared_implementation(
