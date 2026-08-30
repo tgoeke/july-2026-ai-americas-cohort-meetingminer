@@ -11,6 +11,7 @@ the shape with no store, no api and no run folder.
 from __future__ import annotations
 
 import json
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -94,6 +95,40 @@ def test_the_choice_order_is_deterministic_and_spread_by_run_id() -> None:
     assert left == gate_probe.choose_order("2026-08-30-left", moments)
     assert sorted(m.id for m in left) == sorted(m.id for m in moments)
     assert left != right, "two labels must not pile onto the same moment"
+
+
+def test_a_sibling_probe_waits_until_the_owner_has_cleaned(tmp_path: Path) -> None:
+    """F5: one moment cannot host overlapping probe lifecycles."""
+    owner_entered = threading.Event()
+    release_owner = threading.Event()
+    sibling_entered = threading.Event()
+    phases: list[str] = []
+    config = probe_config(tmp_path)
+
+    def owner() -> None:
+        with gate_probe._moment_probe_lock(config, MOMENT_A, "owner"):
+            phases.append("owner-minted")
+            owner_entered.set()
+            assert release_owner.wait(2)
+            phases.append("owner-cleaned")
+
+    def sibling() -> None:
+        assert owner_entered.wait(2)
+        with gate_probe._moment_probe_lock(config, MOMENT_A, "sibling"):
+            phases.append("sibling-eligible")
+            sibling_entered.set()
+
+    first = threading.Thread(target=owner)
+    second = threading.Thread(target=sibling)
+    first.start()
+    second.start()
+    assert owner_entered.wait(2)
+    assert not sibling_entered.wait(0.05)
+    release_owner.set()
+    first.join(2)
+    second.join(2)
+
+    assert phases == ["owner-minted", "owner-cleaned", "sibling-eligible"]
 
 
 # --------------------------------------------------------------------------
@@ -408,6 +443,18 @@ class FakeCorpus:
         return self.artifacts
 
 
+class ChangingCorpus(FakeCorpus):
+    def __init__(self) -> None:
+        super().__init__()
+        self.reads = 0
+
+    def artifacts_for(self, meeting_id: str) -> tuple[FakeArtifact, ...]:
+        self.reads += 1
+        if self.reads == 1:
+            return ()
+        return (FakeArtifact(FOREIGN_ID, MOMENT_A, "extracted"),)
+
+
 class ProbeSearchClient(FakeSearchClient):
     """Absent until published, absent again after erasure."""
 
@@ -618,6 +665,25 @@ def test_every_moment_consumed_refuses_naming_the_state(tmp_path: Path) -> None:
     assert probe.artifact_id is None
     assert probe.problem is not None
     assert "extracted" in probe.problem
+
+
+def test_eligibility_is_rechecked_after_the_moment_lock(tmp_path: Path) -> None:
+    """F5: a row appearing while the candidate waits prevents the mint."""
+    corpus = ChangingCorpus()
+    connection = FakeConnection(row_state=None)
+
+    probe = run_probe(
+        tmp_path,
+        corpus=corpus,
+        search=ProbeSearchClient(),
+        graph=ProbeGraphDriver(),
+        connection=connection,
+    )
+
+    assert corpus.reads >= 2
+    assert probe.artifact_id is None
+    assert probe.problem is not None and "after acquiring" in probe.problem
+    assert not any(sql.startswith("INSERT INTO artifact") for sql, _ in connection.statements)
 
 
 def test_an_unprojected_meeting_refuses_naming_the_rebuild(tmp_path: Path) -> None:

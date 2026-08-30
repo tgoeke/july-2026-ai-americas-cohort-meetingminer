@@ -490,6 +490,36 @@ def _projection_wait_seconds() -> float:
     return timeout + 10.0
 
 
+@contextmanager
+def _moment_probe_lock(config: Any, moment_id: str, holder: str) -> Iterator[None]:
+    """Serialize eval-owned probe lifecycles that share one subject moment."""
+    pg = config.settings.stores.postgres
+    key = hashlib.sha256(
+        f"{pg.host}|{pg.port}|{pg.database}|{moment_id}".encode()
+    ).hexdigest()[:16]
+    lock_path = Path(tempfile.gettempdir()) / f"meetingminer-eval-probe-{key}.lock"
+    timeout = _projection_wait_seconds()
+    handle = open(lock_path, "a+")
+    started = time.monotonic()
+    try:
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                elapsed = time.monotonic() - started
+                if elapsed >= timeout:
+                    raise RuntimeError(
+                        f"eval gate-probe {holder} timed out after"
+                        f" {elapsed:.2f}s waiting for moment {moment_id}"
+                    ) from None
+                time.sleep(min(0.05, timeout - elapsed))
+        yield
+    finally:
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        handle.close()
+
+
 def _wait_for_winning_projection(
     search: Any, graph: Any, artifact_id: str
 ) -> dict[str, StorePresence]:
@@ -516,6 +546,7 @@ def run_gate_probe(
     graph: Any,
     transport: httpx.BaseTransport | None = None,
     connect: Callable[..., Any] | None = None,
+    moment_lock: Callable[[Any, str, str], Any] | None = None,
 ) -> GateProbe:
     """One probe, start to erased end, every refusal named.
 
@@ -603,6 +634,54 @@ def run_gate_probe(
         )
 
     moment_id = str(chosen.id)
+    lock = moment_lock or _moment_probe_lock
+    with lock(config, moment_id, run_id):
+        refreshed = corpus.artifacts_for(meeting_id)
+        blockers = tuple(
+            artifact
+            for artifact in refreshed
+            if str(artifact.moment_id) == moment_id
+            and artifact.state == checks.EXTRACTED_STATE
+        )
+        if blockers:
+            blocker_ids = ", ".join(sorted(str(row.id) for row in blockers))
+            return GateProbe(
+                problem=(
+                    f"moment {moment_id} gained extracted row(s) {blocker_ids}"
+                    " after acquiring probe ownership — approving it would"
+                    " consume shared state, so nothing was minted"
+                )
+            )
+        return _execute_probe(
+            run_id=run_id,
+            manifest_id=manifest_id,
+            meeting_id=meeting_id,
+            moment_id=moment_id,
+            base_url=base_url,
+            config=config,
+            artifacts=refreshed,
+            search=search,
+            graph=graph,
+            transport=transport,
+            connect=connect,
+        )
+
+
+def _execute_probe(
+    *,
+    run_id: str,
+    manifest_id: str,
+    meeting_id: str,
+    moment_id: str,
+    base_url: str,
+    config: Any,
+    artifacts: Sequence[Any],
+    search: Any,
+    graph: Any,
+    transport: httpx.BaseTransport | None,
+    connect: Callable[..., Any] | None,
+) -> GateProbe:
+    """Mint through cleanup while the caller owns the selected moment."""
     opener = connect or psycopg.connect
     pre: dict[str, StorePresence] | None = None
     post: dict[str, StorePresence] | None = None
