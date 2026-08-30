@@ -109,3 +109,11 @@ Review of the Story 6.2 YouTube Acquisition Command implementation, limited to t
 - **Finding:** No test calls `youtube.main()`. The suite therefore does not verify that an `exists` result is still POSTed, `--no-post` suppresses POST and prints recovery syntax, `--drops`/`--api` reach the shared resolvers, intake failure returns non-zero, duplicate intake is reported, or the configured duration cap is forwarded.
 - **Evidence:** The exists test stops at `acquire()` and never reaches `post_ingest()`. The Makefile test searches source text only. The duration test injects `cap_minutes=10` directly into `acquire()`, so `main()` could hard-code 180 or stop POSTing existing drops while all 43 normal tests remain green.
 - **Suggested direction:** Add focused `main()` tests with config, acquisition, and intake boundaries stubbed. Cover created/exists, POST/duplicate/rejected intake, `--no-post`, explicit resolver arguments, and a non-default configured cap.
+
+### F13 — The frozen defaulting decision conflicts with AD-10's single source of thresholds
+
+- **Location:** `server/meetingminer/config.py:689-730`, `docs/architecture.md:109-114`
+- **Severity:** medium
+- **Finding:** `YoutubeAcquisitionConfig`, `AcquisitionConfig`, and `Settings.acquisition` all supply code defaults, so a config file with no acquisition block silently acquires under a 180-minute cap. AD-10 says every threshold is declared by the versioned `config.yaml` and cannot scatter into code defaults; the repository invariant also rejects silent fallbacks. This is rooted in the frozen spec, which explicitly requested the defaults, rather than an implementation deviation.
+- **Evidence:** `AcquisitionConfig()` succeeds with `max_duration_minutes == 180`, and the story test treats that fallback as required. The committed YAML does carry 180, but deleting or omitting the block does not fail configuration loading, so the YAML is not authoritative for this threshold.
+- **Suggested direction:** Resolve this as a spec amendment before patching code: make the committed acquisition block required (updating fixture configs explicitly) or amend AD-10 to define schema defaults as authoritative configuration. Do not silently choose one interpretation in remediation.
