@@ -294,7 +294,7 @@ def test_make_test_fast_runs_the_whole_server_fast_set() -> None:
 TEST_FAST_PREREQUISITES = ("check-client", "lint", "typecheck", "puller-test", "web-test", "evals-test")
 
 
-def test_make_test_fast_runs_check_client_then_every_store_free_suite_before_the_fast_set() -> None:
+def test_make_test_fast_runs_check_client_lint_typecheck_then_every_store_free_suite_before_the_fast_set() -> None:
     """The loop's effective sequence, from make itself: check-client first (a missing client fails with its named message, not as a Vite import error inside web-test), then lint, typecheck and the three store-free suites, and the one whole-server pytest command last, under test-fast. Dropping a prerequisite from the rule line, adding one, or moving check-client fails here."""
     steps = _dry_run_steps("test-fast")
     targets = [target for target, _ in steps]
