@@ -54,19 +54,19 @@
 
 ### Finding 6 — Live overlap let a sibling probe decide another run's verdict
 
-- Location: `evals/checks/test_publish_gate.py:119`
+- Location: `evals/checks/test_publish_gate.py:121`
 - Severity: high
 - Finding: The owner-run live acceptance caught check 2.11 treating a sibling run's in-flight probe as immutable subject state. The observing run then read the stores after the sibling erased its probe and emitted a false projection-on-publish regression, so the corpus stayed safe while the verdict did not.
 - Evidence: Main commit `5a9676d` records a genuine overlap against branch tip `f2ed760`. `left`/`demo-002` reported `artifacts: 3, states: {extracted: 2, published: 1}` for a two-artifact meeting; the third id was `right`'s probe `01a054ab-5b35-7d3d-adc3-6ce905d87916`, and both reported store absences followed the owner's verified cleanup. The four probes were otherwise minted, approved with their own ids, and erased with `cleanup.verified: true`; zero probe rows survived.
-- Resolution: Fix present after the measured tip, acceptance still open. The current branch excludes `eval-gate-probe-%` rows from the subject half while leaving the unfiltered corpus read to the run-owned probe coordinator. Its exact cross-run regression and mutation evidence are being rerun in this round. The single-flight rule remains until a new owner measurement passes.
+- Resolution: Fixed in code after the measured tip; live acceptance remains open. Commit `65fb5c7` excludes `eval-gate-probe-%` rows from the subject half while leaving the unfiltered corpus read to the run-owned probe coordinator. The exact cross-run regression failed under the filter-removal mutation and passed after restoration. Operational wording now says the measured overlap was safe for the corpus and unsafe for the verdict. The single-flight rule remains until a new owner measurement passes.
 
 ### Finding 7 — Approve hides a total projection refusal behind 200 OK
 
-- Location: `server/meetingminer/api/moments.py:697`
+- Location: `server/meetingminer/api/moments.py:700`
 - Severity: high
 - Finding: The approve route catches a total projection failure, logs it, and still returns 200. Check 2.11 therefore cannot distinguish a publish-gate regression from transient projection-lock contention when both retrieval stores remain absent.
 - Evidence: Main commit `5a9676d` records `artifacts.projection.failed` for probe `01a054ab-56b3-7b0e-8d7a-fe22c1bffe00` with `ProjectionLockedError`, immediately followed by `moments.approved` and `POST .../approve HTTP/1.1` `200 OK`; the probe was absent from both stores afterward. Three other probes projected successfully, so the measurement does not support a story-4-4 regression.
-- Resolution: Open and deferred. This is a server/API contract defect outside Story 11-3's frozen footprint; it will be recorded in `docs/backlog.md` and is not patched on this branch.
+- Resolution: Open and deferred as backlog B-35. This is a server/API contract defect outside Story 11-3's frozen footprint; no server code was patched on this branch.
 
 ## Mutation Evidence
 
@@ -84,6 +84,7 @@ Every remediation commit F1–F12 received a kill mutation in commit order. Unle
 10. F10 (`9f3bf33`), mint mode: `autocommit=False` → `autocommit=True`; `test_the_probe_id_is_committed_before_autocommit_mode` failed. Fresh recovery: `with opener(conninfo, autocommit=True) as cleanup_conn:` → `with nullcontext(conn) as cleanup_conn:`; `test_commit_ack_loss_cleans_the_known_id_on_a_fresh_connection` failed with one connection rather than two. Restored result: `2 passed`.
 11. F11 (`f505a6b`): changed the AGENTS heading to ``make evals-run` may overlap another eval run`, dispatch `must not overlap` → `may overlap`, and the RUNBOOK heading to `Evals runs overlap safely`, one at a time. Each mutation independently failed `test_operational_docs_keep_evals_single_flight_until_live_acceptance`; restored result: `1 passed`.
 12. F12 (`5edd99c`): `uses direct SQL to insert one` → `uses SQL to insert one` in the governing README paragraph. The original test incorrectly passed (`1 passed`), producing Finding 1. After the regression was scoped to the governing sections, the same README mutation failed; the equivalent RUNBOOK `direct SQL` → `SQL` mutation also failed. Restored result: `1 passed`.
+13. Live F6 (`65fb5c7`): replaced the filtered subject snapshot with the exact mutation `artifacts = tuple(corpus.artifacts_for(meeting_id))`. `test_probe_marked_rows_are_not_judged_as_immutable_subject_artifacts` failed with `artifacts=2`, `states={'extracted': 1, 'published': 1}`, and false Meilisearch and Neo4j projection-on-publish regressions for the sibling id. Restored result: `1 passed`.
 
 ## Footprint and Resolution Audit
 
@@ -93,6 +94,8 @@ Every remediation commit F1–F12 received a kill mutation in commit order. Unle
 - F11 left one contradictory in-scope header; Finding 5 closes it and extends the docs contract.
 - F12's implementation prose was accurate, but its claimed canary was not falsifiable at the governing paragraph; Finding 1 closes that gap.
 - Cleanup remains scoped to the Postgres-minted UUID in SQL, Meilisearch, Neo4j, and the publish-root path. A persistent sibling marker is diagnosed but never deleted by the observing run. Finding 4 moves the only post-commit/pre-cleanup statement into unconditional cleanup protection.
+- The owner's genuine two-run measurement at main commit `5a9676d` tested branch tip `f2ed760`, before Finding 3's subject filter landed in `65fb5c7`. It confirmed distinct run folders, four owned/verified cleanups, zero surviving probe rows, untouched subject artifacts, no `nothing-to-approve` response, and an unaffected concurrent `make test`; it also proved that the then-unfiltered subject half let a sibling probe decide the `left` verdict. The current code closes that path store-free, but concurrency is not accepted until an owner remeasurement passes.
+- The same measurement exposed the independent approve-route projection-refusal contract in Finding 7. It is intentionally not fixed here because `server/**` is outside the frozen Story 11-3 footprint; backlog B-35 owns it.
 
 ## Verification
 
@@ -101,8 +104,9 @@ Every remediation commit F1–F12 received a kill mutation in commit order. Unle
 - `make test-fast`: puller `128 passed`; web `291 passed`; eval `643 passed`; server fast set `1401 passed, 326 deselected` (one deprecation warning).
 - `make check-reviews`: passed — every dispatched review has a committed report.
 - `make evals-run`: not run, as mandated.
+- Owner live acceptance (recorded on main at `5a9676d`): **failed** against tested tip `f2ed760`; safe for the corpus and unsafe for the verdict. The filter fix is later (`65fb5c7`), so a passing live remeasurement is still required.
 - Operational disclosure: an over-broad targeted pytest command accidentally collected `evals/checks/test_publish_gate.py` directly. It did not invoke paid roles or `make evals-run`, but it created default run `2026-08-30-220321` and exercised check 2.11 against two live subjects. Both recorded `cleanup_verified: true`; the accidental folder was moved intact to `/var/folders/3c/07kth99n17g6y7zp9rwzvg500000gn/T/tmp.lWs8LD4UGq/2026-08-30-220321`. The owner's pre-existing `left`/`right` folders were not touched.
 
 ## Verdict
 
-**PASS for the remediation range, with the story's existing owner-acceptance hold unchanged.** Five independent-review findings were found and fixed (3 high, 2 medium); no review finding remains open. The owner still must decide the live two-run acceptance result and integration must land the already-deferred AD-16 architecture wording. This review did not merge or modify `main`.
+**CODE REMEDIATION GREEN; CONCURRENCY ACCEPTANCE FAILED.** Six in-scope independent-review findings were fixed (4 high, 2 medium), including the live sibling-verdict defect, but the single-flight rule stays until the owner remeasures the post-`65fb5c7` branch and it passes. Finding 7 remains openly deferred as server/API backlog B-35 because it is outside this story. Do not claim concurrent eval runs work. Integration must also land the already-deferred AD-16 architecture wording. This review did not merge or modify `main`.
