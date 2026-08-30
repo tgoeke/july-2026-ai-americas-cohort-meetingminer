@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from fast_budget import _BUDGET, _TWIN_FIXTURES
+from fast_budget import _BUDGET, _TWIN_FIXTURES, _TWIN_SECTION
 
 TESTS_DIR = Path(__file__).resolve().parent
 BUDGET_KEY = "mm_fast_test_budget_seconds"
@@ -169,28 +169,30 @@ def test_the_twin_fixture_ran_once_for_the_slow_test():
     assert RAN.count("FIXTURE") == 1
 '''
 
-# The same cached fixture, requested by unmarked tests that earn no passing
-# call report: one skips, one xfails and one xpasses after its request; one
-# of them asks through a fixture of its own, so the request lands at setup;
-# and one fails on its own assertion after the request.
-UNMARKED_AFTER_NON_PASSING_PROBE = '''
+# After the slow module: unmarked requesters that earn no passing call
+# report. One skips, one xfails and one xpasses after its request; two ask
+# through a fixture of their own, so the request lands at setup, and one of
+# those skips there; one fails its own assertion after the request. Under
+# the session-scoped twin every request is served from the cache; under the
+# function-scoped one each is refused by the setup hook.
+UNMARKED_NON_PASSING_PROBE = '''
 import pytest
 
 from conftest import RAN
 
 
-def test_unmarked_cached_request_then_skip(request):
+def test_unmarked_request_then_skip(request):
     request.getfixturevalue("FIXTURE")
     pytest.skip("probe: skipped after the request")
 
 
-def test_unmarked_cached_request_then_xfail(request):
+def test_unmarked_request_then_xfail(request):
     request.getfixturevalue("FIXTURE")
     pytest.xfail("probe: xfailed after the request")
 
 
 @pytest.mark.xfail(reason="probe: declared failing, passes instead", strict=False)
-def test_unmarked_cached_request_then_xpass(request):
+def test_unmarked_request_then_xpass(request):
     request.getfixturevalue("FIXTURE")
 
 
@@ -199,11 +201,21 @@ def helper(request):
     request.getfixturevalue("FIXTURE")
 
 
-def test_unmarked_cached_request_from_its_own_fixture(helper):
+def test_unmarked_request_from_its_own_fixture(helper):
     pass
 
 
-def test_unmarked_cached_request_then_assertion(request):
+@pytest.fixture()
+def helper_then_skip(request):
+    request.getfixturevalue("FIXTURE")
+    pytest.skip("probe: skipped at setup")
+
+
+def test_unmarked_request_from_its_own_fixture_then_skip(helper_then_skip):
+    pass
+
+
+def test_unmarked_request_then_assertion(request):
     request.getfixturevalue("FIXTURE")
     assert False, "the assertion, not the twin rule"
 
@@ -414,52 +426,67 @@ def test_an_unmarked_test_requesting_a_twin_a_slow_test_already_set_up_is_failed
 
 
 @pytest.mark.parametrize("fixture", sorted(_TWIN_FIXTURES))
-def test_an_unmarked_cached_twin_request_is_failed_whatever_outcome_the_test_earned(
+def test_an_unmarked_twin_request_is_failed_whatever_outcome_the_test_earned(
     pytester: pytest.Pytester, fixture: str
 ) -> None:
-    """A cached request reaches no setup hook, and the report-time check must not wait for a passing call: an unmarked test that skips, xfails or xpasses after its request is FAILED with the diagnostic and the outcome it earned; a request from one of its own fixtures is an ERROR at setup, so its body never runs; a test that then fails its own assertion keeps that failure, with the diagnostic added as a section of it. The fixture ran once, for the slow test."""
+    """The report-time check must not wait for a passing call. Session-scoped twin, served from the cache with no setup hook to see it: an unmarked test that skips, xfails or xpasses after its request is FAILED with the diagnostic, the outcome it earned and that outcome's reason; a request from one of its own fixtures is an ERROR at setup, whether the fixture then passed or skipped, so the body never runs; a test that then fails its own assertion keeps that failure, with the diagnostic printed once beside it. Function-scoped twin, set up afresh and refused by the setup hook: the refusal is the failure, printed once with nothing added — and under the xfail mark, which absorbed the refusal into a green XFAIL before the refusal counted as a resolved twin, the report says so. The fixture ran once, for the slow test."""
     result = _twin_probe_run(
         pytester,
         fixture,
         test_a_marked_module_probe=MARKED_FIRST_PROBE,
-        test_b_non_passing_probe=UNMARKED_AFTER_NON_PASSING_PROBE,
+        test_b_non_passing_probe=UNMARKED_NON_PASSING_PROBE,
     )
     result.stdout.fnmatch_lines(
         [
             "*test_a_marked_module_probe.py::test_module_marked_dynamic_twin_user PASSED*",
-            "*test_b_non_passing_probe.py::test_unmarked_cached_request_then_skip FAILED*",
-            "*test_b_non_passing_probe.py::test_unmarked_cached_request_then_xfail FAILED*",
-            "*test_b_non_passing_probe.py::test_unmarked_cached_request_then_xpass FAILED*",
-            "*test_b_non_passing_probe.py::test_unmarked_cached_request_from_its_own_fixture ERROR*",
-            "*test_b_non_passing_probe.py::test_unmarked_cached_request_then_assertion FAILED*",
+            "*test_b_non_passing_probe.py::test_unmarked_request_then_skip FAILED*",
+            "*test_b_non_passing_probe.py::test_unmarked_request_then_xfail FAILED*",
+            "*test_b_non_passing_probe.py::test_unmarked_request_then_xpass FAILED*",
+            "*test_b_non_passing_probe.py::test_unmarked_request_from_its_own_fixture ERROR*",
+            "*test_b_non_passing_probe.py::test_unmarked_request_from_its_own_fixture_then_skip ERROR*",
+            "*test_b_non_passing_probe.py::test_unmarked_request_then_assertion FAILED*",
             "*test_b_non_passing_probe.py::test_the_twin_fixture_ran_once_for_the_slow_test PASSED*",
         ]
     )
-    result.assert_outcomes(passed=2, failed=4, errors=1)
-    # Only the session-scoped twin is served from the cache: the
-    # function-scoped one is set up afresh for each test, so the setup hook
-    # refuses it inside the request and that refusal is what is reported —
-    # or, under the xfail mark, what the mark absorbed into a green XFAIL
-    # before this check counted a refusal as a resolved twin.
+    result.assert_outcomes(passed=2, failed=4, errors=2)
     cached = TWIN_SCOPES[fixture] == "session"
-    for test_name, earned in (
-        ("test_unmarked_cached_request_then_skip", "call outcome (skipped)"),
-        ("test_unmarked_cached_request_then_xfail", "call outcome (xfailed)"),
-        ("test_unmarked_cached_request_then_xpass", "call outcome (xpassed)"),
-        ("test_unmarked_cached_request_from_its_own_fixture", "setup outcome (passed)"),
-    ):
+    replaced = {
+        "test_unmarked_request_then_skip": (
+            "this replaces the test's own call outcome (skipped: Skipped: probe: skipped after the request)"
+        ),
+        "test_unmarked_request_then_xfail": (
+            "this replaces the test's own call outcome (xfailed: probe: xfailed after the request)"
+        ),
+        "test_unmarked_request_then_xpass": (
+            "this replaces the test's own call outcome (xpassed: probe: declared failing, passes instead)"
+        ),
+        "test_unmarked_request_from_its_own_fixture": "this replaces the test's own setup outcome (passed)",
+        "test_unmarked_request_from_its_own_fixture_then_skip": (
+            "this replaces the test's own setup outcome (skipped: Skipped: probe: skipped at setup)"
+        ),
+    }
+    absorbed = (
+        "the refusal was absorbed into the test's own call outcome "
+        "(xfailed: probe: declared failing, passes instead)"
+    )
+    for test_name, replacement in replaced.items():
         body = _failure_section(result, test_name)
         assert f"test_b_non_passing_probe.py::{test_name}" in body
-        assert AT_RUN_TIME in body
+        assert body.count(AT_RUN_TIME) == 1, body
         if cached:
-            assert earned in body
+            assert replacement in body
         elif test_name.endswith("xpass"):
-            assert "call outcome (xfailed)" in body
-    body = _failure_section(result, "test_unmarked_cached_request_then_assertion")
-    assert AT_RUN_TIME in body
+            assert absorbed in body
+        else:
+            assert "this replaces" not in body and "absorbed" not in body
+        assert _TWIN_SECTION not in body
+    body = _failure_section(result, "test_unmarked_request_then_assertion")
+    assert body.count(AT_RUN_TIME) == 1, body
     if cached:
         assert "AssertionError: the assertion, not the twin rule" in body
-        assert "fast_budget: the twin rule" in body
+        assert _TWIN_SECTION in body
+    else:
+        assert _TWIN_SECTION not in body
 
 
 def test_a_slow_only_path_under_the_default_selection_prints_the_hint(

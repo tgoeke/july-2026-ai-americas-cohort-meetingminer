@@ -111,9 +111,8 @@ def _dry_run(target: str, *flags: str) -> str:
     being spawned. A nested make must not inherit the outer one's flags, or
     running this under `make test` would change what is printed. A multi-line
     recipe is printed with its backslash-newline continuations; they are
-    joined so each command is one line. `--no-print-directory`: GNU make 4.x
-    turns `-w` on with `-C`, and its "Entering directory" lines are not
-    commands.
+    joined so each command is one line. `--no-print-directory`: `-C` turns
+    `-w` on, and its "Entering directory" lines are not commands.
     """
     env = {k: v for k, v in os.environ.items() if k not in {"MAKEFLAGS", "MFLAGS", "MAKELEVEL"}}
     proc = subprocess.run(
@@ -175,18 +174,33 @@ def _dry_run_steps(target: str) -> list[tuple[str, list[str]]]:
     return steps
 
 
+# GNU make's `--debug=basic` trace, as it appears among a target's lines:
+# indented file-status lines, the remake announcements, and the makefile
+# and goal updates; its version banner precedes every announcement.
+_MAKE_TRACE = re.compile(
+    r"^(\s.*|Must remake target .*|Successfully remade target file .*"
+    r"|Reading makefiles\.*|Updating goal targets\.*|Updating makefiles\.*)$"
+)
+
+
 def _direct_commands(target: str) -> list[str]:
     """The recipe commands `target` itself owns, in order, from make: the lines printed while remaking it (`_dry_run_steps`) that a plain `make -n` prints too.
 
-    A prerequisite's commands sit under its own announcement, and make's trace
-    lines (`Must remake…`, `Successfully remade…`, the 3.81 banner) never
-    appear in a plain dry run, so what is left is this target's recipe —
-    `@`-prefixed lines included, which `-n` prints as well.
+    A prerequisite's commands sit under its own announcement, so only this
+    target's lines are looked at; the plain run's lines — every target's,
+    which is why its whole output is a safe reference — tell a recipe command
+    from make's trace, `@`-prefixed lines included, which `-n` prints as
+    well. A line under the target that is neither fails here rather than
+    dropping out silently: a recipe that expands differently between the two
+    runs (`$(shell date)`) would otherwise escape the contract.
     """
     steps = _dry_run_steps(target)
     lines = [printed for announced, printed in steps if announced == target]
+    assert lines, f"make never announced remaking {target}; it remade {[t for t, _ in steps]}"
     assert len(lines) == 1, f"{target} was remade {len(lines)} times in {[t for t, _ in steps]}"
     plain = set(_dry_run(target).splitlines())
+    unaccounted = [line for line in lines[0] if line not in plain and not _MAKE_TRACE.match(line)]
+    assert not unaccounted, f"{target}: printed under it by --debug but not by a plain -n: {unaccounted}"
     return [line for line in lines[0] if line in plain]
 
 
@@ -274,8 +288,9 @@ def test_make_test_fast_runs_the_whole_server_fast_set() -> None:
 # a store check) would make the loop need Docker; anything less drops a suite
 # from it with no failure. Adding or removing one is a deliberate edit of
 # both places — the `test-fast:` rule line and this tuple. The recipe itself
-# is one command, the fast set: the contract after the next holds it to that,
-# so nothing rides in the recipe past this list.
+# is one command, the fast set:
+# test_make_test_fast_recipe_is_the_one_whole_server_pytest_command holds it
+# to that, so nothing rides in the recipe past this list.
 TEST_FAST_PREREQUISITES = ("check-client", "puller-test", "web-test", "evals-test")
 
 
@@ -298,8 +313,13 @@ def test_make_test_fast_runs_check_client_then_every_store_free_suite_before_the
     assert with_server_pytest == ["test-fast"], with_server_pytest
 
 
+# Shell text that would run something else on the same recipe line as the
+# fast set: a second command chained or piped on, or substituted in.
+_SHELL_CHAINING = ("&&", "||", ";", "|", "$(", "`")
+
+
 def test_make_test_fast_recipe_is_the_one_whole_server_pytest_command() -> None:
-    """The commands the `test-fast` recipe owns, from make: exactly one, the whole-server pytest command — so it is last, and nothing before or after it (a `docker compose`, a store check, a second suite) rides in the recipe past the prerequisite contract above. Everything else the loop runs is a prerequisite target; adding one is an edit of TEST_FAST_PREREQUISITES."""
+    """The commands the `test-fast` recipe owns, from make: exactly one, the whole-server pytest command — so it is last, and nothing before or after it (a `docker compose`, a store check, a second suite) rides in the recipe past the prerequisite contract above — and that command is `cd <root> && uv run … pytest …` with nothing chained onto either side of the pytest invocation. Everything else the loop runs is a prerequisite target; adding one is an edit of TEST_FAST_PREREQUISITES."""
     commands = _direct_commands("test-fast")
     server = [command for command in commands if _server_pytest_words(command)]
     assert len(server) == 1, f"test-fast's recipe has {len(server)} whole-server pytest commands: {commands}"
@@ -307,6 +327,15 @@ def test_make_test_fast_recipe_is_the_one_whole_server_pytest_command() -> None:
         f"test-fast's recipe runs {commands}; it may own only its whole-server pytest command — "
         "anything more belongs in a prerequisite target, an edit of both the `test-fast:` rule "
         "line and TEST_FAST_PREREQUISITES in test_compose_contract.py"
+    )
+    words = shlex.split(server[0])
+    assert words[0] == "cd" and Path(words[1]).resolve() == REPO_ROOT and words[2] == "&&", words[:3]
+    invocation = words[3:]
+    assert invocation[0] == "uv", invocation
+    chained = [word for word in invocation if any(text in word for text in _SHELL_CHAINING)]
+    assert not chained, (
+        f"test-fast's pytest command carries {chained} — a second command on the same recipe line "
+        "is still a second command; put it in a prerequisite target"
     )
 
 
@@ -546,9 +575,10 @@ class TestPlain:
 def test_a_class_level_slow_mark_pins_the_class_by_syntax_and_by_collection(
     pytester: pytest.Pytester,
 ) -> None:
-    """One representation for a class-level mark, `module::Class`, from the syntax inventory and accepted by the collected-node guard for every test pytest collects under the class — parametrized, nested — while a decorated method keeps its own `module::Class::test` pin and an unmarked method is pinned by neither. Without its pin, the class's tests are named as unpinned."""
+    """One representation for a class-level mark, `module::Class`: the name the syntax inventory already gave a class decorator and a class-body `pytestmark` (neither is a module-level mark), now accepted by the collected-node guard for every test pytest collects under the class — parametrized, nested — while a decorated method keeps its own `module::Class::test` pin and an unmarked method is pinned by neither. Without its pin, the class's tests are named as unpinned."""
     pytester.makeini("[pytest]")
     path = pytester.makepyfile(test_slow_class_source=CLASS_MARKED_SOURCE)
+    assert not _has_module_level_slow_mark(path)
     pins = _decorated_slow_definitions(path)
     assert pins == {
         "test_slow_class_source::TestGroup",
