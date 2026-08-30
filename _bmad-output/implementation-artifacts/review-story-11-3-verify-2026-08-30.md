@@ -50,4 +50,4 @@
 - Severity: medium
 - Finding: F11 restores the single-flight rule in AGENTS, dispatch, and RUNBOOK, but the store-mutating publish-gate module still says it is safe while another eval run is running. That contradicts the owner-acceptance hold and can mislead someone running or composing this check directly.
 - Evidence: Lines 16–21 claim subject safety and conclude, `safe to run while another eval run or any suite is running.` The F11 docs-contract test reads only AGENTS, dispatch, and RUNBOOK, so this contradictory in-scope check documentation remains invisible.
-- Resolution: Open — extend the F11 contract test red-first to include the publish-gate header, then replace the overlap grant with the same pending-live-acceptance boundary while preserving the narrower truth that store-free suites may overlap.
+- Resolution: Fixed in this review. The expanded F11 test first failed on the stale sentence. The publish-gate header now says the check participates in `make evals-run`'s single-flight lane pending owner live acceptance and may overlap only store-free suites; the contract test passes.

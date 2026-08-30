@@ -548,12 +548,17 @@ def test_operational_docs_keep_evals_single_flight_until_live_acceptance() -> No
         encoding="utf-8"
     )
     runbook = (EVALS_ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    publish_gate = (EVALS_ROOT / "checks" / "test_publish_gate.py").read_text(
+        encoding="utf-8"
+    )
 
     assert "**`make evals-run` is still one at a time.**" in agents
     assert "may overlap another eval run" not in agents
     assert "must not overlap another eval run" in dispatch
     assert "Run only one `make evals-run` at a time" in runbook
     assert "do not contend" not in runbook
+    assert "safe to run while another eval run" not in publish_gate
+    assert "single-flight" in publish_gate
 
 
 def test_ad16_docs_name_the_probe_exception_exactly() -> None:

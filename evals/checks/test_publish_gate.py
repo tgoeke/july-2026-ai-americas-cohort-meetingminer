@@ -14,11 +14,11 @@ Assembly and verdict are the pure ``checks.publish_gate``; this file only
 observes and delegates.
 
 What story 11.3 changed: **subject artifacts are never approved.** The
-shared corpus's ``extracted`` rows survive every run, so two eval runs no
-longer consume each other's gate half, and the run's one write lands in a
-namespace it owns (the probe's title carries the run id) and erases on the
-way out. These tests read the shared dev stores read-only otherwise and are
-safe to run while another eval run or any suite is running.
+shared corpus's ``extracted`` rows survive every run, and the run's one write
+lands in a namespace it owns (the probe's title carries the run id) and erases
+on the way out. The coordination mechanisms are store-free proven, but the
+owner's live overlap acceptance is still pending: this check participates in
+``make evals-run``'s single-flight lane and may overlap store-free suites only.
 
 Two standing cautions:
 
