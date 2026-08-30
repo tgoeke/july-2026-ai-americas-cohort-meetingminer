@@ -158,6 +158,27 @@ def test_a_topic_without_a_timestamp_is_a_named_parse_error() -> None:
         core.parse_extraction_document(document, core.DOC_TOPICS)
 
 
+@pytest.mark.parametrize(
+    ("gist", "timestamps"),
+    [
+        ("Moving to SFTP", "[0:10], [99:99]"),
+        ("Moving the 9:00 standup", "not stated"),
+        ("Moving the 9:00 standup", ""),
+    ],
+)
+def test_a_labelled_timestamp_field_is_authoritative_and_fully_validated(
+    gist: str, timestamps: str
+) -> None:
+    document = (
+        "## Topics\n\n"
+        "| ID | Topic | Gist | Timestamps |\n"
+        "|----|-------|------|------------|\n"
+        f"| T1 | Vendor feed transport | {gist} | {timestamps} |\n"
+    )
+    with pytest.raises(core.ArtifactParseError, match="T1.*Timestamps"):
+        core.parse_extraction_document(document, core.DOC_TOPICS)
+
+
 def test_a_document_with_no_structure_is_a_parse_error() -> None:
     with pytest.raises(core.ArtifactParseError):
         core.parse_extraction_document(

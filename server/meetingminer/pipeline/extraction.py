@@ -485,6 +485,27 @@ def _timestamps_ms(text: str) -> tuple[int, ...]:
     return tuple(found)
 
 
+def _validated_topic_timestamps_ms(text: str, item_id: str) -> tuple[int, ...]:
+    """Parse an authoritative topics timestamp cell without silent loss."""
+    matches = list(_TIMESTAMP.finditer(text))
+    stamps: list[int] = []
+    for match in matches:
+        try:
+            stamps.append(parse_timestamp(match.group(1)))
+        except TranscriptParseError as exc:
+            raise ArtifactParseError(
+                f"item {item_id} in the topics document has a malformed"
+                f" Timestamps value: {text!r}"
+            ) from exc
+    residue = _TIMESTAMP.sub("", text)
+    if not stamps or re.sub(r"[\s\[\]()*_,;.\-]", "", residue):
+        raise ArtifactParseError(
+            f"item {item_id} in the topics document has an empty or malformed"
+            f" Timestamps value: {text!r}"
+        )
+    return tuple(stamps)
+
+
 def _split_row(line: str) -> list[str] | None:
     """A markdown table row's cells, or ``None`` when the line is not one.
 
@@ -564,7 +585,11 @@ def _labelled(headers: Sequence[str] | None, markers: Sequence[str]) -> int | No
 
 
 def _anchor_stamps(
-    cells: Sequence[str], headers: Sequence[str] | None, raw_line: str
+    cells: Sequence[str],
+    headers: Sequence[str] | None,
+    raw_line: str,
+    *,
+    authoritative_topic_item_id: str | None = None,
 ) -> tuple[int, ...]:
     """The item's own timestamps, and where they were found.
 
@@ -581,6 +606,9 @@ def _anchor_stamps(
        that has no separable stamp cell at all.
     """
     labelled = _labelled(headers, _TIMESTAMP_HEADERS)
+    if labelled is not None and authoritative_topic_item_id is not None:
+        value = cells[labelled] if labelled < len(cells) else ""
+        return _validated_topic_timestamps_ms(value, authoritative_topic_item_id)
     if labelled is not None and labelled < len(cells):
         stamps = _timestamps_ms(cells[labelled])
         if stamps:
@@ -905,7 +933,14 @@ def parse_extraction_document(text: str, document_kind: str) -> ParsedDocument:
             if document_kind == DOC_ACTION_ITEMS
             else (None, None)
         )
-        stamps = _anchor_stamps(rest, rest_headers, raw_line)
+        stamps = _anchor_stamps(
+            rest,
+            rest_headers,
+            raw_line,
+            authoritative_topic_item_id=(
+                item_id if document_kind == DOC_TOPICS else None
+            ),
+        )
         if not stamps:
             raise ArtifactParseError(
                 f"item {item_id} in the {document_kind} document carries no [m:ss]"
