@@ -69,3 +69,11 @@ Review of the Story 6.2 YouTube Acquisition Command implementation, limited to t
 - **Finding:** Any numeric `release_timestamp` is passed directly to `datetime.fromtimestamp()`. Non-finite or out-of-range values raise `ValueError`, `OverflowError`, or `OSError`, bypassing `YoutubeError`, the valid `upload_date` fallback, and `main()`'s named refusal handling.
 - **Evidence:** `started_at_from_info({"release_timestamp": float("nan"), "upload_date": "20260812"})` raises raw `ValueError: Invalid value NaN (not a number)`. `main()` catches only `ConfigError`, `MintError`, and `YoutubeError`, so the operator receives a traceback and non-contract failure despite a usable fallback date.
 - **Suggested direction:** Treat `release_timestamp` as usable only when finite and convertible; catch platform datetime range errors, then try `upload_date`. If neither value is usable, raise the existing named wall-clock refusal.
+
+### F8 — A selected English caption track can disappear silently
+
+- **Location:** `server/meetingminer/youtube.py:347-374`, `server/meetingminer/youtube.py:445-464`
+- **Severity:** medium
+- **Finding:** When the probe selects manual or automatic English captions but yt-dlp exits zero without writing a VTT, `download()` returns `transcript=None` and `acquire()` mints a recording-only drop. Recording-only is allowed only when no English track exists; this path silently loses evidence the source said was present.
+- **Evidence:** The candidate lookup explicitly maps an empty list to `None` even when `captions is not None`. The offline acquisition test replaces `download()` and manufactures a VTT, while the normally skipped network test asserts only a non-empty MP4, so this behavior is both reachable and unverified.
+- **Suggested direction:** Fail by name when a selected caption does not materialize (or implement an explicitly specified manual-to-auto retry), and add deterministic `download()` tests for both caption modes and missing output.
