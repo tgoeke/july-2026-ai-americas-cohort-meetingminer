@@ -190,7 +190,10 @@ re-measures it.
   naming every offending node id: a `slow` mark must carry a non-empty
   `reason=`, and a test with no `slow` mark may not request
   `projection_stores` or `stores_up` — a twin-bound test belongs in the slow
-  set. With `--strict-markers`, an unregistered mark stops collection too.
+  set. The second rule is applied again as either fixture is set up, for a
+  `request.getfixturevalue` the static closure does not show: the unmarked
+  test fails there, before the fixture runs. With `--strict-markers`, an
+  unregistered mark stops collection too.
 
 ## Branch and merge
 

@@ -82,7 +82,9 @@ companions its frontmatter lists, plus the per-story frozen contracts in
   `-o mm_fast_test_budget_seconds=<seconds>` overrides it for one run) until
   it is marked `slow` with a reason or made faster, and stops collection when
   a `slow` mark has no `reason=` or an unmarked test requests
-  `projection_stores`/`stores_up`. `--strict-markers` is on. Re-measure with
+  `projection_stores`/`stores_up` (a `request.getfixturevalue` of either from
+  an unmarked test fails that test as the fixture is set up, before it runs).
+  `--strict-markers` is on. Re-measure with
   `uv run --project server pytest -m "" server/tests --durations=25`.
 - `make test` is the gate, not the loop: it needs the stores up, passes
   `-m ""` so the `slow` modules run, runs four suites, and builds the web app.
