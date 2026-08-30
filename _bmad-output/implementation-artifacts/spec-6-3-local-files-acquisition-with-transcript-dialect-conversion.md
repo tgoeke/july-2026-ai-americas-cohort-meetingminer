@@ -2,7 +2,7 @@
 title: 'Story 6.3: Local-Files Acquisition with Transcript Dialect Conversion'
 type: 'feature'
 created: '2026-08-30'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'd72c658'
 baseline_commit: 'b3bb1d09cdf19c72af46d10abbec1ba02bdfda63'
 review_loop_iteration: 1
