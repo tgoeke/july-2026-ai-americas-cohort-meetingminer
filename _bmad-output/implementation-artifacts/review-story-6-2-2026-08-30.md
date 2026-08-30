@@ -93,3 +93,11 @@ Review of the Story 6.2 YouTube Acquisition Command implementation, limited to t
 - **Finding:** `$(URL)` is interpolated directly into double-quoted shell source in both the non-empty guard and Python invocation. A URL containing a double quote followed by shell syntax escapes the argument and executes commands before `video_id_from_url()` can reject it.
 - **Evidence:** `make -n youtube-drop URL='https://www.youtube.com/watch?v=aB3dEfGhIj0"; printf REVIEW_INJECTION; #'` renders both `[ -n "..."; printf REVIEW_INJECTION; #" ]` and `python -m meetingminer.youtube "..."; printf REVIEW_INJECTION; #"`. The documented single quotes protect the caller's shell only; Make removes that boundary when expanding the recipe.
 - **Suggested direction:** Do not place the raw Make variable into shell program text. Pass the value through a channel that preserves it as data (for example, an exported environment value read by the Python wrapper) and add a harmless metacharacter regression proving the recipe cannot execute injected shell syntax.
+
+### F11 — Offline tests mock away the complete yt-dlp download contract
+
+- **Location:** `server/tests/test_youtube.py:198-231`, `server/tests/test_youtube.py:363-424`, `server/meetingminer/youtube.py:324-374`
+- **Severity:** medium
+- **Finding:** Normal tests cover caption selection but replace `download()` wholesale. They never observe the format selector, manual/automatic subtitle flags, `--convert-subs vtt`, output naming, info-json parsing, or the mapping from actual files to `transcript.vtt`.
+- **Evidence:** The offline end-to-end test's fake manufactures an MP4, VTT, and metadata object without executing any production command-building or output-discovery code. Mutations such as changing `--write-auto-subs` to `--write-subs` or deleting `--convert-subs vtt` leave the normal suite green; the gated network test asserts only that `recording.mp4` is non-empty.
+- **Suggested direction:** Stub `_run()` rather than `download()`, inspect complete commands for manual, auto, and no-caption cases, materialize realistic yt-dlp output names, and assert the returned evidence and downloaded metadata. Confirm each regression test fails on the current defective mutation it is meant to guard.
