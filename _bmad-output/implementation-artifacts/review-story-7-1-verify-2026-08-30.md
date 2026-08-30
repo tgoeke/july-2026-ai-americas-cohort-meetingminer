@@ -65,6 +65,14 @@
 - **Evidence:** On the branch rebased onto `origin/main` at `33263f4`, foreground `make test-fast` stopped in `ruff check` with exactly one `BLE001` at `__init__.py:59` and two `RUF046` violations at `pyannote.py:59-60`; no later prerequisite ran.
 - **Resolution:** **OPEN.** Preserve the fail-closed catch boundary with an explicit, justified lint exception; remove the behavior-neutral casts; then prove lint and the full fast gate green.
 
+### V8. Story 11-4's review-worktree contract is checkout-dependent after landing
+
+- **Location:** `server/tests/test_lint_contract.py:148-155`
+- **Severity:** High
+- **Finding:** The newly landed contract test checks that Story 11-4's frozen review prompt contains the current test checkout's `REPO_ROOT`. That prompt correctly names its dedicated `11-4-review` worktree, so the assertion passes only when the entire repository suite happens to run from that historical worktree and fails from main or every other story worktree.
+- **Evidence:** After V7 made lint and typecheck green, foreground `make test-fast` reached the server suite and failed only `test_review_handoff_uses_a_dedicated_review_worktree`: current root `/Users/devopsterus/current/cohort/meetingminer-wt/7-1-review` was not in the report block, whose correct recorded worktree is `/Users/devopsterus/current/cohort/meetingminer-wt/11-4-review`. Result: `1 failed, 1616 passed, 1 skipped, 326 deselected`.
+- **Resolution:** **OPEN.** Pin the report block to the named `meetingminer-wt/11-4-review` destination instead of the caller's checkout, retaining the existing branch/order assertions.
+
 ## Mutation Audit
 
 The five claimed fixes were tested in remediation-commit order. Every restored fix was green; two narrower follow-up mutations exposed V2 and V3.
