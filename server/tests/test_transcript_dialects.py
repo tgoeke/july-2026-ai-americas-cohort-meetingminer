@@ -20,6 +20,7 @@ Three things are asserted, and they are the three the acceptance criteria name:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import urllib.request
@@ -662,6 +663,54 @@ def test_bytes_that_are_not_utf8_are_refused(
         convert(source, workspace)
 
     assert "UTF-8" in str(refusal.value)
+
+
+def test_original_provenance_hashes_the_exact_snapshot_that_was_converted(
+    tmp_path: Path, workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "sync.vtt"
+    original = vtt(("00:00:01.000", "00:00:02.000", "Alice Chen: Original."))
+    replacement = vtt(("00:00:01.000", "00:00:02.000", "Mallory: Changed."))
+    source.write_text(original, encoding="utf-8")
+    real_read_bytes = Path.read_bytes
+
+    def read_then_replace(path: Path) -> bytes:
+        raw = real_read_bytes(path)
+        if path == source:
+            path.write_text(replacement, encoding="utf-8")
+        return raw
+
+    monkeypatch.setattr(Path, "read_bytes", read_then_replace)
+
+    conversion = convert(source, workspace)
+    record = conversion.provenance_extra[dialects.PROVENANCE_KEY]["source"]
+
+    assert written(conversion, ".txt").read_text(encoding="utf-8") == (
+        "Alice Chen | 00:01\nOriginal.\n"
+    )
+    assert record["sha256"] == hashlib.sha256(original.encode()).hexdigest()
+    assert record["byteSize"] == len(original.encode())
+
+
+def test_a_workspace_write_failure_is_a_named_refusal(
+    tmp_path: Path, workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "sync.vtt"
+    source.write_text(ZOOM_VTT, encoding="utf-8")
+    real_write_text = Path.write_text
+
+    def refuse_workspace_write(path: Path, *args: Any, **kwargs: Any) -> int:
+        if path.parent == workspace:
+            raise OSError("simulated full disk")
+        return real_write_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", refuse_workspace_write)
+
+    with pytest.raises(dialects.DialectError) as refusal:
+        convert(source, workspace)
+
+    assert "could not be written" in str(refusal.value)
+    assert "simulated full disk" in str(refusal.value)
 
 
 # --- choosing a dialect ----------------------------------------------------

@@ -60,6 +60,7 @@ that identity. ``test_transcript_dialects.py`` pins them.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -70,7 +71,6 @@ from typing import Any, Iterable, Iterator, Sequence
 from meetingminer.domain.drops import (
     TRANSCRIPT_TEXT_FILENAME,
     TRANSCRIPT_VTT_FILENAME,
-    sha256_and_size,
 )
 from meetingminer.pipeline import transcripts
 
@@ -146,6 +146,15 @@ class Turn:
 
 
 @dataclass(frozen=True)
+class _SourceSnapshot:
+    """The one byte snapshot used for both conversion and provenance."""
+
+    text: str
+    sha256: str
+    byte_size: int
+
+
+@dataclass(frozen=True)
 class Conversion:
     """What to mint, and what to record about how it was produced.
 
@@ -203,7 +212,8 @@ def convert_supplied(
 def _convert_zoom(paths: Sequence[str], *, into: Path) -> Conversion:
     """Replace the supplied Zoom ``.vtt`` with the two files a drop holds."""
     source = _zoom_source(paths)
-    cues = read_zoom_cues(_read_source(source), source=source)
+    snapshot = _read_source(source)
+    cues = read_zoom_cues(snapshot.text, source=source)
     turns = zoom_turns(cues)
     text = render_legacy_text(turns)
     verify_legacy_text(text, turns, source=source)
@@ -212,10 +222,9 @@ def _convert_zoom(paths: Sequence[str], *, into: Path) -> Conversion:
     # file's stem) is the name they recognise rather than a temp filename.
     text_path = into / f"{source.stem}.txt"
     vtt_path = into / f"{source.stem}.vtt"
-    text_path.write_text(text, encoding="utf-8", newline="\n")
-    vtt_path.write_text(render_timing_vtt(cues), encoding="utf-8", newline="\n")
+    _write_output(text_path, text)
+    _write_output(vtt_path, render_timing_vtt(cues))
 
-    digest, byte_size = sha256_and_size(source)
     # `source` is resolved, so the comparison has to be: a path spelled with
     # `~` or a relative segment is the same file and must not be minted beside
     # its own conversion.
@@ -237,8 +246,8 @@ def _convert_zoom(paths: Sequence[str], *, into: Path) -> Conversion:
                 # drop. This is the record of what was actually converted.
                 "source": {
                     "sourcePath": str(source),
-                    "sha256": digest,
-                    "byteSize": byte_size,
+                    "sha256": snapshot.sha256,
+                    "byteSize": snapshot.byte_size,
                 },
                 "cueCount": len(cues),
                 "turnCount": len(turns),
@@ -288,18 +297,33 @@ def _zoom_source(paths: Sequence[str]) -> Path:
     return resolved
 
 
-def _read_source(source: Path) -> str:
-    """The export's text, with a BOM tolerated and mojibake refused."""
+def _read_source(source: Path) -> _SourceSnapshot:
+    """Read once: the export text and provenance describe the same bytes."""
     try:
         raw = source.read_bytes()
     except OSError as exc:
         raise DialectError(f"{source} could not be read: {exc}") from exc
     try:
-        return raw.decode("utf-8-sig")
+        text = raw.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         raise DialectError(
             f"{source} is not UTF-8 text ({exc}) — a transcript decoded with"
             " replacement characters would carry them into a write-once drop"
+        ) from exc
+    return _SourceSnapshot(
+        text=text,
+        sha256=hashlib.sha256(raw).hexdigest(),
+        byte_size=len(raw),
+    )
+
+
+def _write_output(path: Path, text: str) -> None:
+    """Write one transient conversion output through the named refusal gate."""
+    try:
+        path.write_text(text, encoding="utf-8", newline="\n")
+    except OSError as exc:
+        raise DialectError(
+            f"{path} could not be written: {exc} — nothing was minted"
         ) from exc
 
 
