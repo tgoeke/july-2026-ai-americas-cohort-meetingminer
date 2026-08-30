@@ -54,16 +54,14 @@ NEAR_MISS = {
 def _tree_vars(tmp_path: Path) -> dict[str, str]:
     """VENV/WEB pointed at the scratch tree the decoys live in.
 
-    `WT_ENVFILE` points there too, so the checkout's own `.env.worktree`
-    (story 11.2) can never leak into a test: absent, the Makefile is the
-    main checkout's (project `meetingminer`, default ports); a test that
-    writes the file gets a worktree's.
+    Make runs the real Makefile from this scratch checkout root, so its own
+    `.env.worktree` can never leak into a test: absent, the Makefile uses the
+    main defaults; a test that writes the scratch file gets a worktree stack.
     """
     return {
         "VENV": str(tmp_path / "venv"),
         "WEB": str(tmp_path / "web"),
         "WORKER_OWNER": TEST_WORKER_OWNER,
-        "WT_ENVFILE": str(tmp_path / ".env.worktree"),
     }
 
 
@@ -108,8 +106,21 @@ def _make(
     child_env.pop("MAKEFLAGS", None)
     child_env.pop("MFLAGS", None)
     child_env.pop("MAKELEVEL", None)
+    make_dir = Path(INFRA)
+    makefile_args: list[str] = []
+    if tmp_path is not None:
+        make_dir = tmp_path / "infra"
+        make_dir.mkdir(exist_ok=True)
+        makefile_args = ["-f", str(Path(INFRA) / "Makefile")]
     return subprocess.run(
-        ["make", "-C", INFRA, *targets, *(f"{k}={v}" for k, v in settings.items())],
+        [
+            "make",
+            "-C",
+            str(make_dir),
+            *makefile_args,
+            *targets,
+            *(f"{k}={v}" for k, v in settings.items()),
+        ],
         capture_output=True,
         text=True,
         env=child_env,

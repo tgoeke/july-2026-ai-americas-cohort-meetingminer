@@ -7,14 +7,18 @@ SHELL := /bin/bash
 ROOT    := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)
 INFRA   := $(ROOT)/infra
 LOGS    := $(ROOT)/.logs
-ENVFILE := $(ROOT)/.env
+# Normally the checkout containing this Makefile. `worktree-start` can run
+# this newer Makefile from an older target worktree's infra/ directory, so
+# CURDIR is the ownership anchor while ROOT/INFRA remain the code source.
+override CHECKOUT_ROOT := $(abspath $(CURDIR)/..)
+ENVFILE := $(CHECKOUT_ROOT)/.env
 # A git worktree's private compose stack (story 11.2): `make worktree` writes
 # .env.worktree beside .env — the compose project name, the seven host ports
 # and the two test-twin URLs, and nothing else (the loader refuses any other
 # key there, and refuses these keys in .env). This include and compose (a
 # second --env-file) read its stack keys; the loader reads it after .env.
 # Absent, every default below reproduces the main checkout's stack exactly.
-WT_ENVFILE := $(ROOT)/.env.worktree
+override WT_ENVFILE := $(CHECKOUT_ROOT)/.env.worktree
 STACK_IDENTITY_VARS := MM_STACK_NAME MM_STACK_ID
 STACK_LOCATION_VARS := MM_POSTGRES_PORT MM_NEO4J_HTTP_PORT MM_NEO4J_BOLT_PORT MM_MEILI_PORT MM_NEO4J_TEST_HTTP_PORT MM_NEO4J_TEST_BOLT_PORT MM_MEILI_TEST_PORT
 STACK_VARS := MM_STACK_NAME $(STACK_LOCATION_VARS) MM_STACK_ID
@@ -90,7 +94,7 @@ PULLER_ARCHIVE ?= $(MM_PULLER_ARCHIVE)
 # the directory compose labels the containers with (worktree_stack.py prunes
 # by it); `worktree` points it at the NEW worktree's infra/ while running this
 # checkout's Makefile and compose file.
-COMPOSE_PROJECT_DIR ?= $(INFRA)
+COMPOSE_PROJECT_DIR ?= $(CHECKOUT_ROOT)/infra
 STACK_ENV := $(foreach v,$(STACK_VARS),$(v)=$($(v)))
 UNSET_STACK_ENV := env $(foreach v,$(STACK_VARS),-u $(v))
 COMPOSE := env $(STACK_ENV) docker compose --env-file $(ENVFILE) $(if $(wildcard $(WT_ENVFILE)),--env-file $(WT_ENVFILE),) -p $(MM_STACK_NAME) -f $(INFRA)/docker-compose.yml --project-directory $(COMPOSE_PROJECT_DIR)
@@ -152,7 +156,7 @@ export COREPACK_ENABLE_DOWNLOAD_PROMPT := 0
         rebuild purge digest backfill-drop-paths mint-drop test-db-prune check-reviews check-tools check-docker check-env check-client check-stores check-dev-stores check-test-stores check-api \
         infra-up start-api start-worker start-web \
         stop-api stop-worker stop-web \
-        worktree worktree-list worktree-remove worktree-prune worktree-provision worktree-start check-stack check-stack-record
+        worktree worktree-list worktree-remove worktree-prune worktree-provision worktree-start check-stack check-stack-record check-compose-identity
 
 help:
 	@echo "MeetingMiner targets:"
@@ -256,7 +260,7 @@ check-docker:
 # moment the operator was not thinking about configuration. Presence only —
 # whether the path is absolute and exists is the loader's gate, which reports
 # it far better than a shell test could.
-# A linked worktree ($(ROOT)/.git is a FILE there; a directory in the main
+# A linked worktree ($(CHECKOUT_ROOT)/.git is a FILE there; a directory in the main
 # checkout) without its .env.worktree would resolve the main checkout's ports
 # everywhere — the loader, compose, the twins the test session wipes — so it
 # is refused by name here and at the test session's import (conftest.py).
@@ -266,13 +270,13 @@ check-docker:
 # main checkout is the mirror image: a .env.worktree there is misplaced and
 # refused by name, because the main checkout runs the main stack.
 check-stack-record:
-	@if [ -f "$(ROOT)/.git" ]; then \
-		if [ ! -r "$(ROOT)/.env.worktree" ]; then \
-			echo "error: $(ROOT) is a linked git worktree with no .env.worktree — it would use the main checkout's Docker stack (story 11.2)."; \
+	@if [ -f "$(CHECKOUT_ROOT)/.git" ]; then \
+		if [ ! -r "$(CHECKOUT_ROOT)/.env.worktree" ]; then \
+			echo "error: $(CHECKOUT_ROOT) is a linked git worktree with no .env.worktree — it would use the main checkout's Docker stack (story 11.2)."; \
 			echo "  Run 'make worktree-provision' here to write the file and start this worktree's own stack."; exit 1; fi; \
-		python3 $(INFRA)/worktree_stack.py check --worktree "$(ROOT)" || exit 1; \
-	elif [ -e "$(ROOT)/.env.worktree" ]; then \
-		echo "error: $(ROOT) is the main checkout but carries a .env.worktree — the main checkout runs the main stack (meetingminer); remove $(ROOT)/.env.worktree and use 'make worktree STORY=<slug>' for a private stack."; exit 1; \
+		python3 $(INFRA)/worktree_stack.py check --worktree "$(CHECKOUT_ROOT)" || exit 1; \
+	elif [ -d "$(CHECKOUT_ROOT)/.git" ] && [ -e "$(CHECKOUT_ROOT)/.env.worktree" ]; then \
+		echo "error: $(CHECKOUT_ROOT) is the main checkout but carries a .env.worktree — the main checkout runs the main stack (meetingminer); remove $(CHECKOUT_ROOT)/.env.worktree and use 'make worktree STORY=<slug>' for a private stack."; exit 1; \
 	fi
 
 check-env: check-stack-record
@@ -370,7 +374,7 @@ worktree-start:
 		|| { echo "error: could not write (or validate) $(WT_ROOT)/$(STORY)/.env.worktree — the worktree has no usable stack record, and check-env and the test session refuse to run there until it does."; \
 		     echo "  Fix the cause above, then retry from this checkout ($(ROOT)):"; \
 		     echo "  make worktree-start STORY=$(STORY)"; exit 1; }
-	@$(UNSET_STACK_ENV) $(MAKE) --no-print-directory -C $(INFRA) infra-up ENVFILE="$(WT_ROOT)/$(STORY)/.env" WT_ENVFILE="$(WT_ROOT)/$(STORY)/.env.worktree" COMPOSE_PROJECT_DIR="$(WT_ROOT)/$(STORY)/infra" \
+	@$(UNSET_STACK_ENV) $(MAKE) --no-print-directory -C "$(WT_ROOT)/$(STORY)/infra" -f "$(INFRA)/Makefile" infra-up \
 		|| { echo "error: the stack for $(STORY) did not come up. The worktree and its .env.worktree are in place; until the stack is up, store-backed tests there skip with named reasons."; \
 		     if grep -q '^worktree-start:' "$(WT_ROOT)/$(STORY)/infra/Makefile" 2>/dev/null; then \
 		       echo "  Start it with:"; \
@@ -681,7 +685,10 @@ check-stack:
 		python3 $(INFRA)/worktree_stack.py claim --worktree "$(dir $(WT_ENVFILE))" --worktree-root "$(WT_ROOT)" || exit 1; \
 	fi
 
-infra-up: check-docker check-env check-stack
+check-compose-identity:
+	@python3 $(INFRA)/worktree_stack.py assert-identity --worktree "$(dir $(WT_ENVFILE))" --project "$(MM_STACK_NAME)" --stack-id "$(MM_STACK_ID)"
+
+infra-up: check-docker check-env check-compose-identity check-stack
 	@python3 $(INFRA)/worktree_stack.py assert-identity --worktree "$(dir $(WT_ENVFILE))" --project "$(MM_STACK_NAME)" --stack-id "$(MM_STACK_ID)"
 	$(COMPOSE) up -d --wait
 
