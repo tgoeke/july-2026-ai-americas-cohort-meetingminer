@@ -32,6 +32,7 @@ import pytest
 from repo_paths import REPO_ROOT
 
 MAKEFILE_DIR = REPO_ROOT / "infra"
+MAKEFILE_PATH = MAKEFILE_DIR / "Makefile"
 PYPROJECT_PATH = REPO_ROOT / "server" / "pyproject.toml"
 REVIEW_PROMPT_PATH = (
     REPO_ROOT
@@ -206,23 +207,47 @@ def _tool_commands(printed: str, tool: str) -> list[list[str]]:
     return commands
 
 
-def _uv_argv(words: list[str]) -> list[str]:
-    """Return exactly what `uv run --project <server>` would execute."""
-    uv = words.index("uv")
-    assert words[uv : uv + 3] == ["uv", "run", "--project"], words
-    assert uv + 3 < len(words), words
-    assert Path(words[uv + 3]).resolve() == SERVER_DIR, words
-    return words[uv + 4 :]
+def _raw_recipe(target: str) -> list[str]:
+    """Return a target's literal recipe lines, preserving Make control prefixes."""
+    lines = MAKEFILE_PATH.read_text().splitlines()
+    header = next(
+        i for i, line in enumerate(lines) if not line.startswith("\t") and line.split(":", 1)[0] == target
+    )
+    recipe: list[str] = []
+    for line in lines[header + 1 :]:
+        if line.startswith("\t"):
+            recipe.append(line[1:])
+        elif recipe or line.strip():
+            break
+    return recipe
 
 
 def test_make_lint_runs_ruff_check_over_the_whole_server_tree() -> None:
     """One command, `ruff check` on server/ — sources and tests — so the rule
     set the committed baseline was measured against is what actually runs."""
+    expected_recipe = "cd $(ROOT) && uv run --project $(ROOT)/server ruff check $(ROOT)/server"
+    assert _raw_recipe("lint") == [expected_recipe], (
+        "`make lint` must not use Make failure suppression or shell control that can skip ruff; "
+        f"got {_raw_recipe('lint')}"
+    )
     commands = _tool_commands(_dry_run("lint"), "ruff")
     assert len(commands) == 1, f"`make lint` must run exactly one ruff command, got {commands}"
     words = commands[0]
-    assert _uv_argv(words) == ["ruff", "check", str(SERVER_DIR)], (
-        "`make lint` must execute exactly `ruff check <server>` with no scope-changing, "
+    expected = [
+        "cd",
+        str(REPO_ROOT),
+        "&&",
+        "uv",
+        "run",
+        "--project",
+        str(SERVER_DIR),
+        "ruff",
+        "check",
+        str(SERVER_DIR),
+    ]
+    assert words == expected, (
+        "`make lint` must execute exactly `cd <repo> && uv run --project <server> "
+        "ruff check <server>` with no scope-changing, "
         f"success-forcing, or intermediary command; got {words}"
     )
 
@@ -232,6 +257,7 @@ def test_make_lint_runs_ruff_check_over_the_whole_server_tree() -> None:
     (
         f"cd {REPO_ROOT} && uv run --project {SERVER_DIR} ruff check {SERVER_DIR} --exit-zero",
         f"cd {REPO_ROOT} && uv run --project {SERVER_DIR} echo ruff check {SERVER_DIR}",
+        f"cd {REPO_ROOT} || uv run --project {SERVER_DIR} ruff check {SERVER_DIR}",
     ),
 )
 def test_lint_contract_rejects_non_enforcing_recipes(
@@ -247,23 +273,44 @@ def test_make_typecheck_runs_mypy_bare_from_server() -> None:
     """One command, `python -m mypy` with no arguments, run from server/: the
     scope lives in `[tool.mypy] files`, so this target and any bare mypy run
     from server/ agree on it by construction."""
+    expected_recipe = "cd $(ROOT)/server && uv run --project $(ROOT)/server python -m mypy"
+    assert _raw_recipe("typecheck") == [expected_recipe], (
+        "`make typecheck` must not use Make failure suppression or shell control that can skip "
+        f"mypy; got {_raw_recipe('typecheck')}"
+    )
     commands = _tool_commands(_dry_run("typecheck"), "mypy")
     assert len(commands) == 1, f"`make typecheck` must run exactly one mypy command, got {commands}"
     words = commands[0]
-    assert words[0] == "cd" and Path(words[1]).resolve() == SERVER_DIR, (
-        f"mypy must run from server/ so it discovers pyproject's [tool.mypy]; got {words}"
-    )
-    assert _uv_argv(words) == ["python", "-m", "mypy"], (
-        "`make typecheck` must execute exactly `python -m mypy`; scope belongs in "
+    expected = [
+        "cd",
+        str(SERVER_DIR),
+        "&&",
+        "uv",
+        "run",
+        "--project",
+        str(SERVER_DIR),
+        "python",
+        "-m",
+        "mypy",
+    ]
+    assert words == expected, (
+        "`make typecheck` must execute exactly `cd <server> && uv run --project <server> "
+        "python -m mypy`; scope belongs in "
         f"`[tool.mypy] files`, not argv, and intermediary commands are forbidden: {words}"
     )
 
 
-def test_typecheck_contract_rejects_a_command_that_only_mentions_mypy(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    "recipe",
+    (
+        f"cd {SERVER_DIR} && uv run --project {SERVER_DIR} echo python -m mypy",
+        f"cd {SERVER_DIR} || uv run --project {SERVER_DIR} python -m mypy",
+    ),
+)
+def test_typecheck_contract_rejects_non_enforcing_recipes(
+    monkeypatch: pytest.MonkeyPatch, recipe: str
 ) -> None:
-    """An echo containing `python -m mypy` is not a typecheck invocation."""
-    recipe = f"cd {SERVER_DIR} && uv run --project {SERVER_DIR} echo python -m mypy"
+    """An echo or short-circuited `python -m mypy` is not a typecheck invocation."""
     monkeypatch.setattr(sys.modules[__name__], "_dry_run", lambda target: recipe)
     with pytest.raises(AssertionError):
         test_make_typecheck_runs_mypy_bare_from_server()
