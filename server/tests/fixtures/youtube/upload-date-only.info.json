@@ -1,0 +1,31 @@
+{
+  "id": "UploadOnly1",
+  "title": "A Recorded Talk",
+  "channel": "MeetingMiner Sandbox",
+  "duration": 240,
+  "upload_date": "20260812",
+  "format_id": "18",
+  "formats": [
+    {
+      "format_id": "140",
+      "ext": "m4a",
+      "vcodec": "none",
+      "acodec": "mp4a.40.2"
+    },
+    {
+      "format_id": "137",
+      "ext": "mp4",
+      "vcodec": "avc1.640028",
+      "acodec": "none"
+    }
+  ],
+  "subtitles": {
+    "en": [
+      {
+        "ext": "vtt",
+        "url": "https://example.invalid/captions.vtt"
+      }
+    ]
+  },
+  "automatic_captions": {}
+}

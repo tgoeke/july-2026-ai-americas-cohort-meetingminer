@@ -1,0 +1,37 @@
+{
+  "id": "AutoCapVid1",
+  "title": "Community Call",
+  "channel": "MeetingMiner Sandbox",
+  "duration": 600,
+  "upload_date": "20260812",
+  "format_id": "18",
+  "formats": [
+    {
+      "format_id": "140",
+      "ext": "m4a",
+      "vcodec": "none",
+      "acodec": "mp4a.40.2"
+    },
+    {
+      "format_id": "137",
+      "ext": "mp4",
+      "vcodec": "avc1.640028",
+      "acodec": "none"
+    }
+  ],
+  "subtitles": {},
+  "automatic_captions": {
+    "en": [
+      {
+        "ext": "vtt",
+        "url": "https://example.invalid/captions.vtt"
+      }
+    ],
+    "de": [
+      {
+        "ext": "vtt",
+        "url": "https://example.invalid/captions.vtt"
+      }
+    ]
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "id": "AudioOnly01",
+  "title": "Audio-only publication",
+  "channel": "MeetingMiner Sandbox",
+  "duration": 300,
+  "upload_date": "20260810",
+  "format_id": "140",
+  "formats": [
+    {
+      "format_id": "140",
+      "ext": "m4a",
+      "vcodec": "none",
+      "acodec": "mp4a.40.2"
+    }
+  ],
+  "subtitles": {},
+  "automatic_captions": {}
+}

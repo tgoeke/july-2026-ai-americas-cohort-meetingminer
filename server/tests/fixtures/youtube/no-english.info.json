@@ -1,0 +1,38 @@
+{
+  "id": "NoEnglish01",
+  "title": "Vortrag ohne Untertitel",
+  "channel": "MeetingMiner Sandbox",
+  "duration": 300,
+  "upload_date": "20260810",
+  "format_id": "18",
+  "formats": [
+    {
+      "format_id": "140",
+      "ext": "m4a",
+      "vcodec": "none",
+      "acodec": "mp4a.40.2"
+    },
+    {
+      "format_id": "137",
+      "ext": "mp4",
+      "vcodec": "avc1.640028",
+      "acodec": "none"
+    }
+  ],
+  "subtitles": {
+    "de": [
+      {
+        "ext": "vtt",
+        "url": "https://example.invalid/captions.vtt"
+      }
+    ]
+  },
+  "automatic_captions": {
+    "fr": [
+      {
+        "ext": "vtt",
+        "url": "https://example.invalid/captions.vtt"
+      }
+    ]
+  }
+}
