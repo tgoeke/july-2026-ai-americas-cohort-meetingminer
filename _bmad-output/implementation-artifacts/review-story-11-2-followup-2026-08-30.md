@@ -58,3 +58,11 @@
 - **Red regression:** `test_provision_rechecks_the_target_after_acquiring_the_lock` injected the first caller's valid publication at lock acquisition and failed at `assert written is False`; the waiter returned `written=True` and replaced the first record.
 - **Resolution:** Fixed on the review branch. A provisioner now rechecks and validates the target record immediately after acquiring `.provision.lock`; a record published while it waited is returned unchanged with `written=False`.
 - **Green verification:** The red regression and the complete `test_worktree_stack.py` suite, including the subprocess lock mutation test, passed: 129 tests.
+
+### Finding 5 — `worktree-remove` accepts a path traversal instead of a slug
+
+- **Location:** `infra/Makefile:394`
+- **Severity:** high
+- **Finding:** Unlike creation and start, `worktree-remove` checks only that `STORY` is nonempty. A traversal-shaped value can resolve `$(WT_ROOT)/$(STORY)` to a different linked checkout; because that target's own ownership record is valid for its actual directory, the new validation and owned teardown both approve deleting it.
+- **Evidence:** With an existing `$(WT_ROOT)/victim`, `STORY=../meetingminer-wt/victim` resolves back to that checkout. `worktree_stack.py check --worktree <resolved victim>` validates `meetingminer-victim`, `git worktree remove` removes the victim checkout, and the hardened `down` sees the victim's expected path/id and removes its volumes. No guard compares the user input with `SLUG_RULE` before path construction.
+- **Suggested direction:** Apply the exact creation/start slug validation before any target path or branch name is derived in `worktree-remove`; invalid input must perform no Git or Docker action.
