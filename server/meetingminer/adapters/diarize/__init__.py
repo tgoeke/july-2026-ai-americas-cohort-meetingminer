@@ -56,7 +56,7 @@ def _pyannote_available() -> bool:
             return False
         telemetry = importlib.import_module("pyannote.audio.telemetry")
         return callable(getattr(telemetry, "set_telemetry_metrics", None))
-    except Exception:
+    except Exception:  # noqa: BLE001
         # find_spec imports the parent package first: no `pyannote`
         # distribution at all raises ModuleNotFoundError, a broken parent
         # can raise while resolving its spec, and a partial provider install

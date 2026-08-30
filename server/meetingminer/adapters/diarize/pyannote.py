@@ -56,8 +56,8 @@ def _to_turns(output: Any) -> tuple[DiarizationTurn, ...]:
     canonical: dict[str, str] = {}
     turns: list[DiarizationTurn] = []
     for segment, _track, label in annotation.itertracks(yield_label=True):
-        start_ms = int(round(segment.start * 1000))
-        end_ms = int(round(segment.end * 1000))
+        start_ms = round(segment.start * 1000)
+        end_ms = round(segment.end * 1000)
         if end_ms <= start_ms:
             continue
         raw_label = str(label)
