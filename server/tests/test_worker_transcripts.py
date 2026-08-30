@@ -478,19 +478,32 @@ def test_a_pyannote_binding_fails_the_stage_with_the_documented_reason(
     make_recording_transcript_drop: Callable[..., Path],
     fake_ocr: Callable[..., FakeOcr],
     fake_stt: Callable[..., FakeStt],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_ocr(default=SCREEN_A)
     fake_stt()
+    token_env = "MM_TEST_HF_TOKEN"
+    monkeypatch.delenv(token_env, raising=False)
     config = app_config.model_copy(deep=True)
     config.settings.diarizer = config.settings.diarizer.model_copy(
-        update={"engine": "pyannote"}
+        update={
+            "engine": "pyannote",
+            "model": "unit-test-model",
+            "token_env": token_env,
+        }
     )
     job_id = enqueue(pool, make_recording_transcript_drop("source-pyannote"), "source-pyannote")
 
     assert runner.run_once(pool, config, content_root) is True
 
     assert stage_statuses(pool, job_id)["transcribe"] == "failed"
-    assert "not bundled" in (stage_error(pool, job_id, "transcribe") or "")
+    error = stage_error(pool, job_id, "transcribe") or ""
+    assert "noop" in error
+    if "not bundled" in error:
+        assert "uv sync --project server --extra diarize" in error
+    else:
+        assert token_env in error
+        assert "licence" in error
     assert job_row(pool, job_id)[0] == "failed"
 
 

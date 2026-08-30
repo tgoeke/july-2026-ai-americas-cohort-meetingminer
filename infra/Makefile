@@ -304,8 +304,10 @@ typecheck:
 # module list is pinned two ways in test_compose_contract.py; any new test module
 # whose behavior depends on pyannote must join both lists. Worker transcript
 # coverage needs ffmpeg and Postgres, so this target owns those prerequisites.
+# The cold provider import measured 16.01s in this isolated lane, so its explicit
+# 60s budget replaces the ordinary 2s fast-loop budget for this target only.
 diarize-extra-test: check-tools infra-up
-	cd $(ROOT) && uv run --locked --isolated --project $(ROOT)/server --extra diarize pytest -q -rs $(DIARIZE_EXTRA_TEST_MODULES)
+	cd $(ROOT) && uv run --locked --isolated --project $(ROOT)/server --extra diarize pytest -q -rs -o mm_fast_test_budget_seconds=60 $(DIARIZE_EXTRA_TEST_MODULES)
 
 # The iteration loop (story 11.1): check-client first, so a missing client
 # fails with its named message rather than as a Vite import error inside

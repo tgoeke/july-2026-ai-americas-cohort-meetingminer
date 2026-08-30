@@ -31,6 +31,7 @@ class Binding:
 
     engine: str
     model: str = "unit-test-model"
+    token_env: str = "MM_TEST_HF_TOKEN"
 
 
 # --- what config.yaml actually ships --------------------------------------
@@ -114,12 +115,20 @@ def test_build_diarizer_returns_the_noop_engine_which_offers_no_turns(
     assert diarizer.diarize(tmp_path / "audio.wav") == ()
 
 
-def test_pyannote_is_documented_not_bundled() -> None:
+def test_pyannote_is_documented_not_bundled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    binding = Binding(engine="pyannote")
+    monkeypatch.delenv(binding.token_env, raising=False)
     with pytest.raises(DiarizerError) as raised:
-        build_diarizer(Binding(engine="pyannote"))
+        build_diarizer(binding)
     message = str(raised.value)
-    assert "not bundled" in message
     assert "noop" in message
+    if "not bundled" in message:
+        assert "uv sync --project server --extra diarize" in message
+    else:
+        assert binding.token_env in message
+        assert "licence" in message
 
 
 def test_an_unknown_diarizer_name_names_the_valid_choices() -> None:

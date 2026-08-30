@@ -123,6 +123,8 @@ def test_make_test_gates_the_optional_diarizer_extra_in_an_isolated_environment(
         "pytest",
         "-q",
         "-rs",
+        "-o",
+        "mm_fast_test_budget_seconds=60",
         *[str(SERVER_TESTS / module) for module in DIARIZE_EXTRA_TEST_MODULES],
     ], words
 
