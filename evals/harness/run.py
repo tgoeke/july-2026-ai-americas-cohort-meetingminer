@@ -137,6 +137,26 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _existing_folder_refusal(folder: Path) -> RunError:
+    """The ownership refusal, worded for whichever record is in the way.
+
+    One builder for both discovery paths — the up-front ``exists()`` check
+    and the lost ``mkdir`` race below — so the two cannot drift into
+    different wordings for the same finding: another run owns this folder.
+    """
+    if (folder / VERDICT_NAME).exists():
+        return RunError(
+            f"{folder} already holds {VERDICT_NAME}: a run folder is"
+            " immutable once a verdict is recorded (eval-design §4.6)."
+            " Start a new run with a different --run-id."
+        )
+    return RunError(
+        f"{folder} already exists: a run gets its own folder, so an"
+        " interrupted or concurrent run is rerun under a new --run-id"
+        " rather than written over."
+    )
+
+
 def safe_name(value: str, *, field: str) -> str:
     """A run id or label, or a named error. Never a sanitized substitute.
 
@@ -241,19 +261,16 @@ class Run:
             safe_name(label, field="--run-label")
         folder = (Path(root) if root is not None else RUNS_ROOT) / run_id
         if folder.exists():
-            if (folder / VERDICT_NAME).exists():
-                raise RunError(
-                    f"{folder} already holds {VERDICT_NAME}: a run folder is"
-                    " immutable once a verdict is recorded (eval-design §4.6)."
-                    " Start a new run with a different --run-id."
-                )
-            raise RunError(
-                f"{folder} already exists: a run gets its own folder, so an"
-                " interrupted run is rerun under a new --run-id rather than"
-                " written over."
-            )
+            raise _existing_folder_refusal(folder)
         try:
             folder.mkdir(parents=True)
+        except FileExistsError as exc:
+            # The TOCTOU window: another run created the folder between the
+            # `exists()` check above and this `mkdir`. The loser gets the same
+            # ownership refusal an up-front collision gets — a generic
+            # "could not create" would send the operator after permissions
+            # when the finding is that a sibling run owns the namespace.
+            raise _existing_folder_refusal(folder) from exc
         except OSError as exc:
             raise RunError(f"could not create the run folder {folder}: {exc}") from exc
 
