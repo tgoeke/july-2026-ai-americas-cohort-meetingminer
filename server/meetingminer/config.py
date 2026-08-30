@@ -29,6 +29,7 @@ from quoted values.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Annotated, Literal
@@ -60,11 +61,15 @@ POSTGRES_PORT_ENV = "MM_POSTGRES_PORT"
 NEO4J_BOLT_PORT_ENV = "MM_NEO4J_BOLT_PORT"
 MEILI_PORT_ENV = "MM_MEILI_PORT"
 
-#: The keys ``.env.worktree`` may carry — and the only ones: the stack name,
-#: the seven host ports compose publishes, and the two test-twin URLs. The
-#: name and the ports may not appear in ``.env`` at all (the Makefile never
-#: reads them from there, so a value there would bind the loader and compose
-#: differently). Mirrors ``infra/worktree_stack.py`` STACK_KEYS.
+#: The keys ``.env.worktree`` must carry — exactly, and no others: the stack
+#: name, the seven host ports compose publishes, the stack's incarnation id,
+#: and the two test-twin URLs. The name and the ports may not appear in
+#: ``.env`` at all (the Makefile never reads them from there, so a value
+#: there would bind the loader and compose differently). Mirrors
+#: ``infra/worktree_stack.py`` STACK_KEYS; the schema is spelled in both
+#: places because that script must run stdlib-only under the system python3
+#: before a venv exists, while this package cannot import from ``infra/`` —
+#: ``test_config.py`` pins the two implementations equal.
 STACK_NAME_KEY = "MM_STACK_NAME"
 STACK_PORT_KEYS = (
     "MM_POSTGRES_PORT",
@@ -75,9 +80,24 @@ STACK_PORT_KEYS = (
     "MM_NEO4J_TEST_BOLT_PORT",
     "MM_MEILI_TEST_PORT",
 )
-WORKTREE_ENV_KEYS = frozenset(
-    (STACK_NAME_KEY, *STACK_PORT_KEYS, "MM_TEST_NEO4J_URI", "MM_TEST_MEILI_URL")
+STACK_ID_KEY = "MM_STACK_ID"
+TEST_NEO4J_URI_KEY = "MM_TEST_NEO4J_URI"
+TEST_MEILI_URL_KEY = "MM_TEST_MEILI_URL"
+#: Ordered as the renderer writes them; the frozenset serves membership.
+WORKTREE_ENV_KEY_ORDER = (
+    STACK_NAME_KEY,
+    *STACK_PORT_KEYS,
+    STACK_ID_KEY,
+    TEST_NEO4J_URI_KEY,
+    TEST_MEILI_URL_KEY,
 )
+WORKTREE_ENV_KEYS = frozenset(WORKTREE_ENV_KEY_ORDER)
+#: The main checkout's compose defaults: a worktree file that names one of
+#: these would reach the main stack (and wipe its twins), so the loader
+#: refuses it the way the provisioning script does.
+_MAIN_STACK_PORTS = frozenset({5433, 7474, 7687, 7700, 7475, 7688, 7701})
+_STACK_NAME_RE = re.compile(r"^meetingminer-[a-z0-9][a-z0-9_-]*$")
+_STACK_ID_RE = re.compile(r"^[0-9a-f]{12}$")
 
 # Test/ops overrides for the default file locations (used by the fail-fast
 # tests to point a subprocess at a missing/broken config without touching
@@ -823,6 +843,77 @@ def _read_env_file(path: Path) -> dict[str, str]:
     return {key: value for key, value in raw.items() if value is not None}
 
 
+def _validate_worktree_env(path: Path, values: dict[str, str]) -> None:
+    """Refuse any ``.env.worktree`` that is not a complete, coherent
+    generated file — the same schema ``infra/worktree_stack.py``'s
+    ``validate_env_file`` applies, minus its slug/directory check (the
+    loader does not know the checkout). Each refusal names the file and the
+    offending key.
+    """
+    remedy = (
+        ".env.worktree is generated whole by 'make worktree'; delete"
+        f" {path} and run 'make worktree-provision' in that worktree"
+    )
+    foreign = [key for key in values if key not in WORKTREE_ENV_KEYS]
+    if foreign:
+        raise ConfigError(
+            f"{path}: {', '.join(foreign)} is not a stack key —"
+            f" {WORKTREE_ENV_FILENAME} carries only"
+            f" {', '.join(sorted(WORKTREE_ENV_KEYS))}"
+        )
+    missing = [key for key in WORKTREE_ENV_KEY_ORDER if key not in values]
+    if missing:
+        raise ConfigError(f"{path}: missing {', '.join(missing)} — {remedy}")
+    blank = [key for key in WORKTREE_ENV_KEY_ORDER if not values[key].strip()]
+    if blank:
+        raise ConfigError(f"{path}: {', '.join(blank)} is blank — {remedy}")
+    if not _STACK_NAME_RE.match(values[STACK_NAME_KEY]):
+        raise ConfigError(
+            f"{path}: {STACK_NAME_KEY} is {values[STACK_NAME_KEY]!r}, not a"
+            f" meetingminer-<slug> stack name — {remedy}"
+        )
+    ports: dict[str, int] = {}
+    for key in STACK_PORT_KEYS:
+        raw = values[key]
+        if not (raw.isascii() and raw.isdigit()) or not 1 <= int(raw) <= 65535:
+            raise ConfigError(
+                f"{path}: {key} must be an integer port in 1..65535, got"
+                f" {raw!r} — {remedy}"
+            )
+        ports[key] = int(raw)
+    duplicated = [
+        key for key in STACK_PORT_KEYS
+        if list(ports.values()).count(ports[key]) > 1
+    ]
+    if duplicated:
+        raise ConfigError(
+            f"{path}: {', '.join(duplicated)} declare the same port — {remedy}"
+        )
+    clashing = [key for key in STACK_PORT_KEYS if ports[key] in _MAIN_STACK_PORTS]
+    if clashing:
+        raise ConfigError(
+            f"{path}: {', '.join(clashing)} names a main-checkout default"
+            f" port — a worktree on it would reach the main stack — {remedy}"
+        )
+    if not _STACK_ID_RE.match(values[STACK_ID_KEY]):
+        raise ConfigError(
+            f"{path}: {STACK_ID_KEY} must be 12 lowercase hex characters,"
+            f" got {values[STACK_ID_KEY]!r} — {remedy}"
+        )
+    expected_neo4j = f"bolt://localhost:{ports['MM_NEO4J_TEST_BOLT_PORT']}"
+    if values[TEST_NEO4J_URI_KEY] != expected_neo4j:
+        raise ConfigError(
+            f"{path}: {TEST_NEO4J_URI_KEY} is {values[TEST_NEO4J_URI_KEY]!r},"
+            f" not the declared test port's {expected_neo4j!r} — {remedy}"
+        )
+    expected_meili = f"http://localhost:{ports['MM_MEILI_TEST_PORT']}"
+    if values[TEST_MEILI_URL_KEY] != expected_meili:
+        raise ConfigError(
+            f"{path}: {TEST_MEILI_URL_KEY} is {values[TEST_MEILI_URL_KEY]!r},"
+            f" not the declared test port's {expected_meili!r} — {remedy}"
+        )
+
+
 def merged_env(env_path: Path) -> dict[str, str]:
     """The environment the loader sees: ``.env``, then ``.env.worktree``
     beside it, then the process environment — each overriding the last.
@@ -830,11 +921,16 @@ def merged_env(env_path: Path) -> dict[str, str]:
     ``.env`` is the secrets file ``env_path`` names (in a git worktree, a
     symlink to the main checkout's). ``.env.worktree`` is looked up beside
     that *path*, not its target, so each worktree reads its own generated
-    file; it may carry stack keys only (:data:`WORKTREE_ENV_KEYS`), and
-    ``.env`` may carry none of the stack name or port keys — either is a
-    named :class:`ConfigError`, so a secret can never be overridden from the
-    worktree file and a port can never be set where the Makefile does not
-    look. The process environment wins over both — except that a blank
+    file; when it exists it must be a complete, coherent generated file
+    (exactly :data:`WORKTREE_ENV_KEYS`, a ``meetingminer-<slug>`` name,
+    seven valid distinct non-default ports, the incarnation id, twin URLs
+    derived from the declared test ports — see
+    :func:`_validate_worktree_env`), and ``.env`` may carry none of the
+    stack name or port keys — each violation is a named
+    :class:`ConfigError`, so a secret can never be overridden from the
+    worktree file, a port can never be set where the Makefile does not
+    look, and a truncated file can never silently leave a worktree on the
+    main checkout's stack. The process environment wins over both — except that a blank
     process-env value never masks a real file value (finding 15: a stray
     `export VAR=` in a shell profile must not blank out a secret). docker
     compose is given the same two files in the same order; the Makefile
@@ -853,13 +949,7 @@ def merged_env(env_path: Path) -> dict[str, str]:
     worktree_env = env_path.parent / WORKTREE_ENV_FILENAME
     if worktree_env.is_file():
         overrides = _read_env_file(worktree_env)
-        foreign = [key for key in overrides if key not in WORKTREE_ENV_KEYS]
-        if foreign:
-            raise ConfigError(
-                f"{worktree_env}: {', '.join(foreign)} is not a stack key —"
-                f" {WORKTREE_ENV_FILENAME} carries only"
-                f" {', '.join(sorted(WORKTREE_ENV_KEYS))}"
-            )
+        _validate_worktree_env(worktree_env, overrides)
         merged.update(overrides)
     for key, value in os.environ.items():
         if value.strip() or key not in merged:

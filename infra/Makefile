@@ -15,7 +15,19 @@ ENVFILE := $(ROOT)/.env
 # second --env-file) read its stack keys; the loader reads it after .env.
 # Absent, every default below reproduces the main checkout's stack exactly.
 WT_ENVFILE := $(ROOT)/.env.worktree
-STACK_VARS := MM_STACK_NAME MM_POSTGRES_PORT MM_NEO4J_HTTP_PORT MM_NEO4J_BOLT_PORT MM_MEILI_PORT MM_NEO4J_TEST_HTTP_PORT MM_NEO4J_TEST_BOLT_PORT MM_MEILI_TEST_PORT
+STACK_VARS := MM_STACK_NAME MM_POSTGRES_PORT MM_NEO4J_HTTP_PORT MM_NEO4J_BOLT_PORT MM_MEILI_PORT MM_NEO4J_TEST_HTTP_PORT MM_NEO4J_TEST_BOLT_PORT MM_MEILI_TEST_PORT MM_STACK_ID
+# Parse-time guard, BEFORE the include: `-include` would let any assignment
+# in the file override this Makefile's own variables (ROOT, INFRA, COMPOSE,
+# ...). A file carrying any key outside the stack set is refused by name
+# before a single target runs — one sed per make invocation.
+STACK_FILE_KEYS := $(STACK_VARS) MM_TEST_NEO4J_URI MM_TEST_MEILI_URL
+ifneq ($(wildcard $(WT_ENVFILE)),)
+WT_ENVFILE_KEYS := $(shell sed -nE 's/^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=.*/\2/p' '$(WT_ENVFILE)')
+WT_ENVFILE_FOREIGN := $(filter-out $(STACK_FILE_KEYS),$(WT_ENVFILE_KEYS))
+ifneq ($(WT_ENVFILE_FOREIGN),)
+$(error $(WT_ENVFILE) assigns $(WT_ENVFILE_FOREIGN) — .env.worktree carries stack keys only ($(STACK_FILE_KEYS)); delete the file and run 'make worktree-provision' in that worktree)
+endif
+endif
 DEFAULT_MM_STACK_NAME := meetingminer
 DEFAULT_MM_POSTGRES_PORT := 5433
 DEFAULT_MM_NEO4J_HTTP_PORT := 7474
@@ -24,6 +36,8 @@ DEFAULT_MM_MEILI_PORT := 7700
 DEFAULT_MM_NEO4J_TEST_HTTP_PORT := 7475
 DEFAULT_MM_NEO4J_TEST_BOLT_PORT := 7688
 DEFAULT_MM_MEILI_TEST_PORT := 7701
+# The main stack has no incarnation id: the compose label renders empty.
+DEFAULT_MM_STACK_ID :=
 # Precedence, the same as compose's and the loader's: a non-blank process
 # environment value, then .env.worktree, then the default. The environment is
 # snapshotted first because an included file's assignment would replace it.
@@ -226,10 +240,20 @@ check-docker:
 # checkout) without its .env.worktree would resolve the main checkout's ports
 # everywhere — the loader, compose, the twins the test session wipes — so it
 # is refused by name here and at the test session's import (conftest.py).
+# An existing file must also VALIDATE (worktree_stack.py check: the exact
+# stack-key schema, and MM_STACK_NAME must be this directory's own) — a
+# truncated or copied file must never be accepted because it exists. The
+# main checkout is the mirror image: a .env.worktree there is misplaced and
+# refused by name, because the main checkout runs the main stack.
 check-env:
-	@if [ -f "$(ROOT)/.git" ] && [ ! -r "$(ROOT)/.env.worktree" ]; then \
-		echo "error: $(ROOT) is a linked git worktree with no .env.worktree — it would use the main checkout's Docker stack (story 11.2)."; \
-		echo "  Run 'make worktree-provision' here to write the file and start this worktree's own stack."; exit 1; fi
+	@if [ -f "$(ROOT)/.git" ]; then \
+		if [ ! -r "$(ROOT)/.env.worktree" ]; then \
+			echo "error: $(ROOT) is a linked git worktree with no .env.worktree — it would use the main checkout's Docker stack (story 11.2)."; \
+			echo "  Run 'make worktree-provision' here to write the file and start this worktree's own stack."; exit 1; fi; \
+		python3 $(INFRA)/worktree_stack.py check --worktree "$(ROOT)" || exit 1; \
+	elif [ -e "$(ROOT)/.env.worktree" ]; then \
+		echo "error: $(ROOT) is the main checkout but carries a .env.worktree — the main checkout runs the main stack (meetingminer); remove $(ROOT)/.env.worktree and use 'make worktree STORY=<slug>' for a private stack."; exit 1; \
+	fi
 	@[ -r "$(ENVFILE)" ] || { echo "error: $(ENVFILE) missing or unreadable — run 'make bootstrap' (it copies .env.example)."; exit 1; }
 	@grep -Eq '^[[:space:]]*(export[[:space:]]+)?MM_DROPS_ROOT[[:space:]]*=[[:space:]]*[^[:space:]#]' "$(ENVFILE)" \
 		|| { echo "error: MM_DROPS_ROOT is not set in $(ENVFILE)."; \

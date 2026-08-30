@@ -34,12 +34,15 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import os
 import re
+import secrets
 import socket
 import subprocess
 import sys
 import zlib
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -58,12 +61,27 @@ DEFAULT_PORTS: dict[str, int] = {
 PORT_NAMES: tuple[str, ...] = tuple(DEFAULT_PORTS)
 
 STACK_NAME_VAR = "MM_STACK_NAME"
+#: The stack's incarnation identity: 12 lowercase hex, generated per
+#: `provision`, stamped on every container and volume as the compose label
+#: `com.meetingminer.stack-id`. Two incarnations of the same slug share the
+#: directory, the project name and (deterministic allocator) usually the
+#: ports — the id is what tells them apart, so `claim` can tear down a stale
+#: same-named project instead of attaching to its volumes.
+STACK_ID_VAR = "MM_STACK_ID"
+STACK_ID_LABEL = "com.meetingminer.stack-id"
+_STACK_ID_RE = re.compile(r"^[0-9a-f]{12}$")
 TEST_NEO4J_URI_VAR = "MM_TEST_NEO4J_URI"
 TEST_MEILI_URL_VAR = "MM_TEST_MEILI_URL"
-#: Every key a rendered file carries; the loader refuses any other key in it.
-STACK_KEYS: tuple[str, ...] = (STACK_NAME_VAR, *PORT_NAMES, TEST_NEO4J_URI_VAR, TEST_MEILI_URL_VAR)
-#: The keys an existing file must carry to count as a usable stack.
-REQUIRED_KEYS: tuple[str, ...] = (STACK_NAME_VAR, *PORT_NAMES)
+#: Every key a rendered file carries, in the order it carries them — and the
+#: only keys: `validate_env_file` refuses a file whose key set differs, and
+#: the loader (`meetingminer.config.merged_env`) applies the same schema.
+STACK_KEYS: tuple[str, ...] = (
+    STACK_NAME_VAR,
+    *PORT_NAMES,
+    STACK_ID_VAR,
+    TEST_NEO4J_URI_VAR,
+    TEST_MEILI_URL_VAR,
+)
 MAIN_PROJECT = "meetingminer"
 PROJECT_PREFIX = "meetingminer-"
 ENV_FILENAME = ".env.worktree"
@@ -85,6 +103,9 @@ VOLUME_NAMES: tuple[str, ...] = (
 #: rejects (compose refuses ``.`` in a project name).
 SLUG_PATTERN = r"[a-z0-9][a-z0-9_-]*"
 _SLUG_RE = re.compile(rf"^{SLUG_PATTERN}$")
+#: A worktree stack's project name, exactly: the prefix plus a valid slug.
+#: `meetingminer-Foo` or `meetingminer-` is a foreign project, not ours.
+_PROJECT_RE = re.compile(rf"^{re.escape(PROJECT_PREFIX)}{SLUG_PATTERN}$")
 
 #: Bases 20000, 20010, ... 23990: a stack's seven ports are base+1..base+7,
 #: so the range stays inside 20000-23999.
@@ -193,16 +214,89 @@ def read_env_file(env_file: Path) -> dict[str, str]:
         raise StackError(f"{env_file} is unreadable: {exc}") from exc
 
 
-def check_env_file(env_file: Path) -> dict[str, str]:
-    """The values of an existing ``.env.worktree`` that is complete enough to
-    name a stack; an incomplete one is refused by name."""
+def _remedy(env_file: Path, slug: str) -> str:
+    return (
+        f"delete {env_file} and run 'make worktree-start STORY={slug}' from"
+        " the main checkout (or 'make worktree-provision' inside a post-11.2"
+        " worktree); the stack is recreated and its volumes discarded"
+    )
+
+
+def validate_env_file(env_file: Path, slug: str) -> dict[str, str]:
+    """The single ``.env.worktree`` schema: the values of a file that is this
+    checkout's complete, coherent ownership record — else a named refusal.
+
+    ``slug`` is the checkout's directory name (``make worktree`` always
+    creates ``<WT_ROOT>/<slug>`` and ``worktree-provision`` keys on it), so a
+    renamed or moved directory is refused by name: ``git worktree move`` is
+    not supported for a worktree with a stack.
+
+    The loader (``meetingminer.config.merged_env``) applies the same rules
+    minus this slug/directory check — it does not know the checkout. The rule
+    is spelled twice because this module must run stdlib-only under the
+    system ``python3`` before a venv exists, while the server package cannot
+    import from ``infra/``; ``test_config.py`` pins the two equal.
+    """
+    validate_slug(slug)
     values = read_env_file(env_file)
-    missing = [key for key in REQUIRED_KEYS if not values.get(key)]
+
+    def refuse(problem: str) -> StackError:
+        return StackError(f"{env_file}: {problem} — {_remedy(env_file, slug)}")
+
+    foreign = [key for key in values if key not in STACK_KEYS]
+    if foreign:
+        raise refuse(
+            f"{', '.join(foreign)} is not a stack key (the file carries"
+            f" exactly {', '.join(STACK_KEYS)})"
+        )
+    missing = [key for key in STACK_KEYS if key not in values]
     if missing:
-        raise StackError(
-            f"{env_file} is incomplete (missing {', '.join(missing)}) — a"
-            " worktree with a broken file would run on the main checkout's"
-            " stack; delete it and re-run"
+        raise refuse(f"missing {', '.join(missing)}")
+    blank = [key for key in STACK_KEYS if not values[key].strip()]
+    if blank:
+        raise refuse(f"{', '.join(blank)} is blank")
+    expected_name = stack_name(slug)
+    if values[STACK_NAME_VAR] != expected_name:
+        raise refuse(
+            f"{STACK_NAME_VAR} is {values[STACK_NAME_VAR]!r} but this checkout"
+            f" is {slug!r}, whose stack is {expected_name!r} ('git worktree"
+            " move' is not supported for a worktree with a stack)"
+        )
+    ports: dict[str, int] = {}
+    for name in PORT_NAMES:
+        raw = values[name]
+        if not (raw.isascii() and raw.isdigit()) or not 1 <= int(raw) <= 65535:
+            raise refuse(f"{name} must be an integer port in 1..65535, got {raw!r}")
+        ports[name] = int(raw)
+    duplicated = [
+        name for name in PORT_NAMES
+        if list(ports.values()).count(ports[name]) > 1
+    ]
+    if duplicated:
+        raise refuse(f"{', '.join(duplicated)} declare the same port")
+    defaults = set(DEFAULT_PORTS.values())
+    clashing = [name for name in PORT_NAMES if ports[name] in defaults]
+    if clashing:
+        raise refuse(
+            f"{', '.join(clashing)} names a main-checkout default port — a"
+            " worktree on it would reach the main stack"
+        )
+    if not _STACK_ID_RE.match(values[STACK_ID_VAR]):
+        raise refuse(
+            f"{STACK_ID_VAR} must be 12 lowercase hex characters, got"
+            f" {values[STACK_ID_VAR]!r}"
+        )
+    expected_neo4j = f"bolt://localhost:{ports['MM_NEO4J_TEST_BOLT_PORT']}"
+    if values[TEST_NEO4J_URI_VAR] != expected_neo4j:
+        raise refuse(
+            f"{TEST_NEO4J_URI_VAR} is {values[TEST_NEO4J_URI_VAR]!r}, not the"
+            f" declared test port's {expected_neo4j!r}"
+        )
+    expected_meili = f"http://localhost:{ports['MM_MEILI_TEST_PORT']}"
+    if values[TEST_MEILI_URL_VAR] != expected_meili:
+        raise refuse(
+            f"{TEST_MEILI_URL_VAR} is {values[TEST_MEILI_URL_VAR]!r}, not the"
+            f" declared test port's {expected_meili!r}"
         )
     return values
 
@@ -247,29 +341,58 @@ def declared_owners(worktree_root: Path) -> dict[str, Path]:
             name = parse_env_lines(env_file.read_text(encoding="utf-8")).get(STACK_NAME_VAR)
         except OSError:
             continue
-        if name:
+        # Only a valid meetingminer-<slug> name grants ownership: a broken
+        # sibling file must not break allocation, but neither may it claim
+        # `meetingminer` or a foreign project.
+        if name and _PROJECT_RE.match(name):
             owners.setdefault(name, env_file.parent)
     return owners
 
 
-def render_env(slug: str, ports: dict[str, int]) -> str:
-    """The ``.env.worktree`` text: the stack name, the seven ports, and the
-    two test-twin URLs the test session already reads by name."""
+def render_env(slug: str, ports: dict[str, int], stack_id: str) -> str:
+    """The ``.env.worktree`` text: the stack name, the seven ports, the
+    incarnation id, and the two test-twin URLs the test session reads by
+    name — exactly ``STACK_KEYS``, in order."""
     name = stack_name(slug)
+    if not _STACK_ID_RE.match(stack_id):
+        raise StackError(
+            f"{STACK_ID_VAR} must be 12 lowercase hex characters, got {stack_id!r}"
+        )
     lines = [
         f"# Generated by `make worktree STORY={slug}` (infra/worktree_stack.py):",
-        "# this worktree's private compose stack. Read by infra/Makefile",
-        "# (-include), docker compose (a second --env-file) and the config",
-        "# loader (after .env, before the process environment). Stack keys",
-        "# only: the loader refuses any other key here. Gitignored (.env.*).",
-        f"# `make worktree-remove STORY={slug}` tears the stack and its volumes",
-        "# down; `make test-db-prune` sweeps a stack whose worktree is gone.",
+        "# this worktree's private compose stack and its ownership record.",
+        "# Read by infra/Makefile (-include), docker compose (a second",
+        "# --env-file) and the config loader (after .env, before the process",
+        "# environment). Stack keys only: every reader refuses any other key",
+        "# here, and refuses an incomplete or incoherent file whole.",
+        "# MM_STACK_ID is this incarnation's identity, stamped on the stack's",
+        "# containers and volumes; a same-named stack without it is stale and",
+        "# is torn down before this worktree's stack starts. Gitignored",
+        f"# (.env.*). `make worktree-remove STORY={slug}` tears the stack and",
+        "# its volumes down; `make test-db-prune` sweeps a stack whose",
+        "# worktree is gone.",
         f"{STACK_NAME_VAR}={name}",
     ]
     lines.extend(f"{port_name}={ports[port_name]}" for port_name in PORT_NAMES)
+    lines.append(f"{STACK_ID_VAR}={stack_id}")
     lines.append(f"{TEST_NEO4J_URI_VAR}=bolt://localhost:{ports['MM_NEO4J_TEST_BOLT_PORT']}")
     lines.append(f"{TEST_MEILI_URL_VAR}=http://localhost:{ports['MM_MEILI_TEST_PORT']}")
     return "\n".join(lines) + "\n"
+
+
+@contextmanager
+def _provision_lock(worktree_root: Path) -> Iterator[None]:
+    """The one exclusion for allocation, publication, claiming and pruning:
+    ``<worktree_root>/.provision.lock``, held exclusively. A sweep that ran
+    against a pre-lock inventory snapshot could tear down a stack a
+    concurrent ``make worktree`` had just created (finding 7)."""
+    worktree_root.mkdir(parents=True, exist_ok=True)
+    with open(worktree_root / LOCK_FILENAME, "a", encoding="utf-8") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 def provision(
@@ -278,29 +401,34 @@ def provision(
     worktree_root: Path,
     probe: Probe = port_is_free,
 ) -> tuple[Path, bool]:
-    """Write ``<worktree>/.env.worktree`` for ``slug``; keep a complete one.
+    """Write ``<worktree>/.env.worktree`` for ``slug``; keep a valid one.
 
-    Returns the file path and whether it was written now. Allocation and the
-    write happen under a lock file in ``worktree_root`` so two concurrent
-    provisions cannot pick the same base. Nothing is written when no ports
-    can be allocated, and an incomplete existing file is refused by name.
+    Returns the file path and whether it was written now. An existing file
+    must pass :func:`validate_env_file` for this slug — a truncated,
+    hand-edited or copied file is refused by name, never kept. Allocation
+    and publication happen under :func:`_provision_lock` so two concurrent
+    provisions cannot pick the same base, and publication is atomic
+    (rendered to a temp file, ``os.replace``-d into place): nothing named
+    ``.env.worktree`` ever holds a partial write.
     """
     validate_slug(slug)
     env_file = worktree / ENV_FILENAME
     if env_file.is_file():
-        check_env_file(env_file)
+        validate_env_file(env_file, slug)
         return env_file, False
     if not worktree.is_dir():
         raise StackError(f"worktree directory does not exist: {worktree}")
+    temp_file = worktree / f"{ENV_FILENAME}.tmp-{os.getpid()}"
     try:
-        worktree_root.mkdir(parents=True, exist_ok=True)
-        with open(worktree_root / LOCK_FILENAME, "a", encoding="utf-8") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
+        with _provision_lock(worktree_root):
+            ports = allocate_ports(slug, taken_ports(worktree_root, exclude=worktree), probe)
+            text = render_env(slug, ports, secrets.token_hex(6))
             try:
-                ports = allocate_ports(slug, taken_ports(worktree_root, exclude=worktree), probe)
-                env_file.write_text(render_env(slug, ports), encoding="utf-8")
-            finally:
-                fcntl.flock(lock, fcntl.LOCK_UN)
+                temp_file.write_text(text, encoding="utf-8")
+                os.replace(temp_file, env_file)
+            except OSError:
+                temp_file.unlink(missing_ok=True)
+                raise
     except OSError as exc:
         raise StackError(f"cannot write {env_file}: {exc}") from exc
     return env_file, True
@@ -501,6 +629,12 @@ def _cmd_prune(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_check(args: argparse.Namespace) -> int:
+    worktree = Path(args.worktree).absolute()
+    validate_env_file(worktree / ENV_FILENAME, worktree.name)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -511,6 +645,11 @@ def main(argv: list[str] | None = None) -> int:
     provision_cmd.add_argument("--worktree", required=True)
     provision_cmd.add_argument("--worktree-root", required=True)
     provision_cmd.set_defaults(func=_cmd_provision)
+    check_cmd = commands.add_parser(
+        "check", help="validate <worktree>/.env.worktree against the directory name"
+    )
+    check_cmd.add_argument("--worktree", required=True)
+    check_cmd.set_defaults(func=_cmd_check)
     prune_cmd = commands.add_parser(
         "prune", help="tear down worktree stacks whose checkout is gone"
     )

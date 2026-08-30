@@ -46,7 +46,7 @@ from meetingminer.adapters.ocr.tesseract import TesseractOcr
 from meetingminer.adapters.stt.mlx_whisper import MlxWhisperStt
 from meetingminer.adapters.stt.parakeet_mlx import ParakeetMlxStt
 from meetingminer.adapters.stt.port import SttResult, SttSegment
-from meetingminer.config import AppConfig, load_config, merged_env
+from meetingminer.config import AppConfig, ConfigError, load_config, merged_env
 
 # The repo root lives in its own module so tests do not import the plugin
 # module for one constant (story 11.1); see repo_paths.py for the rule.
@@ -203,21 +203,48 @@ DEFAULT_TEST_NEO4J_URI = "bolt://localhost:7688"
 DEFAULT_TEST_MEILI_URL = "http://localhost:7701"
 
 
-def linked_worktree_without_stack(root: Path) -> str | None:
-    """The refusal for a linked git worktree that has no `.env.worktree`.
+def linked_worktree_refusal(root: Path) -> str | None:
+    """The refusal for a checkout whose `.env.worktree` state is unusable.
 
     `<root>/.git` is a file in a linked worktree and a directory in the main
-    checkout. Without the file the loader resolves the main checkout's
-    ports, so a suite here would run — and wipe twins — on the main stack,
-    which is exactly what the per-worktree stack exists to prevent. None
-    when the checkout is fine.
+    checkout. A linked worktree needs the file (else the loader resolves the
+    main checkout's ports, and a suite here would run — and wipe twins — on
+    the main stack), the file must pass the loader's whole-file validation
+    (`merged_env` raises a named `ConfigError` for a truncated, hand-edited
+    or foreign-keyed file), and its `MM_STACK_NAME` must be this directory's
+    own `meetingminer-<name>` — a copied file must never point the session
+    at another worktree's stack. A main checkout carrying the file is
+    refused too: it runs the main stack. None when the checkout is fine.
     """
-    if (root / ".git").is_file() and not (root / ".env.worktree").is_file():
+    linked = (root / ".git").is_file()
+    stack_file = root / ".env.worktree"
+    if linked and not stack_file.is_file():
         return (
             f"{root} is a linked git worktree with no .env.worktree — its"
             " store-backed tests would run against the main checkout's Docker"
             " stack. Run 'make worktree-provision' in that worktree to write"
             " the file and start its own stack (story 11.2)."
+        )
+    if not linked:
+        if stack_file.is_file():
+            return (
+                f"{root} is the main checkout but carries a .env.worktree —"
+                " the main checkout runs the main stack (meetingminer);"
+                f" remove {stack_file}."
+            )
+        return None
+    try:
+        env = merged_env(root / ".env")
+    except ConfigError as exc:
+        return str(exc)
+    expected = f"meetingminer-{root.name}"
+    if env.get("MM_STACK_NAME") != expected:
+        return (
+            f"{stack_file} declares MM_STACK_NAME="
+            f"{env.get('MM_STACK_NAME')!r} but this checkout is {root.name!r},"
+            f" whose stack is {expected!r} — a copied or moved file must not"
+            " point the test session at another worktree's stack ('git"
+            " worktree move' is not supported for a worktree with a stack)."
         )
     return None
 
@@ -232,7 +259,7 @@ def twin_endpoints(env: Mapping[str, str]) -> tuple[str, str]:
     )
 
 
-_STACK_REFUSAL = linked_worktree_without_stack(REPO_ROOT)
+_STACK_REFUSAL = linked_worktree_refusal(REPO_ROOT)
 if _STACK_REFUSAL is not None:
     raise RuntimeError(_STACK_REFUSAL)
 

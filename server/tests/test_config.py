@@ -823,16 +823,16 @@ def test_worktree_env_file_overrides_env_file(
     envfile = _stack_files(
         tmp_path,
         "MM_TEST_MEILI_URL=http://localhost:1\n",
-        "MM_TEST_MEILI_URL=http://localhost:2\n",
+        good_stack_text("probe"),
     )
-    assert merged_env(envfile)["MM_TEST_MEILI_URL"] == "http://localhost:2"
+    assert merged_env(envfile)["MM_TEST_MEILI_URL"] == "http://localhost:20007"
 
 
 def test_process_env_overrides_worktree_env_file(
     valid_config: Path, tmp_path: Path, no_port_overrides: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MM_MEILI_PORT", "20014")
-    envfile = _stack_files(tmp_path, "", "MM_MEILI_PORT=20004\n")
+    envfile = _stack_files(tmp_path, "", good_stack_text("probe"))
     assert load_config(valid_config, envfile).settings.stores.meilisearch.url == "http://localhost:20014"
 
 
@@ -840,7 +840,7 @@ def test_blank_process_env_does_not_mask_worktree_env_file(
     valid_config: Path, tmp_path: Path, no_port_overrides: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MM_MEILI_PORT", "")
-    envfile = _stack_files(tmp_path, "", "MM_MEILI_PORT=20004\n")
+    envfile = _stack_files(tmp_path, "", good_stack_text("probe"))
     assert load_config(valid_config, envfile).settings.stores.meilisearch.url == "http://localhost:20004"
 
 
@@ -853,12 +853,12 @@ def test_merged_env_precedence_is_env_then_worktree_then_process(
     monkeypatch.setenv("MM_POSTGRES_PORT", "")
     envfile = _stack_files(
         tmp_path,
-        "MM_TEST_NEO4J_URI=bolt://localhost:1\nMM_TEST_MEILI_URL=http://localhost:1\n",
-        "MM_TEST_MEILI_URL=http://localhost:2\nMM_MEILI_PORT=20004\nMM_POSTGRES_PORT=20001\n",
+        "POSTGRES_PASSWORD=from-env\nMM_TEST_MEILI_URL=http://localhost:1\n",
+        good_stack_text("probe"),
     )
     env = merged_env(envfile)
-    assert env["MM_TEST_NEO4J_URI"] == "bolt://localhost:1"  # .env alone
-    assert env["MM_TEST_MEILI_URL"] == "http://localhost:2"  # worktree over .env
+    assert env["POSTGRES_PASSWORD"] == "from-env"  # .env alone
+    assert env["MM_TEST_MEILI_URL"] == "http://localhost:20007"  # worktree over .env
     assert env["MM_MEILI_PORT"] == "30004"  # process over worktree
     assert env["MM_POSTGRES_PORT"] == "20001"  # blank process value does not mask
 
@@ -867,7 +867,7 @@ def test_worktree_env_file_refuses_a_key_that_is_not_a_stack_key(
     valid_config: Path, tmp_path: Path, no_port_overrides: None
 ) -> None:
     """A secret can never be overridden from the worktree file."""
-    envfile = _stack_files(tmp_path, "", "MM_MEILI_PORT=20004\nPOSTGRES_PASSWORD=sneaky\n")
+    envfile = _stack_files(tmp_path, "", good_stack_text("probe") + "POSTGRES_PASSWORD=sneaky\n")
     with pytest.raises(ConfigError, match=r"\.env\.worktree: POSTGRES_PASSWORD is not a stack key"):
         load_config(valid_config, envfile)
 
@@ -894,7 +894,7 @@ def test_worktree_env_file_is_found_beside_the_env_path_not_its_target(
     worktree = tmp_path / "wt"
     worktree.mkdir()
     (worktree / ".env").symlink_to(main / ".env")
-    (worktree / ".env.worktree").write_text("MM_MEILI_PORT=20004\n", encoding="utf-8")
+    (worktree / ".env.worktree").write_text(good_stack_text("wt"), encoding="utf-8")
     config = load_config(valid_config, worktree / ".env")
     assert config.settings.stores.meilisearch.url == "http://localhost:20004"
     assert config.secrets.postgres_password == "from-main"
@@ -905,9 +905,7 @@ def test_worktree_env_file_is_found_beside_the_env_path_not_its_target(
 def test_port_overrides_repoint_the_three_stores(
     valid_config: Path, tmp_path: Path, no_port_overrides: None
 ) -> None:
-    envfile = _stack_files(
-        tmp_path, "", "MM_POSTGRES_PORT=20001\nMM_NEO4J_BOLT_PORT=20003\nMM_MEILI_PORT=20004\n"
-    )
+    envfile = _stack_files(tmp_path, "", good_stack_text("probe"))
     stores = load_config(valid_config, envfile).settings.stores
     assert (stores.postgres.host, stores.postgres.port) == ("localhost", 20001)
     assert stores.neo4j.uri == "bolt://localhost:20003"
@@ -929,9 +927,15 @@ def test_port_overrides_are_inactive_when_unset(
 @pytest.mark.parametrize("name", PORT_OVERRIDES)
 @pytest.mark.parametrize("value", ["abc", "70000", "0", "-1", "1.5", "65536", "+5", "1_000", "\u0663"])
 def test_invalid_port_override_is_a_named_config_error(
-    valid_config: Path, tmp_path: Path, no_port_overrides: None, name: str, value: str
+    valid_config: Path,
+    tmp_path: Path,
+    no_port_overrides: None,
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    value: str,
 ) -> None:
-    envfile = _stack_files(tmp_path, "", f"{name}={value}\n")
+    monkeypatch.setenv(name, value)
+    envfile = _stack_files(tmp_path, "", None)
     with pytest.raises(ConfigError, match=rf"{name} must be an integer port in 1\.\.65535"):
         load_config(valid_config, envfile)
 
@@ -944,25 +948,32 @@ def _config_with(tmp_path: Path, old: str, new: str) -> Path:
 
 
 def test_port_override_adds_a_port_to_a_uri_without_one(
-    tmp_path: Path, no_port_overrides: None
+    tmp_path: Path, no_port_overrides: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config_path = _config_with(tmp_path, "uri: bolt://localhost:7687", "uri: bolt://host")
-    envfile = _stack_files(tmp_path, "", "MM_NEO4J_BOLT_PORT=1\n")
+    monkeypatch.setenv("MM_NEO4J_BOLT_PORT", "1")
+    envfile = _stack_files(tmp_path, "", None)
     assert load_config(config_path, envfile).settings.stores.neo4j.uri == "bolt://host:1"
 
 
-def test_port_override_keeps_userinfo_and_path(tmp_path: Path, no_port_overrides: None) -> None:
+def test_port_override_keeps_userinfo_and_path(
+    tmp_path: Path, no_port_overrides: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     config_path = _config_with(
         tmp_path, "url: http://localhost:7700", "url: http://u:p@127.0.0.1:7700/base"
     )
-    envfile = _stack_files(tmp_path, "", "MM_MEILI_PORT=20004\n")
+    monkeypatch.setenv("MM_MEILI_PORT", "20004")
+    envfile = _stack_files(tmp_path, "", None)
     assert load_config(config_path, envfile).settings.stores.meilisearch.url == "http://u:p@127.0.0.1:20004/base"
 
 
-def test_port_override_keeps_the_host_text_verbatim(tmp_path: Path, no_port_overrides: None) -> None:
+def test_port_override_keeps_the_host_text_verbatim(
+    tmp_path: Path, no_port_overrides: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Mixed case is kept (not lowercased through .hostname); IPv6 keeps its brackets."""
     config_path = _config_with(tmp_path, "uri: bolt://localhost:7687", "uri: bolt://Neo4jHost:7687")
-    envfile = _stack_files(tmp_path, "", "MM_NEO4J_BOLT_PORT=20003\n")
+    monkeypatch.setenv("MM_NEO4J_BOLT_PORT", "20003")
+    envfile = _stack_files(tmp_path, "", None)
     assert load_config(config_path, envfile).settings.stores.neo4j.uri == "bolt://Neo4jHost:20003"
     config_path = _config_with(tmp_path, "uri: bolt://localhost:7687", 'uri: "bolt://[::1]:7687"')
     assert load_config(config_path, envfile).settings.stores.neo4j.uri == "bolt://[::1]:20003"

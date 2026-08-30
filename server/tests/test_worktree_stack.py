@@ -20,7 +20,7 @@ from types import ModuleType
 import pytest
 from dotenv import dotenv_values
 
-from conftest import linked_worktree_without_stack, twin_endpoints
+from conftest import linked_worktree_refusal, twin_endpoints
 from meetingminer.config import merged_env
 from repo_paths import REPO_ROOT
 
@@ -69,6 +69,7 @@ def test_defaults_reproduce_todays_stack() -> None:
     assert ws.STACK_KEYS == (
         "MM_STACK_NAME",
         *ws.PORT_NAMES,
+        "MM_STACK_ID",
         "MM_TEST_NEO4J_URI",
         "MM_TEST_MEILI_URL",
     )
@@ -119,7 +120,7 @@ def test_sibling_declared_ports_count_as_taken(tmp_path: Path) -> None:
     (root / "other").mkdir(parents=True)
     home = ws.allocate_ports("probe", set(), ALL_FREE)
     (root / "other" / ".env.worktree").write_text(
-        ws.render_env("other", home), encoding="utf-8"
+        ws.render_env("other", home, GOOD_STACK_ID), encoding="utf-8"
     )
     taken = ws.taken_ports(root)
     assert taken == set(home.values())
@@ -132,7 +133,7 @@ def test_taken_ports_excludes_the_worktree_being_provisioned(tmp_path: Path) -> 
     mine = root / "mine"
     mine.mkdir(parents=True)
     (mine / ".env.worktree").write_text(
-        ws.render_env("mine", ws.ports_for_base(20000)), encoding="utf-8"
+        ws.render_env("mine", ws.ports_for_base(20000), GOOD_STACK_ID), encoding="utf-8"
     )
     assert ws.taken_ports(root, exclude=mine) == set()
     assert ws.taken_ports(root) == set(range(20001, 20008))
@@ -155,12 +156,13 @@ def test_exhaustion_is_a_named_error() -> None:
 
 def test_rendered_file_round_trips_through_dotenv_and_carries_stack_keys_only(tmp_path: Path) -> None:
     ports = ws.ports_for_base(20000)
-    text = ws.render_env("11-2-probe", ports)
+    text = ws.render_env("11-2-probe", ports, GOOD_STACK_ID)
     env_file = tmp_path / ".env.worktree"
     env_file.write_text(text, encoding="utf-8")
     values = dotenv_values(env_file)
     assert values["MM_STACK_NAME"] == "meetingminer-11-2-probe"
     assert {name: int(values[name]) for name in ws.PORT_NAMES} == ports
+    assert values["MM_STACK_ID"] == GOOD_STACK_ID
     assert values["MM_TEST_NEO4J_URI"] == "bolt://localhost:20006"
     assert values["MM_TEST_MEILI_URL"] == "http://localhost:20007"
     assert tuple(values) == ws.STACK_KEYS
@@ -196,7 +198,7 @@ def test_provision_refuses_an_incomplete_existing_file_by_name(tmp_path: Path, t
     worktree = tmp_path / "probe"
     worktree.mkdir()
     (worktree / ".env.worktree").write_text(text, encoding="utf-8")
-    with pytest.raises(ws.StackError, match=r"\.env\.worktree is incomplete \(missing .*delete it and re-run"):
+    with pytest.raises(ws.StackError, match=r"\.env\.worktree: missing .*delete"):
         ws.provision("probe", worktree, tmp_path, ALL_FREE)
     assert (worktree / ".env.worktree").read_text(encoding="utf-8") == text
 
@@ -329,7 +331,7 @@ def test_prune_treats_a_project_declared_by_a_sibling_file_as_owned(tmp_path: Pa
     moved = root / "renamed-dir"
     moved.mkdir(parents=True)
     (moved / ".env.worktree").write_text(
-        ws.render_env("orig", ws.ports_for_base(20000)), encoding="utf-8"
+        ws.render_env("orig", ws.ports_for_base(20000), GOOD_STACK_ID), encoding="utf-8"
     )
     ps = f"meetingminer-orig\t{tmp_path / 'old-place' / 'orig' / 'infra'}"  # gone
     fake = _FakeDocker(ps, "meetingminer-orig_postgres-data\tmeetingminer-orig")
@@ -456,25 +458,12 @@ def test_twin_endpoints_defaults_and_overrides(tmp_path: Path, monkeypatch: pyte
     envfile = tmp_path / ".env"
     envfile.write_text("POSTGRES_PASSWORD=x\n", encoding="utf-8")
     (tmp_path / ".env.worktree").write_text(
-        ws.render_env("probe", ws.ports_for_base(20000)), encoding="utf-8"
+        ws.render_env("probe", ws.ports_for_base(20000), GOOD_STACK_ID), encoding="utf-8"
     )
     assert twin_endpoints(merged_env(envfile)) == ("bolt://localhost:20006", "http://localhost:20007")
     monkeypatch.setenv("MM_TEST_MEILI_URL", "http://localhost:30007")
     assert twin_endpoints(merged_env(envfile)) == ("bolt://localhost:20006", "http://localhost:30007")
 
-
-def test_linked_worktree_without_stack_file_is_refused_by_name(tmp_path: Path) -> None:
-    linked = tmp_path / "linked"
-    linked.mkdir()
-    (linked / ".git").write_text("gitdir: /elsewhere/.git/worktrees/linked\n", encoding="utf-8")
-    message = linked_worktree_without_stack(linked)
-    assert message is not None
-    assert str(linked) in message and "make worktree-provision" in message
-    (linked / ".env.worktree").write_text("MM_STACK_NAME=meetingminer-linked\n", encoding="utf-8")
-    assert linked_worktree_without_stack(linked) is None
-    main = tmp_path / "main"
-    (main / ".git").mkdir(parents=True)
-    assert linked_worktree_without_stack(main) is None
 
 
 # --- remediation 2026-08-30: .env.worktree is one validated ownership record
