@@ -221,8 +221,9 @@ re-measures it.
   minor, kept green on main by a dated baseline (2026-08-30: a seven-code
   global ignore plus per-file entries), never a source sweep — violations
   live at measurement are filed for per-module retirement in
-  `_bmad-output/implementation-artifacts/deferred-work.md`, and new files
-  get the full rule set. `make test-fast` runs both directly after
+  `_bmad-output/implementation-artifacts/deferred-work.md`; a new file gets
+  every rule outside the seven globally ignored codes, which stay exempt
+  tree-wide until retired. `make test-fast` runs both directly after
   `check-client`, so an unused import or a type error in a decision core
   fails the loop before any pytest starts. The targets, the loop membership,
   the baseline and the mypy scope are pinned by

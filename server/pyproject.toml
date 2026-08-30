@@ -149,10 +149,14 @@ mm_fast_test_budget_seconds = "2.0"
 required-version = ">=0.16.5,<0.17"
 
 [tool.ruff.lint]
-# Seven mechanical codes carried 162 of the measured pairs. A per-file table
-# that size would drown the meaningful entries below, so these seven are
-# ignored globally and filed as per-module cleanup in deferred-work.md; every
-# other rule is live in every file. Hit counts at measurement:
+# The isolated 2026-08-30 run measured 200 file-code pairs; six mechanical
+# codes carried 151 of them, leaving the 49 per-file entries below. UP017 is
+# config-only: its 30 hits (11 more file-code pairs) appear on top of the
+# measured 200 once this file sets target-version. A per-file table for all
+# of that would drown the meaningful entries, so these seven codes are
+# ignored globally — tree-wide, new files included, until retired — and
+# filed as per-module cleanup in deferred-work.md; every other rule is live
+# in every file. Hit counts at measurement:
 ignore = [
     "I001",    # unsorted or unformatted import block (69 hits)
     "UP035",   # import from the deprecated typing aliases (50 hits)
@@ -166,8 +170,10 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 # The remaining 49 file-code pairs, verbatim from the same measurement, paths
-# relative to server/. New files get the full rule set; retiring an entry is
-# fixing the file and deleting its line (filed in deferred-work.md).
+# relative to server/. This table exempts only the existing files it lists;
+# a new file gets every rule outside the seven globally ignored codes above.
+# Retiring an entry is fixing the file and deleting its line (filed in
+# deferred-work.md).
 "meetingminer/adapters/diarize/__init__.py" = ["RUF022"]
 "meetingminer/adapters/embed/ollama.py" = ["UP041"]
 "meetingminer/api/chat_router.py" = ["RUF022"]

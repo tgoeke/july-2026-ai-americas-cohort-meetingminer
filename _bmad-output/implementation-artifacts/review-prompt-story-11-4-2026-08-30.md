@@ -31,12 +31,9 @@ main checkout before reporting completion.
   `/Users/devopsterus/current/cohort/meetingminer-wt/11-4` (branch
   `story/11-4`, bootstrapped), or make your own detached one.
 - Range: `origin/main..origin/story/11-4`, rebased onto main `211857c`.
-  Commits, oldest first (SHAs after the 2026-08-30 rebase):
-  - `7cdfad9` chore: pinned ruff+mypy dev deps with a dated committed baseline
-  - `645519f` chore: make lint/typecheck join the fast loop, pinned by contract tests
-  - `aeeca07` docs: file the 11.4 baseline retirement plan; spec change log
-  - plus the closing docs commit (AGENTS.md paragraph, sprint files, this
-    prompt) at the branch head.
+  Enumerate it yourself with `git log --oneline origin/main..origin/story/11-4`
+  rather than trusting a pasted list: the head commit carries this prompt,
+  and the 2026-08-30 review pass's patch commits are part of the range.
 - Footprint (build prompt): `server/pyproject.toml` (dev group + tool tables
   at EOF only), `infra/Makefile` (two inserted targets + the `test-fast:`
   rule line), `server/tests/test_compose_contract.py` main lines 294–308
@@ -67,7 +64,10 @@ main checkout before reporting completion.
   per-file-ignores table against
   `uv run --project server ruff check server --isolated --output-format concise`
   at ruff 0.16.5 minus the seven ignored codes (UP017 aside, which needs
-  the config's target-version to fire).
+  the config's target-version to fire). The 49-pair table was measured at
+  main `5cdfce7` and re-verified at main `211857c`; a later drive-by fix on
+  main would legitimately change the counts, so re-verify against the
+  branch's merge base, not against whatever main has since become.
 - **Stale prose left deliberately** (outside the permitted footprint):
   `server/tests/test_compose_contract.py:286-293` and the `test-fast:`
   comment block in `infra/Makefile` still say "the three store-free

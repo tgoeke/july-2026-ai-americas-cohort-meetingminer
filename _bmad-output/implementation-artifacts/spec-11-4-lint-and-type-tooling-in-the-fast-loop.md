@@ -2,7 +2,7 @@
 title: 'Lint and Type Tooling in the Fast Loop'
 type: 'chore'
 created: '2026-08-30'
-status: 'review'
+status: 'in-review'
 baseline_revision: '0da88e5ca064f66ecc347eabfb47279f8799f314'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -88,6 +88,23 @@ deferred: []
   lock and re-running `uv sync --project server`.
 
 ## Review Triage Log
+
+- 2026-08-30 review pass: 14 patch findings, all applied on-branch. Prose:
+  the "new files get the full rule set" claim was false for the seven-code
+  global ignore (three real occurrences fixed — pyproject, AGENTS.md,
+  deferred-work; the review's count of four/two included a repeat that did
+  not exist), the "162 pairs" comment conflated the isolated measurement
+  (200 pairs; 151 in six codes; 49 per-file) with UP017's config-only 11
+  pairs, and a requires-python quote dropped its "<3.13". Tests: [tool.ruff]
+  and [tool.mypy] key sets are now pinned exactly (extend-exclude and
+  ignore_errors were demonstrated live to hollow the checks while all
+  contract tests stayed green), required-version must equal the dev-group
+  pin's range, the 49-pair table is pinned shrink-only via BASELINE_PER_FILE,
+  helper drift now fails by name instead of crashing, and the compose
+  ordering test's name (line 297) now says lint and typecheck. Two new
+  deferred items: `make test` (the gate) runs neither tool — the loop is a
+  strict superset of the gate, medium — and lint/typecheck are missing from
+  `.PHONY`; both fixes sit outside this story's footprint.
 
 ## Design Notes
 

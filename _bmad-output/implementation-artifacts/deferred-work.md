@@ -22,7 +22,7 @@ also edits the pinned sets in `server/tests/test_lint_contract.py`.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-11-4-lint-and-type-tooling-in-the-fast-loop.md`
   summary: Retire ruff UP017 (`timezone.utc` for `datetime.UTC`, 30 hits in 11 files) — auto-fixable alias modernization.
-  evidence: Surfaced only by the committed config: `requires-python = ">=3.12"` sets ruff's target-version to py312, which the story's `--isolated` baseline run did not reach; added to the global ignore as the seventh dated code during the 11-4 build.
+  evidence: Surfaced only by the committed config: `requires-python = ">=3.12,<3.13"` sets ruff's target-version to py312, which the story's `--isolated` baseline run did not reach; added to the global ignore as the seventh dated code during the 11-4 build.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-11-4-lint-and-type-tooling-in-the-fast-loop.md`
   summary: Retire ruff SIM117 (nested `with` statements, 17 hits) per module.
@@ -37,7 +37,7 @@ also edits the pinned sets in `server/tests/test_lint_contract.py`.
   evidence: Same 2026-08-30 measurement; auto-fixable under `from __future__ import annotations`.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-11-4-lint-and-type-tooling-in-the-fast-loop.md`
-  summary: Retire the 49-pair `[tool.ruff.lint.per-file-ignores]` baseline entry by entry — fix a file, delete its line; new files already get the full rule set.
+  summary: Retire the 49-pair `[tool.ruff.lint.per-file-ignores]` baseline entry by entry — fix a file, delete its line; a new file is exempt only from the seven globally ignored codes, since this table names existing files alone.
   evidence: 49 file-code pairs across 38 files at the 2026-08-30 measurement; test_lint_contract.py fails when an entry names a file that no longer exists, so the table cannot rot silently.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-11-4-lint-and-type-tooling-in-the-fast-loop.md`
@@ -51,6 +51,14 @@ also edits the pinned sets in `server/tests/test_lint_contract.py`.
 - source_spec: `_bmad-output/implementation-artifacts/spec-11-4-lint-and-type-tooling-in-the-fast-loop.md`
   summary: Refresh two comments that now under-describe the fast loop: `server/tests/test_compose_contract.py:286-293` (the block above TEST_FAST_PREREQUISITES still says "the client check and the three store-free suites") and the `test-fast` comment block in `infra/Makefile` (same phrase).
   evidence: Story 11.4's footprint permitted only test_compose_contract.py lines 294-308 and the two Makefile edit sites (11-2 and the wave rules own the surrounding regions), so the prose was left stale deliberately; the contract tests, not these comments, pin the behavior.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-11-4-lint-and-type-tooling-in-the-fast-loop.md`
+  summary: Add `lint typecheck` to the full gate's `test:` prerequisite line (infra/Makefile:278), plus a dry-run assertion that `make -n test` prints a ruff and a mypy command — today the gate passes with a lint error present, and the loop is a strict superset of the gate for the first time. Severity: medium.
+  evidence: 2026-08-30 review pass on story 11.4. The footprint permitted only the `test-fast:` rule line, so `make test` — the documented only gate, with no CI — gained neither target; a gate-only merge that lands a violation on main would break `make test-fast` in every other worktree.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-11-4-lint-and-type-tooling-in-the-fast-loop.md`
+  summary: Add `lint` and `typecheck` to `.PHONY` in infra/Makefile; a file or directory named `lint` or `typecheck` under `infra/` would satisfy either target silently. One-word fix at integration.
+  evidence: 2026-08-30 review pass on story 11.4. The footprint forbade the `.PHONY` line ("No `.PHONY`/`help`/other Makefile lines").
 
 
 ## Deferred from: code review of spec-4-3-per-moment-approval-publishing.md (2026-08-21)
