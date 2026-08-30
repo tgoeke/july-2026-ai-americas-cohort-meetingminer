@@ -1,6 +1,6 @@
 """GET /extraction/prompts — the visible half of story 4.2 (epics AC1).
 
-Serves the two extraction prompt templates exactly as
+Serves the three extraction prompt templates exactly as
 ``llm.roles.extraction`` holds them in the running config (AD-10): no store,
 no cache, no re-derivation. The worker's ``extract`` stage
 (``pipeline/stages/extract.py``) reads the same
@@ -23,8 +23,9 @@ router = APIRouter()
 # The same `D`/`A` item-ID-prefix mapping the parser uses
 # (`pipeline/extraction.py`), spelled as the wire kinds `api/moments.py`
 # already pins: the architecture summary yields `adr` artifacts, the action
-# document `action-item` ones.
-ExtractionPromptKind = Literal["adr", "action-item"]
+# document `action-item` ones. The topics document (story 10.1) is served as
+# `topic` — not an artifact kind, but the same singular wire spelling.
+ExtractionPromptKind = Literal["adr", "action-item", "topic"]
 
 
 class ExtractionPrompt(BaseModel):
@@ -55,5 +56,6 @@ def get_extraction_prompts(request: Request) -> ExtractionPromptsResponse:
             ExtractionPrompt(
                 kind="action-item", prompt_text=binding.action_items_prompt
             ),
+            ExtractionPrompt(kind="topic", prompt_text=binding.topics_prompt),
         ]
     )

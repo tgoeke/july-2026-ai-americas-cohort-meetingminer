@@ -6,6 +6,7 @@ import {
   artifactsOfKind,
   durationStatLabel,
   evidenceDurationMs,
+  extractionPromptLabel,
   highlightRuns,
   lineageLabel,
   loadFailureOf,
@@ -44,6 +45,19 @@ describe('ARTIFACT_CATEGORIES', () => {
       'bug-fix',
       'change-request',
     ])
+  })
+})
+
+describe('extractionPromptLabel', () => {
+  it('reuses the rail label for artifact kinds and names Topics for topic', () => {
+    expect(extractionPromptLabel('adr')).toBe('ADRs')
+    expect(extractionPromptLabel('action-item')).toBe('Action items')
+    expect(extractionPromptLabel('topic')).toBe('Topics')
+  })
+
+  it('renders a kind newer than this file as itself rather than dropping it', () => {
+    const unknown = 'risk' as Parameters<typeof extractionPromptLabel>[0]
+    expect(extractionPromptLabel(unknown)).toBe('risk')
   })
 })
 

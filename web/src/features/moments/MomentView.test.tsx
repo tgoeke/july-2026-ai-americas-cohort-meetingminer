@@ -809,6 +809,27 @@ describe('MomentView', () => {
     )
   })
 
+  it('renders a topic-kind prompt under its Topics label', async () => {
+    answers(detail())
+    sdk.getExtractionPrompts.mockResolvedValue({
+      data: {
+        prompts: [
+          { kind: 'adr', promptText: 'You are an enterprise-architecture analyst.' },
+          { kind: 'action-item', promptText: 'You are an expert meeting analyst.' },
+          { kind: 'topic', promptText: 'List every topic of discussion.' },
+        ],
+      },
+      error: undefined,
+    })
+    render(<MomentView momentId="moment-1" />)
+
+    const section = await screen.findByTestId('extraction-prompts')
+    expect(section).toHaveTextContent('Topics')
+    expect(screen.getByTestId('extraction-prompt-topic')).toHaveTextContent(
+      'List every topic of discussion.',
+    )
+  })
+
   it('degrades silently when the extraction prompts fetch fails', async () => {
     answers(detail())
     sdk.getExtractionPrompts.mockRejectedValue(new Error('connection refused'))

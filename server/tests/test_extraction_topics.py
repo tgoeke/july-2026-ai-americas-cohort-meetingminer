@@ -1,0 +1,683 @@
+"""Story 10.1: the topics document — parser, prompt, config, and the stage's third pass.
+
+Parser tests are store-free string work over `pipeline/extraction.py`. The
+stage tests are DB-backed (named skip when the compose Postgres is down) and
+model-free by construction: the topics document is always *generated*, so the
+scripted FakeLlm's replies queue is the topics reply — the two artifact
+documents are adopted from the drop and make zero model calls, which keeps
+each test's script unambiguous about which document it feeds.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from typing import Any, Callable
+from uuid import UUID
+
+import pytest
+from psycopg_pool import ConnectionPool
+
+from meetingminer.config import AppConfig
+from meetingminer.pipeline import extraction as core
+from meetingminer.pipeline import runner
+
+from conftest import EMPTY_EXTRACTION_DOCUMENT, DropFactory, FakeLlm, valid_metadata
+from test_worker_runner import (
+    enqueue,
+    job_row,
+    meetings,
+    set_job_status,
+    set_stage,
+    stage_error,
+)
+
+
+# --- the parser: the topics document kind ------------------------------------
+
+TOPICS_TABLE_DOC = """\
+# Topics — Data Hub Demo
+
+## Topics
+
+| ID | Topic | Gist | Timestamps |
+|----|-------|------|------------|
+| **T1** | Vendor feed transport | Moving the vendor feed to SFTP | [0:10], [0:45] |
+| T2 | Credential ownership | Ellis owns the SFTP credentials | [1:35] |
+"""
+
+# The same two topics as bullets — the layouts must parse identically.
+TOPICS_BULLET_DOC = """\
+## Topics
+
+- **T1** – Vendor feed transport – Moving the vendor feed to SFTP – [0:10], [0:45]
+- T2 — Credential ownership — Ellis owns the SFTP credentials — [1:35]
+"""
+
+
+def test_the_table_layout_parses_topics_with_every_anchor() -> None:
+    parsed = core.parse_extraction_document(TOPICS_TABLE_DOC, core.DOC_TOPICS)
+    assert parsed.kind == core.DOC_TOPICS
+    assert parsed.layout == "table"
+    assert [a.kind for a in parsed.artifacts] == [core.KIND_TOPIC, core.KIND_TOPIC]
+    assert [a.item_id for a in parsed.artifacts] == ["T1", "T2"]
+    assert [a.title for a in parsed.artifacts] == [
+        "Vendor feed transport",
+        "Credential ownership",
+    ]
+    # Every stamp, in written order — topics need every place they were
+    # discussed, not only the earliest.
+    assert parsed.artifacts[0].anchors_ms == (10_000, 45_000)
+    assert parsed.artifacts[0].anchor_ms == 10_000
+    assert parsed.artifacts[1].anchors_ms == (95_000,)
+    assert parsed.populated_target_sections == ("Topics",)
+
+
+def test_the_bullet_layout_parses_the_same_topics() -> None:
+    table = core.parse_extraction_document(TOPICS_TABLE_DOC, core.DOC_TOPICS)
+    bullets = core.parse_extraction_document(TOPICS_BULLET_DOC, core.DOC_TOPICS)
+    assert bullets.layout == "bullet"
+    assert [(a.item_id, a.title, a.anchors_ms) for a in bullets.artifacts] == [
+        (a.item_id, a.title, a.anchors_ms) for a in table.artifacts
+    ]
+
+
+def test_range_and_comma_stamps_all_land_in_anchors_ms() -> None:
+    document = (
+        "## Topics\n"
+        "\n"
+        "| ID | Topic | Gist | Timestamps |\n"
+        "|----|-------|------|------------|\n"
+        "| T1 | Vendor feed transport | Moving to SFTP | (0:10‑0:45, 1:35) |\n"
+    )
+    [topic] = core.parse_extraction_document(document, core.DOC_TOPICS).artifacts
+    assert topic.anchors_ms == (10_000, 45_000, 95_000)
+    assert topic.anchor_ms == 10_000
+
+
+def test_a_topic_without_a_timestamp_is_a_named_parse_error() -> None:
+    document = (
+        "## Topics\n"
+        "\n"
+        "| ID | Topic | Gist | Timestamps |\n"
+        "|----|-------|------|------------|\n"
+        "| T1 | Vendor feed transport | Moving to SFTP | not stated |\n"
+    )
+    with pytest.raises(core.ArtifactParseError, match="T1"):
+        core.parse_extraction_document(document, core.DOC_TOPICS)
+
+
+def test_a_document_with_no_structure_is_a_parse_error() -> None:
+    with pytest.raises(core.ArtifactParseError):
+        core.parse_extraction_document(
+            "The meeting covered many topics in a free-flowing way.",
+            core.DOC_TOPICS,
+        )
+
+
+def test_topic_ids_dedup_document_globally() -> None:
+    document = (
+        "## Topics\n"
+        "\n"
+        "| ID | Topic | Gist | Timestamps |\n"
+        "|----|-------|------|------------|\n"
+        "| T1 | Vendor feed transport | First definition | [0:10] |\n"
+        "\n"
+        "## More topics\n"
+        "\n"
+        "| ID | Topic | Gist | Timestamps |\n"
+        "|----|-------|------|------------|\n"
+        "| T1 | Vendor feed restated | A restatement | [0:45] |\n"
+        "| T2 | Credential ownership | Second topic | [1:35] |\n"
+    )
+    parsed = core.parse_extraction_document(document, core.DOC_TOPICS)
+    # Topics are numbered once for the whole document (unlike the action
+    # document's per-owner sections): the restated T1 is not a second topic.
+    assert [(a.item_id, a.title) for a in parsed.artifacts] == [
+        ("T1", "Vendor feed transport"),
+        ("T2", "Credential ownership"),
+    ]
+
+
+def test_non_t_ids_are_structure_not_topics() -> None:
+    # `R1` carries no timestamp: if it were mistaken for a topic this would be
+    # a missing-anchor error, so a clean zero-topic parse proves non-T ids are
+    # read as structure only.
+    document = (
+        "## Topics\n"
+        "\n"
+        "| ID | Topic | Gist | Timestamps |\n"
+        "|----|-------|------|------------|\n"
+        "| R1 | Not a topic | A risk id | not stated |\n"
+    )
+    parsed = core.parse_extraction_document(document, core.DOC_TOPICS)
+    assert parsed.artifacts == ()
+    assert parsed.populated_target_sections == ("Topics",)
+
+
+def test_every_heading_is_a_target_for_the_topics_document() -> None:
+    # Real-world heading drift: the section is not called "Topics" and the
+    # parse must not care.
+    document = (
+        "## Discussion themes\n"
+        "\n"
+        "| ID | Topic | Gist | Timestamps |\n"
+        "|----|-------|------|------------|\n"
+        "| T1 | Vendor feed transport | Moving to SFTP | [0:10] |\n"
+    )
+    parsed = core.parse_extraction_document(document, core.DOC_TOPICS)
+    assert [a.item_id for a in parsed.artifacts] == ["T1"]
+
+
+def test_the_shared_empty_document_parses_to_zero_topics() -> None:
+    # The conftest default every worker test walks past: a Decisions-only
+    # header must stay a successful zero-topic parse, or every existing
+    # worker test fails the moment the stage grows its third pass.
+    parsed = core.parse_extraction_document(EMPTY_EXTRACTION_DOCUMENT, core.DOC_TOPICS)
+    assert parsed.artifacts == ()
+    assert parsed.layout == core.LAYOUT_NONE
+    assert parsed.populated_target_sections == ()
+
+
+def test_proposed_artifact_anchors_ms_defaults_to_empty() -> None:
+    proposal = core.ProposedArtifact(
+        kind=core.KIND_ADR,
+        title="t",
+        body="b",
+        anchor_ms=0,
+        item_id="D1",
+        layout=core.LAYOUT_TABLE,
+    )
+    assert proposal.anchors_ms == ()
+
+
+def test_topic_gist_strips_timestamp_bookkeeping_in_both_layouts() -> None:
+    for document in (TOPICS_TABLE_DOC, TOPICS_BULLET_DOC):
+        parsed = core.parse_extraction_document(document, core.DOC_TOPICS)
+        assert core.topic_gist(parsed.artifacts[0]) == "Moving the vendor feed to SFTP"
+        assert core.topic_gist(parsed.artifacts[1]) == "Ellis owns the SFTP credentials"
+
+
+# --- the prompt builder and the config binding -------------------------------
+
+
+def test_build_topics_prompt_composes_the_template_verbatim() -> None:
+    template = "TOPICS TEMPLATE TEXT"
+    transcript = "[0:02] Goeke, Timothy: Everybody, good morning."
+    prompt = core.build_prompt(
+        core.DOC_TOPICS,
+        transcript,
+        template=template,
+        meeting_title="Data Hub Demo",
+        meeting_date="8/5/2026",
+    )
+    assert prompt.startswith(template)
+    assert "Meeting: Data Hub Demo" in prompt
+    assert "This meeting took place on 8/5/2026." in prompt
+    assert "Raw transcript:\n\n" + transcript in prompt
+    assert prompt == core.build_topics_prompt(
+        transcript,
+        template=template,
+        meeting_title="Data Hub Demo",
+        meeting_date="8/5/2026",
+    )
+
+
+def test_the_committed_topics_prompt_is_bound_and_parseable_in_shape(
+    app_config: AppConfig,
+) -> None:
+    binding = app_config.settings.llm.roles.extraction
+    text = binding.topics_prompt
+    assert text.strip()
+    # The load-bearing shape the parser keys on.
+    assert "## Topics" in text
+    assert "| ID | Topic | Gist | Timestamps |" in text
+    assert "[m:ss]" in text
+    assert "must not be written" in text
+    # Story 6.7's generalisation: meetings and recorded sessions alike, and
+    # never a source-tool name.
+    assert "meeting or recorded session" in text
+    assert "Teams" not in text
+
+
+def test_a_missing_topics_prompt_key_is_refused_at_validation() -> None:
+    """The I/O matrix's fail-fast row: no code-level default exists (AD-10).
+
+    `NonEmptyText` is required, so a config lacking the key never loads —
+    the same startup refusal the other two prompt fields already earn.
+    """
+    import pydantic
+
+    from meetingminer.config import ExtractionRoleBinding
+
+    with pytest.raises(pydantic.ValidationError, match="topics_prompt"):
+        ExtractionRoleBinding.model_validate(
+            {
+                "model": "ollama/some-model",
+                "arch_summary_prompt": "summary text",
+                "action_items_prompt": "actions text",
+            }
+        )
+
+
+# --- the stage's third pass (DB-backed) --------------------------------------
+
+# Three turns spaced past the configured 20s moment gap: three moments, so
+# anchors can land on different moments in one run.
+MULTI_MOMENT_TRANSCRIPT = (
+    "[0:02] Goeke, Timothy: We will standardize on SFTP for the vendor feed.\n"
+    "[0:40] Whitmore, Ellis: I will set up the credentials this week.\n"
+    "[1:30] Goeke, Timothy: Nothing else to report today.\n"
+)
+
+SUMMARY_DOC = """\
+## Decisions
+
+| ID | Decision | Context and consequences | Mark | Timestamp |
+|----|----------|--------------------------|------|-----------|
+| D1 | Standardize on SFTP | Replaces the shared mailbox | Confirmed | [0:10] |
+"""
+
+ACTIONS_DOC = """\
+## Action items
+
+| ID | Action | Details and dependency | Owner | Timing (as stated) | Status | Timestamp |
+|----|--------|------------------------|-------|---------------------|--------|-----------|
+| A1 | Set up the SFTP credentials | Needs the vendor key | Whitmore, Ellis | this week | Committed | [1:35] |
+"""
+
+# `[0:10]` is in moment 0, `[0:45]` in moment 1, `[1:35]` in moment 2.
+TOPICS_DOC = """\
+## Topics
+
+| ID | Topic | Gist | Timestamps |
+|----|-------|------|------------|
+| T1 | Vendor feed transport | Moving the vendor feed to SFTP | [0:10], [0:45] |
+| T2 | Credential ownership | Ellis owns the SFTP credentials | [1:35] |
+"""
+
+
+@pytest.fixture()
+def pool(test_pool: ConnectionPool) -> ConnectionPool:
+    from conftest import truncate_evidence
+
+    truncate_evidence(test_pool)
+    return test_pool
+
+
+@pytest.fixture()
+def make_extraction_drop(make_drop: DropFactory) -> Callable[[str], Any]:
+    """A transcript drop that carries BOTH artifact documents.
+
+    Adopting them makes the artifact passes call-free, so the FakeLlm's
+    scripted replies queue is read by exactly one caller: the topics pass.
+    """
+
+    def _make(source_id: str) -> Any:
+        drop = make_drop(metadata=valid_metadata(source_id), files=())
+        (drop / "transcript.txt").write_text(MULTI_MOMENT_TRANSCRIPT, encoding="utf-8")
+        (drop / "extraction-summary.md").write_text(SUMMARY_DOC, encoding="utf-8")
+        (drop / "extraction-action-items.md").write_text(ACTIONS_DOC, encoding="utf-8")
+        return drop
+
+    return _make
+
+
+def moment_ids(pool: ConnectionPool, meeting_id: UUID) -> list[UUID]:
+    with pool.connection() as conn:
+        return [
+            row[0]
+            for row in conn.execute(
+                "SELECT id FROM moment WHERE meeting_id = %s ORDER BY start_ms, id",
+                (meeting_id,),
+            ).fetchall()
+        ]
+
+
+def topic_rows(pool: ConnectionPool, meeting_id: UUID) -> list[dict[str, Any]]:
+    with pool.connection() as conn:
+        rows = conn.execute(
+            "SELECT id, name, gist, provenance FROM topic"
+            " WHERE meeting_id = %s ORDER BY created_at, id",
+            (meeting_id,),
+        ).fetchall()
+    return [
+        {"id": row[0], "name": row[1], "gist": row[2], "provenance": row[3]}
+        for row in rows
+    ]
+
+
+def mention_rows(pool: ConnectionPool, topic_id: UUID) -> list[tuple[UUID, int]]:
+    with pool.connection() as conn:
+        return [
+            (row[0], row[1])
+            for row in conn.execute(
+                "SELECT moment_id, anchor_ms FROM topic_mention"
+                " WHERE topic_id = %s ORDER BY anchor_ms",
+                (topic_id,),
+            ).fetchall()
+        ]
+
+
+def topics_source(pool: ConnectionPool, meeting_id: UUID) -> dict[str, Any] | None:
+    with pool.connection() as conn:
+        row = conn.execute(
+            "SELECT origin, drop_relative_path, sha256, byte_size, layout,"
+            " item_count, artifact_count, model, prompt_version, prompt_hash"
+            " FROM extraction_source WHERE meeting_id = %s AND kind = 'topics'",
+            (meeting_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return {
+        "origin": row[0],
+        "drop_relative_path": row[1],
+        "sha256": row[2],
+        "byte_size": row[3],
+        "layout": row[4],
+        "item_count": row[5],
+        "artifact_count": row[6],
+        "model": row[7],
+        "prompt_version": row[8],
+        "prompt_hash": row[9],
+    }
+
+
+def log_events(capsys: pytest.CaptureFixture[str]) -> list[dict[str, Any]]:
+    return [
+        json.loads(line)
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith("{")
+    ]
+
+
+def requeue_extract(pool: ConnectionPool, job_id: UUID) -> None:
+    set_stage(pool, job_id, "extract", "queued")
+    set_job_status(pool, job_id, "queued")
+
+
+def test_topics_land_as_rows_with_a_mention_per_containing_moment(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_extraction_drop: Callable[[str], Any],
+    fake_llm: Callable[..., FakeLlm],
+) -> None:
+    engine = fake_llm(replies=(TOPICS_DOC,))
+    job_id = enqueue(pool, make_extraction_drop("source-topics"), "source-topics")
+
+    assert runner.run_once(pool, app_config, content_root) is True
+    assert job_row(pool, job_id) == ("done", None)
+
+    # Both artifact documents were adopted; the one call is the topics pass,
+    # over the whole transcript, carrying the committed template.
+    assert len(engine.calls) == 1
+    binding = app_config.settings.llm.roles.extraction
+    assert engine.calls[0].startswith(binding.topics_prompt)
+    assert "[1:30] Goeke, Timothy: Nothing else to report today." in engine.calls[0]
+
+    [meeting] = meetings(pool, job_id)
+    moments = moment_ids(pool, meeting["id"])
+    assert len(moments) == 3
+
+    topics = topic_rows(pool, meeting["id"])
+    assert [(topic["name"], topic["gist"]) for topic in topics] == [
+        ("Vendor feed transport", "Moving the vendor feed to SFTP"),
+        ("Credential ownership", "Ellis owns the SFTP credentials"),
+    ]
+    prompt_hash = hashlib.sha256(binding.topics_prompt.encode()).hexdigest()[:16]
+    for topic in topics:
+        assert topic["provenance"]["source"] == "generated"
+        assert topic["provenance"]["model"] == "fake-llm"
+        assert topic["provenance"]["prompt_version"] == core.PROMPT_VERSION
+        assert topic["provenance"]["prompt_hash"] == prompt_hash
+        assert topic["provenance"]["document_kind"] == "topics"
+    assert topics[0]["provenance"]["item_id"] == "T1"
+
+    # T1's two stamps land in two different moments; T2's one in the third.
+    assert mention_rows(pool, topics[0]["id"]) == [
+        (moments[0], 10_000),
+        (moments[1], 45_000),
+    ]
+    assert mention_rows(pool, topics[1]["id"]) == [(moments[2], 95_000)]
+
+    source = topics_source(pool, meeting["id"])
+    assert source == {
+        "origin": "generated",
+        "drop_relative_path": None,
+        "sha256": hashlib.sha256(TOPICS_DOC.encode()).hexdigest(),
+        "byte_size": len(TOPICS_DOC.encode()),
+        "layout": "table",
+        "item_count": 2,
+        "artifact_count": 2,
+        "model": "fake-llm",
+        "prompt_version": core.PROMPT_VERSION,
+        "prompt_hash": prompt_hash,
+    }
+
+    # Topics are not artifacts: nothing entered the lifecycle table for them.
+    with pool.connection() as conn:
+        kinds = {
+            row[0]
+            for row in conn.execute(
+                "SELECT DISTINCT kind FROM artifact WHERE meeting_id = %s",
+                (meeting["id"],),
+            ).fetchall()
+        }
+    assert kinds == {"adr", "action-item"}
+
+
+def test_two_stamps_inside_one_moment_collapse_to_the_earliest(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_extraction_drop: Callable[[str], Any],
+    fake_llm: Callable[..., FakeLlm],
+) -> None:
+    document = (
+        "## Topics\n"
+        "\n"
+        "| ID | Topic | Gist | Timestamps |\n"
+        "|----|-------|------|------------|\n"
+        "| T1 | Vendor feed transport | Discussed twice in one moment | [0:10], [0:05] |\n"
+    )
+    fake_llm(replies=(document,))
+    job_id = enqueue(pool, make_extraction_drop("source-collapse"), "source-collapse")
+    assert runner.run_once(pool, app_config, content_root) is True
+    assert job_row(pool, job_id) == ("done", None)
+
+    [meeting] = meetings(pool, job_id)
+    moments = moment_ids(pool, meeting["id"])
+    [topic] = topic_rows(pool, meeting["id"])
+    # One mention for the moment, anchored at the earliest stamp.
+    assert mention_rows(pool, topic["id"]) == [(moments[0], 5_000)]
+
+
+def test_a_rerun_replaces_the_topic_rows(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_extraction_drop: Callable[[str], Any],
+    fake_llm: Callable[..., FakeLlm],
+) -> None:
+    fake_llm(replies=(TOPICS_DOC,))
+    job_id = enqueue(pool, make_extraction_drop("source-rerun"), "source-rerun")
+    assert runner.run_once(pool, app_config, content_root) is True
+    [meeting] = meetings(pool, job_id)
+    first = topic_rows(pool, meeting["id"])
+    assert len(first) == 2
+
+    replacement = (
+        "## Topics\n"
+        "\n"
+        "| ID | Topic | Gist | Timestamps |\n"
+        "|----|-------|------|------------|\n"
+        "| T1 | Key rotation | Who rotates the vendor key | [0:45] |\n"
+    )
+    fake_llm(replies=(replacement,))
+    requeue_extract(pool, job_id)
+    assert runner.run_once(pool, app_config, content_root) is True
+    assert job_row(pool, job_id) == ("done", None)
+
+    topics = topic_rows(pool, meeting["id"])
+    assert [topic["name"] for topic in topics] == ["Key rotation"]
+    assert not {topic["id"] for topic in topics} & {topic["id"] for topic in first}
+    # One `topics` source row, upserted, describing the latest pass.
+    source = topics_source(pool, meeting["id"])
+    assert source is not None and source["item_count"] == 1
+    # The artifact lifecycle stayed an artifact concern: still only drafts of
+    # the two artifact kinds, no `topic` kind anywhere.
+    with pool.connection() as conn:
+        states = {
+            row[0]
+            for row in conn.execute(
+                "SELECT DISTINCT state FROM artifact WHERE meeting_id = %s",
+                (meeting["id"],),
+            ).fetchall()
+        }
+    assert states == {"extracted"}
+
+
+def test_superseded_mentions_are_skipped_and_an_unmentioned_topic_dropped(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_extraction_drop: Callable[[str], Any],
+    fake_llm: Callable[..., FakeLlm],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fake_llm(replies=(TOPICS_DOC,))
+    job_id = enqueue(pool, make_extraction_drop("source-super"), "source-super")
+    assert runner.run_once(pool, app_config, content_root) is True
+    [meeting] = meetings(pool, job_id)
+    moments = moment_ids(pool, meeting["id"])
+
+    with pool.connection() as conn:
+        conn.execute(
+            "UPDATE moment SET provenance = provenance ||"
+            " '{\"superseded\": true}'::jsonb WHERE id = %s",
+            (moments[0],),
+        )
+
+    # T1 anchors only inside the superseded moment → the whole topic drops.
+    # T2 anchors there and in a live moment → one mention survives.
+    document = (
+        "## Topics\n"
+        "\n"
+        "| ID | Topic | Gist | Timestamps |\n"
+        "|----|-------|------|------------|\n"
+        "| T1 | Vendor feed transport | Only in the superseded span | [0:10] |\n"
+        "| T2 | Credential ownership | Also discussed later | [0:05], [1:35] |\n"
+    )
+    capsys.readouterr()
+    fake_llm(replies=(document,))
+    requeue_extract(pool, job_id)
+    assert runner.run_once(pool, app_config, content_root) is True
+    assert job_row(pool, job_id) == ("done", None)
+
+    [topic] = topic_rows(pool, meeting["id"])
+    assert topic["name"] == "Credential ownership"
+    assert mention_rows(pool, topic["id"]) == [(moments[2], 95_000)]
+
+    records = log_events(capsys)
+    discarded_mentions = [
+        r for r in records if r["event"] == "stage.extract.topic_mention_discarded"
+    ]
+    assert {(r["item_id"], r["reason"]) for r in discarded_mentions} == {
+        ("T1", "superseded-moment"),
+        ("T2", "superseded-moment"),
+    }
+    [dropped] = [r for r in records if r["event"] == "stage.extract.topic_discarded"]
+    assert dropped["item_id"] == "T1"
+    assert dropped["reason"] == "no-surviving-mention"
+
+
+def test_zero_topics_on_a_contentful_meeting_is_a_named_signal_not_an_error(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_extraction_drop: Callable[[str], Any],
+    fake_llm: Callable[..., FakeLlm],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # The default reply is the shared zero-artifact document: a well-formed
+    # parse that yields no topics on a meeting that has transcript and moments.
+    fake_llm()
+    job_id = enqueue(pool, make_extraction_drop("source-zero"), "source-zero")
+    assert runner.run_once(pool, app_config, content_root) is True
+    assert job_row(pool, job_id) == ("done", None)
+
+    [meeting] = meetings(pool, job_id)
+    assert topic_rows(pool, meeting["id"]) == []
+    source = topics_source(pool, meeting["id"])
+    assert source is not None and source["item_count"] == 0
+
+    [signal] = [
+        r for r in log_events(capsys) if r["event"] == "stage.extract.zero_topics"
+    ]
+    assert signal["meeting_id"] == str(meeting["id"])
+
+
+def test_an_anchor_outside_the_timeline_fails_the_stage_naming_the_topic(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_extraction_drop: Callable[[str], Any],
+    fake_llm: Callable[..., FakeLlm],
+) -> None:
+    document = (
+        "## Topics\n"
+        "\n"
+        "| ID | Topic | Gist | Timestamps |\n"
+        "|----|-------|------|------------|\n"
+        "| T1 | Invented span | The model made this stamp up | [59:00] |\n"
+    )
+    fake_llm(replies=(document,))
+    job_id = enqueue(pool, make_extraction_drop("source-outside"), "source-outside")
+    assert runner.run_once(pool, app_config, content_root) is True
+
+    status, _error = job_row(pool, job_id)
+    assert status == "failed"
+    error = stage_error(pool, job_id, "extract")
+    assert error is not None
+    assert "T1" in error
+    assert "topics" in error
+
+    # Nothing half-landed: the failed transaction rolled back every topic row.
+    [meeting] = meetings(pool, job_id)
+    assert topic_rows(pool, meeting["id"]) == []
+
+
+def test_an_unparseable_topics_reply_earns_one_retry(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_extraction_drop: Callable[[str], Any],
+    fake_llm: Callable[..., FakeLlm],
+) -> None:
+    engine = fake_llm(replies=("prose with no structure at all", TOPICS_DOC))
+    job_id = enqueue(pool, make_extraction_drop("source-retry"), "source-retry")
+    assert runner.run_once(pool, app_config, content_root) is True
+    assert job_row(pool, job_id) == ("done", None)
+    assert len(engine.calls) == 2
+    [meeting] = meetings(pool, job_id)
+    assert len(topic_rows(pool, meeting["id"])) == 2
+
+
+def test_two_unusable_topics_replies_fail_the_stage_naming_the_document(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_extraction_drop: Callable[[str], Any],
+    fake_llm: Callable[..., FakeLlm],
+) -> None:
+    fake_llm(replies=("prose, not a document", "still prose"))
+    job_id = enqueue(pool, make_extraction_drop("source-unusable"), "source-unusable")
+    assert runner.run_once(pool, app_config, content_root) is True
+
+    status, _error = job_row(pool, job_id)
+    assert status == "failed"
+    error = stage_error(pool, job_id, "extract")
+    assert error is not None
+    assert "topics" in error
+    assert "retry" in error

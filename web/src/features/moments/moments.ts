@@ -1,6 +1,7 @@
 import type {
   DrilldownScreenshot,
   DrilldownSegment,
+  ExtractionPrompt,
   MomentArtifact,
   SnippetRunModel,
 } from '@/client/types.gen'
@@ -42,12 +43,23 @@ export const ARTIFACT_CATEGORIES = [
 ] as const satisfies ReadonlyArray<{ kind: MomentArtifact['kind']; label: string }>
 
 /**
- * The heading an extraction prompt's kind renders under — the same label
- * `ARTIFACT_CATEGORIES` gives that kind in the rail, so "ADRs" and "Action
- * items" mean the same thing in both places.
+ * The labels for prompt kinds that are not artifact kinds: story 10.1's
+ * topics are navigation metadata, never one of the rail's categories.
  */
-export function extractionPromptLabel(kind: 'adr' | 'action-item'): string {
-  return ARTIFACT_CATEGORIES.find((category) => category.kind === kind)?.label ?? kind
+const PROMPT_ONLY_LABELS: Partial<Record<ExtractionPrompt['kind'], string>> = {
+  topic: 'Topics',
+}
+
+/**
+ * The heading an extraction prompt's kind renders under. An artifact-kind
+ * prompt reuses the rail's `ARTIFACT_CATEGORIES` label so "ADRs" and "Action
+ * items" mean the same thing in both places; a non-artifact prompt kind
+ * carries its own label; and a kind newer than this file renders as itself —
+ * the section shows whatever the endpoint returns, never dropping an entry.
+ */
+export function extractionPromptLabel(kind: ExtractionPrompt['kind']): string {
+  const category = ARTIFACT_CATEGORIES.find((entry) => entry.kind === kind)
+  return category?.label ?? PROMPT_ONLY_LABELS[kind] ?? kind
 }
 
 /** The rail's artifacts for one category, in api order. */

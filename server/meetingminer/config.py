@@ -187,6 +187,7 @@ class ExtractionRoleBinding(LlmRoleBinding):
 
     arch_summary_prompt: NonEmptyText
     action_items_prompt: NonEmptyText
+    topics_prompt: NonEmptyText
 
 
 class LlmRoles(_StrictModel):

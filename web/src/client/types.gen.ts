@@ -452,7 +452,7 @@ export type ExtractionPrompt = {
     /**
      * Kind
      */
-    kind: 'adr' | 'action-item';
+    kind: 'adr' | 'action-item' | 'topic';
     /**
      * Prompttext
      */

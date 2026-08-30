@@ -41,6 +41,16 @@ them, and a change to one is a change to the system's shape, not a refactor.
    `[[moment:<uuid>]]` markers, and validates every marker against Postgres
    before anything leaves the api.
 
+### Data model note — topics (story 10.1)
+
+Topics live beside the evidence as `topic` and `topic_mention` rows:
+worker-owned, machine-derived navigation metadata, labelled as such in their
+provenance, each mention anchored to the moment where the topic was discussed.
+They are not artifacts — they never enter the `extracted → approved →
+published` lifecycle — and an extraction rerun replaces a meeting's topic rows
+wholesale. Nothing projects them yet; story 10.2 gives the graph its `Topic`
+nodes and `MENTIONS` edges.
+
 ## Decisions
 
 Seventeen decisions constrain the build. Each states what it prevents, because

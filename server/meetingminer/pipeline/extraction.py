@@ -69,6 +69,16 @@ DOC_ARCH_SUMMARY = "arch-summary"
 DOC_ACTION_ITEMS = "action-items"
 DOCUMENT_KINDS: tuple[str, ...] = (DOC_ARCH_SUMMARY, DOC_ACTION_ITEMS)
 
+# Story 10.1: the topics document and its item kind. `KIND_TOPIC` is
+# deliberately NOT in `KNOWN_KINDS` (that set feeds the artifact counters)
+# and `DOC_TOPICS` NOT in `DOCUMENT_KINDS` (the extract stage's artifact
+# loop iterates that): topics are navigation metadata, never artifacts.
+KIND_TOPIC = "topic"
+DOC_TOPICS = "topics"
+
+# Every document kind `parse_extraction_document` and `build_prompt` accept.
+_PARSEABLE_DOCUMENT_KINDS: tuple[str, ...] = (*DOCUMENT_KINDS, DOC_TOPICS)
+
 # What `extraction_source.layout` may say.
 LAYOUT_TABLE = "table"
 LAYOUT_BULLET = "bullet"
@@ -221,6 +231,28 @@ def build_actions_prompt(
     )
 
 
+def build_topics_prompt(
+    transcript: str,
+    *,
+    template: str,
+    meeting_title: str | None = None,
+    meeting_date: str | None = None,
+) -> str:
+    """The whole-meeting prompt for the topics document (story 10.1).
+
+    ``template`` is the config-owned, complete prompt text
+    (``llm.roles.extraction.topics_prompt``) — composed verbatim with the
+    meeting header and transcript, never reformatted or templated further.
+    """
+    return "\n\n".join(
+        [
+            template,
+            _document_header(meeting_title, meeting_date),
+            "Raw transcript:\n\n" + (transcript if transcript.strip() else "(none)"),
+        ]
+    )
+
+
 def build_prompt(
     document_kind: str,
     transcript: str,
@@ -234,10 +266,12 @@ def build_prompt(
         builder = build_summary_prompt
     elif document_kind == DOC_ACTION_ITEMS:
         builder = build_actions_prompt
+    elif document_kind == DOC_TOPICS:
+        builder = build_topics_prompt
     else:
         raise ValueError(
             f"unknown extraction document kind {document_kind!r} — expected one of"
-            f" {', '.join(DOCUMENT_KINDS)}"
+            f" {', '.join(_PARSEABLE_DOCUMENT_KINDS)}"
         )
     return builder(
         transcript,
@@ -373,6 +407,11 @@ _ARCH_TARGET_HEADINGS = ("decision", "summary")
 # them, so the summary contributes decisions only.
 _ARCH_PREFIX_KINDS = {"D": KIND_ADR}
 
+# Which ID prefixes become topics in the topics document (story 10.1). Only
+# `T`: a risk or question id that strays into a topics table is structure,
+# never a topic.
+_TOPIC_PREFIX_KINDS = {"T": KIND_TOPIC}
+
 # How short and how complete a table row has to be to be read as a header row.
 # A prose line that happens to contain a pipe must not be able to relabel a
 # real table's columns.
@@ -401,6 +440,10 @@ class ProposedArtifact:
     # (owner in the `## <Owner>` heading) and a generated one (owner in a table
     # column) indistinguishable in shape.
     owner: str | None = None
+    # Every `[m:ss]` stamp the item carried, in written order (story 10.1).
+    # Topics need every place they were discussed; the artifact kinds keep
+    # citing `anchor_ms` alone.
+    anchors_ms: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -666,6 +709,15 @@ def _section_is_target(heading: str, document_kind: str) -> bool:
         # heading is a person's name, so there is no keyword to match on, and
         # the two non-action sections are already excluded above.
         return True
+    if document_kind == DOC_TOPICS:
+        # Every heading is a target for the topics document too (story
+        # 10.1): real output drifts ("Discussion themes"), so a keyword
+        # match would re-create the §8 shape — and this is what lets the
+        # shared zero-artifact default document parse to zero topics in
+        # every existing worker test. Strictness lives in the T-id/anchor
+        # rules and the stage's zero-topics signal, which is keyed on
+        # meeting content, not on section names.
+        return True
     lowered = heading.casefold()
     return any(marker in lowered for marker in _ARCH_TARGET_HEADINGS)
 
@@ -683,6 +735,8 @@ def _kind_for(prefix: str, document_kind: str) -> str | None:
         # generated output and per-owner initials in some real ones, so the
         # prefix is not what decides the kind there — the document is.
         return KIND_ACTION_ITEM
+    if document_kind == DOC_TOPICS:
+        return _TOPIC_PREFIX_KINDS.get(prefix)
     return _ARCH_PREFIX_KINDS.get(prefix)
 
 
@@ -705,10 +759,10 @@ def parse_extraction_document(text: str, document_kind: str) -> ParsedDocument:
     cited and must not be quietly dropped — and when the document carries no
     recognizable structure at all.
     """
-    if document_kind not in DOCUMENT_KINDS:
+    if document_kind not in _PARSEABLE_DOCUMENT_KINDS:
         raise ValueError(
             f"unknown extraction document kind {document_kind!r} — expected one of"
-            f" {', '.join(DOCUMENT_KINDS)}"
+            f" {', '.join(_PARSEABLE_DOCUMENT_KINDS)}"
         )
     normalized = normalize_text(text)
     if not normalized.strip():
@@ -723,7 +777,8 @@ def parse_extraction_document(text: str, document_kind: str) -> ParsedDocument:
     # per-owner ID prefixes, so two owners can each legitimately carry an `A1`,
     # and a document-global key silently dropped the second owner's whole set —
     # the §8 shape. The architecture summary numbers its decisions once for the
-    # whole document, so its key stays the ID alone.
+    # whole document, so its key stays the ID alone — and so does the topics
+    # document (story 10.1), whose T-ids are document-global.
     seen_ids: set[tuple[str, str]] = set()
     artifacts: list[ProposedArtifact] = []
     layouts: set[str] = set()
@@ -828,6 +883,9 @@ def parse_extraction_document(text: str, document_kind: str) -> ParsedDocument:
                 item_id=item_id,
                 layout=layout,
                 owner=owner,
+                # Story 10.1: every stamp, in written order — the topics
+                # pass builds one mention per containing moment from these.
+                anchors_ms=stamps,
             )
         )
 
@@ -850,6 +908,39 @@ def parse_extraction_document(text: str, document_kind: str) -> ParsedDocument:
         layout=resolved_layout,
         populated_target_sections=tuple(populated),
     )
+
+
+# Header labels whose cell is timestamp bookkeeping rather than gist text.
+_GIST_SKIP_LABELS = ("timestamp", "time", "when", "stamp")
+
+
+def topic_gist(artifact: ProposedArtifact) -> str:
+    """The topic's one-line gist, out of the parsed body (story 10.1).
+
+    The body is the row's remaining cells — labelled from the header row
+    when one exists — which for the pinned topics table is the gist plus the
+    timestamps cell. The stamps are already carried by ``anchors_ms`` and
+    the mentions built from it, so repeating them inside the stored gist
+    would be noise: a labelled Gist cell is unwrapped, timestamp bookkeeping
+    is dropped, and whatever remains joins into one line. A row that carried
+    no words beyond its name keeps the parser's named no-detail sentence.
+    """
+    lines: list[str] = []
+    for line in artifact.body.splitlines():
+        text = line.strip()
+        if not text or _is_bare_stamp(text):
+            continue
+        label, sep, value = text.partition(":")
+        if sep:
+            lowered = label.strip().casefold()
+            if lowered == "gist" and value.strip():
+                text = value.strip()
+            elif any(
+                marker in lowered for marker in _GIST_SKIP_LABELS
+            ) and _is_bare_stamp(value):
+                continue
+        lines.append(text)
+    return " ".join(lines) or NO_DETAIL_BODY
 
 
 # --- anchoring --------------------------------------------------------------

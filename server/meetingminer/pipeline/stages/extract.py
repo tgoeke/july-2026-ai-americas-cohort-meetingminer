@@ -96,6 +96,25 @@ WHERE meeting_id = %s AND state = 'extracted'
   )
 """
 
+# Story 10.1: rerun replaces — topics are machine-derived navigation
+# metadata with no lifecycle, so every pass deletes the meeting's topic
+# rows outright (mentions cascade) before re-deriving, including on the
+# no-transcript/no-moments early exit.
+_DELETE_TOPICS = "DELETE FROM topic WHERE meeting_id = %s"
+
+_INSERT_TOPIC = """
+INSERT INTO topic (meeting_id, name, gist, provenance)
+VALUES (%(meeting_id)s, %(name)s, %(gist)s, %(provenance)s)
+RETURNING id
+"""
+
+# One row per (topic, containing moment) — the table's primary key
+# enforces the collapse the stage computes.
+_INSERT_TOPIC_MENTION = """
+INSERT INTO topic_mention (topic_id, moment_id, meeting_id, anchor_ms)
+VALUES (%(topic_id)s, %(moment_id)s, %(meeting_id)s, %(anchor_ms)s)
+"""
+
 # `state` is deliberately absent: it lands as the column default 'extracted',
 # which is the whole of this stage's contact with the lifecycle column (AD-5).
 _INSERT_ARTIFACT = """
@@ -130,9 +149,10 @@ ON CONFLICT (meeting_id, kind) DO UPDATE SET
 # A meeting that used to have extraction documents and now has nothing to read
 # must not keep the rows describing them — the same rule `align` applies to a
 # shed transcript form. Only the all-or-nothing case is reachable: every run
-# that reads a transcript writes both kinds, and migration 0010's CHECK admits
-# no third kind, so a "delete the kinds this run did not write" statement would
-# be a statement that can never match a row.
+# that reads a transcript writes all three kinds — the two artifact
+# documents and the topics document (story 10.1; migration 0014 widened
+# 0010's CHECK) — so a "delete the kinds this run did not write" statement
+# would be a statement that can never match a row.
 _DELETE_ALL_SOURCES = "DELETE FROM extraction_source WHERE meeting_id = %s"
 
 ORIGIN_ADOPTED = "adopted"
@@ -153,6 +173,7 @@ _DECLARATION = {
 _PROMPT_FIELD = {
     core.DOC_ARCH_SUMMARY: "arch_summary_prompt",
     core.DOC_ACTION_ITEMS: "action_items_prompt",
+    core.DOC_TOPICS: "topics_prompt",
 }
 
 
@@ -300,6 +321,9 @@ def run(ctx: StageContext) -> None:
     deleted_drafts = ctx.conn.execute(
         _DELETE_DRAFTS, (ctx.meeting_id, ctx.meeting_id)
     ).rowcount
+    # Before the early exit, deliberately: a meeting that lost its
+    # transcript must not keep last run's topics any more than its sources.
+    deleted_topics = ctx.conn.execute(_DELETE_TOPICS, (ctx.meeting_id,)).rowcount
 
     artifact_counts: dict[str, int] = {kind: 0 for kind in sorted(core.KNOWN_KINDS)}
     documents: dict[str, dict[str, object]] = {}
@@ -325,6 +349,9 @@ def run(ctx: StageContext) -> None:
             documents={},
             artifacts=artifact_counts,
             drafts_replaced=deleted_drafts,
+            topics=0,
+            topic_mentions=0,
+            topics_replaced=deleted_topics,
             models=[],
             fallback_engaged=False,
             prompt_version=core.PROMPT_VERSION,
@@ -452,6 +479,136 @@ def run(ctx: StageContext) -> None:
         if not parsed.artifacts and parsed.populated_target_sections:
             zero_signals.append((document_kind, parsed.populated_target_sections))
 
+    # --- the topics pass (story 10.1) ---------------------------------------
+    # Always generated, never adopted: no drop declares a topics document, and
+    # topics never become artifacts — the rows land in the worker-owned
+    # `topic`/`topic_mention` tables, outside the publish lifecycle, through
+    # the same port, parser, and one-retry discipline as the two documents
+    # above.
+    topics_template = binding.topics_prompt
+    parsed_topics, topics_reply = _generate(
+        llm,
+        core.build_prompt(
+            core.DOC_TOPICS,
+            transcript,
+            template=topics_template,
+            meeting_title=bundle.title,
+            meeting_date=_meeting_date(bundle),
+        ),
+        options,
+        core.DOC_TOPICS,
+    )
+    models_used.add(topics_reply.model)
+    fallback_engaged = fallback_engaged or topics_reply.fallback_engaged
+    topics_prompt_hash = hashlib.sha256(topics_template.encode()).hexdigest()[:16]
+    topics_digest, topics_byte_size = _digest_of(topics_reply.text)
+
+    topics_inserted = 0
+    mentions_inserted = 0
+    for proposal in parsed_topics.artifacts:
+        # Every stamp resolves through `resolve_anchor` — an anchor outside
+        # the timeline fails the stage naming the topic, exactly like an
+        # artifact's. Then one mention per containing moment, earliest stamp
+        # winning: the moment is the citation unit, and two stamps inside one
+        # moment are one discussion.
+        resolved: dict[UUID, int] = {}
+        for anchor_ms in proposal.anchors_ms:
+            try:
+                moment_id = core.resolve_anchor(anchor_ms, bundle.moments)
+            except core.AnchorResolutionError as exc:
+                raise StageError(
+                    f"topic {proposal.item_id} ({proposal.title!r}) from the"
+                    f" topics document cannot be anchored: {exc}"
+                ) from exc
+            if moment_id not in resolved or anchor_ms < resolved[moment_id]:
+                resolved[moment_id] = anchor_ms
+        surviving: dict[UUID, int] = {}
+        for moment_id, anchor_ms in resolved.items():
+            # Approved moments are NOT skipped here — topics are outside the
+            # artifact lifecycle, so a mention attaches regardless of what a
+            # human did to the moment's artifact set. A superseded moment is
+            # still a ghost no reader is shown, and the skip is named.
+            if moment_id in superseded:
+                ctx.log(
+                    "stage.extract.topic_mention_discarded",
+                    meeting_id=ctx.meeting_id,
+                    item_id=proposal.item_id,
+                    name=proposal.title,
+                    moment_id=moment_id,
+                    anchor_ms=anchor_ms,
+                    reason="superseded-moment",
+                )
+                continue
+            surviving[moment_id] = anchor_ms
+        if not surviving:
+            # A topic with no surviving mention would be navigation to
+            # nowhere; skipped, and named rather than merely counted.
+            ctx.log(
+                "stage.extract.topic_discarded",
+                meeting_id=ctx.meeting_id,
+                item_id=proposal.item_id,
+                name=proposal.title,
+                reason="no-surviving-mention",
+            )
+            continue
+        topic_id = ctx.conn.execute(
+            _INSERT_TOPIC,
+            {
+                "meeting_id": ctx.meeting_id,
+                "name": proposal.title,
+                "gist": core.topic_gist(proposal),
+                "provenance": Jsonb(
+                    {
+                        "role": "extraction",
+                        "source": ORIGIN_GENERATED,
+                        "model": topics_reply.model,
+                        "fallback_engaged": topics_reply.fallback_engaged,
+                        "prompt_version": core.PROMPT_VERSION,
+                        "prompt_hash": topics_prompt_hash,
+                        "document_kind": core.DOC_TOPICS,
+                        "layout": proposal.layout,
+                        "item_id": proposal.item_id,
+                    }
+                ),
+            },
+        ).fetchone()[0]
+        for moment_id, anchor_ms in sorted(surviving.items(), key=lambda kv: kv[1]):
+            ctx.conn.execute(
+                _INSERT_TOPIC_MENTION,
+                {
+                    "topic_id": topic_id,
+                    "moment_id": moment_id,
+                    "meeting_id": ctx.meeting_id,
+                    "anchor_ms": anchor_ms,
+                },
+            )
+            mentions_inserted += 1
+        topics_inserted += 1
+
+    ctx.conn.execute(
+        _UPSERT_EXTRACTION_SOURCE,
+        {
+            "meeting_id": ctx.meeting_id,
+            "kind": core.DOC_TOPICS,
+            "origin": ORIGIN_GENERATED,
+            "drop_relative_path": None,
+            "sha256": topics_digest,
+            "byte_size": topics_byte_size,
+            "layout": parsed_topics.layout,
+            "item_count": len(parsed_topics.artifacts),
+            "artifact_count": topics_inserted,
+            "model": topics_reply.model,
+            "prompt_version": core.PROMPT_VERSION,
+            "prompt_hash": topics_prompt_hash,
+        },
+    )
+    documents[core.DOC_TOPICS] = {
+        "origin": ORIGIN_GENERATED,
+        "layout": parsed_topics.layout,
+        "items": len(parsed_topics.artifacts),
+        "artifacts": topics_inserted,
+    }
+
     ctx.log(
         "stage.extract.summary",
         meeting_id=ctx.meeting_id,
@@ -469,6 +626,9 @@ def run(ctx: StageContext) -> None:
         skipped_approved=skipped_approved,
         skipped_superseded=skipped_superseded,
         drafts_replaced=deleted_drafts,
+        topics=topics_inserted,
+        topic_mentions=mentions_inserted,
+        topics_replaced=deleted_topics,
         models=sorted(models_used),
         fallback_engaged=fallback_engaged,
         prompt_version=core.PROMPT_VERSION,
@@ -485,6 +645,16 @@ def run(ctx: StageContext) -> None:
             document=document_kind,
             origin=documents[document_kind]["origin"],
             populated_sections=list(sections),
+        )
+    if not topics_inserted:
+        # Zero topics on a meeting that HAS transcript text and moments —
+        # this code is past the early exit — is a signal keyed on meeting
+        # content, never on parser section names: an empty topics table
+        # from the model must not read as quiet success (story 10.1).
+        ctx.log(
+            "stage.extract.zero_topics",
+            meeting_id=ctx.meeting_id,
+            items_parsed=len(parsed_topics.artifacts),
         )
 
 

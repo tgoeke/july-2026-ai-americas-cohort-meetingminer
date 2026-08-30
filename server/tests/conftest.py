@@ -415,6 +415,10 @@ EVIDENCE_TABLES = (
     # reference them without cascade — TRUNCATE must name all five or the
     # entity truncation is refused.
     "series", "product", "project", "meeting_series", "meeting_project",
+    # story 10.1. `topic` cascades from `meeting` and `topic_mention` from
+    # `topic` and `moment`, but TRUNCATE must name every table referencing
+    # `meeting`/`moment` or the statement is refused.
+    "topic", "topic_mention",
 )
 
 

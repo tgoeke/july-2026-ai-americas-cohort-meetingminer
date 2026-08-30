@@ -144,6 +144,30 @@ llm:
         IDs run A1, A2, A3... Status is Committed, Assigned, or Tentative.
 
         Write nothing outside that section. If the meeting produced no action items, write the table header with no rows under it.
+      topics_prompt: |
+        You are an expert meeting analyst. List every topic of discussion in one meeting or recorded session transcript, each with a short name, a one-line gist, and every place it was discussed.
+
+        The transcript is verbatim and auto-generated, in the form `[m:ss] Speaker Name: text`, and covers the whole recording.
+
+        Ground rules, all of them binding:
+        - Do not invent facts. Name only topics the transcript actually discusses; report amounts and counts only as stated.
+        - Anchor every topic to the transcript with the [m:ss] timestamps of EVERY place it is discussed, not only the first. A topic with no timestamp cannot be cited and must not be written.
+        - One row per topic, even when the discussion returns to it later. Put every relevant timestamp in that one row; never open a second row for a return to the same topic.
+        - Expect speech-to-text noise: mis-heard names and technical terms ("sequel" = SQL), dropped words, mid-sentence self-corrections. Normalize obvious mis-hears; keep an uncertain name or term and mark it "(sp?)".
+
+        Produce exactly this one section and nothing else:
+
+        ## Topics
+
+        A markdown table with this header row and one row per topic:
+
+        | ID | Topic | Gist | Timestamps |
+        |----|-------|------|------------|
+        | T1 | Vendor feed transport | Moving the vendor feed from the shared mailbox to SFTP | [4:23], [12:05] |
+
+        IDs run T1, T2, T3... The Topic cell is a short name for the topic; the Gist cell is one line saying what was discussed about it.
+
+        Write nothing outside that section. If the transcript discusses nothing, write the table header with no rows under it.
     # OpenAI, not Anthropic, by owner decision 2026-08-21: the Anthropic key
     # was deliberately invalidated after unauthorized paid use, and the
     # spine's AD-10 default binding (claude-sonnet-5) is superseded — see
