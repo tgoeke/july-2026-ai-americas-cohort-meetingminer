@@ -131,3 +131,11 @@
 - **Evidence:** Every generated `.env.worktree` now requires `MM_STACK_ID=<12 hex>`, Make exports it to Compose, and all five services and seven volumes interpolate it into `com.meetingminer.stack-id`; omitting it fails validation. The AD-10 sentence still ends its environment allowance at “private-stack name and the host ports its stores publish,” with no identity field.
 - **Suggested direction:** Amend AD-10's single environment allowance to include the checkout stack's generated incarnation identity, narrowly describing the label-backed safety identity without admitting general adapter bindings or a second human-authored config source.
 - **Status / owner question:** Open and intentionally unfixed. `docs/architecture.md` is architecture authority but is outside the dispatched 18-file remediation scope; should the owner amend AD-10 during integration, or explicitly treat the id as metadata implicit in “private stack”?
+
+### Finding 12 — Stack identity regexes accept a trailing newline
+
+- **Location:** `infra/worktree_stack.py:166`
+- **Severity:** low
+- **Finding:** The remediation made the projection lock key strict after a trailing-newline finding, but the analogous slug, project-name, and stack-id validators still use `re.match` with `$`. Python lets `$` match immediately before a final newline, so these safety identities are not exact despite their anchored-looking patterns.
+- **Evidence:** Direct calls on the dispatched implementation observed `_SLUG_RE.match("probe\n")`, `_PROJECT_RE.match("meetingminer-probe\n")`, and `_STACK_ID_RE.match("aaaaaaaaaaaa\n")` all return matches while the corresponding `fullmatch` calls return false. Consequently `validate_slug("probe\n")`, `_is_worktree_project("meetingminer-probe\n")`, and `render_env(..., "aaaaaaaaaaaa\n")` accept inputs outside the documented grammar.
+- **Suggested direction:** Use full-string matching for every slug/project/incarnation identity check in both stdlib and application validators, with newline/CR regression rows mirroring the projection-lock fix.
