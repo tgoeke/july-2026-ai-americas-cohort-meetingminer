@@ -35,3 +35,11 @@
 - Finding: The glue's subject snapshot includes every artifact row and reads membership before `run_gate_probe` acquires the per-moment lock. A sibling probe captured as `published` can be correctly erased by its owner before these reads, causing this run to report the transient row as a published subject artifact missing from both stores.
 - Evidence: `artifacts = corpus.artifacts_for(meeting_id)` at line 119 is passed unchanged into the subject membership loop at lines 177–186 and pure assembly at lines 203–206. `gate_probe.run_gate_probe`—the first code that can coordinate by moment—does not run until line 210. No F5 test sends a probe-marked row through this glue snapshot.
 - Resolution: Fixed in this review. The glue regression failed with the published sibling reported absent from both stores. Probe ownership detection is now shared from `gate_probe.py`; the glue excludes marked rows only from immutable subject membership/assembly, while `run_gate_probe` still re-reads the unfiltered corpus under its moment lock. The complete glue test file passes (`6 passed`).
+
+### Finding 4 — A post-commit connection-mode failure skips probe cleanup entirely
+
+- Location: `evals/checks/gate_probe.py:731`
+- Severity: high
+- Finding: After the probe insert commits, `conn.autocommit = True` runs before the cleanup-protected `try/finally`. An exception from that driver state transition escapes `_execute_probe` with a committed probe row and no cleanup attempt or recorded cleanup verdict.
+- Evidence: The known `artifact_id` is committed at lines 702–703. The autocommit assignment at line 731 is outside the `try` beginning at line 734 and the `finally` invoking `cleanup_probe` at lines 790–803. Existing interruption tests inject failures only after that protected region begins.
+- Resolution: Open — add a red fake-connection regression whose autocommit setter raises after commit, then move the transition inside the protected sequence so the exact id always reaches cleanup and the interruption is reported.
