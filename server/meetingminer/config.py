@@ -212,6 +212,51 @@ class DiarizerConfig(_StrictModel):
     token_env: NonEmptyText = "HF_TOKEN"
 
 
+def _provider_prefix(binding: str) -> str | None:
+    """The provider a model tag names through its prefix, or ``None``.
+
+    This restates the routing rule in ``adapters/llm/litellm.py``'s
+    ``resolve_api_base`` — a prefixed tag (``ollama/qwen3:30b``) routes through
+    its prefix, an unprefixed one names no provider and gets LiteLLM's own
+    default. It is restated rather than imported because this module must not
+    depend on an adapter, nor on ``api/status.py``'s ``provider_of`` (which
+    adds the bare ``claude-``/``gpt-`` spellings and whose import would invert
+    the dependency direction). No provider name is written here: the declared
+    set is whatever ``providers:`` holds.
+    """
+    if "/" not in binding:
+        return None
+    prefix = binding.split("/", 1)[0].strip()
+    return prefix or None
+
+
+class CatalogEntry(_StrictModel):
+    """One binding a user may choose for an LLM role (story 8.1, FR38, AD-10).
+
+    Declaration only: every caller still reads :attr:`LlmRoleBinding.model`
+    until story 8.2 persists and resolves a selection.
+
+    * ``binding`` is the model tag, in the same spelling ``model`` uses.
+    * ``label`` is what a picker shows; omitted, it is the binding itself, so
+      an entry is always displayable without a code-level default.
+    * ``provider`` is the key under ``providers:`` whose endpoint serves this
+      binding. Omitted, it is derived from the tag prefix — the fact the
+      routing rule already reads — so an author does not repeat what the tag
+      says. Deriving is not a licence: a derived provider is checked against
+      the declared set exactly like a written one.
+    """
+
+    binding: NonEmptyText
+    label: NonEmptyText | None = None
+    provider: NonEmptyText | None = None
+
+    @model_validator(mode="after")
+    def _label_defaults_to_the_binding(self) -> "CatalogEntry":
+        if self.label is None:
+            self.label = self.binding
+        return self
+
+
 class LlmRoleBinding(_StrictModel):
     """One role's model binding, plus the per-role call settings it needs.
 
@@ -245,6 +290,92 @@ class LlmRoleBinding(_StrictModel):
     fallback_base_url: str | None = None
     timeout_seconds: float | None = Field(default=None, gt=0)
     num_ctx: int | None = Field(default=None, gt=0)
+    # The bindings a user may choose between for this role, and the one that
+    # is chosen when nothing else says (story 8.1, FR38). Both are synthesized
+    # from `model` when the file declares neither, so a config.yaml written
+    # before the catalog existed still loads — as a one-entry catalog naming
+    # the model it already binds.
+    catalog: list[CatalogEntry] = Field(default_factory=list)
+    default: NonEmptyText | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _catalog_from_model(cls, data: object) -> object:
+        """Fill in what a pre-catalog file leaves unsaid, and derive providers.
+
+        This runs before field validation because it is the only place that can
+        see whether the *file* declared a catalog. After synthesis an authored
+        entry and a projected one are indistinguishable, and the two are
+        governed by different rules: an authored entry whose tag carries no
+        provider prefix must name its provider, because an entry naming no
+        provider cannot be checked against the declared set — while a
+        synthesized one keeps ``provider: None``, because it is a projection of
+        a file written before the rule existed and refusing it would break a
+        file that loads today.
+        """
+        if not isinstance(data, dict):
+            return data
+        model = data.get("model")
+        tag = model.strip() if isinstance(model, str) else ""
+        if not tag:
+            # `model` is absent or blank: its own field validation names that,
+            # and inventing a catalog from nothing would only add noise.
+            return data
+        patched = dict(data)
+        entries = patched.get("catalog")
+        if entries is None:
+            patched["catalog"] = [
+                {"binding": tag, "label": tag, "provider": _provider_prefix(tag)}
+            ]
+        elif isinstance(entries, list):
+            patched["catalog"] = [cls._entry_with_provider(entry) for entry in entries]
+        if patched.get("default") is None:
+            patched["default"] = tag
+        return patched
+
+    @classmethod
+    def _entry_with_provider(cls, entry: object) -> object:
+        """One authored catalog entry, with its provider derived when omitted."""
+        if not isinstance(entry, dict) or entry.get("provider") is not None:
+            return entry
+        binding = entry.get("binding")
+        if not isinstance(binding, str) or not binding.strip():
+            # A malformed entry: CatalogEntry's own field validation names it.
+            return entry
+        tag = binding.strip()
+        provider = _provider_prefix(tag)
+        if provider is None:
+            raise ValueError(
+                f"catalog entry {tag!r} names no provider and its model tag"
+                " carries no `<provider>/` prefix, so nothing says which"
+                " declared provider serves it: give the entry a `provider:`"
+                " key, or write the binding as `<provider>/<model>`"
+            )
+        return {**entry, "provider": provider}
+
+    @model_validator(mode="after")
+    def _default_is_a_catalog_binding(self) -> "LlmRoleBinding":
+        """Refuse a default no picker could offer — including an empty catalog.
+
+        An authored ``catalog: []`` falls out here rather than through a rule
+        of its own: ``default`` falls back to ``model``, which is required, so
+        the empty catalog is refused by the message that names the binding it
+        could not hold.
+        """
+        bindings = [entry.binding for entry in self.catalog]
+        default = self.default or self.model
+        if default not in bindings:
+            declared = (
+                ", ".join(repr(binding) for binding in bindings)
+                if bindings
+                else "no bindings at all"
+            )
+            raise ValueError(
+                f"default binding {default!r} is not one of this role's catalog"
+                f" bindings, which are {declared}"
+            )
+        self.default = default
+        return self
 
 
 class ExtractionRoleBinding(LlmRoleBinding):
@@ -793,6 +924,37 @@ class Settings(_StrictModel):
     llm: LlmConfig
     embedder: EmbedderConfig
     providers: dict[str, ProviderEndpoint]
+
+    @model_validator(mode="after")
+    def _catalog_providers_are_declared(self) -> "Settings":
+        """Every catalog binding must name a provider ``providers:`` declares.
+
+        The check sits here, and not on :class:`LlmRoleBinding`, because a role
+        binding cannot see ``providers:`` — this is the class that holds both
+        sections, and the one whose ``ValidationError`` :func:`load_config`
+        wraps into the named :class:`ConfigError` (the ``AppConfig``
+        construction below it is not wrapped, so a refusal raised there would
+        escape as a raw pydantic error).
+
+        Declared-ness is a fact about the file, never about reachability: no
+        provider is probed at load, so an endpoint being down is not a load
+        failure.
+        """
+        declared = sorted(self.providers)
+        roles = self.llm.roles
+        for role in type(roles).model_fields:
+            binding = getattr(roles, role)
+            for entry in binding.catalog:
+                if entry.provider is None or entry.provider in self.providers:
+                    continue
+                names = ", ".join(repr(name) for name in declared)
+                raise ValueError(
+                    f"llm.roles.{role} catalog entry {entry.binding!r} names"
+                    f" provider {entry.provider!r}, which `providers:` does not"
+                    f" declare: the declared providers are {names}"
+                )
+        return self
+
     stores: StoresConfig
     pipeline: PipelineConfig
     projections: ProjectionsConfig
