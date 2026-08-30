@@ -295,6 +295,48 @@ def test_a_cue_with_no_recognised_prefix_never_inherits_the_previous_speaker(
     assert speakers.is_placeholder_label(transcripts.UNKNOWN_SPEAKER)
 
 
+def test_only_the_first_payload_line_can_supply_a_speaker(
+    tmp_path: Path, workspace: Path
+) -> None:
+    source = tmp_path / "sync.vtt"
+    source.write_text(
+        "WEBVTT\n\n"
+        "00:00:01.000 --> 00:00:02.000\n"
+        "Good morning\n"
+        "Alice Chen: this remains speech\n\n"
+        "00:00:03.000 --> 00:00:04.000\n"
+        "Bob Smith: Named cue.\n",
+        encoding="utf-8",
+    )
+
+    parsed = transcripts.parse_text_transcript(
+        written(convert(source, workspace), ".txt").read_text(encoding="utf-8")
+    )
+
+    assert [segment.speaker_label for segment in parsed.segments] == [
+        transcripts.UNKNOWN_SPEAKER,
+        "Bob Smith",
+    ]
+    assert parsed.segments[0].text == "Good morning Alice Chen: this remains speech"
+
+
+def test_a_speaker_prefix_does_not_require_space_after_the_colon(
+    tmp_path: Path, workspace: Path
+) -> None:
+    source = tmp_path / "sync.vtt"
+    source.write_text(
+        vtt(("00:00:01.000", "00:00:02.000", "Alice Chen:Morning.")),
+        encoding="utf-8",
+    )
+
+    parsed = transcripts.parse_text_transcript(
+        written(convert(source, workspace), ".txt").read_text(encoding="utf-8")
+    )
+
+    assert parsed.segments[0].speaker_label == "Alice Chen"
+    assert parsed.segments[0].text == "Morning."
+
+
 def test_a_prose_colon_is_not_read_as_a_speaker(
     tmp_path: Path, workspace: Path
 ) -> None:

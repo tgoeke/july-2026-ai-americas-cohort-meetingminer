@@ -105,7 +105,7 @@ _TAG = re.compile(r"</?[a-z/][^>]*>", re.IGNORECASE)
 
 #: ``Alice Chen: good morning`` — the name is everything before the *first*
 #: colon, and it is only accepted as a name by :func:`_is_speaker_name`.
-_PREFIXED = re.compile(r"^(?P<name>[^:]{1,60}):(?:\s+(?P<text>.*))?$")
+_PREFIXED = re.compile(r"^(?P<name>[^:]{1,60}):\s*(?P<text>.*)$")
 
 #: Characters a display name does not contain but a sentence does. A name is
 #: allowed a comma (``Chen, Alice``) and an apostrophe or hyphen.
@@ -360,7 +360,14 @@ def read_zoom_cues(text: str, *, source: Path) -> tuple[ZoomCue, ...]:
                 )
             body.append(lines[index].strip())
             index += 1
-        speaker, spoken = _split_speaker(" ".join(body))
+        if body:
+            speaker, first_spoken = _split_speaker(body[0])
+            continuations = [_TAG.sub("", line).strip() for line in body[1:]]
+            spoken = " ".join(
+                part for part in (first_spoken, *continuations) if part
+            ).strip()
+        else:
+            speaker, spoken = None, ""
         if not spoken:
             continue
         if cues and start_ms < cues[-1].start_ms:
@@ -385,7 +392,7 @@ def read_zoom_cues(text: str, *, source: Path) -> tuple[ZoomCue, ...]:
         )
     if not any(cue.speaker for cue in cues):
         raise DialectError(
-            f"no cue in {source} carries a 'Name: ' prefix, so declaring it"
+            f"no cue in {source} carries a 'Name:' prefix, so declaring it"
             f" {DIALECT_ZOOM} would produce a transcript with no speakers at"
             f" all — a speaker-less export is --transcript-dialect"
             f" {DIALECT_TEAMS_VTT}"
