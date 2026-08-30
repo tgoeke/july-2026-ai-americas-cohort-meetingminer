@@ -14,6 +14,7 @@ from __future__ import annotations
 import importlib.util
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 from types import ModuleType
 
@@ -652,6 +653,30 @@ def test_provision_publication_is_atomic(
     with pytest.raises(ws.StackError, match="cannot write"):
         ws.provision("probe", worktree, tmp_path, ALL_FREE)
     assert list(worktree.iterdir()) == []
+
+
+def test_provision_rechecks_the_target_after_acquiring_the_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A waiter that observed absence before locking must keep the complete
+    record the first provisioner published while it waited."""
+    root = tmp_path / "wt"
+    worktree = root / "probe"
+    worktree.mkdir(parents=True)
+    env_file = worktree / ".env.worktree"
+    first_text = good_stack_text("probe")
+
+    @contextmanager
+    def first_provisioner_publishes(_root: Path):
+        env_file.write_text(first_text, encoding="utf-8")
+        yield
+
+    monkeypatch.setattr(ws, "_provision_lock", first_provisioner_publishes)
+    returned, written = ws.provision("probe", worktree, root, ALL_FREE)
+
+    assert returned == env_file
+    assert written is False
+    assert env_file.read_text(encoding="utf-8") == first_text
 
 
 def test_provision_refuses_a_file_naming_another_slug(tmp_path: Path) -> None:
