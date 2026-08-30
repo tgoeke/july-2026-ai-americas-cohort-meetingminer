@@ -31,7 +31,7 @@
 - **Severity:** Medium
 - **Finding:** The frozen Story 10.1 footprint does not include `_bmad/custom/`, and the wave owner-decision artifact carries a Story 7.1 telemetry ruling. Both nevertheless appear in the exact remediation range, so the range widened beyond the story even though the content is independently reasonable.
 - **Evidence:** `git diff --name-status 93215b8..7d68ef4` includes both paths. `f675e2c` is a merge with first parent `e5ff7e8` and second parent the Story 10.1 head `93215b8`; the out-of-scope content came from its `main@f17b87a` integration baseline rather than from a Topic Extraction fix.
-- **Resolution:** **Open — owner disposition required.** Reverting these paths on `story/10-1-review` would undo policy already owned by `main`, while rewriting the historical remediation range is outside this review lane's authority. The owner must either accept the merge-baseline exception explicitly or redefine the review range/topology so main-owned changes are excluded.
+- **Resolution:** **Resolved by owner disposition (2026-08-30): merge-baseline exception accepted.** Main-owned commit `f17b87a` introduced both `_bmad/custom/bmad-build-auto.toml` and `_bmad-output/implementation-artifacts/owner-decisions-2026-08-30.md`; they appear in `93215b8..7d68ef4` because the review branch incorporated that main baseline after the story-tip base. They are outside Story 10.1's footprint by construction, not because the builder overreached. The reviewer-facing error was defining the remediation range from `93215b8` after those main commits had entered the branch. Per ruling, neither path is reverted and history is not rewritten.
 
 ### 4. The integration-conflict check stays green when the integration fix is reverted
 
@@ -70,4 +70,4 @@
 
 ## Verdict
 
-**Fail pending owner disposition.** Findings 1, 2, and 4 are resolved and all behavioral verification is green. Finding 3 remains open because the exact remediation range contains main-owned, out-of-footprint changes; safely removing them would revert shared policy already on `main`, so the owner must accept the merge-baseline exception or redefine the range/topology. No code defect remains open.
+**Pass.** All four findings are resolved: Findings 1, 2, and 4 were patched and verified; Finding 3 is closed by the owner's explicit merge-baseline disposition. No code defect remains open, all behavioral verification is green, and the accepted main-owned paths require no revert or history rewrite.
