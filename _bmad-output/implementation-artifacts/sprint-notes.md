@@ -2913,3 +2913,46 @@ including `test_stt_adapter.py`'s pre-7.1 pyannote pin, which fails only in an
 extra-installed venv. Integration heads-up: `story/7-1 × story/11-4` conflict
 on `server/uv.lock` alone (both relock for their disjoint pyproject regions);
 regenerate with `uv lock` when the second of the two lands.
+
+## 7-1 landed, 2026-08-30 ~18:25 — and the gate that was missing now exists
+
+`main` at `2b865d6`. The pyannote engine is bound behind the `Diarizer` port as
+the optional `diarize` extra; `noop` remains the default, so nothing changes
+for anyone who does not opt in.
+
+**Why it was held out at first, recorded because the shape recurs.** Its suites
+passed for everyone who ran them, and failed the moment I rebased it during
+integrate — because the worktree I tested in had the `diarize` extra installed
+and every earlier run did not. Two tests used stub `Binding` objects predating
+the adapter's `token_env` field; extra-free, `build_diarizer` raises
+`PYANNOTE_UNAVAILABLE` before reaching that line, so the stubs were never
+exercised. **A configuration with no gate is a configuration nobody tests.**
+The root cause was not the two stubs: `make diarize-extra-test` existed
+precisely to cover the extra-installed path and did not include those modules.
+Both are fixed — the stubs, and the gate widened with its module list pinned so
+a future module cannot silently escape it.
+
+**Verified in the configuration that was broken**, not just the default one:
+with the extra installed, the two previously-failing modules give 61 passed,
+`make diarize-extra-test` 90 passed, `make test-fast` 1617 passed, `make lint`
+and `make typecheck` clean.
+
+**Keep the main checkout's venv extra-free.** `make lint`, `make typecheck` and
+`make test-fast` are all green there and `pyannote.audio` is absent; installing
+the extra in the main checkout would put it back in the configuration these
+tests now cover but the default gate does not run.
+
+**Telemetry is disabled in code, by owner ruling.** The locked pyannote 4.0.7
+wheel ships an OpenTelemetry exporter that defaults ON to an external endpoint;
+the adapter disables it before `Pipeline.from_pretrained`, and a regression
+fails if that call is removed. A verification round proved the egress is
+actually closed, not merely documented.
+
+**The 60-minute measurement its AC asks for is still owed, and deliberately.**
+`HF_TOKEN` is now in `.env` and resolves, but the account has not accepted the
+gated model's licence conditions at
+`https://huggingface.co/pyannote/speaker-diarization-community-1` (self-service,
+`gated=auto`, immediate). Beyond that, the owner ruled the current corpus — two
+recordings, longest ~7 minutes — is not a basis for judging turn quality; the
+real measurement waits for the new corpus. See B-36 for the LAN GPU
+alternative, which needs no token at all.
