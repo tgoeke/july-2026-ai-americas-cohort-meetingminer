@@ -787,9 +787,8 @@ def test_down_tears_down_the_worktree_stack_named_in_env_worktree(tmp_path: Path
     envfile = tmp_path / ".env"
     envfile.write_text("POSTGRES_PASSWORD=x\n", encoding="utf-8")
     worktree_env = tmp_path / ".env.worktree"
-    worktree_env.write_text(
-        "MM_STACK_NAME=meetingminer-probe\nMM_POSTGRES_PORT=20001\n", encoding="utf-8"
-    )
+    project = f"meetingminer-{tmp_path.name}"
+    worktree_env.write_text(good_stack_text(tmp_path.name), encoding="utf-8")
     docker_bin = tmp_path / "path"
     argv_log = tmp_path / "docker-argv.txt"
     _write_script(
@@ -810,11 +809,11 @@ def test_down_tears_down_the_worktree_stack_named_in_env_worktree(tmp_path: Path
     assert proc.returncode == 0, output
 
     invocations = argv_log.read_text(encoding="utf-8").splitlines()
-    prefix = f"compose --env-file {envfile} --env-file {worktree_env} -p meetingminer-probe "
+    prefix = f"compose --env-file {envfile} --env-file {worktree_env} -p {project} "
     assert any(
         line.startswith(prefix) and line.endswith(" down") for line in invocations
     ), invocations
-    assert "compose -p meetingminer-probe down" in invocations
+    assert f"compose -p {project} down" in invocations
     assert "compose -p meetingminer down" not in invocations
 
 
@@ -827,7 +826,7 @@ def test_compose_receives_the_resolved_stack_values_through_the_environment(tmp_
     envfile = tmp_path / ".env"
     envfile.write_text("POSTGRES_PASSWORD=x\n", encoding="utf-8")
     (tmp_path / ".env.worktree").write_text(
-        "MM_STACK_NAME=meetingminer-probe\nMM_POSTGRES_PORT=20001\n", encoding="utf-8"
+        good_stack_text(tmp_path.name), encoding="utf-8"
     )
     docker_bin = tmp_path / "path"
     argv_log = tmp_path / "docker-argv.txt"
@@ -855,8 +854,9 @@ def test_compose_receives_the_resolved_stack_values_through_the_environment(tmp_
     assert "env MM_STACK_NAME=meetingminer-envname MM_POSTGRES_PORT=20099" in lines
 
     lines = run_down({"MM_STACK_NAME": "", "MM_POSTGRES_PORT": ""})
-    assert any(line.startswith("compose --env-file") and " -p meetingminer-probe " in line for line in lines), lines
-    assert "env MM_STACK_NAME=meetingminer-probe MM_POSTGRES_PORT=20001" in lines
+    expected_project = f"meetingminer-{tmp_path.name}"
+    assert any(line.startswith("compose --env-file") and f" -p {expected_project} " in line for line in lines), lines
+    assert f"env MM_STACK_NAME={expected_project} MM_POSTGRES_PORT=20001" in lines
 
 
 def test_check_dev_stores_probes_this_checkouts_ports(tmp_path: Path) -> None:

@@ -135,7 +135,7 @@ export COREPACK_ENABLE_DOWNLOAD_PROMPT := 0
         rebuild purge digest backfill-drop-paths mint-drop test-db-prune check-reviews check-tools check-docker check-env check-client check-stores check-dev-stores check-test-stores check-api \
         infra-up start-api start-worker start-web \
         stop-api stop-worker stop-web \
-        worktree worktree-list worktree-remove worktree-prune worktree-provision worktree-start check-stack
+        worktree worktree-list worktree-remove worktree-prune worktree-provision worktree-start check-stack check-stack-record
 
 help:
 	@echo "MeetingMiner targets:"
@@ -248,7 +248,7 @@ check-docker:
 # truncated or copied file must never be accepted because it exists. The
 # main checkout is the mirror image: a .env.worktree there is misplaced and
 # refused by name, because the main checkout runs the main stack.
-check-env:
+check-stack-record:
 	@if [ -f "$(ROOT)/.git" ]; then \
 		if [ ! -r "$(ROOT)/.env.worktree" ]; then \
 			echo "error: $(ROOT) is a linked git worktree with no .env.worktree — it would use the main checkout's Docker stack (story 11.2)."; \
@@ -257,6 +257,8 @@ check-env:
 	elif [ -e "$(ROOT)/.env.worktree" ]; then \
 		echo "error: $(ROOT) is the main checkout but carries a .env.worktree — the main checkout runs the main stack (meetingminer); remove $(ROOT)/.env.worktree and use 'make worktree STORY=<slug>' for a private stack."; exit 1; \
 	fi
+
+check-env: check-stack-record
 	@[ -r "$(ENVFILE)" ] || { echo "error: $(ENVFILE) missing or unreadable — run 'make bootstrap' (it copies .env.example)."; exit 1; }
 	@grep -Eq '^[[:space:]]*(export[[:space:]]+)?MM_DROPS_ROOT[[:space:]]*=[[:space:]]*[^[:space:]#]' "$(ENVFILE)" \
 		|| { echo "error: MM_DROPS_ROOT is not set in $(ENVFILE)."; \
@@ -1027,7 +1029,7 @@ stop-web:
 # After the pidfile-based stops: warn about matching processes we hold no
 # pidfile for (finding 7 — a deleted .logs/ must not orphan silently), then
 # stop the containers even when .env interpolation is broken (finding 8).
-down: stop-web stop-worker stop-api
+down: check-stack-record stop-web stop-worker stop-api
 	@STRAY=$$( { pgrep -f '$(API_PATTERN)'; pgrep -f '$(WORKER_PATTERN)'; pgrep -f '$(WEB_PATTERN)'; } 2>/dev/null | sort -un | tr '\n' ' ' ); \
 	if [ -n "$$STRAY" ]; then \
 		echo "down: warning — processes launched from this checkout are still running without pidfiles (pids: $$STRAY) — stop them manually"; \
