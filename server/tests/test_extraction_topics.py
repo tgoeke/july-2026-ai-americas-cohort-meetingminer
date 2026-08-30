@@ -265,6 +265,18 @@ def test_topic_gist_strips_timestamp_bookkeeping_in_both_layouts() -> None:
         assert core.topic_gist(parsed.artifacts[1]) == "Ellis owns the SFTP credentials"
 
 
+def test_an_anchors_header_is_timestamp_bookkeeping_not_gist_text() -> None:
+    document = (
+        "## Topics\n\n"
+        "| ID | Topic | Gist | Anchors |\n"
+        "|----|-------|------|---------|\n"
+        "| T1 | Vendor feed transport | Moving to SFTP | [0:10], [0:45] |\n"
+    )
+    [topic] = core.parse_extraction_document(document, core.DOC_TOPICS).artifacts
+    assert topic.anchors_ms == (10_000, 45_000)
+    assert core.topic_gist(topic) == "Moving to SFTP"
+
+
 # --- the prompt builder and the config binding -------------------------------
 
 
