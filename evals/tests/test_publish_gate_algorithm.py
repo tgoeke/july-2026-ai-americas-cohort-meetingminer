@@ -513,6 +513,33 @@ def test_a_probe_refusal_never_softens_a_real_violation() -> None:
     assert any("GATE VIOLATION" in p for p in result.problems)
 
 
+def test_a_probe_refusal_never_softens_published_subject_defects() -> None:
+    """F6: applicability follows observed structure, not headline wording."""
+    published = FakeArtifact(ARTIFACT, MOMENT, "published")
+    refusal = GateProbe(problem="no probe was minted: no projected moment")
+    cases = (
+        {
+            checks.SEARCH_STORE: StorePresence(present=False),
+            checks.GRAPH_STORE: StorePresence(
+                present=True, cited_moment_ids=(MOMENT,)
+            ),
+        },
+        {
+            checks.SEARCH_STORE: StorePresence(
+                present=True, cited_moment_ids=("wrong-moment",)
+            ),
+            checks.GRAPH_STORE: StorePresence(
+                present=True, cited_moment_ids=(MOMENT,)
+            ),
+        },
+    )
+
+    for membership in cases:
+        result = gate([published], {ARTIFACT: membership}, refusal)
+        assert not result.passed
+        assert result.applicable, result.problems
+
+
 def test_an_interrupted_probe_keeps_its_diagnosis_and_its_cleanup() -> None:
     """A store read failing mid-probe leaves a minted row behind it: the
     named interruption lands as the problem, the pre/post divergence noise

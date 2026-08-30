@@ -1232,6 +1232,7 @@ def publish_gate(
         states[artifact.state] = states.get(artifact.state, 0) + 1
 
     problems: list[str] = []
+    subject_defect = False
 
     # The subject halves: one read per artifact, no mutation anywhere.
     for artifact in artifacts:
@@ -1246,6 +1247,7 @@ def publish_gate(
                 )
             elif artifact.state == PUBLISHED_STATE:
                 if not presence.present:
+                    subject_defect = True
                     problems.append(
                         f"published artifact {artifact_id} is absent from"
                         f" {store} — projection-on-publish (story 4-4) has"
@@ -1253,6 +1255,7 @@ def publish_gate(
                         " in both stores"
                     )
                 elif moment_id not in presence.cited_moment_ids:
+                    subject_defect = True
                     cited = ", ".join(presence.cited_moment_ids) or "nothing"
                     problems.append(
                         f"artifact {artifact_id} is present in {store} but"
@@ -1260,6 +1263,7 @@ def publish_gate(
                         f" {moment_id} — the store cites {cited}"
                     )
             elif presence.present:
+                subject_defect = True
                 problems.append(
                     f"GATE VIOLATION: artifact {artifact_id} (state"
                     f" {artifact.state!r}) is present in {store} — an"
@@ -1374,6 +1378,7 @@ def publish_gate(
         # cleanup leftover — are measurements too, so they keep the result
         # applicable even on a meeting with no subject artifacts.
         applicable=(bool(artifacts) and probe_measured)
+        or subject_defect
         or violation_found
         or bool(probe_measured and probe_problems),
         thresholds=thresholds,
