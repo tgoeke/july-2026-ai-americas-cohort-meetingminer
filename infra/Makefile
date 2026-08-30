@@ -551,6 +551,7 @@ mint-drop: check-env
 # `check-tools`: the command checks for them itself at run time and refuses
 # with a named error, which is the narrower gate. `--no-post`/`--drops`/`--api`
 # pass through YT_ARGS the way MINT_ARGS does.
+unexport URL
 youtube-drop: export MM_YOUTUBE_URL := $(value URL)
 youtube-drop: check-env
 	@[ -x "$(VENV)/bin/python" ] || { echo "error: server venv missing — run 'make bootstrap' first."; exit 1; }

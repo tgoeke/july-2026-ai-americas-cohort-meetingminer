@@ -110,6 +110,48 @@ def cli_result(tmp_path: Path, *, status: str = "created") -> mintdrop.MintResul
     )
 
 
+def write_existing_youtube_drop(root: Path) -> tuple[Path, dict[str, Any]]:
+    source_id = f"youtube:{VALID_ID}"
+    drop = root / mintdrop.drop_name(
+        "2026-08-12T15:30:19Z", "Platform Sync — August", source_id
+    )
+    drop.mkdir()
+    recording = drop / "recording.mp4"
+    recording.write_bytes(b"existing youtube recording")
+    digest, size = mintdrop.sha256_and_size(recording)
+    metadata = {
+        "schemaVersion": 1,
+        "sourceId": source_id,
+        "corpus": "real",
+        "startedAt": "2026-08-12T15:30:19Z",
+        "startedAtPrecision": "second",
+        "provenance": {
+            "tool": "youtube-drop",
+            "title": "Platform Sync — August",
+            "mintedAt": "2026-08-30T12:00:00Z",
+            "suppliedBy": "test",
+            "startedAtSource": "release_timestamp",
+            "url": WATCH_URL,
+            "channel": "MeetingMiner Sandbox",
+            "durationSeconds": 1830,
+            "ytDlpVersion": "2026.07.04",
+            "formatId": "137+140",
+            "files": [
+                {
+                    "dropFilename": "recording.mp4",
+                    "sourcePath": "/private/tmp/source.mp4",
+                    "sha256": digest,
+                    "byteSize": size,
+                }
+            ],
+        },
+    }
+    (drop / "metadata.json").write_text(
+        json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+    )
+    return drop, metadata
+
+
 @pytest.fixture()
 def drops_root(tmp_path: Path) -> Path:
     root = tmp_path / "drops"
@@ -267,6 +309,15 @@ def test_provenance_extra_carries_the_ac_field_list() -> None:
         "durationSeconds": 1830,
         "formatId": "137+140",
     }
+
+
+def test_whitespace_channel_uses_a_normalized_uploader_fallback() -> None:
+    info = info_fixture("full")
+    info["channel"] = "   "
+    info["uploader"] = "  Fallback Publisher  "
+    assert youtube.provenance_extra_from_info(
+        info, VALID_ID, "2026.07.04"
+    )["channel"] == "Fallback Publisher"
 
 
 @pytest.mark.parametrize(
@@ -428,6 +479,27 @@ def test_probe_identity_must_match_the_requested_video(
     assert list(drops_root.iterdir()) == []
 
 
+@pytest.mark.parametrize(
+    "channel,uploader",
+    [(None, None), ("", ""), ("   ", "\t")],
+)
+def test_probe_missing_or_blank_channel_refuses_before_download(
+    channel: object,
+    uploader: object,
+    drops_root: Path,
+    tools_present: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    info = info_fixture("full")
+    info["channel"] = channel
+    info["uploader"] = uploader
+    monkeypatch.setattr(youtube, "probe", lambda url: info)
+    monkeypatch.setattr(youtube, "download", _must_not_run("download"))
+    with pytest.raises(youtube.YoutubeError, match="channel"):
+        youtube.acquire(WATCH_URL, **acquire_kwargs(drops_root))
+    assert list(drops_root.iterdir()) == []
+
+
 def test_neither_timestamp_refuses_before_the_download(
     drops_root: Path, tools_present: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -446,6 +518,10 @@ def test_neither_timestamp_refuses_before_the_download(
     [
         ({"id": "different01"}, "video id"),
         ({"duration": 999999}, "over the.*cap"),
+        ({"duration": None}, "duration"),
+        ({"duration": float("nan")}, "duration"),
+        ({"duration": -1}, "duration"),
+        ({"formats": info_fixture("audio-only")["formats"]}, "no video stream"),
         ({"channel": "", "uploader": ""}, "channel"),
         ({"format_id": ""}, "format_id"),
         (
@@ -479,12 +555,18 @@ def test_downloaded_metadata_is_revalidated_before_mint(
     assert list(drops_root.iterdir()) == []
 
 
-def test_selected_captions_must_materialize_a_vtt(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("captions", [("en", "manual"), ("en", "auto")])
+def test_selected_captions_require_the_requested_english_vtt(
+    captions: tuple[str, str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     (tmp_path / f"{VALID_ID}.mp4").write_bytes(b"media")
     (tmp_path / f"{VALID_ID}.info.json").write_text(
         json.dumps(info_fixture("full")), encoding="utf-8"
+    )
+    (tmp_path / f"{VALID_ID}.fr.vtt").write_text(
+        TRANSCRIPT_VTT.replace("morning all", "bonjour"), encoding="utf-8"
     )
     monkeypatch.setattr(
         youtube,
@@ -493,7 +575,33 @@ def test_selected_captions_must_materialize_a_vtt(
     )
 
     with pytest.raises(youtube.YoutubeError, match="caption.*no VTT"):
-        youtube.download(WATCH_URL, VALID_ID, tmp_path, ("en", "manual"))
+        youtube.download(WATCH_URL, VALID_ID, tmp_path, captions)
+
+
+def test_downloaded_caption_availability_must_match_the_probe(
+    drops_root: Path, tools_present: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    probe_info = info_fixture("no-english")
+    downloaded = dict(probe_info)
+    downloaded["automatic_captions"] = {"en": [{"ext": "vtt"}]}
+    video_id = probe_info["id"]
+    url = youtube.watch_url(video_id)
+    monkeypatch.setattr(youtube, "probe", lambda canonical: probe_info)
+    monkeypatch.setattr(youtube, "yt_dlp_version", lambda: "2026.07.04")
+
+    def fake_download(
+        canonical: str,
+        received_video_id: str,
+        workdir: Path,
+        captions: tuple[str, str] | None,
+    ) -> tuple[Path, Path | None, dict[str, Any]]:
+        assert captions is None
+        return workdir / f"{received_video_id}.mp4", None, downloaded
+
+    monkeypatch.setattr(youtube, "download", fake_download)
+    monkeypatch.setattr(youtube, "mint", _must_not_run("mint"))
+    with pytest.raises(youtube.YoutubeError, match="caption availability.*changed"):
+        youtube.acquire(url, **acquire_kwargs(drops_root))
 
 
 @pytest.mark.parametrize(
@@ -573,21 +681,7 @@ def test_an_already_minted_video_short_circuits_before_any_yt_dlp_call(
     """Acceptance: `find_existing_drop` answers first; the downloader and the
     probe are never invoked and no network traffic for media occurs."""
     source_id = f"youtube:{VALID_ID}"
-    drop = drops_root / mintdrop.drop_name(
-        "2026-08-12T15:30:19Z", "Platform Sync — August", source_id
-    )
-    drop.mkdir()
-    metadata = {
-        "schemaVersion": 1,
-        "sourceId": source_id,
-        "corpus": "real",
-        "startedAt": "2026-08-12T15:30:19Z",
-        "startedAtPrecision": "second",
-        "provenance": {"tool": "youtube-drop", "url": WATCH_URL},
-    }
-    (drop / "metadata.json").write_text(
-        json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
-    )
+    drop, metadata = write_existing_youtube_drop(drops_root)
 
     monkeypatch.setattr(youtube, "ensure_tools", _must_not_run("ensure_tools"))
     monkeypatch.setattr(youtube, "probe", _must_not_run("probe"))
@@ -603,6 +697,25 @@ def test_an_already_minted_video_short_circuits_before_any_yt_dlp_call(
     assert result.metadata == metadata
     # Nothing written: the pre-existing drop is still the only thing there.
     assert [p for p in drops_root.iterdir()] == [drop]
+
+
+def test_incomplete_legacy_existing_drop_is_refused_without_yt_dlp(
+    drops_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    drop, metadata = write_existing_youtube_drop(drops_root)
+    del metadata["provenance"]["formatId"]
+    (drop / "metadata.json").write_text(
+        json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(youtube, "ensure_tools", _must_not_run("ensure_tools"))
+    monkeypatch.setattr(youtube, "probe", _must_not_run("probe"))
+    monkeypatch.setattr(youtube, "download", _must_not_run("download"))
+
+    with pytest.raises(
+        youtube.YoutubeError,
+        match=r"existing YouTube drop.*formatId.*do not POST.*quarantine",
+    ):
+        youtube.acquire(WATCH_URL, **acquire_kwargs(drops_root))
 
 
 # --- acquisition end to end, offline ----------------------------------------
@@ -722,7 +835,10 @@ def test_mint_overrides_produce_the_youtube_metadata_shape(tmp_path: Path) -> No
     assert again.path == result.path
 
 
-def test_mint_refuses_provenance_collisions_before_writing(tmp_path: Path) -> None:
+@pytest.mark.parametrize("protected_key", sorted(mintdrop.MINT_OWNED_PROVENANCE_KEYS))
+def test_mint_refuses_every_provenance_collision_before_writing(
+    protected_key: str, tmp_path: Path
+) -> None:
     vtt = tmp_path / "talk.vtt"
     vtt.write_text(TRANSCRIPT_VTT, encoding="utf-8")
     root = tmp_path / "drops"
@@ -730,7 +846,7 @@ def test_mint_refuses_provenance_collisions_before_writing(tmp_path: Path) -> No
 
     with pytest.raises(
         mintdrop.MintError,
-        match=r"provenance_extra collides with mint-owned keys: files, mintedAt",
+        match=rf"provenance_extra collides with mint-owned keys: {protected_key}",
     ):
         mintdrop.mint(
             supplied=[str(vtt)],
@@ -739,10 +855,66 @@ def test_mint_refuses_provenance_collisions_before_writing(tmp_path: Path) -> No
             config_path=REPO_ROOT / "config.yaml",
             source_id=f"youtube:{VALID_ID}",
             started_at_override=("2026-08-12T00:00:00Z", "day", "upload_date"),
-            provenance_extra={"files": [], "mintedAt": "fabricated"},
+            provenance_extra={protected_key: "fabricated"},
         )
 
     assert list(root.iterdir()) == []
+
+
+def test_mint_refuses_a_non_mapping_provenance_override_before_writing(
+    tmp_path: Path,
+) -> None:
+    vtt = tmp_path / "talk.vtt"
+    vtt.write_text(TRANSCRIPT_VTT, encoding="utf-8")
+    root = tmp_path / "drops"
+    root.mkdir()
+
+    with pytest.raises(mintdrop.MintError, match="provenance_extra must be a mapping"):
+        mintdrop.mint(
+            supplied=[str(vtt)],
+            corpus="real",
+            drops_root=root,
+            config_path=REPO_ROOT / "config.yaml",
+            source_id=f"youtube:{VALID_ID}",
+            started_at_override=("2026-08-12T00:00:00Z", "day", "upload_date"),
+            provenance_extra=[("files", [])],  # type: ignore[arg-type]
+        )
+
+    assert list(root.iterdir()) == []
+
+
+def test_provenance_collision_refuses_even_when_source_id_already_exists(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "first.vtt"
+    first.write_text(TRANSCRIPT_VTT, encoding="utf-8")
+    second = tmp_path / "second.vtt"
+    second.write_text(TRANSCRIPT_VTT + "\nsecond\n", encoding="utf-8")
+    root = tmp_path / "drops"
+    root.mkdir()
+    source_id = f"youtube:{VALID_ID}"
+    created = mintdrop.mint(
+        supplied=[str(first)],
+        corpus="real",
+        drops_root=root,
+        config_path=REPO_ROOT / "config.yaml",
+        source_id=source_id,
+        started_at_override=("2026-08-12T00:00:00Z", "day", "upload_date"),
+    )
+    before = sorted(root.iterdir())
+
+    with pytest.raises(mintdrop.MintError, match="mint-owned keys: files"):
+        mintdrop.mint(
+            supplied=[str(second)],
+            corpus="real",
+            drops_root=root,
+            config_path=REPO_ROOT / "config.yaml",
+            source_id=source_id,
+            started_at_override=("2026-08-12T00:00:00Z", "day", "upload_date"),
+            provenance_extra={"files": []},
+        )
+    assert created.path in before
+    assert sorted(root.iterdir()) == before
 
 
 def test_mint_without_overrides_is_todays_behaviour_unchanged(tmp_path: Path) -> None:
@@ -786,7 +958,9 @@ def test_acquisition_config_defaults_and_the_committed_block_agree() -> None:
 
 
 def test_main_classifies_an_invalid_url_before_resolving_a_writable_root(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     root = tmp_path / "drops"
     root.mkdir()
@@ -799,6 +973,7 @@ def test_main_classifies_an_invalid_url_before_resolving_a_writable_root(
     monkeypatch.setattr(youtube, "resolve_drops_root", mutating_resolver)
     assert youtube.main(["https://example.com/not-youtube"]) == 1
     assert list(root.iterdir()) == []
+    assert "fatal: youtube-drop refused: not a YouTube video URL" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("result_status", ["created", "exists"])
@@ -935,6 +1110,7 @@ def test_makefile_has_the_youtube_drop_target_with_a_url_guard() -> None:
     assert "\nyoutube-drop: check-env\n" in makefile
     recipe = makefile.split("\nyoutube-drop: check-env\n", 1)[1].split("\n\n", 1)[0]
     assert 'error: URL is required' in recipe
+    assert "unexport URL" in makefile
     assert 'export MM_YOUTUBE_URL := $(value URL)' in makefile
     assert '"$${MM_YOUTUBE_URL}" $(YT_ARGS)' in recipe
     assert '$(URL)' not in recipe
@@ -944,8 +1120,9 @@ def test_makefile_has_the_youtube_drop_target_with_a_url_guard() -> None:
     )
 
 
+@pytest.mark.parametrize("attack", ["shell", "make-shell"])
 def test_makefile_passes_a_hostile_url_as_one_data_argument(
-    tmp_path: Path,
+    attack: str, tmp_path: Path
 ) -> None:
     venv = tmp_path / "venv"
     (venv / "bin").mkdir(parents=True)
@@ -959,7 +1136,11 @@ def test_makefile_passes_a_hostile_url_as_one_data_argument(
     env_file.write_text("MM_DROPS_ROOT=/tmp/drops\n", encoding="utf-8")
     capture = tmp_path / "args.txt"
     injected = tmp_path / "injected"
-    hostile = f'{WATCH_URL}"; touch {injected}; #'
+    hostile = (
+        f'{WATCH_URL}"; touch {injected}; #'
+        if attack == "shell"
+        else f"{WATCH_URL}$(shell touch {injected})"
+    )
     env = dict(os.environ, MM_TEST_CAPTURE=str(capture))
 
     completed = subprocess.run(

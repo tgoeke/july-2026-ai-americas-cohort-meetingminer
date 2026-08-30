@@ -17,13 +17,12 @@ or through ``make youtube-drop URL=<url>`` (options via ``YT_ARGS``).
 
 What it guarantees, and why each one is here:
 
-* **Refuse before writing anything.** Every refusal is a named error with a
-  non-zero exit stating the rule and the remediation: a URL that is not a
-  YouTube video, ``yt-dlp``, ``ffmpeg``, or ``ffprobe`` missing from PATH, a
-  private or removed video, no video stream, a duration over
-  ``acquisition.youtube.max_duration_minutes``, a video carrying neither
-  ``release_timestamp`` nor ``upload_date``. All of it is decided at classify
-  or probe time — before a byte of media is downloaded.
+* **Refuse before permanent writes.** Every refusal is a named error with a
+  non-zero exit stating the rule and remediation. URL, tool, and probe-known
+  refusals happen before media download. A downloaded-metadata drift or missing
+  selected caption can be known only after yt-dlp wrote temporary bytes; those
+  paths still refuse before finalization, remove the private temp directory,
+  and leave no source drop.
 * **Identity from the source.** ``sourceId`` is ``youtube:<videoId>``, parsed
   from the URL offline, and :func:`~meetingminer.mintdrop.find_existing_drop`
   answers before any ``yt-dlp`` invocation: on ``exists`` the downloader is
@@ -57,10 +56,17 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, TypeGuard
+from typing import Any, NoReturn, TypeGuard
 
 from meetingminer.config import ConfigError
-from meetingminer.domain.drops import read_metadata
+from meetingminer.domain.drops import (
+    RECORDING_FILENAME,
+    TRANSCRIPT_TEXT_FILENAME,
+    TRANSCRIPT_VTT_FILENAME,
+    DropError,
+    read_drop,
+    sha256_and_size,
+)
 from meetingminer.mintdrop import (
     IntakeError,
     MintError,
@@ -273,13 +279,14 @@ def _duration_seconds(info: dict[str, Any]) -> int | float:
 
 
 def _channel_from_info(info: dict[str, Any]) -> str:
-    channel = info.get("channel") or info.get("uploader")
-    if not isinstance(channel, str) or not channel.strip():
-        raise YoutubeError(
-            "the video channel is missing or invalid — provenance requires the"
-            " source publisher before evidence can be finalized"
-        )
-    return channel.strip()
+    for field in ("channel", "uploader"):
+        value = info.get(field)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    raise YoutubeError(
+        "the video channel is missing or invalid — provenance requires the"
+        " source publisher before evidence can be finalized"
+    )
 
 
 def _format_id_from_info(info: dict[str, Any]) -> str:
@@ -447,15 +454,15 @@ def download(
         raise YoutubeError(f"{info_path.name} is not a JSON object")
     transcript: Path | None = None
     if captions is not None:
-        candidates = sorted(workdir.glob(f"{video_id}*.vtt"))
-        if not candidates:
-            language, kind = captions
+        language, kind = captions
+        expected = workdir / f"{video_id}.{language}.vtt"
+        if not expected.is_file():
             raise YoutubeError(
                 f"yt-dlp selected the {kind} {language!r} caption track but wrote"
                 " no VTT — retry after upgrading yt-dlp; recording-only is allowed"
                 " only when the probe reports no English captions"
             )
-        transcript = candidates[0]
+        transcript = expected
     return recording, transcript, info
 
 
@@ -488,6 +495,104 @@ def provenance_extra_from_info(
 # --- acquisition ------------------------------------------------------------
 
 
+def _refuse_legacy_drop(path: Path, detail: str) -> NoReturn:
+    raise YoutubeError(
+        f"existing YouTube drop {path} is incomplete: {detail} — do not POST"
+        " this legacy drop; quarantine it outside MM_DROPS_ROOT for repair,"
+        " then rerun youtube-drop"
+    )
+
+
+def validate_existing_youtube_drop(
+    path: Path,
+    *,
+    video_id: str,
+    source_id: str,
+    config_path: Path,
+    max_duration_minutes: int,
+) -> dict[str, Any]:
+    """Validate a local ``exists`` result without invoking yt-dlp.
+
+    Story 6.2's first implementation could finalize schema-valid drops whose
+    open provenance object omitted YouTube-required facts. Such a drop must not
+    be POSTed merely because its source id matches.
+    """
+    try:
+        contents = read_drop(path, config_path)
+    except DropError as exc:
+        _refuse_legacy_drop(path, str(exc))
+    metadata = contents.metadata
+    if metadata.get("sourceId") != source_id:
+        _refuse_legacy_drop(path, "sourceId does not match the requested video")
+    if metadata.get("corpus") != "real":
+        _refuse_legacy_drop(path, "corpus must be 'real'")
+    if contents.recording_path is None:
+        _refuse_legacy_drop(path, f"required evidence {RECORDING_FILENAME} is missing")
+    if contents.transcript_text_path is not None:
+        _refuse_legacy_drop(
+            path, f"unexpected YouTube evidence {TRANSCRIPT_TEXT_FILENAME} is present"
+        )
+
+    provenance = metadata.get("provenance")
+    if not isinstance(provenance, dict):
+        _refuse_legacy_drop(path, "provenance is not an object")
+    if provenance.get("tool") != PROGRAM:
+        _refuse_legacy_drop(path, f"provenance.tool must be {PROGRAM!r}")
+    if provenance.get("url") != watch_url(video_id):
+        _refuse_legacy_drop(path, "provenance.url is not the canonical watch URL")
+    for key in ("channel", "ytDlpVersion", "formatId"):
+        value = provenance.get(key)
+        if not isinstance(value, str) or not value.strip():
+            _refuse_legacy_drop(path, f"provenance.{key} is missing or blank")
+
+    duration = provenance.get("durationSeconds")
+    if not _is_finite_number(duration) or duration < 0:
+        _refuse_legacy_drop(
+            path, "provenance.durationSeconds is not a finite non-negative number"
+        )
+    if duration > max_duration_minutes * 60:
+        _refuse_legacy_drop(
+            path,
+            f"provenance.durationSeconds exceeds the {max_duration_minutes}-minute cap",
+        )
+
+    expected_start_source = {
+        "second": "release_timestamp",
+        "day": "upload_date",
+    }.get(metadata.get("startedAtPrecision"))
+    if provenance.get("startedAtSource") != expected_start_source:
+        _refuse_legacy_drop(
+            path,
+            "provenance.startedAtSource does not match startedAtPrecision",
+        )
+
+    files = provenance.get("files")
+    if not isinstance(files, list):
+        _refuse_legacy_drop(path, "provenance.files is not a list")
+    entries = {
+        entry.get("dropFilename"): entry
+        for entry in files
+        if isinstance(entry, dict) and isinstance(entry.get("dropFilename"), str)
+    }
+    actual = {RECORDING_FILENAME: contents.recording_path}
+    if contents.transcript_vtt_path is not None:
+        actual[TRANSCRIPT_VTT_FILENAME] = contents.transcript_vtt_path
+    if set(entries) != set(actual):
+        _refuse_legacy_drop(
+            path,
+            "provenance.files does not exactly describe the finalized evidence",
+        )
+    for name, evidence_path in actual.items():
+        assert evidence_path is not None
+        digest, size = sha256_and_size(evidence_path)
+        entry = entries[name]
+        if entry.get("sha256") != digest or entry.get("byteSize") != size:
+            _refuse_legacy_drop(
+                path, f"provenance.files entry for {name} does not match its bytes"
+            )
+    return metadata
+
+
 def acquire(
     url: str,
     *,
@@ -510,11 +615,18 @@ def acquire(
     scope = (identity_root or drops_root).resolve()
     existing = find_existing_drop(scope, source_id)
     if existing is not None:
+        metadata = validate_existing_youtube_drop(
+            existing,
+            video_id=video_id,
+            source_id=source_id,
+            config_path=config_path,
+            max_duration_minutes=max_duration_minutes,
+        )
         return MintResult(
             status="exists",
             path=existing,
             source_id=source_id,
-            metadata=read_metadata(existing),
+            metadata=metadata,
         )
     ensure_tools()
     canonical = watch_url(video_id)
@@ -538,6 +650,13 @@ def acquire(
             max_duration_minutes=max_duration_minutes,
             require_format_id=True,
         )
+        downloaded_captions = select_captions(downloaded)
+        if downloaded_captions != captions:
+            raise YoutubeError(
+                "caption availability changed between probe and downloaded"
+                f" metadata ({captions!r} -> {downloaded_captions!r}) — retry;"
+                " no drop was finalized"
+            )
         supplied = [str(recording)]
         if transcript is not None:
             supplied.append(str(transcript))

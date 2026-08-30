@@ -65,6 +65,7 @@ import time
 import unicodedata
 import urllib.error
 import urllib.request
+from collections.abc import Mapping
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -170,8 +171,18 @@ class IntakeError(RuntimeError):
     """The drop was finalized but the api did not accept it."""
 
 
-def _validate_provenance_extra(extra: dict[str, Any] | None) -> None:
-    collisions = sorted(MINT_OWNED_PROVENANCE_KEYS.intersection(extra or {}))
+def _validate_provenance_extra(
+    extra: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    if extra is None:
+        return {}
+    if not isinstance(extra, Mapping):
+        raise MintError(
+            "provenance_extra must be a mapping — list-of-pairs and other"
+            " dict.update-compatible values are refused before minting"
+        )
+    normalized = dict(extra)
+    collisions = sorted(MINT_OWNED_PROVENANCE_KEYS.intersection(normalized))
     if collisions:
         raise MintError(
             "provenance_extra collides with mint-owned keys: "
@@ -179,6 +190,7 @@ def _validate_provenance_extra(extra: dict[str, Any] | None) -> None:
             + " — pass only producer-owned source facts; mint owns the evidence"
             " manifest"
         )
+    return normalized
 
 
 # --- naming ----------------------------------------------------------------
@@ -588,7 +600,7 @@ def build_metadata(
     (glossary): omitted means the source did not look, and the pipeline falls
     back to transcript speaker attribution, which is the truth here.
     """
-    _validate_provenance_extra(provenance_extra)
+    normalized_extra = _validate_provenance_extra(provenance_extra)
     provenance: dict[str, Any] = {
         "tool": PROGRAM,
         "title": title,
@@ -605,8 +617,8 @@ def build_metadata(
             for f in files
         ],
     }
-    if provenance_extra:
-        provenance.update(provenance_extra)
+    if normalized_extra:
+        provenance.update(normalized_extra)
     return {
         "schemaVersion": 1,
         "sourceId": source_id,
