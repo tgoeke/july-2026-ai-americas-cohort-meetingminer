@@ -417,8 +417,8 @@ evals-test:
 # One eval run (story 5.2): the tier-1 capture checks against the ingested
 # scripted corpus. Deliberately NOT part of `make test` and deliberately not in
 # the store-free group — it reads Postgres and lists the corpus through the
-# api, so it holds the shared stores for its duration (AGENTS.md) and needs a
-# live api the way `make client` does.
+# api, so it holds this checkout's stores and the api for its duration
+# (AGENTS.md; one run at a time) and needs a live api the way `make client` does.
 #
 # It also writes: each run creates an immutable folder under `evals/runs/`
 # holding the deterministic report and the resolved configuration it was
