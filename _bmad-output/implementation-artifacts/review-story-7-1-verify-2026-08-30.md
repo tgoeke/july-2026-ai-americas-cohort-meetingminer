@@ -82,7 +82,7 @@ Blind Hunter, Edge Case Hunter, Verification Gap Reviewer, and Acceptance Audito
 - `uv run --project server pytest server/tests/test_diarize_pyannote.py -q` — `28 passed, 1 skipped` (named extra-free skip).
 - `uv run --project server pytest server/tests/test_stt_adapter.py -q` — `31 passed`.
 - `uv run --project server pytest server/tests/test_compose_contract.py -q` — `31 passed`.
-- `make diarize-extra-test` — passed after installing 166 packages in the disposable environment. V5 remains open because this target itself omits `--locked`.
+- `make diarize-extra-test` after V5 — passed after visibly executing `uv run --locked --isolated ...` and installing 166 packages in the disposable environment.
 - Real-wheel telemetry proof, run with `uv run --locked --isolated --project server --extra diarize`: locked `pyannote.audio==4.0.7` reported endpoint `https://otel.pyannote.ai/v1/traces` and metrics enabled before the adapter call; with only `Pipeline.from_pretrained` mocked to prevent a model/network operation, `_load_pipeline` made the provider's own `is_metrics_enabled()` false before that call. Output: `before=true before_load=false`.
 - `make test-fast` in the foreground — puller `128 passed`; web `291 passed`; evals `549 passed`; server `1430 passed, 1 skipped, 326 deselected`.
 - `make check-reviews` — passed: `every dispatched review has a committed report`.
@@ -90,4 +90,4 @@ Blind Hunter, Edge Case Hunter, Verification Gap Reviewer, and Acceptance Audito
 
 ## Verdict
 
-**Changes requested.** V2–V4 are resolved red-first and all required suites are green. V1 and V5 remain open at Medium severity pending one owner/spec ruling: authorize the existing full-gate footprint (and then add `--locked`), or remove/rehome that gate. The branch must not merge while the frozen contract and remediation disagree.
+**Approved after owner ruling and remediation.** V1 is resolved by the dated owner decision to retain the dependency gate and send the disjoint proximity conflict to integrate for union resolution. V5 is resolved red-first with `--locked`. V2–V4 remain resolved, every requested suite is green, and no review finding remains open. Integrate must expect and preserve the known `infra/Makefile` and `server/tests/test_compose_contract.py` union with Stories 11-3 and 11-4.
