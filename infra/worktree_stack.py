@@ -52,9 +52,12 @@ Subcommands::
         container and volume carries the file's id, tear down a stale
         incarnation, refuse another checkout's stack or an unknown layout.
         ``infra-up``'s ``check-stack`` runs this before every start.
-    down --project meetingminer-<slug>
-        Tear one stack and its volumes down; Docker off or an absent stack
-        is a note, but a failed inventory or teardown is a named error.
+    down --project meetingminer-<slug> --worktree <dir>
+         --worktree-root <root> [--stack-id <id>]
+        Tear one recognised stack and its volumes down only after its layout,
+        directory ownership and (when available) incarnation id agree; Docker
+        off or an absent stack is a note, but an ownership, inventory or
+        teardown failure is a named error.
     prune --worktree-root <dir> [--project meetingminer-<slug>]
         Tear down every worktree stack whose checkout directory is gone.
         With ``--project`` only that project, and an owner that still exists
@@ -618,23 +621,38 @@ def worktree_stacks(
 
 def down(
     project: str,
+    worktree: Path,
+    worktree_root: Path,
+    stack_id: str | None = None,
     run: Run = run_docker,
     out: Callable[[str], None] = print,
 ) -> None:
     """Tear one worktree stack and its volumes down, honestly (finding 6).
 
-    Only a ``meetingminer-<slug>`` name is ever torn down — never
-    ``meetingminer``. Docker being off is a note (``make test-db-prune``
-    sweeps later) and an absent stack is a note; but a failed *inventory*
-    (``docker ps -aq`` / ``docker volume ls -q``) or a failed ``down -v`` is
-    a named error — success is never reported over a stack that may still
-    exist. ``make worktree-remove`` and ``worktree-prune`` call this and
-    propagate its status.
+    A valid project name alone is not ownership. The recognised compose layout
+    must resolve only to ``worktree``; when the removed checkout had a valid
+    ownership record, every remaining container and volume must also carry its
+    ``stack_id``. A missing pre-11.2 record keeps the frozen fallback, but only
+    for a recognised layout owned by the expected directory. Inventory and
+    teardown hold the provisioning lock, closing the check/remove race against
+    provision, claim and prune.
+
+    Docker being off is a note (``make test-db-prune`` sweeps later) and an
+    absent stack is a note; an ownership mismatch, failed inventory or failed
+    ``down -v`` is a named error. ``make worktree-remove`` and
+    ``worktree-prune`` call this and propagate its status.
     """
     if not _is_worktree_project(project):
         raise StackError(
             f"refusing to tear down stack {project!r} — only"
             " meetingminer-<slug> stacks belong to worktrees"
+        )
+    worktree = Path(worktree).absolute()
+    worktree_root = Path(worktree_root).absolute()
+    stack_id = stack_id or None
+    if stack_id is not None and not _STACK_ID_RE.fullmatch(stack_id):
+        raise StackError(
+            f"{STACK_ID_VAR} must be 12 lowercase hex characters, got {stack_id!r}"
         )
     try:
         run(["docker", "info"])
@@ -644,17 +662,36 @@ def down(
             " place; 'make test-db-prune' sweeps it once its worktree is gone"
         )
         return
-    containers = run(
-        ["docker", "ps", "-aq", "--filter", f"label=com.docker.compose.project={project}"]
-    )
-    volumes = run(
-        ["docker", "volume", "ls", "-q", "--filter", f"label=com.docker.compose.project={project}"]
-    )
-    if containers.strip() or volumes.strip():
+    guard = _provision_lock(worktree_root) if worktree_root.is_dir() else nullcontext()
+    with guard:
+        stacks, _foreign = worktree_stacks(run(PS_ARGV), run(VOLUME_ARGV), worktree_root)
+        stack = stacks.get(project)
+        if stack is None:
+            out(f"note: stack {project} was already gone")
+            return
+        if stack.unknown:
+            raise StackError(
+                f"refusing to tear down stack {project}: its containers or"
+                " volumes do not match the recognised worktree-stack layout"
+            )
+        expected_owner = worktree.resolve()
+        foreign_owners = sorted(
+            owner for owner in stack.owners if owner.resolve() != expected_owner
+        )
+        if foreign_owners:
+            raise StackError(
+                f"refusing to tear down stack {project}: it belongs to"
+                f" {foreign_owners[0]}, not the removed checkout {worktree}"
+            )
+        if stack_id is not None and (stack.ids | stack.volume_ids) != {stack_id}:
+            observed = sorted(stack.ids | stack.volume_ids)
+            raise StackError(
+                f"refusing to tear down stack {project}: its"
+                f" {STACK_ID_LABEL} labels {observed!r} do not all match"
+                f" {stack_id!r} from the removed checkout's {ENV_FILENAME}"
+            )
         run(["docker", "compose", "-p", project, "down", "-v", "--remove-orphans"])
         out(f"removed stack {project}")
-    else:
-        out(f"note: stack {project} was already gone")
 
 
 def claim(
@@ -826,7 +863,13 @@ def _cmd_claim(args: argparse.Namespace) -> int:
 
 
 def _cmd_down(args: argparse.Namespace) -> int:
-    down(args.project, run=run_docker)
+    down(
+        args.project,
+        Path(args.worktree),
+        Path(args.worktree_root),
+        stack_id=args.stack_id,
+        run=run_docker,
+    )
     return 0
 
 
@@ -853,9 +896,12 @@ def main(argv: list[str] | None = None) -> int:
     claim_cmd.add_argument("--worktree-root", required=True)
     claim_cmd.set_defaults(func=_cmd_claim)
     down_cmd = commands.add_parser(
-        "down", help="tear one meetingminer-<slug> stack and its volumes down"
+        "down", help="tear down one worktree-owned stack and its volumes"
     )
     down_cmd.add_argument("--project", required=True)
+    down_cmd.add_argument("--worktree", required=True)
+    down_cmd.add_argument("--worktree-root", required=True)
+    down_cmd.add_argument("--stack-id", default="")
     down_cmd.set_defaults(func=_cmd_down)
     prune_cmd = commands.add_parser(
         "prune", help="tear down worktree stacks whose checkout is gone"

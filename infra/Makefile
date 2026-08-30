@@ -296,15 +296,16 @@ BASE ?= main
 # infra/worktree_stack.py applies).
 SLUG_RULE := [a-z0-9][a-z0-9_-]*
 
-# stack_down(name): tear one worktree stack and its volumes down through
-# worktree_stack.py `down` (finding 6): already gone is a note, Docker being
-# off is a note (test-db-prune sweeps later), but a failed inventory or a
-# failed `down -v` is a named non-zero error — never reported as success or
-# absence. Only a meetingminer-<slug> name is ever torn down — never
-# `meetingminer`, the main checkout's stack, whose corpus volumes this must
-# not reach.
+# stack_down(name, checkout, stack-id): tear one worktree stack and its volumes
+# down through worktree_stack.py `down` (finding 6, follow-up finding 1).
+# The detailed inventory must match the removed checkout's recognised layout
+# and, when its validated ownership record supplied one, its incarnation id.
+# Already gone and Docker being off are notes; an ownership mismatch, failed
+# inventory or failed `down -v` is a named non-zero error. Only a
+# meetingminer-<slug> name is ever torn down — never `meetingminer`, the main
+# checkout's stack, whose corpus volumes this must not reach.
 define stack_down
-	python3 $(INFRA)/worktree_stack.py down --project "$(1)"
+	python3 $(INFRA)/worktree_stack.py down --project "$(1)" --worktree "$(2)" --worktree-root "$(WT_ROOT)" --stack-id "$(3)"
 endef
 
 worktree:
@@ -384,12 +385,15 @@ worktree-list:
 # as before, and its stack stays intact for the work still in it.
 worktree-remove:
 	@[ -n "$(STORY)" ] || { echo "error: STORY is required, e.g. 'make worktree-remove STORY=1-12'"; exit 1; }
-	@name=$$(sed -n 's/^MM_STACK_NAME=//p' "$(WT_ROOT)/$(STORY)/.env.worktree" 2>/dev/null | tail -1); \
+	@wt="$(WT_ROOT)/$(STORY)"; f="$(WT_ROOT)/$(STORY)/.env.worktree"; \
+	if [ -e "$$f" ]; then python3 $(INFRA)/worktree_stack.py check --worktree "$$wt" || exit 1; fi; \
+	name=$$(sed -n 's/^MM_STACK_NAME=//p' "$$f" 2>/dev/null | tail -1); \
+	stack_id=$$(sed -n 's/^MM_STACK_ID=//p' "$$f" 2>/dev/null | tail -1); \
 	name=$${name:-meetingminer-$(STORY)}; \
-	git -C $(ROOT) worktree remove "$(WT_ROOT)/$(STORY)" \
+	git -C $(ROOT) worktree remove "$$wt" \
 		|| { echo "note: uncommitted changes present — commit them, or re-run with 'git worktree remove --force'. Stack $$name is left intact."; exit 1; }; \
-	echo "removed $(WT_ROOT)/$(STORY) — branch story/$(STORY) is kept; delete it once merged."; \
-	$(call stack_down,$$name)
+	echo "removed $$wt — branch story/$(STORY) is kept; delete it once merged."; \
+	$(call stack_down,$$name,$$wt,$$stack_id)
 
 # Sweep worktrees whose work has landed. Builder and reviewer sessions end
 # without cleaning up (their context is spent by then), so leftover worktrees
@@ -411,11 +415,15 @@ worktree-prune:
 		if git -C $(ROOT) merge-base --is-ancestor "$$head" origin/main \
 			|| ! git -C $(ROOT) cherry origin/main "$$head" | grep -q '^+'; then \
 			branch=$$(git -C "$$wt" rev-parse --abbrev-ref HEAD); \
-			name=$$(sed -n 's/^MM_STACK_NAME=//p' "$$wt.env.worktree" 2>/dev/null | tail -1); \
+			f="$$wt.env.worktree"; \
+			if [ -e "$$f" ] && ! python3 $(INFRA)/worktree_stack.py check --worktree "$$wt"; then \
+				echo "keep $$wt — invalid .env.worktree; stack ownership is unproven"; rc=1; continue; fi; \
+			name=$$(sed -n 's/^MM_STACK_NAME=//p' "$$f" 2>/dev/null | tail -1); \
+			stack_id=$$(sed -n 's/^MM_STACK_ID=//p' "$$f" 2>/dev/null | tail -1); \
 			name=$${name:-meetingminer-$$(basename "$$wt")}; \
 			if git -C $(ROOT) worktree remove "$$wt"; then \
 				echo "pruned $$wt (merged into origin/main)"; \
-				$(call stack_down,$$name) || rc=1; \
+				$(call stack_down,$$name,$$wt,$$stack_id) || rc=1; \
 			fi; \
 			if [ "$$branch" != "HEAD" ]; then git -C $(ROOT) branch -D "$$branch" >/dev/null 2>&1 && echo "deleted branch $$branch" || true; fi; \
 		else \

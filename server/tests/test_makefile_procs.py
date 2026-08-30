@@ -1316,7 +1316,7 @@ echo "env MM_STACK_NAME=$MM_STACK_NAME MM_POSTGRES_PORT=$MM_POSTGRES_PORT" >> "_
 if [ "$1" = "info" ]; then exit __INFO_EXIT__; fi
 case "$*" in
   "ps -aq --filter "*) if [ "__PS_Q_EXIT__" != "0" ]; then exit __PS_Q_EXIT__; fi; echo "deadbeefcafe" ;;
-  "ps -a --filter "*) printf '%b' "__PS_ROWS__" ;;
+  "ps -a --filter "*) if [ "__PS_Q_EXIT__" != "0" ]; then exit __PS_Q_EXIT__; fi; printf '%b' "__PS_ROWS__" ;;
   "volume ls -q --filter "*) : ;;
   "volume ls --filter "*) printf '%b' "__VOLUME_ROWS__" ;;
 esac
@@ -1447,6 +1447,48 @@ def _make_at(
 
 def _argv_lines(argv_log: Path) -> list[str]:
     return argv_log.read_text(encoding="utf-8").splitlines() if argv_log.exists() else []
+
+
+def _set_stack_inventory(
+    docker_bin: Path,
+    argv_log: Path,
+    worktrees: list[Path],
+    *,
+    down_exit: int = 0,
+    ps_exit: int = 0,
+) -> None:
+    """Rewrite the decoy with the compose resources provisioned by the test."""
+    ps_rows: list[str] = []
+    volume_rows: list[str] = []
+    volume_names = (
+        "postgres-data",
+        "neo4j-data",
+        "neo4j-logs",
+        "meilisearch-data",
+        "neo4j-test-data",
+        "neo4j-test-logs",
+        "meilisearch-test-data",
+    )
+    for worktree in worktrees:
+        values = dict(
+            line.split("=", 1)
+            for line in (worktree / ".env.worktree").read_text(encoding="utf-8").splitlines()
+            if line and not line.startswith("#") and "=" in line
+        )
+        project = values["MM_STACK_NAME"]
+        stack_id = values["MM_STACK_ID"]
+        ps_rows.append(f"{project}\t{worktree / 'infra'}\t{stack_id}\n")
+        volume_rows.extend(
+            f"{project}_{name}\t{project}\t{stack_id}\n" for name in volume_names
+        )
+    _write_worktree_docker(
+        docker_bin,
+        argv_log,
+        ps_rows="".join(ps_rows),
+        volume_rows="".join(volume_rows),
+        down_exit=down_exit,
+        ps_q_exit=ps_exit,
+    )
 
 
 def test_worktree_provisions_and_starts_a_private_stack(tmp_path: Path) -> None:
@@ -1603,6 +1645,11 @@ def test_worktree_prune_tears_down_the_pruned_worktrees_stack_only(tmp_path: Pat
     (keep / "work.txt").write_text("unmerged\n", encoding="utf-8")
     _git(keep, "add", "work.txt")
     _git(keep, "commit", "-q", "-m", "unmerged work")
+    _set_stack_inventory(
+        docker_bin,
+        argv_log,
+        [tmp_path / "meetingminer-wt" / "probe", keep],
+    )
     argv_log.write_text("", encoding="utf-8")
 
     proc = _make_at(repo, docker_bin, ["worktree-prune"])
@@ -1624,6 +1671,10 @@ def test_worktree_prune_refuses_a_target_file_that_names_another_stack(
     repo, docker_bin, argv_log = _throwaway_repo(tmp_path, origin=True)
     assert _make_at(repo, docker_bin, ["worktree"], {"STORY": "probe"}).returncode == 0
     assert _make_at(repo, docker_bin, ["worktree"], {"STORY": "victim"}).returncode == 0
+    victim = tmp_path / "meetingminer-wt" / "victim"
+    (victim / "work.txt").write_text("unmerged\n", encoding="utf-8")
+    _git(victim, "add", "work.txt")
+    _git(victim, "commit", "-q", "-m", "keep victim unmerged")
     probe = tmp_path / "meetingminer-wt" / "probe"
     stack_file = probe / ".env.worktree"
     stack_file.write_text(
@@ -1696,6 +1747,9 @@ def test_worktree_remove_tears_the_stack_down_after_git_removes_the_checkout(tmp
     """Row `Remove`, clean: the checkout goes, then `down -v` for its project."""
     repo, docker_bin, argv_log = _throwaway_repo(tmp_path)
     assert _make_at(repo, docker_bin, ["worktree"], {"STORY": "probe"}).returncode == 0
+    _set_stack_inventory(
+        docker_bin, argv_log, [tmp_path / "meetingminer-wt" / "probe"]
+    )
     argv_log.write_text("", encoding="utf-8")
 
     proc = _make_at(repo, docker_bin, ["worktree-remove"], {"STORY": "probe"})
@@ -1964,19 +2018,31 @@ def test_docker_down_creation_retry_sweeps_a_stale_incarnation(tmp_path: Path) -
 def test_worktree_remove_fails_when_stack_inventory_fails(tmp_path: Path) -> None:
     """A failed `docker ps -aq` must be a named error, never mistaken for an
     absent stack."""
-    repo, docker_bin, _argv_log = _throwaway_repo(tmp_path, ps_q_exit=3)
+    repo, docker_bin, _argv_log = _throwaway_repo(tmp_path)
     assert _make_at(repo, docker_bin, ["worktree"], {"STORY": "probe"}).returncode == 0
+    _set_stack_inventory(
+        docker_bin,
+        _argv_log,
+        [tmp_path / "meetingminer-wt" / "probe"],
+        ps_exit=3,
+    )
     proc = _make_at(repo, docker_bin, ["worktree-remove"], {"STORY": "probe"})
     output = proc.stdout + proc.stderr
     assert proc.returncode != 0, output
     assert "already gone" not in output
     assert "removed stack meetingminer-probe" not in output
-    assert "ps -aq" in output  # the inventory failure is named
+    assert "ps -a" in output  # the inventory failure is named
 
 
 def test_worktree_remove_propagates_a_failed_teardown(tmp_path: Path) -> None:
     repo, docker_bin, _argv_log = _throwaway_repo(tmp_path, down_exit=1)
     assert _make_at(repo, docker_bin, ["worktree"], {"STORY": "probe"}).returncode == 0
+    _set_stack_inventory(
+        docker_bin,
+        _argv_log,
+        [tmp_path / "meetingminer-wt" / "probe"],
+        down_exit=1,
+    )
     proc = _make_at(repo, docker_bin, ["worktree-remove"], {"STORY": "probe"})
     output = proc.stdout + proc.stderr
     assert proc.returncode != 0, output
@@ -1992,6 +2058,12 @@ def test_worktree_prune_propagates_a_failed_teardown_but_still_deletes_the_branc
     delete still happens — but its `|| true` must not mask the failure."""
     repo, docker_bin, _argv_log = _throwaway_repo(tmp_path, down_exit=1, origin=True)
     assert _make_at(repo, docker_bin, ["worktree"], {"STORY": "probe"}).returncode == 0
+    _set_stack_inventory(
+        docker_bin,
+        _argv_log,
+        [tmp_path / "meetingminer-wt" / "probe"],
+        down_exit=1,
+    )
     proc = _make_at(repo, docker_bin, ["worktree-prune"])
     output = proc.stdout + proc.stderr
     assert proc.returncode != 0, output

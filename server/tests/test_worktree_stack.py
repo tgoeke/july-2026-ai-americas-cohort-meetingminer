@@ -862,13 +862,17 @@ class _FakeDownDocker:
 
     def __init__(
         self,
+        worktree: Path,
+        stack_id: str = GOOD_STACK_ID,
         info_ok: bool = True,
         containers: str = "cid\n",
-        volumes: str = "",
+        volumes: str = "vol\n",
         ps_fail: bool = False,
         vol_fail: bool = False,
         down_fail: bool = False,
     ) -> None:
+        self.worktree = worktree
+        self.stack_id = stack_id
         self.info_ok = info_ok
         self.containers = containers
         self.volumes = volumes
@@ -883,14 +887,16 @@ class _FakeDownDocker:
             if not self.info_ok:
                 raise ws.StackError("docker unavailable: simulated")
             return ""
-        if argv[:3] == ["docker", "ps", "-aq"]:
+        if argv == ws.PS_ARGV:
             if self.ps_fail:
-                raise ws.StackError("docker ps -aq failed: simulated")
-            return self.containers
-        if argv[:4] == ["docker", "volume", "ls", "-q"]:
+                raise ws.StackError("docker ps -a failed: simulated")
+            if not self.containers:
+                return ""
+            return f"meetingminer-probe\t{self.worktree / 'infra'}\t{self.stack_id}\n"
+        if argv == ws.VOLUME_ARGV:
             if self.vol_fail:
-                raise ws.StackError("docker volume ls -q failed: simulated")
-            return self.volumes
+                raise ws.StackError("docker volume ls failed: simulated")
+            return _our_volumes("meetingminer-probe", self.stack_id) if self.volumes else ""
         if argv[:3] == ["docker", "compose", "-p"]:
             if self.down_fail:
                 raise ws.StackError("down failed: simulated")
@@ -899,17 +905,21 @@ class _FakeDownDocker:
 
 
 @pytest.mark.parametrize("project", ["meetingminer", "meetingminer-Foo", "backend", ""])
-def test_down_refuses_anything_but_a_worktree_stack_name(project: str) -> None:
-    fake = _FakeDownDocker()
+def test_down_refuses_anything_but_a_worktree_stack_name(
+    tmp_path: Path, project: str
+) -> None:
+    worktree = tmp_path / "wt" / "probe"
+    fake = _FakeDownDocker(worktree)
     with pytest.raises(ws.StackError, match="refusing"):
-        ws.down(project, run=fake, out=lambda _l: None)
+        ws.down(project, worktree, worktree.parent, GOOD_STACK_ID, run=fake, out=lambda _l: None)
     assert fake.calls == []
 
 
-def test_down_with_docker_off_is_a_note_not_a_teardown() -> None:
-    fake = _FakeDownDocker(info_ok=False)
+def test_down_with_docker_off_is_a_note_not_a_teardown(tmp_path: Path) -> None:
+    worktree = tmp_path / "wt" / "probe"
+    fake = _FakeDownDocker(worktree, info_ok=False)
     lines: list[str] = []
-    ws.down("meetingminer-probe", run=fake, out=lines.append)
+    ws.down("meetingminer-probe", worktree, worktree.parent, GOOD_STACK_ID, run=fake, out=lines.append)
     assert _downs(fake) == []
     assert lines == [
         "note: Docker daemon not running — stack meetingminer-probe left in"
@@ -918,11 +928,14 @@ def test_down_with_docker_off_is_a_note_not_a_teardown() -> None:
 
 
 @pytest.mark.parametrize("fault", ["ps_fail", "vol_fail"])
-def test_down_inventory_failure_is_an_error_never_already_gone(fault: str) -> None:
-    fake = _FakeDownDocker(**{fault: True})
+def test_down_inventory_failure_is_an_error_never_already_gone(
+    tmp_path: Path, fault: str
+) -> None:
+    worktree = tmp_path / "wt" / "probe"
+    fake = _FakeDownDocker(worktree, **{fault: True})
     lines: list[str] = []
     with pytest.raises(ws.StackError, match="simulated"):
-        ws.down("meetingminer-probe", run=fake, out=lines.append)
+        ws.down("meetingminer-probe", worktree, worktree.parent, GOOD_STACK_ID, run=fake, out=lines.append)
     assert _downs(fake) == []
     assert not any("already gone" in line for line in lines)
 
@@ -932,39 +945,88 @@ def test_down_inventory_failure_is_an_error_never_already_gone(fault: str) -> No
     [("cid\n", ""), ("", "meetingminer-probe_postgres-data\n"), ("cid\n", "v\n")],
     ids=["containers-only", "volumes-only", "both"],
 )
-def test_down_removes_present_resources_and_reports(containers: str, volumes: str) -> None:
-    fake = _FakeDownDocker(containers=containers, volumes=volumes)
+def test_down_removes_present_resources_and_reports(
+    tmp_path: Path, containers: str, volumes: str
+) -> None:
+    worktree = tmp_path / "wt" / "probe"
+    worktree.parent.mkdir()
+    fake = _FakeDownDocker(worktree, containers=containers, volumes=volumes)
     lines: list[str] = []
-    ws.down("meetingminer-probe", run=fake, out=lines.append)
+    ws.down("meetingminer-probe", worktree, worktree.parent, GOOD_STACK_ID, run=fake, out=lines.append)
     assert _downs(fake) == ["meetingminer-probe"]
     assert ["docker", "compose", "-p", "meetingminer-probe", "down", "-v", "--remove-orphans"] in fake.calls
     assert lines == ["removed stack meetingminer-probe"]
 
 
-def test_down_notes_an_absent_stack() -> None:
-    fake = _FakeDownDocker(containers="", volumes="")
+def test_down_notes_an_absent_stack(tmp_path: Path) -> None:
+    worktree = tmp_path / "wt" / "probe"
+    worktree.parent.mkdir()
+    fake = _FakeDownDocker(worktree, containers="", volumes="")
     lines: list[str] = []
-    ws.down("meetingminer-probe", run=fake, out=lines.append)
+    ws.down("meetingminer-probe", worktree, worktree.parent, GOOD_STACK_ID, run=fake, out=lines.append)
     assert _downs(fake) == []
     assert lines == ["note: stack meetingminer-probe was already gone"]
 
 
-def test_down_propagates_a_failed_teardown() -> None:
-    fake = _FakeDownDocker(down_fail=True)
+def test_down_refuses_an_incarnation_id_mismatch(tmp_path: Path) -> None:
+    worktree = tmp_path / "wt" / "probe"
+    worktree.parent.mkdir()
+    fake = _FakeDownDocker(worktree, stack_id="deadbeef0002")
+    with pytest.raises(ws.StackError, match="do not all match"):
+        ws.down(
+            "meetingminer-probe",
+            worktree,
+            worktree.parent,
+            GOOD_STACK_ID,
+            run=fake,
+            out=lambda _line: None,
+        )
+    assert _downs(fake) == []
+
+
+def test_down_refuses_a_layout_owned_by_another_checkout(tmp_path: Path) -> None:
+    expected = tmp_path / "wt" / "probe"
+    foreign = tmp_path / "wt" / "other"
+    expected.parent.mkdir()
+    fake = _FakeDownDocker(foreign)
+    with pytest.raises(ws.StackError, match="not the removed checkout"):
+        ws.down(
+            "meetingminer-probe",
+            expected,
+            expected.parent,
+            GOOD_STACK_ID,
+            run=fake,
+            out=lambda _line: None,
+        )
+    assert _downs(fake) == []
+
+
+def test_down_propagates_a_failed_teardown(tmp_path: Path) -> None:
+    worktree = tmp_path / "wt" / "probe"
+    worktree.parent.mkdir()
+    fake = _FakeDownDocker(worktree, down_fail=True)
     lines: list[str] = []
     with pytest.raises(ws.StackError, match="down failed"):
-        ws.down("meetingminer-probe", run=fake, out=lines.append)
+        ws.down("meetingminer-probe", worktree, worktree.parent, GOOD_STACK_ID, run=fake, out=lines.append)
     assert "removed stack meetingminer-probe" not in lines
 
 
 def test_cli_down_reports_and_propagates(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setattr(ws, "run_docker", _FakeDownDocker(containers="", volumes=""))
-    assert ws.main(["down", "--project", "meetingminer-probe"]) == 0
+    worktree = tmp_path / "wt" / "probe"
+    worktree.parent.mkdir()
+    args = [
+        "down", "--project", "meetingminer-probe", "--worktree", str(worktree),
+        "--worktree-root", str(worktree.parent), "--stack-id", GOOD_STACK_ID,
+    ]
+    monkeypatch.setattr(ws, "run_docker", _FakeDownDocker(worktree, containers="", volumes=""))
+    assert ws.main(args) == 0
     assert "already gone" in capsys.readouterr().out
-    monkeypatch.setattr(ws, "run_docker", _FakeDownDocker(ps_fail=True))
-    assert ws.main(["down", "--project", "meetingminer-probe"]) == 1
+    monkeypatch.setattr(ws, "run_docker", _FakeDownDocker(worktree, ps_fail=True))
+    assert ws.main(args) == 1
     assert "simulated" in capsys.readouterr().err
 
 
