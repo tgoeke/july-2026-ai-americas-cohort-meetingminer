@@ -2956,3 +2956,46 @@ gated model's licence conditions at
 recordings, longest ~7 minutes — is not a basis for judging turn quality; the
 real measurement waits for the new corpus. See B-36 for the LAN GPU
 alternative, which needs no token at all.
+
+## 11-2 landed, 2026-08-30 ~19:00 — Epic 11 is complete
+
+`main` at `c045d76`. Every worktree now provisions its own compose stack
+(`meetingminer-<slug>`, ports in a generated `.env.worktree`), so suites,
+rebuilds and workers in different checkouts never contend. `make
+worktree-remove` tears the stack down; `make test-db-prune` sweeps orphans.
+Epic 11 (11-1 → 11-4) is done.
+
+**Owner ruling implemented (option b, 2026-08-30):** `MM_STACK_NAME` and
+`MM_STACK_ID` are the ownership record and are NOT overridable from the process
+environment; the port and endpoint values still are, because those are location
+rather than identity. Paired with the assertion that the effective project and
+id equal the file's immediately before Compose runs. This closed a demonstrated
+foot-gun: `MM_STACK_NAME=meetingminer-victim make infra-up` previously proved
+ownership of `probe` and then started `victim` — the main stack included —
+with no ownership check on what it actually started.
+
+**Every existing worktree owes `make worktree-provision` once**, and clones owe
+`uv sync --project server` (11-4's dev pins). A worktree without
+`.env.worktree` is refused by name rather than silently using the main stack.
+
+**Two integrate conflicts here were supersessions, not proximity, and the
+distinction matters.** `AGENTS.md` and `dispatch.md` both had 11-2 rewriting
+the store rules while `main` carried 11-3's newer eval-measurement wording.
+Neither side was wholly right: 11-2's stack description supersedes the
+shared-store text, but its eval paragraph predates 11-3's failed live
+measurement. Resolved by taking each side's true half, not by unioning — a
+blind union would have shipped a document claiming both that evals are
+single-flight for the old reason and for the new one. **When two branches
+rewrite the same statement, read both and merge by meaning; union is for
+additions.**
+
+**Lint findings fixed here, not baselined.** 11-4's gate landed while this
+branch was open, so seven findings surfaced in this story's own new test
+module: three function-local re-imports shadowing a module-level one (F811 +
+F401 — the local imports were redundant, the function is not a fixture), two
+ISC004 implicit concatenations, and one FLY002 that would have made a
+four-row fixture less readable, so it carries a `noqa` with that rationale.
+183 story tests and `test-fast` at 1832 passed afterwards.
+
+**Post-merge ops:** `projections/locks.py` changed but the lock is a filesystem
+key, not a projected field — no `rebuild`, no `migrate`, no `client` owed.
