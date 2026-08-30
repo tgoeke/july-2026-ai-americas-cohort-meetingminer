@@ -43,6 +43,10 @@ SERVER_DIR = REPO_ROOT / "server"
 SPRINT_NOTES_PATH = REPO_ROOT / "_bmad-output" / "implementation-artifacts" / "sprint-notes.md"
 
 BASELINE_SUMMARY = "49 file-code pairs across 38 per-file entries"
+EXPECTED_TOOL_PINS = {
+    "ruff": "ruff>=0.16.5,<0.17",
+    "mypy": "mypy>=2.3.1,<2.4",
+}
 
 # Dropping lint or typecheck from the loop is a deliberate edit of both
 # places, and the assertions below name them:
@@ -303,7 +307,10 @@ def test_pyproject_pins_ruff_and_mypy_in_the_dev_group() -> None:
     for tool in ("ruff", "mypy"):
         pins = [d for d in dev if isinstance(d, str) and re.match(rf"{tool}\s*[><=]", d)]
         assert len(pins) == 1, f"dev group must pin {tool} exactly once, got {pins}"
-        assert ">=" in pins[0] and "<" in pins[0], f"{tool} needs a floor and a ceiling: {pins[0]}"
+        assert pins[0].replace(" ", "") == EXPECTED_TOOL_PINS[tool], (
+            f"{tool} must stay inside the measured minor range "
+            f"{EXPECTED_TOOL_PINS[tool]!r}, got {pins[0]!r}"
+        )
     ruff_pin = next(d for d in dev if isinstance(d, str) and re.match(r"ruff\s*[><=]", d))
     pinned_range = ruff_pin.removeprefix("ruff").replace(" ", "")
     required = _pyproject()["tool"]["ruff"].get("required-version")
@@ -314,6 +321,19 @@ def test_pyproject_pins_ruff_and_mypy_in_the_dev_group() -> None:
         f"[tool.ruff] required-version ({required!r}) must equal the dev-group ruff pin's range "
         f"({pinned_range!r}); ranges that drift apart re-open the door required-version closes"
     )
+
+
+def test_tool_pin_contract_rejects_unmeasured_minor_ranges(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A floor plus a distant ceiling does not preserve the measured tool behavior."""
+    broadened = {
+        "dependency-groups": {"dev": ["ruff>=0.16.5,<1", "mypy>=2.3.1,<3"]},
+        "tool": {"ruff": {"required-version": ">=0.16.5,<1"}},
+    }
+    monkeypatch.setattr(sys.modules[__name__], "_pyproject", lambda: broadened)
+    with pytest.raises(AssertionError):
+        test_pyproject_pins_ruff_and_mypy_in_the_dev_group()
 
 
 def test_pyproject_carries_the_dated_ruff_baseline_and_nothing_looser() -> None:
