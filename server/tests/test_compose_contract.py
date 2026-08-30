@@ -313,13 +313,8 @@ def test_make_test_fast_runs_check_client_then_every_store_free_suite_before_the
     assert with_server_pytest == ["test-fast"], with_server_pytest
 
 
-# Shell text that would run something else on the same recipe line as the
-# fast set: a second command chained or piped on, or substituted in.
-_SHELL_CHAINING = ("&&", "||", ";", "|", "$(", "`")
-
-
 def test_make_test_fast_recipe_is_the_one_whole_server_pytest_command() -> None:
-    """The commands the `test-fast` recipe owns, from make: exactly one, the whole-server pytest command — so it is last, and nothing before or after it (a `docker compose`, a store check, a second suite) rides in the recipe past the prerequisite contract above — and that command is `cd <root> && uv run … pytest …` with nothing chained onto either side of the pytest invocation. Everything else the loop runs is a prerequisite target; adding one is an edit of TEST_FAST_PREREQUISITES."""
+    """The commands the `test-fast` recipe owns, from make: exactly one, the whole-server pytest command — so it is last, and nothing before or after it (a `docker compose`, a store check, a second suite) rides in the recipe past the prerequisite contract above — and that command is exactly `cd <root> && uv run --project <server> pytest -q -rs <server/tests>`. Exact argv rejects a command that merely mentions pytest, a non-execution or narrower-selection option, shell backgrounding, and anything chained onto either side. Everything else the loop runs is a prerequisite target; adding one is an edit of TEST_FAST_PREREQUISITES."""
     commands = _direct_commands("test-fast")
     server = [command for command in commands if _server_pytest_words(command)]
     assert len(server) == 1, f"test-fast's recipe has {len(server)} whole-server pytest commands: {commands}"
@@ -331,11 +326,19 @@ def test_make_test_fast_recipe_is_the_one_whole_server_pytest_command() -> None:
     words = shlex.split(server[0])
     assert words[0] == "cd" and Path(words[1]).resolve() == REPO_ROOT and words[2] == "&&", words[:3]
     invocation = words[3:]
-    assert invocation[0] == "uv", invocation
-    chained = [word for word in invocation if any(text in word for text in _SHELL_CHAINING)]
-    assert not chained, (
-        f"test-fast's pytest command carries {chained} — a second command on the same recipe line "
-        "is still a second command; put it in a prerequisite target"
+    expected = [
+        "uv",
+        "run",
+        "--project",
+        str(SERVER_DIR),
+        "pytest",
+        "-q",
+        "-rs",
+        str(SERVER_TESTS),
+    ]
+    assert invocation == expected, (
+        f"test-fast's recipe must run exactly {expected} after `cd <root> &&`; got {invocation}. "
+        "Anything else is a different or second command and belongs in a prerequisite target"
     )
 
 
