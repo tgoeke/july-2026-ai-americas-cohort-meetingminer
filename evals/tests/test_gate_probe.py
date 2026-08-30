@@ -1019,9 +1019,15 @@ def test_an_unexpected_exception_mid_probe_keeps_the_cleanup_verdict(
     search = ProbeSearchClient()
     graph = ProbeGraphDriver()
     connection = FakeConnection(row_state="extracted")
+    original = gate_probe.stores.artifact_in_search
+    calls = 0
 
     def explodes(client: Any, artifact_id: str) -> Any:
-        raise RuntimeError("driver caught fire")
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("driver caught fire")
+        return original(client, artifact_id)
 
     monkeypatch.setattr(gate_probe.stores, "artifact_in_search", explodes)
     probe = run_probe(

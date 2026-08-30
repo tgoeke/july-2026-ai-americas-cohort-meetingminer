@@ -115,12 +115,11 @@ _DELETE_PROBE = "DELETE FROM artifact WHERE id = %s"
 _PROJECTION_LOCK_NAME = "meetingminer-projections"
 _PROJECTION_LOCK_TIMEOUT_ENV = "MM_PROJECTION_LOCK_TIMEOUT_SECONDS"
 
-#: The graph erasure and its verification. ``DETACH DELETE`` is scoped to
+#: The graph erasure. ``DETACH DELETE`` is scoped to
 #: the one node carrying the minted UUID — label-agnostic like every other
 #: graph statement in the harness, so whatever label the projection chose
 #: cannot shelter a leftover.
 _ERASE_NODE = "MATCH (a {id: $id}) DETACH DELETE a"
-_NODE_PRESENT = "MATCH (a {id: $id}) RETURN a.id AS id"
 
 
 def probe_title(run_id: str) -> str:
@@ -199,38 +198,6 @@ def split_owned(
     owned = tuple(row_id for row_id in published if row_id == probe_id)
     foreign = tuple(row_id for row_id in published if row_id != probe_id)
     return owned, foreign
-
-
-def _search_absent(search: Any, artifact_id: str) -> tuple[bool, str | None]:
-    """Whether the erased document reads back absent, or the leftover line.
-
-    Strict on purpose: only an error *naming* absence (the not-found codes,
-    or a 404 status) proves the erasure. An unclassifiable error — no code,
-    a 5xx — is "absence unproven", never "verified": this is a verification
-    step, and the safe default for one is doubt.
-    """
-    try:
-        search.index(ARTIFACTS_INDEX).get_document(artifact_id)
-    except MeilisearchApiError as exc:
-        code = getattr(exc, "code", None)
-        status = getattr(exc, "status_code", None)
-        if code in ("document_not_found", "index_not_found") or status == 404:
-            return True, None
-        return False, (
-            f"Meilisearch answered the erasure verification for artifact"
-            f" {artifact_id} with {code!r} (status {status!r}) — the"
-            " document's absence is unproven; delete it from the artifacts"
-            " index by this id"
-        )
-    except Exception as exc:  # noqa: BLE001 — a leftover must be named, not raised
-        return False, (
-            f"Meilisearch could not verify the erasure of artifact"
-            f" {artifact_id} ({type(exc).__name__}: {exc})"
-        )
-    return False, (
-        f"Meilisearch still holds artifact {artifact_id} after the erasure"
-        " — delete it from the artifacts index by this id"
-    )
 
 
 @contextmanager
@@ -358,17 +325,27 @@ def _cleanup_probe_locked(
             " index by this id"
         )
     else:
-        search_removed, leftover = _search_absent(search, artifact_id)
-        if leftover:
-            problems.append(leftover)
+        try:
+            presence = stores.artifact_in_search(search, artifact_id)
+            search_removed = not presence.present
+            if presence.present:
+                problems.append(
+                    f"Meilisearch still holds artifact {artifact_id} after"
+                    " the erasure — delete it from the artifacts index by"
+                    " this id"
+                )
+        except StoreAssertError as exc:
+            problems.append(
+                f"Meilisearch could not verify the erasure of artifact"
+                f" {artifact_id} ({exc})"
+            )
 
     graph_removed = False
     try:
         with graph.session() as session:
             session.run(_ERASE_NODE, id=artifact_id).consume()
-        with graph.session() as session:
-            records = list(session.run(_NODE_PRESENT, id=artifact_id))
-        if records:
+        presence = stores.artifact_in_graph(graph, artifact_id)
+        if presence.present:
             problems.append(
                 f"Neo4j still holds a node with id {artifact_id} after the"
                 " erasure — DETACH DELETE it by this id"

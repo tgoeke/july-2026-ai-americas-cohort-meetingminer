@@ -531,6 +531,15 @@ def test_the_probe_query_allowlist_is_exactly_the_three_sanctioned_shapes() -> N
     assert all(not unsafe_probe_query(query) for query in actual)
 
 
+def test_the_probe_cleanup_delegates_every_store_read_to_stores() -> None:
+    """F9: the delete exception does not create a second read boundary."""
+    text = (EVALS_ROOT / "checks" / "gate_probe.py").read_text(encoding="utf-8")
+    assert ".get_document(" not in text
+    assert "_NODE_PRESENT" not in text
+    assert "stores.artifact_in_search(search, artifact_id)" in text
+    assert "stores.artifact_in_graph(graph, artifact_id)" in text
+
+
 def test_the_probe_pin_leaves_the_erasure_vocabulary_alone() -> None:
     for benign in (
         "index.delete_document(doc_id)",
