@@ -1791,6 +1791,29 @@ def test_worktree_remove_refuses_a_target_file_that_names_another_stack(
     assert not any(" down -v " in line for line in _argv_lines(argv_log))
 
 
+def test_worktree_remove_refuses_path_traversal_before_git_or_docker(
+    tmp_path: Path,
+) -> None:
+    """STORY is a slug, never a path that can escape its worktree child."""
+    repo, docker_bin, argv_log = _throwaway_repo(tmp_path)
+    assert _make_at(repo, docker_bin, ["worktree"], {"STORY": "victim"}).returncode == 0
+    victim = tmp_path / "meetingminer-wt" / "victim"
+    _set_stack_inventory(docker_bin, argv_log, [victim])
+    argv_log.write_text("", encoding="utf-8")
+
+    proc = _make_at(
+        repo,
+        docker_bin,
+        ["worktree-remove"],
+        {"STORY": "../meetingminer-wt/victim"},
+    )
+    output = proc.stdout + proc.stderr
+    assert proc.returncode != 0, output
+    assert victim.is_dir(), output
+    assert "STORY must match [a-z0-9][a-z0-9_-]*" in output
+    assert not any(" down -v " in line for line in _argv_lines(argv_log))
+
+
 def test_worktree_remove_of_a_dirty_checkout_leaves_the_stack_intact(tmp_path: Path) -> None:
     """Row `Remove`, dirty: git refuses as before and no teardown runs."""
     repo, docker_bin, argv_log = _throwaway_repo(tmp_path)
