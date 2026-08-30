@@ -120,9 +120,14 @@ at a time.** Story 2.7 fixed the suite; the remaining limit is `make evals-run`.
   `MM_PROJECTION_LOCK_TIMEOUT_SECONDS` (default 300s), then fails that
   meeting with the named refusal rather than writing anyway. Do not start a
   rebuild expecting it to interleave with anything that writes the stores.
-- **`make evals-run` is still one at a time.** It reads Postgres directly, lists
-  the corpus through the api, and writes an immutable run folder under
-  `evals/runs/`; it takes no lock. Announce it, run it, release it.
+- **`make evals-run` may overlap another eval run and any suite (story 11.3).**
+  It reads Postgres directly (read-only), lists the corpus through the api, and
+  writes an immutable run folder its run id owns — an existing folder is
+  refused by name, never reused. Its one store mutation is check 2.11's
+  run-owned probe: minted onto a subject moment, approved through the public
+  api, and erased with per-target verification; a concurrent approval resolves
+  as a named race, never a failure. The live concurrent measurement procedure
+  is in the story spec's Verification section.
 
 Note what the projection lock means in practice: concurrent server suites will
 serialize on the handful of projection tests and run in parallel everywhere

@@ -2766,3 +2766,26 @@ Build interrupted once mid-lane by an API rate limit; resumed from the
 committed tree with no loss. Pre-existing and not mine: `main × story/11-2`
 conflicts on 11-2's own spec file (remediation divergence; resolves at its
 integrate).
+
+
+## `11-3-eval-runs-own-their-namespace` — review, 2026-08-30
+
+Built in worktree `11-3` on `story/11-3` (baseline `5cdfce7`, rebased onto
+`211857c`). Check 2.11 no longer approves subject artifacts: subjects get one
+read-only membership read, and the gate transition is measured on a run-owned
+probe artifact — minted onto an eligible projected subject moment (extract
+stage settled, no `extracted` rows on the moment, `Moment` node present),
+approved through `POST /moments/{id}/approve`, asserted in both stores, and
+erased with per-target verification (Postgres row, publish-root export,
+Meilisearch document, Neo4j node). Concurrent runs resolve approve races by
+re-reading their own row; `Run.create` refuses a lost `mkdir` race by name.
+The delete-only store sanction is pinned in `test_harness_boundary.py`
+(driver guard admits `checks/gate_probe.py` for the Meilisearch error family
+only; textual pin forbids creation stems and raw query clauses). Four-layer
+review triaged 17 patches (1 high: the pre-read race false-violation), all
+applied; 0 bad_spec, 0 defers. Store-free proof only (`make evals-test` 616
+green; no paid run) — the live concurrent measurement is written for the
+owner in the spec's Verification section. Worktree note: this lane's `.env`
+became a placeholder copy (the bootstrap symlink was lost and the permission
+gate refused restoring it); `make test-fast` was verified green with
+process-env storage roots — restore the symlink at integrate.

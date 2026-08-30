@@ -3,9 +3,9 @@ title: 'Eval Runs Own Their Namespace'
 type: 'chore'
 created: '2026-08-30'
 baseline_revision: '5cdfce72813d68c2d81f5e02f715b8863f8492af'
-status: 'in-review'
+status: 'review'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context: ['{project-root}/AGENTS.md']
 warnings: ['multiple-goals', 'oversized']
 deferred:
@@ -104,6 +104,16 @@ deferred:
 - Given a cleanup step that reports a leftover, when the result is assembled, then the check fails naming the id and target store.
 - Given `make evals-test`, when run, then it passes store-free with no folder under `evals/runs/` created.
 - Given the branch, when `python3 _bmad/scripts/branch_conflicts.py --against story/11-3` runs, then every pair except ones involving `story/11-2-review` is clean.
+
+## Auto Run Result
+
+- **Status:** review (per the dispatch contract; the workflow's `done` is withheld — no merge, review pending).
+- **Summary:** Check 2.11 stops consuming subject `extracted` artifacts. Subjects are asserted read-only; the approve→project transition is measured on one run-owned probe artifact minted onto an eligible projected subject moment, approved through the public api, asserted in both stores with citations, and erased with per-target verification. `Run.create` refuses a lost `mkdir` race by the ownership wording. Evals docs replace the serial rule with the probe mechanism; AGENTS.md's bullet and dispatch.md's step-2 line carry the new rule (edited after rebasing onto `211857c`).
+- **Files changed:** `evals/harness/run.py` (atomic race refusal); `evals/harness/corpus.py` (+`MomentRow`, `moments_for`, `stage_status`); `evals/harness/stores.py` (+`moment_in_graph`); `evals/harness/checks.py` (`GateProbe`/`CleanupReport`, reworked `publish_gate`); `evals/harness/retrieval.py` (`ApproveError.slug`); `evals/checks/gate_probe.py` (NEW probe layer, delete-only); `evals/checks/test_publish_gate.py` (glue rework); `evals/tests/` — `test_run_namespace.py` (NEW), `test_gate_probe.py` (NEW), `test_corpus_probe_reads.py` (NEW), rewritten `test_publish_gate_algorithm.py`, extended `test_publish_gate_check_layer.py`, amended `test_harness_boundary.py`; `evals/README.md`, `evals/RUNBOOK.md`, `evals/checks/__init__.py` + three check headers; `AGENTS.md` (one bullet), `.claude/skills/integrate/dispatch.md` (one line); sprint files. `infra/Makefile` deliberately unchanged; `server/tests/test_makefile_evals.py` not needed.
+- **Review findings:** 17 patched (1 high, 8 medium, 8 low — see Review Triage Log), 0 deferred beyond the standing frontmatter item (AD-16 wording at integration), 9 rejected with reasons.
+- **Follow-up recommendation:** true — one high-severity patched finding (score: high 1; 3×medium 8 + low 8 = 32).
+- **Verification:** `make evals-test` 616 passed (store-free, `evals/runs/` untouched — enforced by `runs_folder_untouched`); collection of `evals/tests evals/checks` clean (639); `make test-fast` 1401 passed / 326 deselected (with process-env storage roots — see risk below); `python3 _bmad/scripts/branch_conflicts.py --against story/11-3` clean except pairs involving `story/11-2-review` (exempted). **Not run:** `make evals-run` (owner-gated; the live concurrent measurement command and expected observations are in `## Verification`).
+- **Residual risks:** the live-surface claims (real approve route projection all-or-nothing per call, real store error shapes, the `INSERT INTO artifact` column list against the live schema, `job_stage` join) are exercised only over fakes until the owner's run — the four-layer review's shared observation; the accepted mid-probe consumption window is detected after the fact, not prevented; this worktree's `.env` is a placeholder copy (the symlink restore was permission-refused) — restore the symlink to the main checkout's `.env` at integrate.
 
 ## Spec Change Log
 
