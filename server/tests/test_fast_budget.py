@@ -56,13 +56,30 @@ def test_xpass_sleeper():
     time.sleep(0.2)
 '''
 
-NO_REASON_PROBE = '''
+SLOW_REASON_PROBE = '''
 import pytest
 
 
-@pytest.mark.slow
+@pytest.mark.slowREASON
 def test_bare_slow_mark():
     pass
+'''
+
+FIXTURE_PHASE_PROBE = '''
+import time
+
+import pytest
+
+
+@pytest.fixture()
+def slow_fixture_phases():
+    time.sleep(0.2)
+    yield
+    time.sleep(0.2)
+
+
+def test_fast_body_with_slow_fixture_phases(slow_fixture_phases):
+    assert True
 '''
 
 TWIN_PROBE = '''
@@ -367,6 +384,15 @@ def test_a_slow_marked_test_and_a_fast_test_pass(pytester: pytest.Pytester) -> N
     )
 
 
+def test_fixture_setup_and_teardown_are_outside_the_call_phase_budget(
+    pytester: pytest.Pytester,
+) -> None:
+    """A 0.2s setup and finalizer exceed the 0.05s probe budget, but its fast body passes because only call duration is budgeted."""
+    result = _inner_run(pytester, test_fixture_phase_probe=FIXTURE_PHASE_PROBE)
+    result.assert_outcomes(passed=1)
+    assert BUDGET_KEY not in result.stdout.str()
+
+
 def test_a_non_strict_xfail_that_passes_over_budget_keeps_its_xpass(
     pytester: pytest.Pytester,
 ) -> None:
@@ -394,12 +420,24 @@ def test_a_valid_non_default_budget_is_accepted(pytester: pytest.Pytester) -> No
     result.assert_outcomes(passed=1)
 
 
+@pytest.mark.parametrize(
+    "reason_syntax",
+    [
+        pytest.param("", id="absent"),
+        pytest.param('(reason="")', id="empty"),
+        pytest.param('(reason="   ")', id="whitespace"),
+        pytest.param("(reason=7)", id="non-string"),
+    ],
+)
 @pytest.mark.parametrize("selection", [("-m", "not slow"), DEFAULT_ADDOPTS], ids=["cli", "addopts"])
-def test_a_slow_mark_without_a_reason_stops_collection(
-    pytester: pytest.Pytester, selection: tuple[str, str]
+def test_a_slow_mark_without_a_non_empty_string_reason_stops_collection(
+    pytester: pytest.Pytester,
+    selection: tuple[str, str],
+    reason_syntax: str,
 ) -> None:
-    """A bare `@pytest.mark.slow` is a usage error naming the node id, also when the default `not slow` expression would have deselected it first."""
-    result = _inner_run(pytester, *selection, test_no_reason_probe=NO_REASON_PROBE)
+    """Absent, empty, whitespace-only and non-string reasons are usage errors before either form of the default selection can deselect the test."""
+    probe = SLOW_REASON_PROBE.replace("REASON", reason_syntax)
+    result = _inner_run(pytester, *selection, test_no_reason_probe=probe)
     assert result.ret == pytest.ExitCode.USAGE_ERROR
     result.stderr.fnmatch_lines(["*reason=*test_no_reason_probe.py::test_bare_slow_mark*"])
 
