@@ -127,8 +127,8 @@ development_status:
   9-2-five-minute-walkthrough: backlog
   epic-9-retrospective: optional
 
-  epic-10: backlog
-  10-1-topic-extraction: backlog
+  epic-10: in-progress
+  10-1-topic-extraction: in-progress
   10-2-threads-and-the-graph-projection: backlog
   10-2a-thread-curation: backlog
   10-2b-thread-questions-in-chat: backlog
