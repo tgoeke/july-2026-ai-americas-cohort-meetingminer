@@ -39,4 +39,4 @@
 - **Severity:** Low
 - **Finding:** `branch_conflicts.py` proves that two refs can merge; it does not prove that the review branch already contains the Story 10.1 head. Reverting the topology-only fix to its pre-merge first parent therefore leaves the claimed check green even though the implementation is absent.
 - **Evidence:** Created a temporary ref at exact pre-fix parent `e5ff7e8` and ran `python3 _bmad/scripts/branch_conflicts.py --against story/10-1-review-premerge-verify`; it reported `story/10-1-review-premerge-verify × story/10-1 clean`. The temporary ref was removed. The mutation-sensitive assertion `git merge-base --is-ancestor 93215b8 <target>` returned `1` for `e5ff7e8` and `0` for the reviewed branch.
-- **Resolution:** **Open while reported.** Amend the recorded #10 verification to require both ancestry (the story head is contained) and mergeability (relevant pairs are clean), then record the red/green ancestry evidence.
+- **Resolution:** **Resolved** in `d96bcf4`. The prior report now requires both ancestry and mergeability and records the exact red/green ancestry assertion (`e5ff7e8` exit `1`; reviewed branch exit `0`).
