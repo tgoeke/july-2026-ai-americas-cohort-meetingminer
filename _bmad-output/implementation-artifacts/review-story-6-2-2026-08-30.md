@@ -37,3 +37,11 @@ Review of the Story 6.2 YouTube Acquisition Command implementation, limited to t
 - **Finding:** `acquire()` applies the duration and timestamp refusal matrix only to probe data, then derives the finalized wall clock and provenance from a separate downloaded `info.json` without revalidation or consistency checks. If the two responses differ, an over-cap video can be finalized, or a timestamp refusal occurs only after the media download that the contract says must never start for refused input.
 - **Evidence:** A targeted acquisition with a 60-second probe and downloaded metadata reporting `duration=999999` reached `mint()` with `durationSeconds=999999` under the 180-minute configuration. The code calls `refuse_unacceptable(info, ...)` before `download()`, but calls only `started_at_from_info(downloaded)` and `provenance_extra_from_info(downloaded, ...)` afterward.
 - **Suggested direction:** Define and enforce a probe-to-download consistency boundary. Revalidate every refusal and required metadata invariant on downloaded `info.json` before minting, and refuse named on disagreement; adjust the yt-dlp interaction if strict pre-media refusal is required even under metadata drift.
+
+### F4 — Requested source identity is never checked against yt-dlp's result
+
+- **Location:** `server/meetingminer/youtube.py:423-463`
+- **Severity:** high
+- **Finding:** The source ID is fixed from the input URL, but neither probe nor downloaded `info.json` is required to report that same video ID. A redirect, extractor inconsistency, or changed response can mint another video's bytes and metadata under `youtube:<requested-id>`, after which the exists short-circuit permanently treats the requested video as already acquired.
+- **Evidence:** Both yt-dlp metadata objects carry an `id`, but the implementation never reads it. A targeted acquisition with requested ID `aB3dEfGhIj0` and downloaded `id="different01"` reached `mint()` with `source_id="youtube:aB3dEfGhIj0"`. No schema rule can compare provenance to the source ID.
+- **Suggested direction:** Require the probe and downloaded metadata IDs to equal the offline-parsed video ID, with a named refusal on absence or mismatch before finalization. Add a regression test that proves mismatched bytes cannot be minted under the requested identity.
