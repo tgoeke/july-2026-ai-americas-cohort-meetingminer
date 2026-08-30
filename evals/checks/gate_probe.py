@@ -806,27 +806,38 @@ def _approve(
     is that race verdict.
     """
     try:
-        returned = retrieval.approve_moment(base_url, moment_id, transport=transport)
+        returned = retrieval.approve_moment(
+            base_url,
+            moment_id,
+            timeout=_projection_wait_seconds(),
+            transport=transport,
+        )
     except ApproveError as exc:
-        if getattr(exc, "slug", None) == "nothing-to-approve":
-            state_row = conn.execute(_PROBE_STATE, (artifact_id,)).fetchone()
-            if state_row is not None and state_row[0] == checks.PUBLISHED_STATE:
-                return (
-                    ApproveOutcome(
-                        attempted=True,
-                        ok=True,
-                        detail=(
-                            "a concurrent run's approval published this"
-                            f" probe first ({exc}) — the gate was exercised"
-                            " through the public api; the race is on the"
-                            " record"
-                        ),
-                        published_ids=(artifact_id,),
-                    ),
-                    (),
-                    (),
-                    True,
+        state_row = conn.execute(_PROBE_STATE, (artifact_id,)).fetchone()
+        if state_row is not None and state_row[0] == checks.PUBLISHED_STATE:
+            if getattr(exc, "slug", None) == "nothing-to-approve":
+                detail = (
+                    "a concurrent run's approval published this"
+                    f" probe first ({exc}) — the gate was exercised"
+                    " through the public api; the race is on the record"
                 )
+            else:
+                detail = (
+                    f"the approval response was ambiguous ({exc}), but the"
+                    " owned row is published — reconcile as a completed"
+                    " public-api mutation and wait for its projection"
+                )
+            return (
+                ApproveOutcome(
+                    attempted=True,
+                    ok=True,
+                    detail=detail,
+                    published_ids=(artifact_id,),
+                ),
+                (),
+                (),
+                True,
+            )
         return (
             ApproveOutcome(attempted=True, ok=False, detail=str(exc)),
             (),

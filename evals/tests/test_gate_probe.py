@@ -802,6 +802,72 @@ def test_a_409_with_an_unpublished_row_is_a_real_refusal(tmp_path: Path) -> None
     assert probe.cleanup is not None, "a refusal never skips the erasure"
 
 
+def test_approval_timeout_covers_the_projection_lock_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F8: the client must not abandon a lawful 300-second writer wait."""
+    seen: list[float] = []
+    search = ProbeSearchClient()
+    graph = ProbeGraphDriver()
+    connection = FakeConnection(row_state=None)
+
+    def approve(
+        base_url: str,
+        moment_id: str,
+        *,
+        timeout: float,
+        transport: httpx.BaseTransport | None,
+    ) -> tuple[dict[str, str], ...]:
+        seen.append(timeout)
+        connection.row_state = "published"
+        search.published = True
+        graph.published = True
+        write_export(tmp_path)
+        return ({"id": PROBE_ID, "state": "published"},)
+
+    monkeypatch.setattr(gate_probe.retrieval, "approve_moment", approve)
+    probe = run_probe(
+        tmp_path,
+        corpus=FakeCorpus(),
+        search=search,
+        graph=graph,
+        connection=connection,
+    )
+
+    assert probe.approve.ok, probe.problem
+    assert seen and seen[0] >= 300
+
+
+def test_a_lost_approval_response_reconciles_a_published_probe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F8: a timeout after commit is ambiguous, not a safe failure."""
+    search = ProbeSearchClient()
+    graph = ProbeGraphDriver()
+    connection = FakeConnection(row_state=None)
+
+    def timed_out(*args: Any, **kwargs: Any) -> tuple[dict[str, str], ...]:
+        connection.row_state = "published"
+        search.published = True
+        graph.published = True
+        write_export(tmp_path)
+        raise gate_probe.ApproveError("timed out after the server committed")
+
+    monkeypatch.setattr(gate_probe.retrieval, "approve_moment", timed_out)
+    probe = run_probe(
+        tmp_path,
+        corpus=FakeCorpus(),
+        search=search,
+        graph=graph,
+        connection=connection,
+    )
+
+    assert probe.raced
+    assert probe.approve.ok, probe.approve.detail
+    assert "ambiguous" in (probe.approve.detail or "")
+    assert probe.cleanup is not None and probe.cleanup.verified
+
+
 def test_a_store_failure_mid_probe_still_cleans_up(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
