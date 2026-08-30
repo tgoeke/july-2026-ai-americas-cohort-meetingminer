@@ -207,6 +207,24 @@ def test_a_discoverable_but_unimportable_extra_fails_at_build(
         build_diarizer(Binding())
 
 
+def test_an_imported_provider_without_a_callable_factory_fails_at_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("importlib.util.find_spec", lambda _name: object())
+    pyannote_audio = ModuleType("pyannote.audio")
+    pyannote_audio.Pipeline = object()
+
+    def import_provider(name: str):
+        assert name == "pyannote.audio"
+        return pyannote_audio
+
+    monkeypatch.setattr("importlib.import_module", import_provider)
+    monkeypatch.setenv(TOKEN_ENV, "hf_unit_test_token")
+
+    with pytest.raises(DiarizerError, match="not bundled"):
+        build_diarizer(Binding())
+
+
 def test_the_real_probe_answers_without_raising() -> None:
     # No monkeypatch: whatever venv runs this, the probe must return a bool
     # rather than raise. In this wave's extra-free venv that answer is False,

@@ -51,7 +51,8 @@ def _pyannote_available() -> bool:
         if importlib.util.find_spec("pyannote.audio") is None:
             return False
         module = importlib.import_module("pyannote.audio")
-        return getattr(module, "Pipeline", None) is not None
+        pipeline = getattr(module, "Pipeline", None)
+        return callable(getattr(pipeline, "from_pretrained", None))
     except Exception:
         # find_spec imports the parent package first: no `pyannote`
         # distribution at all raises ModuleNotFoundError, a broken parent

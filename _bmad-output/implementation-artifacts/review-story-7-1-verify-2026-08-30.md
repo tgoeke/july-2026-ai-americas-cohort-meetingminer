@@ -31,7 +31,7 @@
 - **Severity:** Medium
 - **Finding:** Finding 2's probe checks only that `Pipeline` is non-`None`; it does not require the `from_pretrained` callable the real factory uses. Its new regression covers an exception during module import, not a successfully imported module with an absent or unusable `Pipeline` symbol. Such an installation passes `build_diarizer` and fails only after work reaches the lazy factory.
 - **Evidence:** Exact mutation `return getattr(module, "Pipeline", None) is not None` → `return True` left the discoverable-but-unimportable regression, both broken-`find_spec` cases, and the real-probe test green (`4 passed`). A module exposing `Pipeline = object()` likewise satisfies the current production predicate although `_load_pipeline` cannot call `Pipeline.from_pretrained`.
-- **Resolution:** **OPEN — remediation in progress.** Add a red-first build-boundary regression for a successfully imported provider with no usable `Pipeline.from_pretrained`, then make the probe validate that exact callable.
+- **Resolution:** **RESOLVED.** Added `test_an_imported_provider_without_a_callable_factory_fails_at_build`; it failed on the original predicate because no `DiarizerError` was raised. `_pyannote_available` now requires callable `Pipeline.from_pretrained`; the new test and the import-exception regression pass.
 
 ### V4. Telemetry remediation reopens the late provider-import failure
 
