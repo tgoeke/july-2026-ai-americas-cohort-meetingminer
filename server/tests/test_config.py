@@ -1005,6 +1005,22 @@ def test_a_rendered_stack_file_passes_both_validators(
         assert env[key] == value
 
 
+def test_loader_refuses_another_worktrees_record_at_a_linked_checkout_root(
+    tmp_path: Path,
+    no_port_overrides: None,
+) -> None:
+    """Structural validity is not directory ownership for server entrypoints."""
+    from meetingminer.config import merged_env
+
+    checkout = tmp_path / "probe"
+    checkout.mkdir()
+    (checkout / ".git").write_text("gitdir: elsewhere\n", encoding="utf-8")
+    envfile = _stack_files(checkout, "POSTGRES_PASSWORD=x\n", good_stack_text("other"))
+
+    with pytest.raises(ConfigError, match=r"meetingminer-other.*meetingminer-probe"):
+        merged_env(envfile)
+
+
 @pytest.mark.parametrize(
     ("case", "lines", "key", "loader_rejects"), BAD_STACK_FILES, ids=BAD_STACK_IDS
 )
