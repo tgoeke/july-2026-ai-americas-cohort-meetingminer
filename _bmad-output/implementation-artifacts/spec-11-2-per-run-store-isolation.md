@@ -299,6 +299,15 @@ The 11-2 worktree's `.env.worktree` predates `MM_STACK_ID`, so after Theme 1 lan
 
 **Duplicate-lane halt (2026-08-30 ~15:00, session e8e75846).** A second `bmad-build-auto` run, launched by the owner with the `013e0ff` review handoff, halted `blocked` with condition `duplicate lane — story/11-2 remediation owned by another session's agent`. Before halting it wrote the Remediation Plan section above and launched a builder into `../meetingminer-wt/11-2`; on the other lane's cross-session challenge the builder was stopped having committed nothing (branch clean at `d5e7a90`, no stray processes or probe stacks). The `status` field is left `in-progress` on purpose: it describes the story, which the surviving lane owns. Anything below this paragraph is the surviving lane's record.
 
+**Remediation label probe (2026-08-30, step 2 of the order of work).** Docker
+Compose v5.1.2, throwaway project `mm-label-probe` (busybox + one named
+volume): a file written into the volume before the label existed; a
+`labels: {com.meetingminer.stack-id: ...}` entry then added to the service
+and the volume definition; `up -d` succeeded, the container was recreated
+once carrying the label, the volume was **not** recreated (same `CreatedAt`,
+the file still present) and kept its old label-less metadata — which is
+exactly how `claim` recognises a stale incarnation. Probe removed with
+`down -v`; no `mm-label-probe` volumes remain.
 
 **Status:** done (2026-08-30). Branch `story/11-2` at `fa86b86` in worktree `../meetingminer-wt/11-2`, pushed, `origin/story/11-2` identical (`git rev-list --left-right --count HEAD...@{u}` → `0	0`), `git status --porcelain` empty; 11 commits `b6fac36`..`fa86b86` on base `de0fc08` (= `main`).
 

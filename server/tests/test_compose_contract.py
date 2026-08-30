@@ -113,6 +113,26 @@ def test_container_names_follow_the_stack_name(service: str) -> None:
     assert SERVICES[service]["container_name"] == f"{STACK_NAME}-{service}"
 
 
+#: The incarnation label (story 11.2 remediation): stamped on every service
+#: and every volume so `claim` can tell this worktree's stack from a stale
+#: same-named incarnation. Empty for the main stack.
+STACK_ID_LABEL_VALUE = "${MM_STACK_ID:-}"
+
+
+@pytest.mark.parametrize("service", sorted(SERVICES))
+def test_every_service_carries_the_stack_id_label(service: str) -> None:
+    labels = SERVICES[service].get("labels") or {}
+    assert labels.get(WORKTREE_STACK.STACK_ID_LABEL) == STACK_ID_LABEL_VALUE
+
+
+def test_every_volume_carries_the_stack_id_label() -> None:
+    volumes = COMPOSE["volumes"]
+    assert set(volumes) == set(WORKTREE_STACK.VOLUME_NAMES)
+    for name, definition in volumes.items():
+        labels = (definition or {}).get("labels") or {}
+        assert labels.get(WORKTREE_STACK.STACK_ID_LABEL) == STACK_ID_LABEL_VALUE, name
+
+
 def test_every_published_host_port_is_a_stack_variable_with_the_allocators_default() -> None:
     """Each host port is `${MM_<X>_PORT:-<default>}`, each variable is used once, and
     the defaults are exactly what infra/worktree_stack.py allocates around."""
