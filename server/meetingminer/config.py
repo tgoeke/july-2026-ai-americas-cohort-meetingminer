@@ -951,6 +951,21 @@ def validated_worktree_env(env_path: Path) -> dict[str, str]:
         seen.add(key)
     values = _read_env_file(worktree_env)
     _validate_worktree_env(worktree_env, values)
+    git_marker = env_path.parent / ".git"
+    if git_marker.is_file():
+        expected = f"meetingminer-{env_path.parent.name}"
+        declared = values[STACK_NAME_KEY]
+        if declared != expected:
+            raise ConfigError(
+                f"{worktree_env}: {STACK_NAME_KEY} is {declared!r}, but linked"
+                f" checkout {env_path.parent.name!r} owns {expected!r} — a copied"
+                " or moved ownership record must not select another worktree's stores"
+            )
+    elif git_marker.is_dir():
+        raise ConfigError(
+            f"{worktree_env}: the main checkout must not carry"
+            f" {WORKTREE_ENV_FILENAME}; it owns the main stack (meetingminer)"
+        )
     return values
 
 
