@@ -234,24 +234,74 @@ def test_a_semantic_heading_tolerates_topic_table_header_drift() -> None:
         "| T1 | Vendor feed transport | Moving to SFTP | [0:10] |\n"
     )
     parsed = core.parse_extraction_document(document, core.DOC_TOPICS)
-    assert [a.item_id for a in parsed.artifacts] == ["T1"]
+    [topic] = parsed.artifacts
+    assert topic.item_id == "T1"
+    assert topic.title == "Vendor feed transport"
+    assert topic.anchors_ms == (10_000,)
+    assert core.topic_gist(topic) == "Moving to SFTP"
+
+
+def test_canonical_topic_columns_are_sufficient_under_a_neutral_heading() -> None:
+    document = (
+        "## Notes\n\n"
+        "| ID | Topic | Gist | Timestamps |\n"
+        "|----|-------|------|------------|\n"
+        "| T1 | Vendor feed transport | Moving to SFTP | [0:10] |\n"
+    )
+    [topic] = core.parse_extraction_document(document, core.DOC_TOPICS).artifacts
+    assert topic.title == "Vendor feed transport"
+    assert core.topic_gist(topic) == "Moving to SFTP"
+
+
+def test_auxiliary_topic_columns_do_not_become_part_of_the_gist() -> None:
+    document = (
+        "## Topics\n\n"
+        "| ID | Topic | Gist | Confidence | Timestamps |\n"
+        "|----|-------|------|------------|------------|\n"
+        "| T1 | Vendor feed transport | Moving to SFTP | high | [0:10] |\n"
+    )
+    [topic] = core.parse_extraction_document(document, core.DOC_TOPICS).artifacts
+    assert core.topic_gist(topic) == "Moving to SFTP"
 
 
 @pytest.mark.parametrize(
-    "document",
+    ("document", "item_id"),
     [
         (
-            "## Decisions\n\n"
-            "| ID | Decision | Context | Timestamp |\n"
-            "|----|----------|---------|-----------|\n"
-            "| T1 | Rotate the vendor key | Required by policy | [0:10] |\n"
+            (
+                "## Decisions\n\n"
+                "| ID | Decision | Context | Timestamp |\n"
+                "|----|----------|---------|-----------|\n"
+                "| D1 | Rotate the vendor key | Required by policy | [0:10] |\n"
+            ),
+            "D1",
         ),
-        "## Notes\n\n- T1 - Rotate the vendor key - Required by policy - [0:10]\n",
+        (
+            "## Notes\n\n- A1 - Rotate the vendor key - Required by policy - [0:10]\n",
+            "A1",
+        ),
+        (
+            "## Non-topic notes\n\n- T1 - Rotate key - Required by policy - [0:10]\n",
+            "T1",
+        ),
+        (
+            (
+                "## Notes\n\n"
+                "| ID | Topic Gist | Timestamp |\n"
+                "|----|------------|-----------|\n"
+                "| T1 | Rotate the vendor key | [0:10] |\n"
+            ),
+            "T1",
+        ),
     ],
-    ids=["decisions-table", "task-list"],
+    ids=["decisions-table", "task-list", "negated-topic", "fused-header"],
 )
-def test_a_contentful_foreign_document_is_a_named_parse_error(document: str) -> None:
-    with pytest.raises(core.ArtifactParseError, match="T1.*topic semantics"):
+def test_a_contentful_foreign_document_is_a_named_parse_error(
+    document: str, item_id: str
+) -> None:
+    with pytest.raises(
+        core.ArtifactParseError, match=rf"{item_id}.*topic semantics"
+    ):
         core.parse_extraction_document(document, core.DOC_TOPICS)
 
 
@@ -294,6 +344,17 @@ def test_an_anchors_header_is_timestamp_bookkeeping_not_gist_text() -> None:
     [topic] = core.parse_extraction_document(document, core.DOC_TOPICS).artifacts
     assert topic.anchors_ms == (10_000, 45_000)
     assert core.topic_gist(topic) == "Moving to SFTP"
+
+
+def test_a_topic_uses_the_exact_anchors_column_not_an_unrelated_time_header() -> None:
+    document = (
+        "## Topics\n\n"
+        "| ID | Topic | Gist | Estimated time impact | Anchors |\n"
+        "|----|-------|------|-----------------------|---------|\n"
+        "| T1 | Vendor feed transport | Moving to SFTP | 9:00 | [0:10] |\n"
+    )
+    [topic] = core.parse_extraction_document(document, core.DOC_TOPICS).artifacts
+    assert topic.anchors_ms == (10_000,)
 
 
 # --- the prompt builder and the config binding -------------------------------

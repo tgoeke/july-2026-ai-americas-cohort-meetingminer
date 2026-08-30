@@ -405,7 +405,24 @@ _ARCH_TARGET_HEADINGS = ("decision", "summary")
 # topical either in the section heading or through the configured table shape.
 # This keeps useful headings such as "Discussion themes" while refusing a
 # Decisions/Notes/task document whose T-id happens to look plausible.
-_TOPIC_HEADING_MARKERS = ("topic", "discussion", "theme")
+_TOPIC_HEADING_MARKERS = ("topic", "topics", "theme", "themes")
+_TOPIC_HEADING_NEGATIONS = ("no", "non", "not")
+
+# Topic columns are an acceptance boundary, not fuzzy hints. A foreign column
+# such as ``Topic owner`` or a fused ``Topic Gist`` must not make an unrelated
+# document look like the configured topics shape.
+_TOPIC_NAME_HEADERS = ("topic", "topic name", "theme", "subject")
+_TOPIC_GIST_HEADERS = ("gist", "summary")
+_TOPIC_TIMESTAMP_HEADERS = (
+    "timestamp",
+    "timestamps",
+    "time",
+    "when",
+    "stamp",
+    "stamps",
+    "anchor",
+    "anchors",
+)
 
 # Which ID prefixes become artifacts, per document. The architecture summary
 # also carries an action-items table, but those are the same commitments the
@@ -590,6 +607,24 @@ def _labelled(headers: Sequence[str] | None, markers: Sequence[str]) -> int | No
     return None
 
 
+def _normalized_header_label(header: str) -> str:
+    """A header label reduced for exact, punctuation-insensitive matching."""
+    return " ".join(re.findall(r"[a-z0-9]+", (header or "").casefold()))
+
+
+def _exact_labelled(
+    headers: Sequence[str] | None, labels: Sequence[str]
+) -> int | None:
+    """The first header whose complete normalized label is allowed."""
+    if headers is None:
+        return None
+    allowed = set(labels)
+    for index, header in enumerate(headers):
+        if _normalized_header_label(header) in allowed:
+            return index
+    return None
+
+
 def _anchor_stamps(
     cells: Sequence[str],
     headers: Sequence[str] | None,
@@ -611,7 +646,11 @@ def _anchor_stamps(
     3. otherwise the whole row, for a prose bullet or a headerless ragged row
        that has no separable stamp cell at all.
     """
-    labelled = _labelled(headers, _TIMESTAMP_HEADERS)
+    labelled = (
+        _exact_labelled(headers, _TOPIC_TIMESTAMP_HEADERS)
+        if authoritative_topic_item_id is not None
+        else _labelled(headers, _TIMESTAMP_HEADERS)
+    )
     if labelled is not None and authoritative_topic_item_id is not None:
         value = cells[labelled] if labelled < len(cells) else ""
         return _validated_topic_timestamps_ms(value, authoritative_topic_item_id)
@@ -738,8 +777,8 @@ def _topic_title_and_body(
     name is valid and neither required field may be synthesized from the
     other.
     """
-    topic_index = _labelled(headers, ("topic",))
-    gist_index = _labelled(headers, ("gist",))
+    topic_index = _exact_labelled(headers, _TOPIC_NAME_HEADERS)
+    gist_index = _exact_labelled(headers, _TOPIC_GIST_HEADERS)
     if topic_index is None or gist_index is None:
         topic_index, gist_index = 0, 1
 
@@ -754,17 +793,10 @@ def _topic_title_and_body(
             f"item {item_id} in the topics document has no Gist value"
         )
 
-    lines: list[str] = []
-    for position, cell in enumerate(cells):
-        if not cell or position == topic_index:
-            continue
-        label = (
-            headers[position]
-            if headers is not None and position < len(headers) and headers[position]
-            else None
-        )
-        lines.append(f"{label}: {cell}" if label else cell)
-    return topic, "\n".join(lines).strip()
+    # The topic row has exactly two persisted text fields. Auxiliary model
+    # bookkeeping (confidence, rank, notes) must not leak into the gist, and
+    # drifted ``Summary`` must canonicalize to the same body as ``Gist``.
+    return topic, f"Gist: {gist}"
 
 
 def _truncate_title(title: str) -> str:
@@ -805,12 +837,20 @@ def _section_is_target(heading: str, document_kind: str) -> bool:
 def _has_topic_semantics(
     heading: str, headers: Sequence[str] | None
 ) -> bool:
-    lowered = heading.casefold()
-    if any(marker in lowered for marker in _TOPIC_HEADING_MARKERS):
+    words = re.findall(r"[a-z0-9]+", heading.casefold())
+    for index, word in enumerate(words):
+        if word not in _TOPIC_HEADING_MARKERS:
+            continue
+        if index and words[index - 1] in _TOPIC_HEADING_NEGATIONS:
+            continue
         return True
-    return _labelled(headers, ("topic",)) is not None and _labelled(
-        headers, ("gist",)
-    ) is not None
+    topic_index = _exact_labelled(headers, ("topic",))
+    gist_index = _exact_labelled(headers, ("gist",))
+    return (
+        topic_index is not None
+        and gist_index is not None
+        and topic_index != gist_index
+    )
 
 
 def _kind_for(prefix: str, document_kind: str) -> str | None:
@@ -917,12 +957,6 @@ def parse_extraction_document(text: str, document_kind: str) -> ParsedDocument:
         id_index, id_match = found
         prefix = id_match.group("prefix").upper()
         item_id = f"{prefix}{id_match.group('number')}"
-        kind = _kind_for(prefix, document_kind)
-        if kind is None or _section_is_excluded(section, document_kind):
-            # A recognized item that is not an artifact: a risk, an open
-            # question, or a row under "Reported done". Counted as structure,
-            # never as a proposal — and so never as a missing anchor either.
-            continue
         if document_kind == DOC_TOPICS and not _has_topic_semantics(
             section, headers if layout == LAYOUT_TABLE else None
         ):
@@ -931,6 +965,12 @@ def parse_extraction_document(text: str, document_kind: str) -> ParsedDocument:
                 f" {section!r} without topic semantics in either the heading or"
                 " Topic/Gist table columns"
             )
+        kind = _kind_for(prefix, document_kind)
+        if kind is None or _section_is_excluded(section, document_kind):
+            # A recognized item that is not an artifact: a risk, an open
+            # question, or a row under "Reported done". Counted as structure,
+            # never as a proposal — and so never as a missing anchor either.
+            continue
         dedup_key = (section if document_kind == DOC_ACTION_ITEMS else "", item_id)
         if dedup_key in seen_ids:
             if document_kind == DOC_TOPICS:
