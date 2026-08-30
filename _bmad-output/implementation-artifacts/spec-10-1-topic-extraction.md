@@ -3,7 +3,7 @@ title: 'Story 10.1: Topic Extraction'
 type: 'feature'
 created: '2026-08-30'
 baseline_revision: '5cdfce72813d68c2d81f5e02f715b8863f8492af'
-status: 'review'
+status: 'done'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -105,6 +105,15 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-08-30 — External adversarial review and remediation
+- intent_gap: 0
+- bad_spec: 0
+- patch: 10 (high 0, medium 7, low 3)
+- defer: 0
+- reject: 9
+- addressed_findings:
+  - All ten confirmed review findings were patched on `story/10-1-review`; findings #5 and #9 follow the owner's dated decisions recorded above. The final adversarial hardening stayed within those two rulings. Exact story tests: 57 passed. `make test-fast`: puller 128, web 294, eval harness 549, server 1458 passed / 326 deselected / 0 skipped.
+
 ### 2026-08-30 — Review pass
 - intent_gap: 0
 - bad_spec: 0
@@ -132,9 +141,9 @@ deferred: []
 
 ## Auto Run Result
 
-Status: review — implementation complete, internal review pass done, awaiting
-the external `bmad-code-review` pass
-(`review-prompt-story-10-1-2026-08-30.md`). Not merged, not done.
+Status: done — implementation, external adversarial review, owner decisions,
+and review-lane remediation are complete. The review verdict is Pass. The
+owner will integrate the wave; this branch was not merged to `main`.
 
 **Implemented:** the topics document as the third whole-transcript extraction
 pass — same `Llm(extraction)` port, same parser machinery, one-retry
@@ -152,15 +161,61 @@ UI renders whatever the endpoint returns; client regenerated in-process.
 EVIDENCE_TABLES, `test_worker_extract.py` counts, `test_config.py` fixture
 key, `test_api_prompts.py` counts (all in the change log).
 
-**Review findings:** patch 1 (low — stale docstring, fixed), defer 0,
-reject 2. Followup score: 1 low = 1 < 5 → `followup_review_recommended:
-false` (0 high, 0 medium, 1 low patched).
+**Review findings:** 10 confirmed and resolved (7 medium, 3 low), including
+the owner's fairly-strict parser ruling (#5) and delete-orphan-topic ruling
+(#9); defer 0. `followup_review_recommended: false` after final remediation.
 
-**Verification:** story files 31 passed ~9s; `make test-fast` 1432 passed /
-326 deselected / 0 skips, 50s; `make web-test` 294 passed; `make test` full
-gate exit 0 — 1758 passed, 13m17s, web build ok; `branch_conflicts.py`: all
-`story/10-1` pairs clean except the exempt `× story/11-2-review`.
+**Verification:** final story files 57 passed; final foreground
+`make test-fast`: puller 128, web 294, eval harness 549, server 1458 passed /
+326 deselected / 0 skips. The builder's pre-review full gate remains green at
+1758 server tests plus the web production build.
 
 **Residual risks:** the real extraction model's topics output is unproven
 against the committed prompt (owner runs a real extraction after
 integration); `main × story/11-2` spec-file conflict pre-exists this story.
+
+## Suggested Review Order
+
+**Extraction boundary**
+
+- Start with the shared parser and its topics-document admission boundary.
+  [`extraction.py:882`](../../server/meetingminer/pipeline/extraction.py#L882)
+
+- Topic-specific fields preserve drift while refusing synthesized names or gists.
+  [`extraction.py:769`](../../server/meetingminer/pipeline/extraction.py#L769)
+
+- The stage resolves all anchors and persists one mention per moment.
+  [`extract.py:492`](../../server/meetingminer/pipeline/stages/extract.py#L492)
+
+**Record invariant**
+
+- Deferred enforcement prevents a topic from committing without any mention.
+  [`0014_topics.sql:39`](../../server/meetingminer/migrations/0014_topics.sql#L39)
+
+- Row locking deletes topics after cascaded, moved, or concurrent last edges.
+  [`0014_topics.sql:88`](../../server/meetingminer/migrations/0014_topics.sql#L88)
+
+- Statement enforcement closes the mention-table truncation route.
+  [`0014_topics.sql:107`](../../server/meetingminer/migrations/0014_topics.sql#L107)
+
+**Configuration and presentation**
+
+- The complete topics prompt remains configuration-owned with no code fallback.
+  [`config.yaml:147`](../../config.yaml#L147)
+
+- The prompts API exposes the third document through the existing response shape.
+  [`extraction.py:51`](../../server/meetingminer/api/extraction.py#L51)
+
+- The moments UI labels the generated topic kind without hard-coded branching.
+  [`moments.ts:60`](../../web/src/features/moments/moments.ts#L60)
+
+**Regression evidence**
+
+- Parser tests pin accepted semantic drift and rejected foreign documents.
+  [`test_extraction_topics.py:226`](../../server/tests/test_extraction_topics.py#L226)
+
+- Integration proves augmentation deletes an orphan while extract remains settled.
+  [`test_extraction_topics.py:776`](../../server/tests/test_extraction_topics.py#L776)
+
+- Migration tests exercise direct, moved, truncated, and concurrent orphan paths.
+  [`test_migrations_topics.py:158`](../../server/tests/test_migrations_topics.py#L158)
