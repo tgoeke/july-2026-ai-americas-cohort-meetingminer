@@ -27,6 +27,7 @@ from evals.harness.stores import (
     artifact_in_graph,
     artifact_in_search,
     graph_driver,
+    moment_in_graph,
     search_client,
 )
 
@@ -279,3 +280,25 @@ def test_a_malformed_graph_record_is_a_named_error(records: list[Any]) -> None:
     with pytest.raises(StoreAssertError) as caught:
         artifact_in_graph(FakeGraphDriver(records), ARTIFACT)  # type: ignore[arg-type]
     assert ARTIFACT in str(caught.value)
+
+
+# --------------------------------------------------------------------------
+# moment_in_graph — probe eligibility's projected-moment read (story 11.3)
+# --------------------------------------------------------------------------
+
+
+def test_a_projected_moment_reads_as_present_through_a_read_session() -> None:
+    driver = FakeGraphDriver(records=[{"id": MOMENT}])
+    assert moment_in_graph(driver, MOMENT) is True  # type: ignore[arg-type]
+    assert driver.access_modes == [stores.neo4j.READ_ACCESS]
+
+
+def test_an_unprojected_moment_reads_as_absent() -> None:
+    assert moment_in_graph(FakeGraphDriver(records=[]), MOMENT) is False  # type: ignore[arg-type]
+
+
+def test_a_failing_moment_read_is_a_named_error() -> None:
+    driver = FakeGraphDriver(RuntimeError("defunct connection"))
+    with pytest.raises(StoreAssertError) as caught:
+        moment_in_graph(driver, MOMENT)  # type: ignore[arg-type]
+    assert MOMENT in str(caught.value)

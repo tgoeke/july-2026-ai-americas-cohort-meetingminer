@@ -56,6 +56,13 @@ _ARTIFACT_IN_GRAPH = (
     " RETURN a.id AS id, collect(DISTINCT m.id) AS moments"
 )
 
+#: Whether a moment is projected at all — probe eligibility's graph read
+#: (story 11.3). Label-pinned to ``Moment``, unlike the artifact read: the
+#: probe must ride a node the approve route's ``MATCH (mo:Moment {id: ...})``
+#: will find, so matching a lookalike node under another label would promise
+#: a projection the route cannot use.
+_MOMENT_IN_GRAPH = "MATCH (m:Moment {id: $id}) RETURN m.id AS id"
+
 _CONNECT_TIMEOUT = 10.0
 
 
@@ -176,6 +183,25 @@ def graph_driver(config: Any) -> neo4j.Driver:
             f" ({type(exc).__name__}: {exc}) — start it with 'make infra-up'"
         ) from exc
     return driver
+
+
+def moment_in_graph(driver: neo4j.Driver, moment_id: str) -> bool:
+    """Whether a ``Moment`` node with this id is in the graph. Read-only.
+
+    Probe eligibility (story 11.3): the approve route's graph half rolls the
+    whole write back when the cited ``Moment`` node is missing, so the probe
+    layer asks this before minting anything. Same read-session pin as
+    :func:`artifact_in_graph`, same one named error for every failure mode.
+    """
+    try:
+        with driver.session(default_access_mode=neo4j.READ_ACCESS) as session:
+            records = list(session.run(_MOMENT_IN_GRAPH, id=moment_id))
+    except Exception as exc:  # the neo4j driver raises a wide family here
+        raise StoreAssertError(
+            f"Neo4j could not answer the membership read for moment"
+            f" {moment_id} ({type(exc).__name__}: {exc})"
+        ) from exc
+    return bool(records)
 
 
 def artifact_in_graph(driver: neo4j.Driver, artifact_id: str) -> StorePresence:

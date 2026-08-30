@@ -97,6 +97,30 @@ _HAS_RECORDING = "SELECT has_recording FROM meeting WHERE id = %s::uuid"
 
 _MEETING_CORPUS = "SELECT corpus FROM meeting WHERE id = %s::uuid"
 
+#: One ``moment`` row, reduced to what probe eligibility reads (story 11.3):
+#: the id the probe artifact will cite and the identity key that makes a
+#: report line about it recognizable. Ordered by ``start_ms`` — the table
+#: deliberately has no ordinal column (0006_moments.sql).
+MOMENT_COLUMNS = ("id", "identity_key")
+
+_MOMENTS = (
+    "SELECT id, identity_key"
+    " FROM moment"
+    " WHERE meeting_id = %s::uuid"
+    " ORDER BY start_ms, id"
+)
+
+#: One pipeline stage's checkpoint status for the meeting's job. The probe
+#: rides a moment only after the ``extract`` stage has settled, so this read
+#: joins ``job_stage`` through ``meeting.job_id`` rather than trusting the
+#: api's coarser job status.
+_STAGE_STATUS = (
+    "SELECT js.status"
+    " FROM job_stage js"
+    " JOIN meeting m ON m.job_id = js.job_id"
+    " WHERE m.id = %s::uuid AND js.name = %s"
+)
+
 
 class CorpusQueryError(Exception):
     """A read against the corpus failed, or named a meeting that is not there.
@@ -124,6 +148,20 @@ class ArtifactRow:
     state: str
     title: str
     body: str
+
+
+@dataclass(frozen=True)
+class MomentRow:
+    """One ``moment`` row — what the publish-gate probe chooses among.
+
+    Only what eligibility needs: the id (the probe artifact's citation
+    target, and what ``moment_in_graph`` is asked about) and the
+    ``identity_key`` (so a report line about the chosen moment says which
+    span of the meeting it was, not only a UUID).
+    """
+
+    id: str
+    identity_key: str
 
 
 @dataclass(frozen=True)
@@ -158,6 +196,18 @@ def artifact_from_row(row: Sequence[Any]) -> ArtifactRow:
         title=title,
         body=body,
     )
+
+
+def moment_from_row(row: Sequence[Any]) -> MomentRow:
+    """One ``moment`` row -> one :class:`MomentRow`, unpacked by name."""
+    if len(row) != len(MOMENT_COLUMNS):
+        raise CorpusQueryError(
+            f"a moment row arrived with {len(row)} columns, not"
+            f" {len(MOMENT_COLUMNS)} ({', '.join(MOMENT_COLUMNS)}) — the"
+            " query and this mapping have drifted apart"
+        )
+    id_, identity_key = row
+    return MomentRow(id=str(id_), identity_key=identity_key)
 
 
 def segment_from_row(row: Sequence[Any]) -> TranscriptSegment:
@@ -256,11 +306,12 @@ class Corpus:
             self._connection.close()
         self._connection = None
 
-    def _rows(self, sql: str, key: str) -> list[tuple[Any, ...]]:
+    def _rows(self, sql: str, *params: Any) -> list[tuple[Any, ...]]:
         try:
-            return self.connection.execute(sql, (key,)).fetchall()
+            return self.connection.execute(sql, params).fetchall()
         except psycopg.Error as exc:
-            raise CorpusQueryError(f"reading {key} failed: {exc}") from exc
+            described = ", ".join(str(param) for param in params)
+            raise CorpusQueryError(f"reading {described} failed: {exc}") from exc
 
     def captures_for(self, meeting_id: str) -> tuple[Capture, ...]:
         """Every ``screenshot`` row for one meeting, ordinal-ordered.
@@ -309,6 +360,28 @@ class Corpus:
         return tuple(
             segment_from_row(row) for row in self._rows(_SEGMENTS_FOR_MOMENT, moment_id)
         )
+
+    def moments_for(self, meeting_id: str) -> tuple[MomentRow, ...]:
+        """Every ``moment`` row for one meeting, timeline-ordered. Read-only.
+
+        Probe eligibility (story 11.3) chooses from these: the publish-gate
+        probe must cite an existing moment — ``graph.project_artifacts``
+        rolls back on a missing ``Moment`` node, and only the worker/rebuild
+        project meetings — so the candidates come from reads, never from
+        anything the run seeded itself.
+        """
+        return tuple(moment_from_row(row) for row in self._rows(_MOMENTS, meeting_id))
+
+    def stage_status(self, meeting_id: str, stage: str) -> str | None:
+        """One pipeline stage's checkpoint status for this meeting's job.
+
+        ``None`` when the meeting has no such stage row (or no meeting row)
+        — which the probe layer treats as "not settled" and refuses by name,
+        never as a green light. Read via ``meeting.job_id`` so the answer is
+        about this meeting's own job, not a re-ingested sibling's.
+        """
+        rows = self._rows(_STAGE_STATUS, meeting_id, stage)
+        return rows[0][0] if rows else None
 
     def meeting_corpus(self, meeting_id: str) -> str | None:
         """The meeting row's ``corpus`` tag, straight from Postgres.
