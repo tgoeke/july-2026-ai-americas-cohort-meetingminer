@@ -1,5 +1,58 @@
 # Deferred Work
 
+## Deferred from: story 11-4 build (lint and type tooling, 2026-08-30)
+
+The dated ruff/mypy baseline in `server/pyproject.toml` is debt by design:
+story 11.4's contract forbade editing any existing source or test file, so
+every violation live on main at measurement went into a committed ignore
+instead of a sweep. Each item below retires part of it; retiring an entry
+also edits the pinned sets in `server/tests/test_lint_contract.py`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-11-4-lint-and-type-tooling-in-the-fast-loop.md`
+  summary: Retire ruff I001 from the global ignore — sort/format the import blocks per module (69 hits at measurement), then drop the code from `[tool.ruff.lint] ignore` and from BASELINE_GLOBAL_IGNORE in test_lint_contract.py.
+  evidence: Measured 2026-08-30 at ruff 0.16.5 on main (5cdfce7); mechanical and auto-fixable (`ruff check --select I001 --fix`), deferred only by the no-sweep constraint while five other branches were in flight.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-11-4-lint-and-type-tooling-in-the-fast-loop.md`
+  summary: Retire ruff UP035 (deprecated typing aliases, 50 hits) the same per-module way.
+  evidence: Same 2026-08-30 measurement; auto-fixable modernization, no behavior change.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-11-4-lint-and-type-tooling-in-the-fast-loop.md`
+  summary: Retire ruff PLW1510 (`subprocess.run` without explicit `check=`, 33 hits) — each fix is a one-argument edit but wants a per-call decision about which failures should raise.
+  evidence: Same 2026-08-30 measurement; most hits are in tests and the Makefile-process suites.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-11-4-lint-and-type-tooling-in-the-fast-loop.md`
+  summary: Retire ruff UP017 (`timezone.utc` for `datetime.UTC`, 30 hits in 11 files) — auto-fixable alias modernization.
+  evidence: Surfaced only by the committed config: `requires-python = ">=3.12"` sets ruff's target-version to py312, which the story's `--isolated` baseline run did not reach; added to the global ignore as the seventh dated code during the 11-4 build.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-11-4-lint-and-type-tooling-in-the-fast-loop.md`
+  summary: Retire ruff SIM117 (nested `with` statements, 17 hits) per module.
+  evidence: Same 2026-08-30 measurement; auto-fixable joins of adjacent context managers.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-11-4-lint-and-type-tooling-in-the-fast-loop.md`
+  summary: Retire ruff RUF100 (unused noqa directives, 14 hits) — delete the dead directives.
+  evidence: Same 2026-08-30 measurement; several guard codes for tools no longer configured.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-11-4-lint-and-type-tooling-in-the-fast-loop.md`
+  summary: Retire ruff UP037 (quoted annotations, 12 hits) per module.
+  evidence: Same 2026-08-30 measurement; auto-fixable under `from __future__ import annotations`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-11-4-lint-and-type-tooling-in-the-fast-loop.md`
+  summary: Retire the 49-pair `[tool.ruff.lint.per-file-ignores]` baseline entry by entry — fix a file, delete its line; new files already get the full rule set.
+  evidence: 49 file-code pairs across 38 files at the 2026-08-30 measurement; test_lint_contract.py fails when an entry names a file that no longer exists, so the table cannot rot silently.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-11-4-lint-and-type-tooling-in-the-fast-loop.md`
+  summary: Raise mypy strictness per module (disallow_untyped_defs and friends as `[[tool.mypy.overrides]]` blocks) and widen the scope beyond the 13 decision-core files once adapters and api modules type-check.
+  evidence: Story 11.4 scoped `[tool.mypy] files` to the architecture's database-free, model-free decision cores with check_untyped_defs only — green at mypy 2.3.1; anything stricter or wider was outside the no-sweep contract.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-11-4-lint-and-type-tooling-in-the-fast-loop.md`
+  summary: Add `types-jsonschema` to the dev group and drop the jsonschema `ignore_missing_imports` override.
+  evidence: The override exists only because adding a stub package would have exceeded 11-4's named dev-group edit (ruff and mypy exactly); a one-line dep retires it.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-11-4-lint-and-type-tooling-in-the-fast-loop.md`
+  summary: Refresh two comments that now under-describe the fast loop: `server/tests/test_compose_contract.py:286-293` (the block above TEST_FAST_PREREQUISITES still says "the client check and the three store-free suites") and the `test-fast` comment block in `infra/Makefile` (same phrase).
+  evidence: Story 11.4's footprint permitted only test_compose_contract.py lines 294-308 and the two Makefile edit sites (11-2 and the wave rules own the surrounding regions), so the prose was left stale deliberately; the contract tests, not these comments, pin the behavior.
+
+
 ## Deferred from: code review of spec-4-3-per-moment-approval-publishing.md (2026-08-21)
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-3-per-moment-approval-publishing.md`

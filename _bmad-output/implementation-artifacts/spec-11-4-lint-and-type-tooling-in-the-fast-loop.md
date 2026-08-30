@@ -2,8 +2,8 @@
 title: 'Lint and Type Tooling in the Fast Loop'
 type: 'chore'
 created: '2026-08-30'
-status: 'ready-for-dev'
-baseline_revision: '5cdfce7'
+status: 'in-progress'
+baseline_revision: '0da88e5ca064f66ecc347eabfb47279f8799f314'
 review_loop_iteration: 0
 followup_review_recommended: false
 context: ['{project-root}/AGENTS.md', '{project-root}/_bmad-output/implementation-artifacts/wave-2026-08-30-rules.md', '{project-root}/_bmad-output/implementation-artifacts/build-prompt-story-11-4-2026-08-30.md']
@@ -67,6 +67,25 @@ deferred: []
 - Given `git diff origin/main...HEAD --name-only`, when compared to the footprint table (+`server/uv.lock`), then no other path appears.
 
 ## Spec Change Log
+
+- 2026-08-30 (build): The Code Map's "51 remaining pairs / 202 unique pairs /
+  110 files" counted ruff's two summary lines ("Found 264 errors", "[*] 175
+  fixable") as file-code pairs; the strict recount is 200 pairs across 108
+  files, 49 of them outside the mechanical codes. The six-code arithmetic
+  (151 pairs; 69/50/33/17/14/12 hits) reproduced exactly. per-file-ignores
+  carries the 49 pairs verbatim.
+- 2026-08-30 (build): A seventh mechanical code joined the dated global
+  ignore: UP017 (30 hits, 11 files). It fires only once the committed config
+  exists — `requires-python = ">=3.12,<3.13"` sets ruff's target-version to
+  py312, which the measured `--isolated` run's default never reached — so
+  "green on main with no source edits" required ignoring it. Same family as
+  UP035/UP037; filed for retirement in deferred-work.md beside the other six.
+- 2026-08-30 (build): branch_conflicts.py final state: every pair clean
+  except the excepted story/11-2-review pairs and story/11-4 x story/7-1 on
+  `server/uv.lock` — the Code Map's named merge surface (both lanes
+  regenerate the lock; the dev-group addition IS this story, so narrowing
+  cannot clear it). Integration resolves it by taking either side of the
+  lock and re-running `uv sync --project server`.
 
 ## Review Triage Log
 
