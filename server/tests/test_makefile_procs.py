@@ -2133,3 +2133,33 @@ def test_worktree_prune_propagates_a_failed_teardown_but_still_deletes_the_branc
     assert not (tmp_path / "meetingminer-wt" / "probe").exists()
     assert _git(repo, "branch", "--list", "story/probe") == ""
     assert "down -v --remove-orphans failed" in output
+
+
+def test_worktree_prune_propagates_git_worktree_removal_failure(
+    tmp_path: Path,
+) -> None:
+    """A candidate Git cannot remove remains owned and makes the sweep fail."""
+    repo, docker_bin, argv_log = _throwaway_repo(tmp_path, origin=True)
+    assert _make_at(repo, docker_bin, ["worktree"], {"STORY": "probe"}).returncode == 0
+    worktree = tmp_path / "meetingminer-wt" / "probe"
+    _set_stack_inventory(docker_bin, argv_log, [worktree])
+    real_git = shutil.which("git")
+    assert real_git is not None and not real_git.startswith(str(docker_bin))
+    _write_script(
+        docker_bin / "git",
+        f'''#!/bin/bash
+case " $* " in
+  *" worktree remove "*) echo "injected git worktree removal failure" >&2; exit 23 ;;
+esac
+exec "{real_git}" "$@"
+''',
+    )
+    argv_log.write_text("", encoding="utf-8")
+
+    proc = _make_at(repo, docker_bin, ["worktree-prune"])
+    output = proc.stdout + proc.stderr
+    assert proc.returncode != 0, output
+    assert worktree.is_dir(), output
+    assert _git(repo, "branch", "--list", "story/probe") == "story/probe"
+    assert "could not remove" in output
+    assert not any(" down -v " in line for line in _argv_lines(argv_log))
