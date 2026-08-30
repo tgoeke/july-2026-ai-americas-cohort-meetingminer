@@ -40,3 +40,11 @@
 - **Finding:** Finding 5 added `pyannote.audio.telemetry.set_telemetry_metrics` as a required runtime symbol, but Finding 2's build-time probe still validates only `pyannote.audio.Pipeline`. If the telemetry module or setter is missing/broken, `build_diarizer` returns an engine and the failure occurs on first `diarize`, after STT work, contradicting the fail-closed build boundary and the report's claim that the exact runtime provider symbol is validated.
 - **Evidence:** `_pyannote_available` imports only `pyannote.audio` and checks only `Pipeline`; `_load_pipeline` later imports `set_telemetry_metrics`. The isolated packaging smoke likewise imports only `pyannote.audio`, while unit tests fabricate a valid telemetry module. A discoverable audio module with a valid `Pipeline.from_pretrained` and an importer that raises for `pyannote.audio.telemetry` therefore passes every build check on the current tree.
 - **Resolution:** **OPEN — remediation in progress.** Add a red-first partial-install regression and extend the build probe to validate the callable telemetry switch required to enforce the owner's disable ruling.
+
+### V5. The optional-extra gate does not prove the committed lock
+
+- **Location:** `infra/Makefile:288-289`; `_bmad-output/implementation-artifacts/review-story-7-1-2026-08-30.md:98`
+- **Severity:** Medium
+- **Finding:** The packaging smoke uses an isolated environment but omits `--locked`. `uv` may update `uv.lock` while preparing the command, allowing the gate to pass after repairing drift instead of rejecting an inconsistent committed pyproject/lock pair. The prior report's statement that the target installed “166 locked packages” is therefore not supported by the command it records.
+- **Evidence:** Local `uv run --help` defines `--isolated` only as “Run the command in an isolated virtual environment” and separately defines `--locked` as “Assert that the `uv.lock` will remain unchanged.” The target runs `uv run --isolated --project ... --extra diarize` with no `--locked`; its contract test pins that omission exactly.
+- **Resolution:** **OPEN — owner/spec decision required.** The technical repair is to add `--locked` and pin it in the gate regression, but both edits touch the already-forbidden paths in Finding V1. Apply only after the frozen footprint is amended or the gate is rehomed into an authorized path.
