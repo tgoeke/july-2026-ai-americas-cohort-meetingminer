@@ -2180,6 +2180,82 @@ def test_infra_up_refuses_process_stack_id_override_before_claim_or_compose(
     assert not any(line.endswith(" up -d --wait") for line in lines), lines
 
 
+def test_infra_up_refuses_a_record_change_before_claim_can_tear_down(
+    tmp_path: Path,
+) -> None:
+    """A record change after parse is refused before claim can treat the
+    checkout's live, parsed-id incarnation as stale and tear it down."""
+    repo, docker_bin, argv_log = _throwaway_repo(tmp_path)
+    worktree = _linked_worktree_without_stack(repo, "probe")
+    worktree_env = worktree / ".env.worktree"
+    worktree_env.write_text(good_stack_text("probe"), encoding="utf-8")
+    old_id = "0123456789ab"
+    project = "meetingminer-probe"
+    volume_rows = "".join(
+        f"{project}_{name}\t{project}\t{old_id}\n"
+        for name in (
+            "postgres-data",
+            "neo4j-data",
+            "neo4j-logs",
+            "meilisearch-data",
+            "neo4j-test-data",
+            "neo4j-test-logs",
+            "meilisearch-test-data",
+        )
+    )
+    escaped_volume_rows = volume_rows.replace("\\", "\\\\").replace("\n", "\\n")
+    _write_script(
+        docker_bin / "docker",
+        f"""#!/bin/bash
+echo "$*" >> "{argv_log}"
+if [ "$1" = "info" ]; then
+  sed 's/^MM_STACK_ID=.*/MM_STACK_ID=deadbeefcafe/' "{worktree_env}" > "{worktree_env}.next"
+  mv "{worktree_env}.next" "{worktree_env}"
+  exit 0
+fi
+case "$*" in
+  "ps -a --filter "*) printf '%b' "{project}\\t{worktree / 'infra'}\\t{old_id}\\n" ;;
+  "volume ls --filter "*) printf '%b' "{escaped_volume_rows}" ;;
+esac
+exit 0
+""",
+    )
+
+    proc = _make_at(worktree, docker_bin, ["infra-up"])
+    output = proc.stdout + proc.stderr
+    assert proc.returncode != 0, output
+    assert "MM_STACK_ID" in output
+    assert "changed after Make parsed" in output
+    lines = _argv_lines(argv_log)
+    assert not any(line.startswith(PRUNE_PS_PREFIX) for line in lines), lines
+    assert not any(" down -v " in f" {line} " for line in lines), lines
+    assert not any(line.endswith(" up -d --wait") for line in lines), lines
+
+
+def test_wt_envfile_argument_cannot_select_another_checkouts_identity(
+    tmp_path: Path,
+) -> None:
+    """The ownership-record path is derived from this checkout even though
+    Make command-line assignments normally override `:=` definitions."""
+    repo, docker_bin, argv_log = _throwaway_repo(tmp_path)
+    probe = _linked_worktree_without_stack(repo, "probe")
+    victim = _linked_worktree_without_stack(repo, "victim")
+    (probe / ".env.worktree").write_text(good_stack_text("probe"), encoding="utf-8")
+    (victim / ".env.worktree").write_text(good_stack_text("victim"), encoding="utf-8")
+
+    proc = _make_at(
+        probe,
+        docker_bin,
+        ["infra-up"],
+        {"WT_ENVFILE": str(victim / ".env.worktree")},
+    )
+    output = proc.stdout + proc.stderr
+    assert proc.returncode == 0, output
+    lines = _argv_lines(argv_log)
+    assert any(" -p meetingminer-probe " in f" {line} " for line in lines), lines
+    assert not any(" -p meetingminer-victim " in f" {line} " for line in lines), lines
+
+
 def test_docker_down_creation_retry_sweeps_a_stale_incarnation(tmp_path: Path) -> None:
     """Docker down at creation leaves the worktree and its file; the retry
     must tear down a same-named stale project (which cannot carry the new

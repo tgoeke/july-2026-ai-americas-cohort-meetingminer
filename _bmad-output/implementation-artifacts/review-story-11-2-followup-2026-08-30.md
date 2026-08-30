@@ -155,7 +155,8 @@
 - **Finding:** `infra-up` compares Make's parsed identity with the live record only after `check-stack` has claimed it. If the record changes after parsing, claim can classify the checkout's parsed/live stack as stale and execute `down -v` before the mismatch is refused.
 - **Evidence:** With Make holding id `0123456789ab`, change the valid record to `deadbeefcafe` during `check-docker` while inventory reports the live project at `0123456789ab`. The current prerequisite order then calls `claim` with the new file id, which selects the old-id project for teardown; only the recipe's later `assert-identity` notices that Make still holds the old id.
 - **Suggested direction:** Compare Make's effective name/id with the live record after `check-docker` but before `check-stack`, retain the final check immediately before Compose, and regression-prove neither inventory nor teardown is reached on the mismatch.
-- **Status:** Filed before regression; patch pending on `story/11-2-followup-review`.
+- **Red regression:** `test_infra_up_refuses_a_record_change_before_claim_can_tear_down` failed at `assert not any(line.startswith(PRUNE_PS_PREFIX) ...)`: after the fake changed the id during `docker info`, the observed calls included project and volume inventory followed by `compose -p meetingminer-probe down -v --remove-orphans`. The later identity assertion returned nonzero, but only after the destructive teardown.
+- **Status:** Red regression observed; patch pending on `story/11-2-followup-review`.
 
 ### Finding 14 — `WT_ENVFILE` can redirect every ownership guard
 
@@ -164,7 +165,8 @@
 - **Finding:** GNU Make command-line precedence can replace `WT_ENVFILE := $(ROOT)/.env.worktree`. A caller can therefore point validation, identity resolution, claim, the final assertion, and Compose's second env file at another checkout's valid ownership record, defeating the owner ruling that identity comes only from this checkout's file.
 - **Evidence:** In a `probe` checkout with its own valid record, pass `WT_ENVFILE=<victim>/.env.worktree make infra-up`. Every current reference derives the worktree from `$(dir $(WT_ENVFILE))`, so Make resolves and claims the victim name/id and invokes Compose with the victim project instead of refusing or using `probe`.
 - **Suggested direction:** Make `WT_ENVFILE` an override assignment derived only from `ROOT`; adapt test isolation to override a scratch `ROOT` plus the real `INFRA`, not the safety record path itself.
-- **Status:** Filed before regression; patch pending on `story/11-2-followup-review`.
+- **Red regression:** `test_wt_envfile_argument_cannot_select_another_checkouts_identity` failed at the assertion requiring `-p meetingminer-probe`; the invocation returned 0 but the recorded Compose command selected the victim record/project instead of the probe checkout's identity.
+- **Status:** Red regression observed; patch pending on `story/11-2-followup-review`.
 
 ### Finding 15 — identity helpers misclassify missing and main-checkout records
 
@@ -173,7 +175,8 @@
 - **Finding:** `_declared_identity` returns main identity for any directory without `.env.worktree` and accepts a private record in any directory. The new public identity/assertion subcommands therefore disagree with the established checkout-topology guards: a linked worktree missing its record can be described as main, and a main checkout can be described as private.
 - **Evidence:** `identity --worktree <linked-without-file>` currently prints `meetingminer` with a blank id and exits 0. Conversely, placing a structurally valid directory-matching record beside a `.git` directory lets `identity` print the private name/id even though `validated_worktree_env` and `check-stack-record` reject that topology.
 - **Suggested direction:** Make the shared identity reader enforce checkout topology: a `.git` file requires a valid record, a `.git` directory forbids one, and a non-git scratch directory retains main/default behavior for isolated tests.
-- **Status:** Filed before regression; patch pending on `story/11-2-followup-review`.
+- **Red regression:** `test_identity_reader_refuses_a_linked_worktree_without_its_record` and `test_identity_reader_refuses_a_private_record_in_the_main_checkout` both failed with `Failed: DID NOT RAISE StackError`, confirming both topology mismatches were accepted.
+- **Status:** Red regressions observed; patch pending on `story/11-2-followup-review`.
 
 ## Review Outcome
 

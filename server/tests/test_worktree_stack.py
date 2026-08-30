@@ -76,6 +76,32 @@ def test_defaults_reproduce_todays_stack() -> None:
     )
 
 
+def test_identity_reader_refuses_a_linked_worktree_without_its_record(
+    tmp_path: Path,
+) -> None:
+    linked = tmp_path / "linked"
+    linked.mkdir()
+    (linked / ".git").write_text("gitdir: elsewhere\n", encoding="utf-8")
+
+    with pytest.raises(ws.StackError, match=r"linked checkout.*ownership record"):
+        ws._declared_identity(linked)
+
+
+def test_identity_reader_refuses_a_private_record_in_the_main_checkout(
+    tmp_path: Path,
+) -> None:
+    main = tmp_path / "mainrepo"
+    main.mkdir()
+    (main / ".git").mkdir()
+    (main / ".env.worktree").write_text(
+        ws.render_env("mainrepo", ws.ports_for_base(20000), "0123456789ab"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ws.StackError, match=r"main checkout.*must not carry"):
+        ws._declared_identity(main)
+
+
 @pytest.mark.parametrize(
     "slug",
     ["Foo_Bar!", "-lead", "UPPER", "a b", "", "x/y", "a.b_c", "v1.2", "probe\n", "probe\r"],
