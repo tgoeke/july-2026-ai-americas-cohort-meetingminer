@@ -12,6 +12,7 @@ from __future__ import annotations
 import ast
 import math
 import os
+import re
 import shlex
 import subprocess
 import tomllib
@@ -101,33 +102,67 @@ def _under_server_tests(word: str) -> bool:
     return resolved == SERVER_TESTS or SERVER_TESTS in resolved.parents
 
 
-def _dry_run_pytest_commands(target: str) -> list[list[str]]:
-    """Every server-suite pytest command `make -n -C infra <target>` would run, as words.
+def _dry_run(target: str, *flags: str) -> str:
+    """What `make -n [flags] -C infra <target>` prints, one command per line.
 
     `make -n` prints each recipe line expanded — prerequisites included — and
-    executes none of them, so these are the effective commands without a
-    pytest being spawned. A nested make must not inherit the outer one's
-    flags, or running this under `make test` would change what is printed.
+    executes none of them, so this is the effective run without a pytest
+    being spawned. A nested make must not inherit the outer one's flags, or
+    running this under `make test` would change what is printed. A multi-line
+    recipe is printed with its backslash-newline continuations; they are
+    joined so each command is one line.
     """
     env = {k: v for k, v in os.environ.items() if k not in {"MAKEFLAGS", "MFLAGS", "MAKELEVEL"}}
     proc = subprocess.run(
-        ["make", "-n", "-C", str(REPO_ROOT / "infra"), target],
+        ["make", "-n", *flags, "-C", str(REPO_ROOT / "infra"), target],
         capture_output=True,
         text=True,
         env=env,
         timeout=60,
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    commands: list[list[str]] = []
-    # A multi-line recipe is printed with its backslash-newline continuations;
-    # join them so each command is one line before it is split.
-    for line in proc.stdout.replace("\\\n", " ").splitlines():
-        if "pytest" not in line:
-            continue
-        words = shlex.split(line)
-        if "uv" in words and "pytest" in words and any(_under_server_tests(w) for w in words):
-            commands.append(words)
-    return commands
+    return proc.stdout.replace("\\\n", " ")
+
+
+def _server_pytest_words(line: str) -> list[str] | None:
+    """A printed line that is a `uv … pytest …` over a path at or under server/tests, as words; else None."""
+    if "pytest" not in line:
+        return None
+    words = shlex.split(line)
+    if "uv" in words and "pytest" in words and any(_under_server_tests(w) for w in words):
+        return words
+    return None
+
+
+def _dry_run_pytest_commands(target: str) -> list[list[str]]:
+    """Every server-suite pytest command `make -n -C infra <target>` would run, as words."""
+    found = (_server_pytest_words(line) for line in _dry_run(target).splitlines())
+    return [words for words in found if words is not None]
+
+
+# GNU make's `--debug=basic` announcement, printed before a target's recipe;
+# 3.81 quotes the name `like this', 4.x 'like this'.
+_REMAKE = re.compile(r"Must remake target [`']([^`']+)'\.")
+
+
+def _dry_run_steps(target: str) -> list[tuple[str, list[str]]]:
+    """`(target, lines printed while remaking it)` in the order make would run them.
+
+    From `make -n --debug=basic`: make announces each target it must remake,
+    prerequisites first, before printing that target's recipe, so which
+    target runs first and which command belongs to which come from make's
+    own decision, not from reading the rule line. The lines under a target
+    still include make's other debug output; pick commands out of them with
+    `_server_pytest_words`.
+    """
+    steps: list[tuple[str, list[str]]] = []
+    for line in _dry_run(target, "--debug=basic").splitlines():
+        announced = _REMAKE.search(line)
+        if announced:
+            steps.append((announced.group(1), []))
+        elif steps:
+            steps[-1][1].append(line)
+    return steps
 
 
 def _pytest_argv(words: list[str]) -> list[str]:
@@ -207,6 +242,27 @@ def test_make_test_fast_runs_the_whole_server_fast_set() -> None:
     assert _reports_skips(argv), argv
     assert _mark_expressions(argv) == [], argv
     assert "MM_REQUIRE_TEST_STORES=1" not in words
+
+
+# What `make test-fast` runs before the fast set, and all it may run: the
+# client check and the three store-free suites. Anything more (an `infra-up`,
+# a store check) would make the loop need Docker; anything less drops a suite
+# from it with no failure. Adding or removing one is a deliberate edit of
+# both places — the `test-fast:` rule line and this tuple.
+TEST_FAST_PREREQUISITES = ("check-client", "puller-test", "web-test", "evals-test")
+
+
+def test_make_test_fast_runs_check_client_then_every_store_free_suite_before_the_fast_set() -> None:
+    """The loop's effective sequence, from make itself: check-client first (a missing client fails with its named message, not as a Vite import error inside web-test), then exactly the three store-free suites, and the one whole-server pytest command last, under test-fast. Dropping a prerequisite from the rule line, adding one, or moving check-client fails here."""
+    steps = _dry_run_steps("test-fast")
+    targets = [target for target, _ in steps]
+    assert targets[0] == TEST_FAST_PREREQUISITES[0], targets
+    assert targets[-1] == "test-fast", targets
+    assert set(targets[1:-1]) == set(TEST_FAST_PREREQUISITES[1:]), targets
+    with_server_pytest = [
+        target for target, lines in steps if any(_server_pytest_words(line) for line in lines)
+    ]
+    assert with_server_pytest == ["test-fast"], with_server_pytest
 
 
 def test_a_cli_empty_marker_expression_clears_the_addopts_default(
@@ -312,6 +368,48 @@ def test_the_module_level_slow_set_is_exactly_the_measured_twelve() -> None:
     """Derived from the syntax of every test module and compared both ways: an extra marked module would shrink the fast set silently, a missing mark would re-admit a twin-bound module, and a mark inside a string is no mark."""
     marked = {p.stem for p in SERVER_TESTS.glob("test_*.py") if _has_module_level_slow_mark(p)}
     expected = set(SLOW_MODULES)
+    assert marked == expected, (
+        f"extra: {sorted(marked - expected)}; missing: {sorted(expected - marked)}"
+    )
+
+
+# The measured per-test slow set (story 11.1): the four tests in otherwise
+# fast modules bound by a timer or the twins, as `module::test` (a test in a
+# class would be `module::Class::test`). Adding a per-test mark or removing
+# one is a deliberate edit of both places — the decorator and this list.
+SLOW_TESTS = (
+    "test_api_events::test_a_slow_configured_heartbeat_is_not_overridden_by_a_faster_default",
+    "test_api_events::test_configured_poll_cadence_is_honored",
+    "test_artifact_publish::test_approve_projects_into_both_stores",
+    "test_worker_extract::test_search_never_returns_an_extracted_artifacts_content",
+)
+
+
+def _decorated_slow_definitions(path: Path) -> set[str]:
+    """Every `def`, `async def` or `class` at module level or inside a class whose decorators carry a real `pytest.mark.slow`, as `module::name` — the same text inside a string (a pytester probe) is not a mark."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    found: set[str] = set()
+
+    def walk(body: list[ast.stmt], prefix: str) -> None:
+        for node in body:
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                continue
+            name = f"{prefix}::{node.name}"
+            if any(_is_slow_mark(decorator) for decorator in node.decorator_list):
+                found.add(name)
+            if isinstance(node, ast.ClassDef):
+                walk(node.body, name)
+
+    walk(tree.body, path.stem)
+    return found
+
+
+def test_the_per_test_slow_set_is_exactly_the_measured_four() -> None:
+    """Derived from the syntax of every test module and compared both ways: a fifth decorator would remove a fast test from the default run with every other contract green, a missing one would re-admit a timer- or twin-bound test, and a mark inside a probe string is no mark."""
+    marked: set[str] = set()
+    for path in SERVER_TESTS.glob("test_*.py"):
+        marked |= _decorated_slow_definitions(path)
+    expected = set(SLOW_TESTS)
     assert marked == expected, (
         f"extra: {sorted(marked - expected)}; missing: {sorted(expected - marked)}"
     )
