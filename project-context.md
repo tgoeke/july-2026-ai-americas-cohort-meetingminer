@@ -83,10 +83,12 @@ companions its frontmatter lists, plus the per-story frozen contracts in
   it is marked `slow` with a reason or made faster, and stops collection when
   a `slow` mark has no `reason=` or an unmarked test requests
   `projection_stores`/`stores_up` (a `request.getfixturevalue` of either from
-  an unmarked test fails that test too, before `projection_stores` runs).
-  `--strict-markers` is on. The slow set and `test-fast`'s prerequisites are
-  pinned in `server/tests/test_compose_contract.py` (`SLOW_MODULES`,
-  `SLOW_TESTS`, `TEST_FAST_PREREQUISITES`); a new mark or prerequisite is an
+  an unmarked test fails that test too, before `projection_stores` runs,
+  whatever outcome the test then earns — a skip or an xfail does not hide it).
+  `--strict-markers` is on. The slow set, `test-fast`'s prerequisites and its
+  one-command recipe are pinned in `server/tests/test_compose_contract.py`
+  (`SLOW_MODULES`, `SLOW_TESTS` — a class-level mark pins as `module::Class`,
+  `TEST_FAST_PREREQUISITES`); a new mark, prerequisite or recipe line is an
   edit of both places. Re-measure with
   `uv run --project server pytest -m "" server/tests --durations=25`.
 - `make test` is the gate, not the loop: it needs the stores up, passes

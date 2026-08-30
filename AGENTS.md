@@ -191,14 +191,19 @@ re-measures it.
   `reason=`, and a test with no `slow` mark may not request
   `projection_stores` or `stores_up` — a twin-bound test belongs in the slow
   set. The second rule is also applied when either fixture is set up and
-  when an unmarked test is reported, which catches a
+  when an unmarked test's setup or call is reported, which catches a
   `request.getfixturevalue(...)` the static closure cannot show: the
   unmarked test fails (an error at setup, when one of its own fixtures
-  asked) and `projection_stores` never runs for it. With `--strict-markers`,
-  an unregistered mark stops collection too. The slow set is pinned in
-  `server/tests/test_compose_contract.py` (`SLOW_MODULES`, `SLOW_TESTS`), as
-  are `test-fast`'s prerequisites (`TEST_FAST_PREREQUISITES`): adding a mark
-  or a prerequisite is an edit of both places.
+  asked) and `projection_stores` never runs for it — whatever outcome the
+  test earned on its own, so a skip, an xfail or an xpass after the request
+  does not hide it, and a failure of its own is kept with the diagnostic
+  added. With `--strict-markers`, an unregistered mark stops collection too.
+  The slow set is pinned in `server/tests/test_compose_contract.py`
+  (`SLOW_MODULES`, `SLOW_TESTS` — a class-level mark pins as
+  `module::Class`), as are `test-fast`'s prerequisites
+  (`TEST_FAST_PREREQUISITES`) and its recipe, which is the one fast-set
+  command: adding a mark, a prerequisite or a recipe line is an edit of both
+  places.
 
 ## Branch and merge
 
