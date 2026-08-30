@@ -148,6 +148,10 @@ def test_baseline_prose_distinguishes_pairs_from_per_file_entries() -> None:
 def test_review_handoff_uses_a_dedicated_review_worktree() -> None:
     """The report and closeout belong on the review branch, never main."""
     prompt = REVIEW_PROMPT_PATH.read_text()
+    report_block = prompt.split("**Report path:**", 1)[1].split("**Finding structure**", 1)[0]
+    assert str(REPO_ROOT) in report_block, (
+        f"the Report path block must place the artifact in the review worktree {REPO_ROOT}"
+    )
     create_branch = "git branch story/11-4-review story/11-4"
     attach_worktree = "make worktree STORY=11-4-review"
     assert create_branch in prompt
