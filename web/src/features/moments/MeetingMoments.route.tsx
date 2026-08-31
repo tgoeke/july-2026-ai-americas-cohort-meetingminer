@@ -12,6 +12,7 @@ function MeetingRoute() {
     <MeetingMoments
       meetingId={meetingId!}
       onOpenMoment={(momentId) => openPath(`/moments/${momentId}`)}
+      onOpenSpeakers={() => openPath(`/meetings/${meetingId!}/speakers`)}
     />
   )
 }
