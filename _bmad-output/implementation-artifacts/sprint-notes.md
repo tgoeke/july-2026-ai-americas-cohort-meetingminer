@@ -4150,3 +4150,29 @@ this file and `ThreadsPlaceholder.tsx` at integration**; 10.6 ships
 `/threads` and react-router ranks it above the splat, so the placeholder is
 dead the moment 10.6 lands and only ever answers a thread deep link that 10.6
 has no route for.
+
+## 10-5 adversarial review, 2026-08-31 — patchable findings closed, five rulings open
+
+Branch `story/10-5-review`, status returned to `in-progress`. The review found
+14 issues, reported all of them before remediation, and fixed the nine
+patchable ones red-first in finding-named commits. The feed now tolerates the
+parallel API's nullable thread ordinal, enforces the feed wire contract,
+preserves state and exact retries across child navigation and failures, keeps
+served card facts intact, adopts the specified screenshot/excerpt/control
+treatments, owns paging focus and announcements, renders honest actionable
+states, keeps copied URL filters visible, and attaches remembered client-side
+WebVTT captions from `/drilldown` to inline replay.
+
+Five findings remain owner/spec or integration decisions, not silent defers:
+the filtered-versus-corpus header count (F3), Search/Ask outside the sticky
+chrome (F10), the incomplete non-searchable thread source until Story 10.3
+integrates (F11), conflicting card DOM-order requirements (F12), and the
+global-shortcut surface omitted by the frozen Story 10.5 contract (F13). The
+review report carries the evidence and exact decision boundary for each.
+
+The private full gate passed: unrestricted server **2584 passed, 3 named
+skips**, isolated diarization **92 passed**, store reachability **1 passed**,
+web **380 passed**, eval harness **655 passed**, puller **128 passed**, and the
+production build completed. The browser fixture and Vite preview were ready on
+private ports, but the connected browser runtime exposed no surfaces, so this
+review does not falsely claim the required 1280×800 visual pass.
