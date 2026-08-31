@@ -16,4 +16,11 @@ Adversarial review of the Story 7.4 web implementation, with emphasis on unsettl
 
 ## Findings
 
-No findings confirmed yet.
+### F1 — Cold recovery still cannot read speaker tags
+
+- **Location:** `server/meetingminer/api/speakers.py:211`; `server/tests/test_api_speaker_assignment.py:581`
+- **Severity:** High
+- **Status:** Confirmed — patch required
+- **Finding:** `GET /meetings/{id}/speakers` still calls `_require_viewable` unconditionally, so a curator cold-loading a meeting whose speaker rerun failed cannot obtain the tag needed by the route-local recovery `PUT`. This contradicts the owner ruling in `docs/backlog.md` B-41.
+- **Evidence:** Commit `7d8d93e` rules that the read must receive the same narrow, route-local recovery exception while drilldown and unrelated operations remain gated. The route still returns `meeting-not-viewable`, and `test_only_speaker_put_bypasses_the_failed_evidence_gate` currently asserts that obsolete 409 for the speakers read.
+- **Suggested direction:** Red-first, change the failed-rerun boundary test to require a successful speakers response with the meeting's tags while retaining 409 for drilldown/moments and unrelated writes; implement the exception locally in the speakers read without changing `_require_viewable`.
