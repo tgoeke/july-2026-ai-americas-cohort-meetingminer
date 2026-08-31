@@ -59,3 +59,11 @@ Adversarial review of Story 8.1 on `story/8-1-review`, including the eight chang
 - **Finding:** The generated Epic 8 context lists “bindings are not validated against declared providers” as a known gap, contradicting Story 8.1's primary authored-catalog validation and the technical-decision bullets immediately above it.
 - **Evidence:** `Settings._catalog_providers_are_declared` refuses every authored catalog entry whose resolved provider is absent from `providers:`, and the story tests cover explicit and derived undeclared providers. Story 8.2 is named as a consumer of this context; stale guidance could make it duplicate or bypass the existing contract. The narrower residual gaps are synthesized legacy entries and the live `fallback`, not authored catalog entries generally.
 - **Suggested direction:** Replace the broad false statement with the actual residual boundary: authored catalog entries are checked, while synthesized compatibility entries and `fallback` remain exempt pending later decisions.
+
+### Finding 7 — Story records disagree with the catalog test module (patch)
+
+- **Location:** `_bmad-output/implementation-artifacts/sprint-notes.md:3051`; `_bmad-output/implementation-artifacts/spec-8-1-ad-10-amendment-and-binding-catalog.md:369`
+- **Severity:** Low
+- **Finding:** The sprint note says the new module has ten tests, while the spec auto-result says twelve; the reviewed module now contains thirteen after the active-model regression was added.
+- **Evidence:** `rg '^def test_' server/tests/test_config_catalog.py | wc -l` returns 13. The conflicting prose makes the verification record unreliable and obscures whether the matrix plus review regressions are actually present.
+- **Suggested direction:** Update both records to the observed count and describe the module as matrix coverage plus committed-config and review regressions, avoiding a brittle one-per-row claim.
