@@ -52,6 +52,7 @@ __all__ = [
     "bind",
     "catalog_bindings",
     "check_selectable",
+    "log_stale_selection",
     "read_selection",
     "read_selections",
     "resolve",
@@ -262,6 +263,21 @@ def write_selection(conn: "Connection", role: str, binding: str) -> None:
     conn.execute(_UPSERT, (selection_key(role), binding))
 
 
+def log_stale_selection(
+    effective: EffectiveBinding, log: Callable[..., None] | None
+) -> None:
+    """Name a discarded stored selection with one event shape everywhere."""
+    if log is None or effective.stale_selection is None:
+        return
+    log(
+        "llm.selection_stale",
+        role=effective.role,
+        stale_selection=effective.stale_selection,
+        effective_binding=effective.binding,
+        reason=effective.stale_reason,
+    )
+
+
 def resolve_role(
     conn: "Connection",
     role: str,
@@ -275,12 +291,5 @@ def resolve_role(
     logged here rather than at each call site, for the same reason.
     """
     effective = resolve(role, role_binding, read_selection(conn, role))
-    if log is not None and effective.stale_selection is not None:
-        log(
-            "llm.selection_stale",
-            role=role,
-            stale_selection=effective.stale_selection,
-            effective_binding=effective.binding,
-            reason=effective.stale_reason,
-        )
+    log_stale_selection(effective, log)
     return bind(role_binding, effective), effective

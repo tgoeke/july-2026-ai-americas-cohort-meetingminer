@@ -122,6 +122,7 @@ def _require_role(config: Any, role: str) -> Any:
 
 def _view(role: str, role_binding: Any, selected: str | None) -> RoleSelectionView:
     effective = model_selection.resolve(role, role_binding, selected)
+    model_selection.log_stale_selection(effective, logs.log_event)
     return RoleSelectionView(
         role=role,
         catalog=[

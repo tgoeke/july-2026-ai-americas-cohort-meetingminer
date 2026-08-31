@@ -224,7 +224,10 @@ def test_selection_refusals_are_declared_as_problems_in_openapi(
 
 
 def test_a_stored_selection_the_catalog_dropped_is_reported_not_applied(
-    client: TestClient, app_config: AppConfig, test_pool: ConnectionPool
+    client: TestClient,
+    app_config: AppConfig,
+    test_pool: ConnectionPool,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """`config.yaml` is edited independently of the store.
 
@@ -235,6 +238,14 @@ def test_a_stored_selection_the_catalog_dropped_is_reported_not_applied(
     with test_pool.connection() as conn:
         model_selection.write_selection(conn, "chat", "openai/withdrawn-model")
 
+    import meetingminer.api.settings as settings_module
+
+    events: list[tuple[str, dict[str, Any]]] = []
+    monkeypatch.setattr(
+        settings_module.logs,
+        "log_event",
+        lambda event, **fields: events.append((event, fields)),
+    )
     view = _role_view(client.get("/settings/models").json(), "chat")
 
     assert view["effectiveBinding"] == _roles(app_config).chat.default
@@ -242,6 +253,15 @@ def test_a_stored_selection_the_catalog_dropped_is_reported_not_applied(
     assert view["selected"] == "openai/withdrawn-model"
     assert view["staleSelection"] == "openai/withdrawn-model"
     assert "openai/withdrawn-model" in view["staleReason"]
+    stale = [fields for event, fields in events if event == "llm.selection_stale"]
+    assert stale == [
+        {
+            "role": "chat",
+            "stale_selection": "openai/withdrawn-model",
+            "effective_binding": _roles(app_config).chat.default,
+            "reason": view["staleReason"],
+        }
+    ]
 
 
 # --- chat resolves the selection per request --------------------------------
