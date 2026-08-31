@@ -26,6 +26,7 @@ import pytest
 import yaml
 
 from meetingminer.adapters.llm.litellm import resolve_api_base
+from meetingminer.api.status import provider_of
 from meetingminer.config import ConfigError, load_config
 
 from repo_paths import REPO_ROOT
@@ -164,6 +165,7 @@ def test_known_bare_catalog_provider_matches_runtime_routing(
 
     assert entry.provider == provider
     assert resolve_api_base(model, settings.providers) == settings.providers[provider].base_url
+    assert provider_of(model) == provider
 
 
 @pytest.mark.parametrize(
