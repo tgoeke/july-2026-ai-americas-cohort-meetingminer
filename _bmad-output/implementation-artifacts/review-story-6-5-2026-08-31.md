@@ -75,6 +75,15 @@ Date: 2026-08-31
 - **Suggested direction** — Coalesce a seed requested during an in-flight seed into one follow-up read, and bracket the stream's first live frame with a seed even when the first response has already produced a row. Extend the hook mock to drive `onAlive` and reproduce a transition between the first seed snapshot and silent stream baseline.
 - **Disposition** — fixed red-first. The deferred-seed test observed only one `/meetings` call against the original consumer; it passed after seed requests became coalesced and the stream's first alive frame always bracketed the initial snapshot with a follow-up read.
 
+### F8 — A non-2xx acquisition poll cannot be retried
+
+- **Location** — `web/src/features/acquisitions/AddMeeting.tsx:396`
+- **Severity** — medium
+- **Finding** — When `GET /acquisitions/{id}` answers with Problem Details, polling stops and the problem renders without Retry. Only thrown transport errors receive the recovery control, even though both paths leave a nonterminal acquisition with no scheduled next poll.
+- **Evidence** — `useAcquisitionStatus.ts:69-71` sets `failure` and returns for every generated-client error, scheduling no timer. `AddMeeting.tsx:389-398` gives `retry` only to `TransportNotice`; the RFC problem branch is a bare `RefusalBox`. The frozen poll-failure requirement says the last stepper state stays visible and Retry resumes polling; it does not permit an HTTP failure to strand the flow.
+- **Suggested direction** — Preserve the parsed problem fields, but offer the same explicit retry action and verify that it starts a new poll without clearing the last known acquisition state.
+- **Disposition** — patchable; remediation in progress.
+
 ## Disposition
 
 Review in progress. No pass/fail verdict has been assigned.
