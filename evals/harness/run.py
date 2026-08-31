@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import httpx
 import yaml
 
 from evals.harness.checks import (
@@ -213,6 +214,87 @@ def redact(value: Any) -> Any:
     return value
 
 
+#: How long the effective-binding read may take. Short: it runs once at run
+#: start, before any check, and a hung api must not stall the whole run — the
+#: read failing is recorded, not fatal.
+BINDINGS_TIMEOUT_SECONDS = 10.0
+
+#: The api surface that already computes the effective binding, with the one
+#: shared rule (story 8.2). Read over HTTP rather than from Postgres because
+#: AD-16 makes this harness a client: re-deriving the selection here would be a
+#: second copy of a rule whose whole point is that there is one.
+BINDINGS_PATH = "/settings/models"
+
+
+def fetch_effective_bindings(
+    api_base_url: str | None,
+    *,
+    transport: Any = None,
+    timeout: float = BINDINGS_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    """Which model each role will actually be served by, per the running api.
+
+    Returns a mapping the snapshot writes verbatim: ``roles`` keyed by role
+    name, each carrying the effective binding **and** the file's own values, so
+    a reader can always see both halves; ``source``, the URL it was read from;
+    and ``problem``, ``None`` on success and a named sentence otherwise.
+
+    Every failure — no api base url, an unreachable api, a payload that is not
+    the expected shape — is recorded rather than raised. A run that cannot read
+    the selection still produces numbers worth having; what it must never do is
+    report the file's binding as though it were the one that answered.
+    """
+    if not api_base_url:
+        return {
+            "source": None,
+            "problem": (
+                f"no api base url was given, so {BINDINGS_PATH} could not be"
+                " read; the effective binding for each role is unknown and the"
+                " `settings` block below records only what `config.yaml` says"
+            ),
+            "roles": {},
+        }
+
+    url = f"{api_base_url.rstrip('/')}{BINDINGS_PATH}"
+    try:
+        with httpx.Client(transport=transport, timeout=timeout) as client:
+            response = client.get(url)
+            response.raise_for_status()
+            payload = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        return {
+            "source": url,
+            "problem": f"reading {url} failed: {type(exc).__name__}: {exc}",
+            "roles": {},
+        }
+
+    try:
+        rows = payload["roles"]
+        roles = {
+            str(row["role"]): {
+                "effective": row["effectiveBinding"],
+                "provider": row.get("provider"),
+                "selection_source": row["source"],
+                "selected": row.get("selected"),
+                "stale_selection": row.get("staleSelection"),
+                "file_model": row.get("fileModel"),
+                "file_default": row.get("default"),
+            }
+            for row in rows
+        }
+    except (KeyError, TypeError) as exc:
+        return {
+            "source": url,
+            "problem": (
+                f"{url} answered with a shape this harness does not recognize"
+                f" ({type(exc).__name__}: {exc}); the effective binding for each"
+                " role is unknown"
+            ),
+            "roles": {},
+        }
+    return {"source": url, "problem": None, "roles": roles}
+
+
 def resolved_settings(config: Any) -> dict[str, Any]:
     """The resolved ``config.yaml``, redacted. ``config.secrets`` is not read.
 
@@ -248,6 +330,7 @@ class Run:
         root: Path | None = None,
         label: str | None = None,
         api_base_url: str | None = None,
+        effective_bindings: Mapping[str, Any] | None = None,
     ) -> Run:
         """Make the folder and write the configuration snapshot into it.
 
@@ -275,12 +358,28 @@ class Run:
             raise RunError(f"could not create the run folder {folder}: {exc}") from exc
 
         run = cls(run_id=run_id, folder=folder, label=label)
+        bindings = (
+            dict(effective_bindings)
+            if effective_bindings is not None
+            else fetch_effective_bindings(None)
+        )
+        # Deliberately NOT `run.note(...)`: a noted problem fails the run, and
+        # whether an unreadable effective binding should invalidate a verdict is
+        # a question about the verdict, which this story does not answer. The
+        # snapshot records it, which is what makes the run's provenance honest;
+        # the numbers stand or fall on the checks.
         run._write_yaml(
             CONFIG_SNAPSHOT_NAME,
             {
                 "run": run._identity(),
                 "config_path": str(getattr(config, "config_path", "")),
                 "settings": resolved_settings(config),
+                # Story 8.2: the binding that will actually answer, recorded
+                # BESIDE the file value rather than in place of it. A run whose
+                # snapshot named only `settings.llm.roles.*.model` could name a
+                # model the run never called, once a persisted selection can
+                # override the file.
+                "llm_bindings": redact(bindings),
                 "api_base_url": redact(api_base_url) if api_base_url else None,
             },
         )

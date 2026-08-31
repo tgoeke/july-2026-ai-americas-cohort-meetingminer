@@ -226,7 +226,7 @@ def test_nothing_in_the_harness_imports_the_server_beyond_the_allowance() -> Non
 
 
 def test_the_only_network_call_lives_in_one_harness_module() -> None:
-    """`httpx` is reachable from exactly three modules of the harness package.
+    """`httpx` is reachable from exactly four modules of the harness package.
 
     Loading, validation and selection stay pure so the suite runs with no api
     up; concentrating the api calls in named modules keeps that property
@@ -236,7 +236,13 @@ def test_the_only_network_call_lives_in_one_harness_module() -> None:
     already is — a public-api read, no server module imported. `retrieval.py`
     joins in story 5.3: check 2.10 rides the public `GET /search` (the route
     is the surface under test) and check 2.11's approval is the harness's one
-    sanctioned mutation, `POST /moments/{id}/approve`.
+    sanctioned mutation, `POST /moments/{id}/approve`. `run.py` joins in story
+    8.2: once a persisted selection can override `config.yaml`, a snapshot
+    carrying only the file's binding could name a model the run never called,
+    and the effective binding is read from the public `GET /settings/models` —
+    a read, and the alternative (re-deriving the selection from Postgres here)
+    would be both a second copy of a one-copy rule and the housemate coupling
+    the guard above forbids.
 
     Scoped to `harness/` rather than all of `evals/` on purpose: tests that
     exercise these calls offline must import httpx themselves to build a
@@ -249,7 +255,7 @@ def test_the_only_network_call_lives_in_one_harness_module() -> None:
         for path in python_files(HARNESS_ROOT)
         if "httpx" in imported_modules(path)
     }
-    assert users == {"subjects.py", "judge.py", "retrieval.py"}
+    assert users == {"subjects.py", "judge.py", "retrieval.py", "run.py"}
 
 
 def test_the_only_database_connection_lives_in_one_harness_module() -> None:

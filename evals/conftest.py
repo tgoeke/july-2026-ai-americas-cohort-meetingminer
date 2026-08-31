@@ -30,7 +30,7 @@ import pytest
 from evals.harness.checks import Capture
 from evals.harness.corpus import Corpus, CorpusQueryError
 from evals.harness.groundtruth import GroundTruthError, load_all
-from evals.harness.run import Run, default_run_id
+from evals.harness.run import Run, default_run_id, fetch_effective_bindings
 from evals.harness.subjects import (
     CorpusReadError,
     Selection,
@@ -196,11 +196,17 @@ def run(request: pytest.FixtureRequest, app_config: Any) -> Any:
     """
     label = request.config.getoption("--run-label")
     run_id = request.config.getoption("--run-id") or default_run_id(label)
+    api_base_url = request.config.getoption("--api-base-url")
     created = Run.create(
         run_id,
         config=app_config,
         label=label,
-        api_base_url=request.config.getoption("--api-base-url"),
+        api_base_url=api_base_url,
+        # Story 8.2: which binding each role will actually be served by, read
+        # from the running api rather than re-derived here (AD-16 keeps this
+        # harness a client). Recorded beside the file's own values, so a run
+        # whose selection differs from `config.yaml` is still reproducible.
+        effective_bindings=fetch_effective_bindings(api_base_url),
     )
     yield created
     created.write_report()
