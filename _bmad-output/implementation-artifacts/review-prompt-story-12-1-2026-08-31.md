@@ -97,6 +97,19 @@ needs to read is exactly the run that yielded nothing worth approving.
    **not** currently carry the `extraction_source` id; if 12.4 needs it, say
    so now.
 
+## One known cross-branch overlap
+
+`python3 _bmad/scripts/branch_conflicts.py --against story/12-1` reports
+`main × story/12-1` **clean**. The only conflicting pair this branch introduces
+is `story/12-1 × story/8-2a` on `web/src/client/index.ts` — both lanes
+regenerated the committed TS client, and that file is one sorted export line.
+It is the known recurring generated-artifact conflict the `integrate` skill
+resolves by regenerating after the merge, not a design collision: the two
+lanes add different operations and touch no other file in common. Every other
+conflicting pair in that report is between two other branches, or is a stale
+landed branch (`story/10-3`, `story/10-4`) diffing against the amended version
+already on `main`.
+
 ## Verification to reproduce
 
 - `uv run --project server pytest -m "" server/tests/test_worker_extract.py server/tests/test_api_extraction_documents.py -q`
