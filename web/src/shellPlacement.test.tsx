@@ -151,9 +151,17 @@ describe('shell placement', () => {
       // block that pushes the opened screen down — is unchanged, because the
       // results still expand as overlays.
       expect(rail).not.toBeNull()
-      expect(rail).toHaveClass('min-[1400px]:sticky')
       expect(rail).toContainElement(screen.getByTestId('search-input'))
       expect(rail).toContainElement(screen.getByTestId('chat-question-input'))
+      // The rail is a left column on most routes and collapses to the
+      // horizontal strip on `/threads`, where the timeline is a map that needs
+      // the full width (owner, 2026-08-31). What this test guards either way is
+      // that the controls stand on every route and never occupy a growing
+      // flow-height block above the opened screen — so it asserts the column
+      // class only where the column is what renders.
+      if (!pattern.startsWith('/threads')) {
+        expect(rail).toHaveClass('min-[1400px]:sticky')
+      }
       expect(child.compareDocumentPosition(chrome)).toBe(Node.DOCUMENT_POSITION_PRECEDING)
       // The Back control belongs to an open child screen.
       expect(child.previousElementSibling).toHaveTextContent('← Back')

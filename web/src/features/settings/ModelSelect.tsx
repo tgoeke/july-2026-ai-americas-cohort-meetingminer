@@ -161,7 +161,7 @@ export function ModelSelect({ role: roleName = ASK_BOX_ROLE, compact = false }: 
   }
 
   return (
-    <span className={compact ? 'relative inline-flex max-w-24' : 'flex flex-col gap-1'}>
+    <span className={compact ? 'relative inline-flex min-w-0 max-w-full' : 'flex flex-col gap-1'}>
       <span ref={containerRef} className="relative inline-flex self-end">
         <button
           ref={triggerRef}
@@ -172,7 +172,7 @@ export function ModelSelect({ role: roleName = ASK_BOX_ROLE, compact = false }: 
           aria-controls={open ? listboxId : undefined}
           aria-disabled={options.length === 0 || undefined}
           aria-label={triggerAccessibleName(role, activeHealth)}
-          className={`flex items-center gap-2 rounded-md border px-2 py-1 text-xs ${compact ? 'max-w-24 overflow-hidden' : ''}`}
+          className={`flex items-center gap-2 rounded-md border px-2 py-1 text-xs ${compact ? 'min-w-0 max-w-full flex-nowrap overflow-hidden whitespace-nowrap' : ''}`}
           onClick={() => {
             // An empty catalog opens nothing: there is no choice to present,
             // and no default is invented to fill the gap.
@@ -188,7 +188,7 @@ export function ModelSelect({ role: roleName = ASK_BOX_ROLE, compact = false }: 
         >
           <span>{parts.role}</span>
           <span aria-hidden="true">·</span>
-          <code className="font-mono">{parts.binding}</code>
+          <code className="min-w-0 truncate font-mono">{parts.binding}</code>
           <span aria-hidden="true">·</span>
           <span>{parts.provider}</span>
           {parts.health !== 'unknown' && <span aria-hidden="true">●</span>}

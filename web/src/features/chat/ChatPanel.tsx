@@ -212,13 +212,17 @@ export function ChatPanel({
             data-testid="chat-question-input"
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
-            placeholder="What did we decide about the purchase order?"
+            placeholder={
+              compact
+                ? 'Ask the corpus…'
+                : 'What did we decide about the purchase order?'
+            }
             rows={compact ? 1 : 2}
             aria-expanded={compact ? expanded : undefined}
             aria-controls={compact ? 'chrome-ask-results' : undefined}
             className={
               compact
-                ? 'h-8 w-full resize-none rounded-md border px-2 py-1 text-sm'
+                ? 'h-8 w-full resize-none overflow-hidden rounded-md border px-2 py-1 text-sm leading-6'
                 : 'rounded-md border px-3 py-2 text-sm'
             }
           />
