@@ -261,10 +261,20 @@ slides by comparison.
 topics, speakers and cross-meeting search; Set B demonstrates screen capture,
 screenshots and moment-level citation.
 
-**One note on character, not a blocker:** Set B is commercial vendor content
-rather than public record. Nothing is redistributed — only locally derived
-transcripts and screenshots — but it is worth a moment's thought if the
-recorded walkthrough is published beyond the cohort.
+**On content rights, settled 2026-08-30:** all of it is public. The only
+distinction is that public meeting recordings usually carry explicit reuse
+terms while vendor demos are ordinary copyrighted material that happens to be
+free to watch — and that difference does not matter here. Nothing is
+redistributed: the videos are ingested locally, and the walkthrough shows
+derived output (transcripts, extracted artifacts, moments, citations) with
+third-party footage appearing only briefly at the replay step. No action, and
+not a consideration when picking videos.
+
+If you would rather not think about it at all, one free choice: feature a Set A
+meeting at the replay moment on camera and let Set B carry search and
+extraction behind it — public-record footage on screen, the
+software-demonstration thesis still demonstrated through the derived
+artifacts.
 
 ## What blocks what
 
