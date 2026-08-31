@@ -198,6 +198,13 @@ before the story started and recorded in AD-3.
   `client.gen.ts` byte-identically — verified: the only diff is the new
   operation.
 
+- **2026-08-31, implementation — one known cross-branch overlap.**
+  `branch_conflicts.py --against story/12-1` reports `main × story/12-1` clean.
+  The only conflicting pair this branch introduces is
+  `story/12-1 × story/8-2a` on `web/src/client/index.ts`: both lanes
+  regenerated the committed client, which is one sorted export line. Resolved
+  by regenerating after the merge — `make client` is integration-owned.
+
 ## Review Triage Log
 
 _(empty — the review lane has not run. It fixes what it finds; see the review
@@ -239,6 +246,47 @@ render without inventing a ranking the data does not carry.
 
 ## Auto Run Result
 
-_(filled in below at completion.)_
+Completed 2026-08-31 on `story/12-1`, cut from `9fc760f`. Status `review`, not
+`done`: the review lane has not run and this lane does not merge.
+
+**Commits (pushed to `origin/story/12-1`):**
+
+- `ceed8ef7` — migration 0019 and the stage: `document_text` on both paths,
+  `_retained_text`, the docstring.
+- `7c018963` — `GET /meetings/{meeting_id}/extraction-documents` and the five
+  stage tests.
+- `8fd76ceb` — the ten route tests and the regenerated TS client.
+- `3d79a91f` — this spec, the review prompt, the sprint key, the AD-3/AD-4 sync.
+
+**Gates, all run in the foreground against this worktree's private stack
+(`meetingminer-12-1`):**
+
+- `make test` — **2741 passed, 3 skipped, exit 0**, 714.71s (11m54s), followed
+  by the web production build (`tsc -b && vite build`, exit 0). The three skips
+  are the suite's standing named skips, not new ones.
+- `make lint` — all checks passed, no new baseline entry.
+- `make typecheck` — success, no issues in 13 source files.
+- `make web-test` — 24 files, 441 tests passed.
+- `uv run --project server pytest -m "" server/tests/test_worker_extract.py -q`
+  — 29 passed (24 pre-existing plus the 5 new).
+- `uv run --project server pytest -m "" server/tests/test_api_extraction_documents.py -q`
+  — 10 passed.
+- `python3 _bmad/scripts/branch_conflicts.py --against story/12-1` —
+  `main × story/12-1` **clean**; one introduced pair,
+  `story/12-1 × story/8-2a` on `web/src/client/index.ts` (see the change log).
+
+**Not run, deliberately:** `make evals-run`, the shared worker, the shared api.
+A corpus ingest is running on the main stack and extraction is bound to a paid
+model; no real model call was made anywhere in this lane.
+
+**One observed-red moment worth recording.** The NUL test was written first
+against a document whose NUL sat in a *parsed* field; it failed with
+`unexpected DataError: PostgreSQL text fields cannot contain NUL (0x00) bytes`,
+raised by the `artifact` insert rather than by `_retained_text`. That is the
+pre-existing behaviour and not what this story adds, so the test was moved to a
+NUL in prose the parser ignores — the only path on which the retained document
+is the thing that carries it — where `_retained_text`'s named refusal is what
+fires. The guard is therefore demonstrated to be reachable and load-bearing
+rather than defensive decoration.
 
 </intent-contract>
