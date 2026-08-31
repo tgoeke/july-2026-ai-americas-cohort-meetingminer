@@ -100,7 +100,7 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
   const [transcriptFailure, setTranscriptFailure] = useState<SpeakersLoadFailure | null>(null)
   const [meetingTitle, setMeetingTitle] = useState<string | null>(null)
   const [startedAt, setStartedAt] = useState<string | null>(null)
-  const [hasRecording, setHasRecording] = useState(false)
+  const [hasRecording, setHasRecording] = useState<boolean | null>(null)
   const [participants, setParticipants] = useState<Array<ParticipantRow>>([])
 
   const [selectedTag, setSelectedTag] = useState<string | null>(null)
@@ -708,7 +708,11 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
                 {speakerMetaLabel(selected)}
               </h3>
 
-              {hasRecording && selected.sampleOffsetsMs.length > 0 ? (
+              {hasRecording === null ? (
+                <p className="text-sm text-muted-foreground">
+                  Loading recording availability…
+                </p>
+              ) : hasRecording && selected.sampleOffsetsMs.length > 0 ? (
                 <div className="flex flex-wrap gap-2">
                   {selected.sampleOffsetsMs.map((offset, index) => (
                     <Button
@@ -892,7 +896,10 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
                 ? transcriptFailure.kind === 'transport'
                   ? `Cannot reach the api at ${API_BASE}: ${transcriptFailure.message}.`
                   : transcriptFailure.message
-                : `The lines below are the pre-rerun reading — ${transcriptFailure.message}.`}
+                : `The lines below are the pre-rerun reading — ${transcriptFailure.message}.`}{' '}
+              <Button variant="outline" size="xs" onClick={() => void load()}>
+                Retry
+              </Button>
             </p>
           )}
           {segments !== null && selected !== null && (
