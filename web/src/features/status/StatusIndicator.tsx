@@ -27,7 +27,7 @@ function summarize(poll: StatusPoll): {
       return { tone: 'down', label: 'api unreachable' }
     case 'loaded':
       return poll.status.overall === 'ok'
-        ? { tone: 'ok', label: 'all systems healthy' }
+        ? { tone: 'ok', label: 'api-observed dependencies healthy' }
         : { tone: 'attention', label: 'attention needed' }
   }
 }
@@ -70,7 +70,7 @@ export function StatusIndicator() {
             </div>
           )}
           {poll.kind === 'loaded' && poll.status.overall === 'ok' && (
-            <p>Every dependency is healthy.</p>
+            <p>Every dependency observed by this api process is healthy.</p>
           )}
           {poll.kind === 'loaded' && poll.status.overall !== 'ok' && (
             <ul className="flex flex-col gap-2">

@@ -286,7 +286,7 @@ describe('StatusIndicator', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0)
     })
-    expect(screen.getByText('all systems healthy')).toBeInTheDocument()
+    expect(screen.getByText('api-observed dependencies healthy')).toBeInTheDocument()
 
     // The next poll returns a degraded payload: the indicator flips in place.
     await act(async () => {
@@ -294,7 +294,7 @@ describe('StatusIndicator', () => {
     })
     expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2)
     expect(screen.getByText('attention needed')).toBeInTheDocument()
-    expect(screen.queryByText('all systems healthy')).not.toBeInTheDocument()
+    expect(screen.queryByText('api-observed dependencies healthy')).not.toBeInTheDocument()
   })
 
   it('expands on click to the degraded rows and their remediations', async () => {
@@ -404,8 +404,11 @@ describe('whose view the surface reports (story 8.2a, AD-10 as amended)', () => 
       </MemoryRouter>,
     )
 
-    const toggle = await screen.findByRole('button', { name: /all systems healthy/ })
+    const toggle = await screen.findByRole('button', { name: /api-observed dependencies healthy/ })
     await userEvent.click(toggle)
+    expect(
+      screen.getByText('Every dependency observed by this api process is healthy.'),
+    ).toBeInTheDocument()
     // A summary may drop rows; it may not drop whose reading it is summarising.
     expect(
       screen.getByText(/Bindings and key states below describe this process only/),
