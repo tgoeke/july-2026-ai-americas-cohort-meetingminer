@@ -153,30 +153,30 @@ retry, rebuild, or report a gate defect.
 projection without scraping logs, and check 2.11 reports lock contention rather
 than a false story-4.4 regression.
 
-### B-38 · Fail loudly when a provider does not serve the configured model — S
+### B-38 · Fail loudly when a provider does not serve the configured model — CLOSED
 
-`LiteLlmCompleter.complete` maps connection, timeout, service, rate-limit,
-authentication, and permission failures to `LlmUnavailableError`, naming the
-model and endpoint; that is the deliberate outage path `FallbackLlm` absorbs.
-A model-not-found response instead falls through the generic SDK-exception
-branch, which raises `LlmError` without the endpoint. `FallbackLlm` catches that
-base error and can silently answer with a different model. This is actionable
-configuration failure, not provider unavailability, and it is especially
-likely for the two Ollama hosts whose installed model lists intentionally
-diverge.
+**Closed 2026-08-30 by `ca9689a` (story 8.2).** `LiteLlmCompleter.complete` used
+to map connection, timeout, service, rate-limit, authentication and permission
+failures to `LlmUnavailableError` — the deliberate outage path `FallbackLlm`
+absorbs — while a model-not-found response fell through the generic SDK-exception
+branch as an `LlmError` naming neither provider nor endpoint. `FallbackLlm`
+caught that base error, so a wrong binding was answered by a different model.
 
-**Do:** map LiteLLM's model-not-found response to its own configuration-shaped
-port error with the exact message template
-`provider {provider!r} at {api_base!r} does not serve model {model!r}`. Derive
-the provider from the same shared model-spelling rule used by config and
-runtime. Exclude this error from fallback while preserving today's
-`LlmUnavailableError` fallback behavior for genuine outages. Pin all three
-behaviors with adapter/composer regressions, including a configured primary
-whose missing model never calls its fallback.
+`litellm.exceptions.NotFoundError` now maps to
+`LlmModelNotServedError` (`adapters/llm/port.py`), whose message opens with the
+mandated template `provider {provider!r} at {api_base!r} does not serve model
+{model!r}` and which carries `provider`, `model`, `api_base` and
+`upstream_status` as fields. The provider is derived from the shared
+`provider_for_model` rule config and runtime routing already use, never from the
+SDK's own `llm_provider`. `FallbackLlm.complete` re-raises it ahead of the
+`except LlmError` that engages the substitute, and `api/chat.py` surfaces it as
+`urn:meetingminer:problem:binding-failed`. Genuine `LlmUnavailableError` outages
+keep today's fallback behaviour, unchanged.
 
-**Done when:** the failure is actionable without a log viewer, names the
-provider, endpoint, and requested model, and no different model answers after a
-model-not-found response.
+Pinned by `server/tests/test_settings_resolution.py`: the adapter mapping, the
+provider derivation (the SDK is deliberately handed a *different* provider name),
+the endpoint-less message, a configured primary whose missing model never calls
+its fallback, and the unchanged outage fallback beside it.
 
 ### B-39 · Invoke thread derivation from the worker settle point — M
 

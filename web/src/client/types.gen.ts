@@ -103,6 +103,26 @@ export type AssignProjectProductRequest = {
 };
 
 /**
+ * CatalogEntryView
+ *
+ * One binding a role may be served by, as a picker renders it.
+ */
+export type CatalogEntryView = {
+    /**
+     * Binding
+     */
+    binding: string;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Provider
+     */
+    provider: string | null;
+};
+
+/**
  * ChatKnobsView
  */
 export type ChatKnobsView = {
@@ -963,6 +983,16 @@ export type MergeParticipantsRequest = {
 };
 
 /**
+ * ModelSettingsResponse
+ */
+export type ModelSettingsResponse = {
+    /**
+     * Roles
+     */
+    roles: Array<RoleSelectionView>;
+};
+
+/**
  * MomentArtifact
  *
  * One extracted artifact, as the right rail renders it.
@@ -1404,6 +1434,64 @@ export type RenameParticipantRequest = {
      * Displayname
      */
     displayName: string;
+};
+
+/**
+ * RoleSelectionRequest
+ */
+export type RoleSelectionRequest = {
+    /**
+     * Binding
+     */
+    binding: string;
+};
+
+/**
+ * RoleSelectionView
+ *
+ * One role's catalog, the binding in force, and how it was arrived at.
+ */
+export type RoleSelectionView = {
+    /**
+     * Role
+     */
+    role: string;
+    /**
+     * Catalog
+     */
+    catalog: Array<CatalogEntryView>;
+    /**
+     * Default
+     */
+    default: string;
+    /**
+     * Filemodel
+     */
+    fileModel: string;
+    /**
+     * Selected
+     */
+    selected: string | null;
+    /**
+     * Effectivebinding
+     */
+    effectiveBinding: string;
+    /**
+     * Provider
+     */
+    provider: string | null;
+    /**
+     * Source
+     */
+    source: string;
+    /**
+     * Staleselection
+     */
+    staleSelection: string | null;
+    /**
+     * Stalereason
+     */
+    staleReason: string | null;
 };
 
 /**
@@ -2488,6 +2576,52 @@ export type MergeParticipantsResponses = {
 };
 
 export type MergeParticipantsResponse = MergeParticipantsResponses[keyof MergeParticipantsResponses];
+
+export type GetModelSettingsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/settings/models';
+};
+
+export type GetModelSettingsResponses = {
+    /**
+     * Successful Response
+     */
+    200: ModelSettingsResponse;
+};
+
+export type GetModelSettingsResponse = GetModelSettingsResponses[keyof GetModelSettingsResponses];
+
+export type SelectRoleBindingData = {
+    body: RoleSelectionRequest;
+    path: {
+        /**
+         * Role
+         */
+        role: string;
+    };
+    query?: never;
+    url: '/settings/roles/{role}';
+};
+
+export type SelectRoleBindingErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SelectRoleBindingError = SelectRoleBindingErrors[keyof SelectRoleBindingErrors];
+
+export type SelectRoleBindingResponses = {
+    /**
+     * Successful Response
+     */
+    200: RoleSelectionView;
+};
+
+export type SelectRoleBindingResponse = SelectRoleBindingResponses[keyof SelectRoleBindingResponses];
 
 export type ListMeetingSpeakersData = {
     body?: never;
