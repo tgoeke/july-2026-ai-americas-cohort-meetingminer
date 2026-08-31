@@ -3764,3 +3764,42 @@ work, 17 commits, none touching this story's paths). One conflict —
 `sprint-notes.md`, both sides appending at EOF — resolved as a union;
 `sprint-status.yaml` merged key-wise through its driver. `make test-fast` and
 `make test` re-run green afterwards, and `main × story/6-4` is clean.
+
+## 6-4 landed, 2026-08-31 ~00:05 — the acquisition surface, and the client caught up
+
+`main` at `c4fac35`, plus the client regeneration that followed it. The api
+accepts and reports on an acquisition rather than performing one: `POST
+/acquisitions` launches the tool as a detached host process with a status file
+and log under `.logs/`, answers 202, and refuses a second running acquisition
+for the same source id; `POST /acquisitions/probe` runs story 6.2's checks with
+no download, mint, process start or state write; `GET /acquisitions/{id}`
+reports `queued | running | posted | failed` with the log tail, maps 6.2's
+`exists` short-circuit to `posted`/`result: exists`, and a `failed` status
+carries `refusal{rule, detail, remediation}` so no client parses a log tail.
+
+**Red-first was NOT followed by this lane**, and it disclosed that itself:
+tests were written after the code, with coverage argued from 16 mutations
+(15 red). The review was told to treat that evidence as the claim under audit
+rather than accept it, and re-ran a sample. Worth remembering when reading this
+story's coverage — it is the one lane in the wave whose tests were not written
+against failing code first.
+
+**Two rulings closed it, and they were different in kind:**
+
+- **`intake-failed` was a coordinator call, not an owner decision.** The lane
+  left it open because extending story 6.2a's closed refusal vocabulary looked
+  like a footprint breach. But the footprint I wrote said "reuse 6.2's existing
+  checks; do not fork them" and "use that vocabulary; do not invent a second
+  one" — extending the closed set is what that meant, so the ambiguity was
+  mine. Added red-first.
+- **The frozen 404/422 matrix row was amended under story 7.3's precedent.**
+  The row predicted 422 for a non-UUID id; an encoded-separator id is
+  legitimately refused a step earlier as 404. The owner had ruled hours before,
+  on 7.3's F-6, that a frozen row disagreeing with correct code is amended
+  rather than the code weakened. Applied here without waiting, and flagged in
+  the report as reversible — the owner has not seen this specific row.
+
+**`make client` was owed and is now run.** 6.4 left it to integration
+deliberately (web/ outside its footprint), and it blocked story 6.5. The
+client now carries all three `/acquisitions` routes; `web-test` 294 passed and
+the production build is clean. **6.5 is unblocked.**
