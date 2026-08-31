@@ -11,6 +11,7 @@ the review handoff. Frozen intent defects will be reported but not patched.
 - Baseline: `e5e0ff9`
 - Story tip at review dispatch: `6269ad9`
 - Review range: `e5e0ff9..6269ad9`
+- Required review rebase: `c678837..5cf336f`
 - Review branch: `story/6-4-review`, cut from `story/6-4`
 
 ## Findings
@@ -19,6 +20,7 @@ the review handoff. Frozen intent defects will be reported but not patched.
 
 - **Location:** `server/meetingminer/acquisitions.py:684-713`
 - **Severity:** High
+- **Status:** Fixed by `9385bb7` with a red-first concurrency regression.
 - **Finding:** `launch()` starts the detached child and only afterwards writes
   the returned pid using its stale pre-launch `queued` record. The child does
   not take the claim lock before its first status transition, so it can write
@@ -42,6 +44,7 @@ the review handoff. Frozen intent defects will be reported but not patched.
 
 - **Location:** `server/meetingminer/acquisitions.py:628-640,840-848`
 - **Severity:** Medium
+- **Status:** Fixed by `49e8d74`; deferred item 3 is no longer open.
 - **Finding:** The detached child reloads config before it can derive the
   acquisition-state directory. If that load raises `ConfigError`, `main()`
   only prints to the log and exits. The status file remains `queued` with a
@@ -66,6 +69,7 @@ the review handoff. Frozen intent defects will be reported but not patched.
 
 - **Location:** `server/meetingminer/youtube.py:608-642`
 - **Severity:** Medium
+- **Status:** Fixed by `c5024ed` with two red-first provenance-boundary cases.
 - **Finding:** `probe_only()` calls the full acquisition `validate_info()`
   helper. Besides the required URL/identity, availability, stream, tool, and
   duration checks, that helper also requires a publication wall clock and a
@@ -90,7 +94,8 @@ the review handoff. Frozen intent defects will be reported but not patched.
 
 - **Location:** `server/meetingminer/acquisitions.py:764-783` and
   `server/meetingminer/youtube.py:188-196`
-- **Severity:** Medium — Open, owner decision required
+- **Severity:** Medium
+- **Status:** Open — owner vocabulary/footprint decision required.
 - **Finding:** `IntakeError` is a distinct, expected failure after a finalized
   drop exists, but `youtube.refusal_rule()` maps it to the catch-all
   `unclassified` token. The acquisition does provide an excellent failure-
@@ -116,6 +121,8 @@ the review handoff. Frozen intent defects will be reported but not patched.
 
 - **Location:** `server/tests/test_api_acquisitions.py:799-822`
 - **Severity:** Medium
+- **Status:** Fixed by the exact-partition and remediation-anchor regressions in
+  `63f12a1`; the demonstrated mutation is now red.
 - **Finding:** The implementation deliberately hand-writes every refusal table
   entry so a future rule cannot acquire a silent default, but the claimed guard
   checks only key completeness, non-empty remediation text, the overall set of
@@ -139,6 +146,7 @@ the review handoff. Frozen intent defects will be reported but not patched.
 
 - **Location:** `server/meetingminer/acquisitions.py:276-310`
 - **Severity:** Medium
+- **Status:** Fixed by `2f7163c` and pinned by F5's full partition test.
 - **Finding:** The table rationale says 503 is for conditions where this host
   cannot answer and the URL may be fine, but several rules with exactly that
   meaning are assigned 422. Most importantly, `probe-unreadable` is reachable
@@ -166,6 +174,7 @@ the review handoff. Frozen intent defects will be reported but not patched.
 
 - **Location:** `_bmad-output/implementation-artifacts/review-prompt-story-6-4-2026-08-30.md:227-229`
 - **Severity:** Low
+- **Status:** Fixed by `3f396df`.
 - **Finding:** The handoff says the registry/YouTube/playlist command produced
   201 passed and 1 skipped, but the exact command has only 168 collected tests
   and produces 167 passed and 1 skipped. A precise baseline that cannot come
@@ -179,3 +188,119 @@ the review handoff. Frozen intent defects will be reported but not patched.
   not this command.
 - **Suggested direction:** Correct the handoff's recorded result to 167 passed,
   1 skipped, leaving the known network-skip explanation unchanged.
+
+## Acceptance and architecture audit
+
+- `POST /acquisitions` performs offline URL classification, writes state, and
+  starts only the detached runner. The autouse must-not-run guards cover
+  yt-dlp execution, download, and both mint entry points; the real launch path
+  returns 202, and same-source live state returns 409 while another source is
+  accepted.
+- `POST /acquisitions/probe` is declared before the UUID route and is live on
+  the discovery-registered app. It starts no detached acquisition, writes no
+  state or drop, downloads no media, and mints nothing. F3 narrowed its
+  metadata validation to the frozen URL/identity, availability, stream, tool,
+  and duration boundary. The inline yt-dlp metadata probe remains intentional;
+  "no process" means no detached acquisition process, since running the named
+  tool check otherwise would be impossible.
+- The real `acquire()` `exists` short-circuit reaches `posted/result=exists`,
+  preserves job/meeting/source fields, and succeeds with tools absent and every
+  yt-dlp invocation made fatal, directly proving no media network traffic.
+- `failed` responses build `refusal{rule,detail,remediation}` only from the
+  status record. Empty and missing logs both retain the refusal. F2 closes the
+  sole known pre-config exception by passing the parent-owned state root to the
+  child.
+- The runner calls unchanged `youtube.acquire()` and
+  `mintdrop.post_ingest()`; no alternate intake path or pipeline work appears.
+  AD-11 and AD-14 hold.
+- Every request-controlled filename segment remains a typed `UUID`.
+  `read_record()` still rejects a file-content id mismatch, and the status
+  route still derives the log path from the validated parameter. The second
+  guard is useful defence in depth even though the first makes its mutation
+  equivalent today.
+
+## Disclosures and deferred triage
+
+1. **Generated client — confirmed open, high.** `web/src/client/` contains no
+   acquisition symbol, and no changed production path depends on one. The
+   deferred `make client` remains an integration obligation and Story 6.5 stays
+   blocked on it. This lane did not touch `web/` or start the shared API.
+2. **Five-minute inline probe — confirmed deferred, medium.** The probe can
+   occupy its synchronous request worker until `PROBE_TIMEOUT_SECONDS=300`.
+   The launch route is unaffected; changing the tunable requires the frozen
+   config footprint and the UI still needs its own timeout.
+3. **Child config failure — triage challenged and fixed as F2.** It required no
+   future story or off-footprint module.
+4. **Encoded-separator matrix row — frozen-spec amendment required.** Keep the
+   safer existing 404: Starlette decodes the separator before matching, so no
+   UUID route or file read is reached. The frozen row's literal 422 should be
+   amended by the owner/integration process; weakening routing to manufacture
+   422 would be wrong. Plain `not-a-uuid` remains the declared 422.
+5. **Unreaped state/log growth — confirmed deferred, low.** The scan is O(n)
+   and the directory grows permanently, but listing/deleting/cancelling and
+   retention are in the frozen Never boundary. It belongs with 6.4a/6.5.
+6. **Liveness/lock trade — accepted after F1.** PID reuse and a briefly
+   unreaped zombie can cause a conservative false-positive 409; neither can
+   launch duplicate work. The single 10-second claim wait is tolerable for a
+   critical section containing a scan, small writes, and `Popen`. F1 now makes
+   the child wait on that same lock before its first state transition.
+7. **Meeting-id lookup — accepted.** One indexed lookup on the unique,
+   non-null `meeting.job_id` per posted poll is cheaper and simpler than a
+   second writer coordinating status-file updates; the UI stops acquisition
+   polling once the id appears.
+8. **Real sleep child — accepted.** The suite is already Unix/macOS-specific
+   through `fcntl`; `/bin/sleep` exercises the actual detached `Popen` and is
+   killed and waited in fixture teardown. No child is left unreaped.
+
+F4 is the only new review finding left open. It is not silently deferred: the
+owner must decide whether to authorize `intake-failed` in the existing closed
+vocabulary and widen the otherwise addition-only `youtube.py` footprint.
+
+## Independent mutation audit
+
+- Removing liveness caused both abandoned-record cases to fail with 409 rather
+  than 202.
+- Disabling partial-first-line trimming made the tail expose `ond` from the
+  middle of `second`.
+- Dropping the seconds-to-milliseconds conversion returned 1,830 rather than
+  1,830,000.
+- A new semantic mutation, moving `probe-failed` from 422 to 400, left all
+  original table tests green. That gap became F5 and is now pinned.
+
+The first three independently confirm a sample of the builder's disclosed
+mutation evidence. All temporary mutations were restored immediately and
+`git diff --check` was clean afterward.
+
+## Verification
+
+- Baseline SHAs `7a20f3547aa02f846838a07ff29f8b612cad9b32` and
+  `e5e0ff9c6e0f52492ee26be0f5f985109da9efe0` resolve and are ancestors of
+  `origin/story/6-4`.
+- Red-first review regressions on the unfixed tree: 5 failed, 1 passed, 34
+  deselected — F1, F2, F3 twice, and F5/F6 failed exactly as intended.
+- `uv run --project server pytest server/tests/test_api_acquisitions.py -q`:
+  **40 passed**.
+- Registry/YouTube/playlist focused command: **167 passed, 1 known network
+  skip**.
+- `make test-fast`: ruff clean; mypy clean across 13 files; puller **128
+  passed**; web **294 passed**; eval harness **643 passed**; server **2,111
+  passed, 3 named skips, 405 deselected**.
+- Standalone `make puller-test`: **128 passed**.
+- `make test`: puller **128 passed**; web **294 passed**; eval harness **643
+  passed**; isolated diarization **92 passed**; test-store reachability **1
+  passed**; full server **2,516 passed, 3 named skips**; production web build
+  clean.
+- The three skips are the declared pyannote extra and the two env-flagged
+  network tests; none is new.
+- Conflict audit: `main × story/6-4-review` is clean. Remaining cross-story
+  conflicts are the predeclared `sprint-notes.md` EOF append; conflict with
+  `story/6-4` itself is expected because this branch contains its remediation.
+
+## Verdict
+
+**Code after remediation: pass. Story closeout: conditional / remains
+`review`.** All patchable findings are fixed and the complete local gate is
+green. The owner still has three explicit integration decisions/actions: F4's
+refusal-vocabulary extension, the frozen encoded-separator matrix amendment,
+and the high-severity generated-client regeneration that blocks Story 6.5.
+This review branch does not merge or mark the story done.
