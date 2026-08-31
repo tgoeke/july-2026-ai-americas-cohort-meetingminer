@@ -18,7 +18,9 @@ from typing import Mapping, Sequence
 from uuid import UUID
 
 import pytest
+from pydantic import ValidationError
 
+from meetingminer.config import ThreadsConfig
 from meetingminer.domain.threads import (
     EMBEDDING_LINK,
     NAME_LINK,
@@ -72,6 +74,29 @@ def orthogonal(topics: Sequence[TopicForThreading]) -> dict[UUID, tuple[float, .
         item.id: tuple(1.0 if axis == index else 0.0 for axis in range(len(topics)))
         for index, item in enumerate(topics)
     }
+
+
+# --- configuration boundary ------------------------------------------------
+
+
+@pytest.mark.parametrize("threshold", [0.499_999, 1.000_001])
+def test_thread_similarity_threshold_refuses_values_outside_its_closed_bounds(
+    threshold: float,
+) -> None:
+    with pytest.raises(ValidationError, match="embedding_similarity_threshold"):
+        ThreadsConfig(
+            link_rule="normalized-name-or-embedding-similarity",
+            embedding_similarity_threshold=threshold,
+        )
+
+
+@pytest.mark.parametrize("threshold", [0.5, 1.0])
+def test_thread_similarity_threshold_accepts_its_exact_bounds(threshold: float) -> None:
+    config = ThreadsConfig(
+        link_rule="normalized-name-or-embedding-similarity",
+        embedding_similarity_threshold=threshold,
+    )
+    assert config.embedding_similarity_threshold == threshold
 
 
 # --- normalization ---------------------------------------------------------
