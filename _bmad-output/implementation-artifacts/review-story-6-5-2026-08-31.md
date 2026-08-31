@@ -21,6 +21,15 @@ Date: 2026-08-31
 - **Suggested direction** — Give Retry an explicit dependency/generation that reruns the current normalized probe, and add a regression test that observes a second request and a successful answer after the first transport failure.
 - **Disposition** — fixed red-first. The new focused test failed against the original handler (`expected probeAcquisition 2 calls, received 1`), then passed after Retry gained an explicit probe-attempt dependency.
 
+### F2 — Probe outage is simultaneously described as a refusal
+
+- **Location** — `web/src/features/acquisitions/AddMeeting.tsx:204`
+- **Severity** — medium
+- **Finding** — A rejected probe correctly renders `TransportNotice`, but the Submit explanation beside it says `The pre-flight check refused this URL.` The same failure is therefore presented as both an outage and a source refusal.
+- **Evidence** — `ProbeState.failed` preserves the discriminated `Failure`, and lines 311–329 render transport and refusal with different components. The `submitReason` branch at lines 204–205 discards that discriminator and labels every failed probe a refusal. This contradicts the frozen constraint that an unreachable api is never dressed as a refusal and the review contract's requirement to verify the distinction on every failure path.
+- **Suggested direction** — Derive the disabled-submit explanation from `failure.kind`, retaining refusal language only for an api-issued refusal and giving transport failure a neutral recovery sentence.
+- **Disposition** — patchable; remediation in progress.
+
 ## Disposition
 
 Review in progress. No pass/fail verdict has been assigned.
