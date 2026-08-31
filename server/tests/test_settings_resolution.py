@@ -174,6 +174,25 @@ def test_the_refusal_names_the_provider_the_shared_spelling_rule_derives(
     assert "https://api.anthropic.com" in str(caught.value)
 
 
+def test_the_refusal_never_promotes_the_sdks_provider_guess(
+    monkeypatch: pytest.MonkeyPatch, litellm_sdk: Any
+) -> None:
+    """An ambiguous spelling stays unknown; the SDK is not a second routing rule."""
+
+    def boom(**kwargs: object) -> object:
+        raise _not_found(litellm_sdk, "mystery-model", "openai", "model not found")
+
+    monkeypatch.setattr(litellm_sdk, "completion", boom)
+    completer = LiteLlmCompleter("mystery-model", PROVIDERS)
+
+    with pytest.raises(LlmModelNotServedError) as caught:
+        completer.complete("anything")
+
+    assert provider_for_model("mystery-model") is None
+    assert caught.value.provider == "unknown"
+    assert "provider 'unknown'" in str(caught.value)
+
+
 def test_the_refusal_is_still_readable_with_no_configured_endpoint(
     monkeypatch: pytest.MonkeyPatch, litellm_sdk: Any
 ) -> None:

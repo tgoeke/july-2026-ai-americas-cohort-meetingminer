@@ -157,14 +157,9 @@ class LiteLlmCompleter:
             # The provider comes from the shared spelling rule, never from the
             # SDK's `llm_provider`: the operator has to check the account and
             # endpoint this project routed to, which is what `resolve_api_base`
-            # used above. The SDK's own name is a last resort for a spelling
-            # the rule cannot identify (the loader refuses those, so this is
-            # defence in depth rather than a live path).
-            provider = (
-                provider_for_model(self.model)
-                or getattr(exc, "llm_provider", None)
-                or "unknown"
-            )
+            # used above. An ambiguous spelling remains explicitly unknown;
+            # promoting the SDK's guess would create a second routing rule.
+            provider = provider_for_model(self.model) or "unknown"
             # `None` would print as `at None` and send the reader looking for a
             # host that is not named anywhere; say which endpoint answered.
             endpoint = self.api_base or "the provider's default endpoint"
