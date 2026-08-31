@@ -1934,7 +1934,9 @@ So that what the model actually wrote is evidence rather than a discarded interm
 
 **Given** the extract stage,
 **When** an extraction document is produced or parsed,
-**Then** its full text is persisted with the `extraction_source` row that already records the run's kind, model, prompt hash, sha256 and byte size; both paths store it — the document generated through the `Llm(extraction)` port and the one a drop already carried — and the stored bytes are the exact bytes the parser read, so the `sha256` already recorded verifies against them.
+**Then** its full text is persisted with the `extraction_source` row that already records the run's kind, model, prompt hash, sha256 and byte size, and the stored bytes are the exact bytes the parser read, so the `sha256` already recorded verifies against them. A **generated** document — produced through the `Llm(extraction)` port — is primary data with no other home and is stored in Postgres, the precedent being `artifact.body`; AD-3's content root is for binaries (frames, screenshots, audio) and does not apply.
+
+> **Open owner question, to settle before this story starts — does an *adopted* document get copied too?** A document a drop already carried is permanent where it is: the drop is write-once and `drop_relative_path` points at those exact bytes, so storing them again is a second permanent copy of permanent material, which is the reasoning AD-3 used to refuse copying a recording under the content root. The counter is that AD-3 was weighing a large binary where a copy doubles real storage, a few KB of markdown is different in kind, and one uniform read path for the new endpoint has value of its own. **If the copy is kept, the spine needs a sentence saying why AD-3's reasoning does not extend to small text** — otherwise the next reader cites AD-3 to reverse it. If it is not kept, the endpoint reads adopted documents from the drop and generated ones from Postgres, and must present them identically.
 
 **Given** a rerun,
 **When** a meeting is extracted again,
@@ -1962,15 +1964,19 @@ So that the whole-meeting analysis the extraction already performs is not thrown
 
 **Given** the artifact schema,
 **When** a meeting-scoped artifact is stored,
-**Then** `artifact.moment_id` is nullable and a constraint requires it null for meeting-scoped kinds and present for moment-anchored kinds, so the two scopes cannot be confused by a reader or a query; `meeting_id` stays required for both.
+**Then** `artifact.moment_id` is nullable and a constraint requires it null for meeting-scoped kinds and present for moment-anchored kinds, so the two scopes cannot be confused by a reader or a query; `meeting_id` stays required for both. **Which kinds are meeting-scoped is declared in exactly one place — that constraint** — so no reader carries its own copy of the list and none can drift from it. **Widening the scope must not weaken the anchor:** where `moment_id` is present, migration 0009's composite `(moment_id, meeting_id)` edge still holds, so no artifact can name a moment belonging to another meeting.
 
 **Given** the approval lifecycle,
 **When** a summary is created,
 **Then** it enters the same `extracted → approved → published` lifecycle as every other artifact and is published by the same gesture — a meeting-level artifact is not an exception to human-approved publishing (AD-6), and the per-moment approval path keeps working unchanged for moment-anchored kinds.
 
 **Given** "no citation, no answer",
-**When** a summary is rendered or cited,
-**Then** it carries the meeting it summarises as its citation and the moments its constituent claims anchor to where the document supplies them; a summary never presents itself as anchored to one moment.
+**When** a summary is read in the meeting panel,
+**Then** it renders freely — that is a read of stored artifact state, not an answer, and it needs no citation to be shown.
+
+**Given** "no citation, no answer",
+**When** a summary's content enters an answer,
+**Then** it is citable only through the moments its individual claims anchor to, exactly as every other claim already is; a claim the document does not anchor is not citable at all. **`meeting_id` is scope and provenance, never a citation** — AD-15's citation carries a `momentId` with `startMs`/`endMs` because the product promise is that a citation opens the recording at the second, and a meeting-only citation hands the replay links, the eval checks and search something that cannot replay. That is the silent degradation AD-18 forbids, so the summary is not an exception to the citation rule and does not widen it.
 
 ### Story 12.3: The Meeting Analysis Panel
 
