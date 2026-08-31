@@ -460,6 +460,42 @@ outside it by design, and no other tool reaches them.
 
 ---
 
+### B-56 · A re-extraction destroys the set the owner wants to merge against — M
+
+The owner re-extracts a meeting's artifacts often, and merges the old and new
+sets by hand afterwards: *"if I have an action items list from a previous
+extraction and then I extract action items again, I'll usually ask the LLM to
+merge the two artifacts together."*
+
+The pipeline does not support that. `_DELETE_DRAFTS` in
+`server/meetingminer/pipeline/stages/extract.py` removes **every** `extracted`
+artifact for the meeting before the stage re-proposes, so by the time the new
+set exists the old one is gone. There is nothing left to merge against, and the
+merge the owner performs is only possible because they hold the earlier output
+somewhere outside MeetingMiner.
+
+Note this is the *unapproved* path, which is every artifact today: 772 on the
+corpus as of 2026-08-31, all in state `extracted`. A moment carrying an
+`approved` or `published` artifact is skipped instead, and keeps its whole set —
+so the retention behaviour a curator gets is the opposite of the one a
+re-extractor gets, for reasons neither would predict.
+
+**Owner ruling 2026-08-31: deleting the previous set is correct for current
+capabilities.** This is filed as a known limitation to revisit, not as work to
+schedule. It was raised while ruling on story 12.1's finding F5 and is recorded
+so the constraint is discoverable rather than living in a session log.
+
+**Do, if it is ever taken up:** keep the replaced set as superseded rather than
+deleting it, so both extractions are addressable and a merge — by a human or by
+the system — has two inputs. That touches the artifact lifecycle, so it belongs
+with the approval workflow story rather than on its own. See the F5 ruling at
+`_bmad-output/implementation-artifacts/owner-ruling-12-1-f5-2026-08-31.md`,
+which defers the related provenance fix to the same place.
+
+*Filed as B-56 rather than B-55: main was at B-53, parallel branches hold B-54,
+and story 12.1's review lane was told to take the next free id above B-54.*
+
+
 ## Acquisition
 
 ### B-27 · The tracked puller cannot produce a participant graph — L
