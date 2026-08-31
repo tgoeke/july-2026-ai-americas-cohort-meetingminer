@@ -239,7 +239,7 @@ without editing `config.yaml`, the report and snapshot record that exact
 binding, and paired tests fail if either the settings surface or judge harness
 can drift from the other.
 
-### B-42 · Move the ranking-signals prompt beside the other extraction prompts — S
+### B-46 · Move the ranking-signals prompt beside the other extraction prompts — S
 
 Story 10.4 added a fourth whole-transcript extraction pass, but its prompt text
 lives at `ranking.signals_prompt` while the other three are fields on

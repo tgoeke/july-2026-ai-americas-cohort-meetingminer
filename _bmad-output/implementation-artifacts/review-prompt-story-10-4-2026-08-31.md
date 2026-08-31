@@ -35,7 +35,7 @@ Owner ruling, 2026-08-30:
 | `server/meetingminer/config.py` | `RankingWeights`, `RankingConfig`, `Settings.ranking`. |
 | `server/tests/test_ranking_signals.py`, `test_api_moments_feed.py` | NEW. |
 | `server/tests/conftest.py`, `test_config.py`, `test_worker_extract.py`, `test_extraction_topics.py`, `test_api_registry.py` | Forced updates — see the spec's change log. |
-| `docs/backlog.md` | B-42. |
+| `docs/backlog.md` | B-46. |
 
 `server/meetingminer/api/moments.py` is untouched (story 2.2 owns it).
 
@@ -50,12 +50,15 @@ Owner ruling, 2026-08-30:
    `offset + len(items) > total`, or for which a row appears on two pages?
 2. **`colorOrdinal` is served as `null`** because story 10.3's migration 0017
    adds the column, in parallel. The query reads it as
-   `to_jsonb(t) ->> 'color_ordinal'`. **If 10.3 has landed by the time you
-   read this, verify the real ordinal now flows** — and that its type survives
-   the `->>` text extraction (`int(ordinal)` in `_thread_of`). If 10.3 chose a
-   different column name, this silently keeps serving `null`: check the name
-   against 0017 and fix it if it differs. That is the single highest-value
-   thing on this list.
+   `to_jsonb(t) ->> 'color_ordinal'`. I checked `origin/story/10-3` on
+   2026-08-31: its 0017 declares `thread.color_ordinal` (a `bigint` from
+   `thread_color_ordinal_seq`), which is exactly the key this query reads —
+   so the real ordinal should flow the moment 10.3 lands, with no edit here.
+   **Verify that end to end once 10.3 is on `main`**, including that the
+   value survives the `->>` text extraction and `int(ordinal)` in
+   `_thread_of`, and that a `bigint` beyond 32 bits does not surprise
+   `FeedThread.color_ordinal`. That is the single highest-value item on this
+   list.
 3. **The scoring model is a judgement call, and it is the demo's front door.**
    Weights are per kind, once, not per row (a talkative meeting must not hold
    the whole feed). Recency decays exponentially; due urgency falls linearly
@@ -80,21 +83,27 @@ Owner ruling, 2026-08-30:
 ## Known open items — do not re-report as discoveries
 
 - **`ranking.signals_prompt` is not under `llm.roles.extraction`.** Filed as
-  B-42 with the reason (footprint discipline in a parallel wave). This is a
+  B-46 with the reason (footprint discipline in a parallel wave). This is a
   **first-class candidate for you to fix**: the wave's footprint no longer
   binds once these branches are landing, and moving it is a small, mechanical
-  change with an obvious test. If you fix it, close B-42 in the same commit.
-- **B-42 may collide.** The wave prompts told every lane "highest in use is
-  B-40", but B-41 was already taken by an eval-harness item. Other lanes may
-  have claimed B-42 as well. Check `docs/backlog.md` against the other
-  in-flight branches and renumber if needed.
+  change with an obvious test. If you fix it, close B-46 in the same commit.
+- **The backlog counter is over-subscribed across this wave.** The wave
+  prompts told every lane "highest in use is B-40", but `main` already had a
+  B-41 (an eval-harness item). Measured on 2026-08-31, the in-flight branches
+  claim: `story/7-4` B-41 **and** B-42, `story/8-3` B-42 and B-43,
+  `story/10-3` B-42, `story/10-6` B-44 and B-45. I moved this story's entry
+  to **B-46** to sit clear of all of them, but three separate B-42s and a
+  duplicate B-41 still have to be reconciled at integrate — that is an owner
+  or coordinator job, not this review's.
 - **No query-shape test on the candidate scan** (item 5 above). Named, not
   written.
 - **No `score` on the wire.** Deliberate: the AC enumerates the card's fields.
   If you think a debug-only score is worth it, that is an owner decision.
 - **`/media/files/{mediaId}` does not exist yet.** This story serves the
   opaque `screenshotId` and no path, which is its half of AD-17; building the
-  route is not in this footprint.
+  route is not in this footprint. Story 10.3 reached the same conclusion
+  independently and filed it (its B-42, "AD-17's id-addressed media route does
+  not exist"), so the gap is on the record — do not file it a third time.
 
 ## Verification to reproduce
 

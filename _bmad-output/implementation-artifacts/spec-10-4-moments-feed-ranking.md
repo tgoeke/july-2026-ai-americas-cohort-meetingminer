@@ -15,7 +15,7 @@ context:
 warnings: []
 deferred:
   - 'thread.colorOrdinal is served as null until story 10.3 migration 0017 lands'
-  - 'B-42: relocate ranking.signals_prompt under llm.roles.extraction'
+  - 'B-46: relocate ranking.signals_prompt under llm.roles.extraction'
 ---
 
 <intent-contract>
@@ -169,7 +169,7 @@ without a valid reason, and only then computes `total`, `offset` and the page.
   ranker, store-free.
 - `server/tests/test_api_moments_feed.py` -- NEW: the wire contract and the
   validate-then-page order, Postgres-backed.
-- `docs/backlog.md` -- ADD B-42.
+- `docs/backlog.md` -- ADD B-46.
 
 **Acceptance Criteria:**
 - Given a corpus with artifacts, ranking signals, threads and recent
@@ -227,7 +227,7 @@ without a valid reason, and only then computes `total`, `offset` and the page.
   another lane may hold is the widening the wave rules forbid. The port is
   unchanged — the stage still calls `Llm(extraction)` — and the value is
   still versioned configuration with recorded rationale, so no AC is
-  weakened. Filed as **B-42**, and named in the review prompt as a
+  weakened. Filed as **B-46**, and named in the review prompt as a
   first-class candidate for the review lane to relocate.
 - **2026-08-31, planning — deferred: `thread.colorOrdinal` is served as
   `null`.** The AC requires `threads[]{threadId,name,colorOrdinal}` and the
