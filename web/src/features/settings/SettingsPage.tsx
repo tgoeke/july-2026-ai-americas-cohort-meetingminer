@@ -9,6 +9,10 @@ import type {
 import { API_BASE } from '@/lib/api'
 import { ModelRoles } from './ModelRoles'
 import {
+  setSingleKeyShortcutsEnabled,
+  useSingleKeyShortcutsEnabled,
+} from './singleKeyShortcuts'
+import {
   changePath,
   CONFIG_TIMEOUT_MS,
   formatValue,
@@ -252,6 +256,7 @@ function Loaded({ config }: { config: ConfigResponse }) {
 
 export function SettingsPage() {
   const [load, setLoad] = useState<ConfigLoad>({ kind: 'loading' })
+  const shortcutsEnabled = useSingleKeyShortcutsEnabled()
 
   // One fetch on mount: the config is static until a restart, so there is
   // nothing to poll — a reader wanting fresher data reloads the page.
@@ -296,6 +301,17 @@ export function SettingsPage() {
   return (
     <section className="flex flex-col gap-4">
       <h2 className="text-xl font-semibold tracking-tight">Configuration</h2>
+      <section className="flex flex-col gap-2">
+        <h3 className="text-sm font-medium text-muted-foreground">Keyboard</h3>
+        <label className="flex items-center gap-2 rounded-md border p-3 text-sm">
+          <input
+            type="checkbox"
+            checked={shortcutsEnabled}
+            onChange={(event) => setSingleKeyShortcutsEnabled(event.target.checked)}
+          />
+          <span>Single-key shortcuts</span>
+        </label>
+      </section>
       {load.kind === 'loading' && <p className="text-sm">reading the declared stack…</p>}
       {load.kind === 'failed' && (
         <div className="flex flex-col gap-1 rounded-md border p-3">
