@@ -116,9 +116,13 @@ export function MeetingDocuments({ meetingId }: { meetingId: string }) {
             </span>
           </button>
           {open === row.kind && (
+            // No height cap and no overflow here on purpose. The rail this
+            // sits in already scrolls, and a scrolling box inside a scrolling
+            // box gives a reader two bars to fight over one document. The
+            // document runs to its full length and the rail carries it.
             <pre
               data-testid={`meeting-document-text-${row.kind}`}
-              className="max-h-[28rem] overflow-auto border-t px-3 py-2 font-mono text-[11px] whitespace-pre-wrap"
+              className="border-t px-3 py-2 font-mono text-[11px] break-words whitespace-pre-wrap"
             >
               {row.documentText}
             </pre>
