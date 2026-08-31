@@ -6,7 +6,16 @@ Review and remediate the LAN diarization endpoint behind the `Diarizer` port. In
 
 ## Review range
 
-Requested builder range: `a401d6c..6bdcca8` on `story/b36-remote-diarizer`. Per the coordinator handoff, the review branch will be rebased onto `origin/main` before code inspection; the resulting reviewed range will be recorded here after rebase.
+Requested builder range: `a401d6c..6bdcca8` on `story/b36-remote-diarizer`.
+
+Rebased review range: `origin/main..97754b4` on `story/b36-remote-diarizer-review` at the start of code inspection:
+
+- `10457a6` — spec(b36): plan the remote-http diarizer engine behind the Diarizer port
+- `46a5708` — feat(b36): bind the LAN diarization endpoint behind the Diarizer port
+- `9c1cbaa` — docs(b36): spec to review with its change log, sprint tracking, review handoff
+- `97754b4` — docs(b36): record the verified gate output and the real branch state
+
+The report skeleton commit `74cbf2b` follows that reviewed builder range and is not implementation under review.
 
 ## Findings
 
