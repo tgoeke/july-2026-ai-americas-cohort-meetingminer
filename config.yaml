@@ -82,15 +82,19 @@ llm:
       default: openai/gpt-5.2
       model: openai/gpt-5.2
       fallback: ollama/gpt-oss:120b
-      # This role's own endpoint for its PRIMARY model, overriding
-      # `providers.ollama.base_url` below. The provider entry is a single
-      # value the *embedder* also resolves (`adapters/embed/__init__.py`),
-      # and its `qwen3-embedding:0.6b` is served on this machine while
-      # `gpt-oss:120b` is served on the big box next door — so pointing the
-      # shared provider at that box would break embeddings. (On 2026-08-20 both
-      # endpoints returned identical `/api/tags`, so nothing breaks today if
-      # they are collapsed; keep them separate anyway — the lists diverge again
-      # the moment either box pulls or drops a model.)
+      # `providers.ollama.base_url` is `http://localhost:11434` and this role's
+      # fallback names `http://10.77.0.52:11434`. **Those are the same
+      # machine** — 10.77.0.52 is this Mac's own LAN address, and both
+      # endpoints serve the same 30 models. An earlier version of this comment
+      # claimed `gpt-oss:120b` ran on "the big box next door"; it does not, and
+      # reasoning from that error hides the real constraint below.
+      #
+      # The constraint: the embedder and a local extraction model contend for
+      # ONE box, which also carries the api, the worker, OCR and the whole
+      # Docker stack. That contention is why extraction moved to a paid
+      # provider on 2026-08-31 — it takes the largest model off the machine
+      # entirely rather than merely making one stage faster, and leaves the
+      # embedder the room it needs for high-volume chunk embedding.
       #
       # The fallback deliberately does NOT inherit this: pointing it at a host
       # that does not serve it would make the fallback dead on the first call
