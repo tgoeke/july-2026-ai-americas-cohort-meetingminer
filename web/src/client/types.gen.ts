@@ -20,6 +20,10 @@ export type AcquisitionAccepted = {
      * Status
      */
     status: string;
+    /**
+     * Kind
+     */
+    kind: string;
 };
 
 /**
@@ -42,12 +46,23 @@ export type AcquisitionRefusal = {
 
 /**
  * AcquisitionRequest
+ *
+ * One source, named exactly one way.
+ *
+ * ``url`` for a published video, ``uploadSessionId`` for files already handed
+ * to ``POST /uploads``. Both, or neither, is a refusal rather than a
+ * precedence rule: a client that sent both does not know which one it meant,
+ * and guessing would acquire the wrong meeting.
  */
 export type AcquisitionRequest = {
     /**
      * Url
      */
-    url: string;
+    url?: string | null;
+    /**
+     * Uploadsessionid
+     */
+    uploadSessionId?: string | null;
 };
 
 /**
@@ -88,6 +103,14 @@ export type AcquisitionStatus = {
      * Status
      */
     status: string;
+    /**
+     * Kind
+     */
+    kind: string;
+    /**
+     * Uploadsessionid
+     */
+    uploadSessionId?: string | null;
     /**
      * Createdat
      */
@@ -1969,6 +1992,18 @@ export type ProbeCaptions = {
 };
 
 /**
+ * ProbeRequest
+ *
+ * ``POST /acquisitions/probe`` takes a URL and only a URL.
+ */
+export type ProbeRequest = {
+    /**
+     * Url
+     */
+    url: string;
+};
+
+/**
  * ProbeResult
  */
 export type ProbeResult = {
@@ -3007,6 +3042,70 @@ export type TimelineTopic = {
 };
 
 /**
+ * UploadSessionView
+ */
+export type UploadSessionView = {
+    /**
+     * Uploadsessionid
+     */
+    uploadSessionId: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Startedat
+     */
+    startedAt: string;
+    /**
+     * Corpus
+     */
+    corpus: string;
+    /**
+     * Transcriptdialect
+     */
+    transcriptDialect: string;
+    /**
+     * Suppliedby
+     */
+    suppliedBy: string;
+    /**
+     * Createdat
+     */
+    createdAt: string;
+    /**
+     * Expiresat
+     */
+    expiresAt: string;
+    /**
+     * Files
+     */
+    files: Array<UploadedFileView>;
+};
+
+/**
+ * UploadedFileView
+ */
+export type UploadedFileView = {
+    /**
+     * Canonical
+     */
+    canonical: string;
+    /**
+     * Originalfilename
+     */
+    originalFilename: string;
+    /**
+     * Sha256
+     */
+    sha256: string;
+    /**
+     * Bytesize
+     */
+    byteSize: number;
+};
+
+/**
  * ValidationError
  */
 export type ValidationError = {
@@ -3610,7 +3709,7 @@ export type StartAcquisitionResponses = {
 export type StartAcquisitionResponse = StartAcquisitionResponses[keyof StartAcquisitionResponses];
 
 export type ProbeAcquisitionData = {
-    body: AcquisitionRequest;
+    body: ProbeRequest;
     path?: never;
     query?: never;
     url: '/acquisitions/probe';
@@ -4331,6 +4430,157 @@ export type GetThreadTimelineResponses = {
 };
 
 export type GetThreadTimelineResponse = GetThreadTimelineResponses[keyof GetThreadTimelineResponses];
+
+export type CreateUploadSessionData = {
+    /**
+     * UploadSessionRequest
+     */
+    body: {
+        /**
+         * The meeting's human label, shown in the app.
+         */
+        title: string;
+        /**
+         * When the meeting started: RFC 3339 with an offset (2026-08-05T12:00:19Z). A date alone is refused — an upload never records day precision.
+         */
+        startedAt: string;
+        /**
+         * Always 'real'. Scripted meetings are eval subjects and are minted on the api host.
+         */
+        corpus: 'real';
+        /**
+         * Which export the transcript is. Required whenever a .vtt is attached; declared, never detected.
+         */
+        transcriptDialect?: 'plain' | 'teams-vtt' | 'zoom';
+        /**
+         * Who supplied the files, recorded in provenance.
+         */
+        suppliedBy?: string;
+        /**
+         * The recording and/or transcript. The role is decided by the file extension: .mp4 becomes recording.mp4, .vtt transcript.vtt, .txt transcript.txt.
+         */
+        files: Array<Blob | File>;
+    };
+    path?: never;
+    query?: never;
+    url: '/uploads';
+};
+
+export type CreateUploadSessionErrors = {
+    /**
+     * Bad Request
+     */
+    400: unknown;
+    /**
+     * Request Entity Too Large
+     */
+    413: unknown;
+    /**
+     * Unsupported Media Type
+     */
+    415: unknown;
+    /**
+     * Unprocessable Entity
+     */
+    422: unknown;
+    /**
+     * Internal Server Error
+     */
+    500: unknown;
+    /**
+     * Service Unavailable
+     */
+    503: unknown;
+};
+
+export type CreateUploadSessionResponses = {
+    /**
+     * Successful Response
+     */
+    201: UploadSessionView;
+};
+
+export type CreateUploadSessionResponse = CreateUploadSessionResponses[keyof CreateUploadSessionResponses];
+
+export type DeleteUploadSessionData = {
+    body?: never;
+    path: {
+        /**
+         * Upload Session Id
+         */
+        upload_session_id: string;
+    };
+    query?: never;
+    url: '/uploads/{upload_session_id}';
+};
+
+export type DeleteUploadSessionErrors = {
+    /**
+     * Not Found
+     */
+    404: unknown;
+    /**
+     * Unprocessable Entity
+     */
+    422: unknown;
+    /**
+     * Internal Server Error
+     */
+    500: unknown;
+    /**
+     * Service Unavailable
+     */
+    503: unknown;
+};
+
+export type DeleteUploadSessionResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type DeleteUploadSessionResponse = DeleteUploadSessionResponses[keyof DeleteUploadSessionResponses];
+
+export type GetUploadSessionData = {
+    body?: never;
+    path: {
+        /**
+         * Upload Session Id
+         */
+        upload_session_id: string;
+    };
+    query?: never;
+    url: '/uploads/{upload_session_id}';
+};
+
+export type GetUploadSessionErrors = {
+    /**
+     * Not Found
+     */
+    404: unknown;
+    /**
+     * Unprocessable Entity
+     */
+    422: unknown;
+    /**
+     * Internal Server Error
+     */
+    500: unknown;
+    /**
+     * Service Unavailable
+     */
+    503: unknown;
+};
+
+export type GetUploadSessionResponses = {
+    /**
+     * Successful Response
+     */
+    200: UploadSessionView;
+};
+
+export type GetUploadSessionResponse = GetUploadSessionResponses[keyof GetUploadSessionResponses];
 
 export type GetHealthData = {
     body?: never;
