@@ -38,7 +38,8 @@ const sdk = vi.hoisted(() => ({
   getConfiguration: vi.fn(),
 }))
 
-vi.mock('@/client/sdk.gen', () => ({
+vi.mock('@/client/sdk.gen', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/client/sdk.gen')>()),
   getHealth: sdk.getHealth,
   listMeetings: sdk.listMeetings,
   streamJobEvents: sdk.streamJobEvents,
@@ -89,9 +90,18 @@ beforeEach(() => {
   vi.stubGlobal(
     'fetch',
     vi.fn((input: RequestInfo | URL) => {
-      if ((input instanceof Request ? input.url : String(input)).includes('/moments/feed')) {
+      const path = new URL(input instanceof Request ? input.url : String(input)).pathname
+      if (path.endsWith('/moments/feed')) {
         return Promise.resolve(
           new Response(JSON.stringify({ items: [], total: 0, corpusTotal: 0, limit: 24, offset: 0 }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        )
+      }
+      if (path.endsWith('/threads')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ threads: [] }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
           }),

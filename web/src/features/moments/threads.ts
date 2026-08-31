@@ -1,3 +1,4 @@
+import '@/lib/api'
 import { listThreads } from '@/client/sdk.gen'
 import type { ThreadSummary, ThreadsResponse } from '@/client/types.gen'
 
@@ -81,6 +82,9 @@ export function parseThreadsResponse(body: unknown): Array<ThreadOption> {
 export async function fetchThreadOptions(signal?: AbortSignal): Promise<Array<ThreadOption>> {
   const result = await listThreads({ signal, parseAs: 'json' })
   if (result.error !== undefined) {
+    if (result.response?.ok) {
+      throw new ThreadsContractError('the threads response must be valid JSON')
+    }
     if (result.response === undefined) {
       if (result.error instanceof Error) throw result.error
       throw new Error(String(result.error))

@@ -26,10 +26,10 @@ const sdk = vi.hoisted(() => ({
   getCorpusStats: vi.fn(),
 }))
 
-// The factory lists every export of the generated sdk, so a route added to the
-// api and regenerated into the client shows up here as a missing mock rather
-// than as an undefined call deep inside a component.
-vi.mock('@/client/sdk.gen', () => ({
+// Most app reads stay controlled mocks; the landed feed and thread operations
+// remain real so their generated Request objects exercise the fetch fixture.
+vi.mock('@/client/sdk.gen', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/client/sdk.gen')>()),
   getHealth: sdk.getHealth,
   listMeetings: sdk.listMeetings,
   streamJobEvents: sdk.streamJobEvents,
@@ -125,8 +125,12 @@ beforeEach(() => {
   vi.stubGlobal(
     'fetch',
     vi.fn((input: RequestInfo | URL) => {
-      if ((input instanceof Request ? input.url : String(input)).includes('/moments/feed')) {
+      const path = new URL(input instanceof Request ? input.url : String(input)).pathname
+      if (path.endsWith('/moments/feed')) {
         return Promise.resolve(jsonResponse(feedPage()))
+      }
+      if (path.endsWith('/threads')) {
+        return Promise.resolve(jsonResponse(JSON.stringify({ threads: [] })))
       }
       return Promise.reject(new Error('no api in this test'))
     }),
@@ -490,8 +494,12 @@ describe('App', () => {
     // stream; the status poll gets a refusal and reads as unreachable, which
     // is irrelevant to this citation-navigation test.
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
-      if ((input instanceof Request ? input.url : String(input)).includes('/moments/feed')) {
+      const path = new URL(input instanceof Request ? input.url : String(input)).pathname
+      if (path.endsWith('/moments/feed')) {
         return Promise.resolve(jsonResponse(feedPage()))
+      }
+      if (path.endsWith('/threads')) {
+        return Promise.resolve(jsonResponse(JSON.stringify({ threads: [] })))
       }
       if (!(input instanceof Request ? input.url : String(input)).endsWith('/chat')) {
         return Promise.reject(new Error('no api in this test'))

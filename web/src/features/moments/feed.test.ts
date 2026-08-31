@@ -3,7 +3,6 @@ import {
   ARTIFACT_KINDS,
   FeedContractError,
   cardMetaLabel,
-  feedSearchParams,
   filterEmptySentence,
   hasActiveFilters,
   isArtifactKind,
@@ -58,26 +57,6 @@ describe('isArtifactKind', () => {
     for (const kind of ['risk', 'question', 'due', 'recency', 'published', 'thread', 'topic']) {
       expect(isArtifactKind(kind)).toBe(false)
     }
-  })
-})
-
-describe('feedSearchParams', () => {
-  it('sends only the filters that are set, plus the page window', () => {
-    const params = feedSearchParams(NO_FILTERS, 24, 0)
-    expect(params.toString()).toBe('limit=24&offset=0')
-  })
-
-  it("passes every active filter under the api's own name", () => {
-    const params = feedSearchParams(
-      { corpus: 'real', thread: 'thread-1', kind: 'decision', meeting: 'meeting-1' },
-      24,
-      48,
-    )
-    expect(params.get('corpus')).toBe('real')
-    expect(params.get('thread')).toBe('thread-1')
-    expect(params.get('kind')).toBe('decision')
-    expect(params.get('meeting')).toBe('meeting-1')
-    expect(params.get('offset')).toBe('48')
   })
 })
 
