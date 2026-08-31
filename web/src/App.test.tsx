@@ -69,6 +69,20 @@ function corpusStats(): CorpusStats {
   }
 }
 
+/** An empty page of the ranked feed — the shape `GET /moments/feed` serves
+ * (story 10.4). The front door reads it on every route because it stays
+ * mounted, so every test in this file needs it answered. */
+function feedPage(items: Array<unknown> = []): string {
+  return JSON.stringify({ items, total: items.length, limit: 24, offset: 0 })
+}
+
+function jsonResponse(body: string): Response {
+  return new Response(body, {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
 /** A promise plus the handle to settle it, so a test decides when a call returns. */
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -98,6 +112,20 @@ beforeEach(() => {
     return { stream: live.stream }
   })
   sdk.listParticipants.mockResolvedValue({ data: [], error: undefined })
+  // Two readers in this shell use raw `fetch` rather than the generated sdk:
+  // the status indicator polls `GET /status`, and the Moments feed reads
+  // `GET /moments/feed` (story 10.4's endpoint, not yet in the client). Only
+  // the feed is answered; everything else reads as unreachable, which is what
+  // these navigation tests want.
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((input: RequestInfo | URL) => {
+      if (String(input).includes('/moments/feed')) {
+        return Promise.resolve(jsonResponse(feedPage()))
+      }
+      return Promise.reject(new Error('no api in this test'))
+    }),
+  )
 })
 
 afterEach(() => {
@@ -268,22 +296,24 @@ describe('App', () => {
     })
     render(<App />)
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Participants' }))
+    await userEvent.click(await screen.findByRole('link', { name: 'Participants' }))
 
     expect(await screen.findByRole('heading', { name: 'Participants' })).toBeInTheDocument()
     expect(screen.getByTestId('participant-row-participant-1')).toBeInTheDocument()
   })
 
-  it('shows the meetings list as the main view, with the health panel beside it', async () => {
+  it('shows the meetings list on /meetings, with the health panel beside it', async () => {
     sdk.getHealth.mockResolvedValue(health('meetingminer-api'))
+    window.history.replaceState(null, '', '/meetings')
     render(<App />)
 
     expect(await screen.findByRole('heading', { name: 'Meetings' })).toBeInTheDocument()
     expect(await screen.findByText('meetingminer-api')).toBeInTheDocument()
   })
 
-  it('states the corpus scale on home from served counts only', async () => {
+  it('states the corpus scale on /meetings from served counts only', async () => {
     sdk.getHealth.mockResolvedValue(health('meetingminer-api'))
+    window.history.replaceState(null, '', '/meetings')
     render(<App />)
 
     const stats = await screen.findByTestId('corpus-stats')
@@ -302,6 +332,7 @@ describe('App', () => {
   it('says the corpus counts are unavailable rather than rendering invented zeros', async () => {
     sdk.getHealth.mockResolvedValue(health('meetingminer-api'))
     sdk.getCorpusStats.mockRejectedValue(new Error('connection refused'))
+    window.history.replaceState(null, '', '/meetings')
     render(<App />)
 
     const stats = await screen.findByTestId('corpus-stats')
@@ -320,12 +351,20 @@ describe('App', () => {
     render(<App />)
     await screen.findByTestId('moment-artifact-rail')
 
-    // Home content is hidden — but the chrome is not: search, ask, and the
-    // standing destinations survive on every route (SPEC-ui-reimagine CAP-1).
+    // Both views are hidden — but the chrome is not: search, ask, and the
+    // standing destinations survive on every route (SPEC-ui-reimagine CAP-1,
+    // recomposed by story 10.5).
+    expect(screen.queryByRole('region', { name: 'Moments' })).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Meetings' })).toBeNull()
     expect(screen.getByTestId('search-input')).toBeInTheDocument()
     expect(screen.getByTestId('chat-question-input')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/')
+    expect(screen.getByRole('link', { name: 'Moments' })).toHaveAttribute('href', '/')
+    expect(screen.getByRole('link', { name: 'Threads' })).toHaveAttribute('href', '/threads')
+    expect(screen.getByRole('link', { name: 'Meetings' })).toHaveAttribute('href', '/meetings')
+    expect(screen.getByRole('link', { name: 'Participants' })).toHaveAttribute(
+      'href',
+      '/participants',
+    )
     expect(screen.getByRole('link', { name: 'Status' })).toHaveAttribute('href', '/status')
     // `/settings` is story ui-4's page; the chrome links to it either way.
     expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings')
@@ -333,6 +372,7 @@ describe('App', () => {
 
   it('opens the status page from the chrome nav', async () => {
     sdk.getHealth.mockResolvedValue(health('meetingminer-api'))
+    window.history.replaceState(null, '', '/meetings')
     render(<App />)
     await screen.findByRole('heading', { name: 'Meetings' })
 
@@ -344,6 +384,7 @@ describe('App', () => {
 
   it('mounts corpus search above the meetings list, idle until asked', async () => {
     sdk.getHealth.mockResolvedValue(health('meetingminer-api'))
+    window.history.replaceState(null, '', '/meetings')
     render(<App />)
 
     const search = await screen.findByRole('heading', { name: 'Search' })
@@ -364,6 +405,7 @@ describe('App', () => {
     const first = deferred<ReturnType<typeof health>>()
     sdk.getHealth.mockImplementationOnce(() => first.promise)
     sdk.getHealth.mockResolvedValue(health('second-response'))
+    window.history.replaceState(null, '', '/meetings')
 
     render(<App />)
     await waitFor(() => expect(sdk.getHealth).toHaveBeenCalledTimes(1))
@@ -378,6 +420,7 @@ describe('App', () => {
 
   it('names the api address when health cannot be reached', async () => {
     sdk.getHealth.mockRejectedValue(new Error('connection refused'))
+    window.history.replaceState(null, '', '/meetings')
     render(<App />)
 
     const message = await screen.findByText(/cannot reach the api at/i)
@@ -385,8 +428,9 @@ describe('App', () => {
     expect(message).toHaveTextContent('connection refused')
   })
 
-  it('opens a viewable meeting from the list and comes back home', async () => {
+  it('opens a viewable meeting from the list and comes back to /meetings', async () => {
     sdk.getHealth.mockResolvedValue(health('meetingminer-api'))
+    window.history.replaceState(null, '', '/meetings')
     sdk.listMeetings.mockResolvedValue({
       data: { meetings: [viewableMeeting()] },
       error: undefined,
@@ -409,6 +453,7 @@ describe('App', () => {
 
   it('opens the moment view from a meeting list row', async () => {
     sdk.getHealth.mockResolvedValue(health('meetingminer-api'))
+    window.history.replaceState(null, '', '/meetings')
     sdk.listMeetings.mockResolvedValue({
       data: { meetings: [viewableMeeting()] },
       error: undefined,
@@ -440,6 +485,9 @@ describe('App', () => {
     // stream; the status poll gets a refusal and reads as unreachable, which
     // is irrelevant to this citation-navigation test.
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (String(input).includes('/moments/feed')) {
+        return Promise.resolve(jsonResponse(feedPage()))
+      }
       if (!String(input).endsWith('/chat')) {
         return Promise.reject(new Error('no api in this test'))
       }
@@ -505,6 +553,7 @@ describe('App', () => {
 
   it('returns from a moment to the meeting list it was opened from', async () => {
     sdk.getHealth.mockResolvedValue(health('meetingminer-api'))
+    window.history.replaceState(null, '', '/meetings')
     sdk.listMeetings.mockResolvedValue({
       data: { meetings: [viewableMeeting()] },
       error: undefined,
@@ -556,6 +605,7 @@ describe('App', () => {
 
   it('never stacks a double-clicked Open twice', async () => {
     sdk.getHealth.mockResolvedValue(health('meetingminer-api'))
+    window.history.replaceState(null, '', '/meetings')
     sdk.listMeetings.mockResolvedValue({
       data: { meetings: [viewableMeeting()] },
       error: undefined,
@@ -573,14 +623,16 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: 'Meetings' })).toBeInTheDocument()
   })
 
-  it('renders home rather than a blank shell on an unknown path', async () => {
+  it('renders the front door rather than a blank shell on an unknown path', async () => {
     sdk.getHealth.mockResolvedValue(health('meetingminer-api'))
     window.history.replaceState(null, '', '/no/such/screen')
 
     render(<App />)
 
-    expect(await screen.findByRole('heading', { name: 'Meetings' })).toBeInTheDocument()
-    // Home is the current view, not a hidden layer behind a matched child.
+    expect(await screen.findByRole('region', { name: 'Moments' })).toBeInTheDocument()
+    // The front door is the current view, not a hidden layer behind a matched
+    // child, and the relocated home is not showing instead.
+    expect(screen.queryByRole('heading', { name: 'Meetings' })).toBeNull()
     expect(screen.queryByRole('button', { name: '← Back' })).not.toBeInTheDocument()
   })
 
@@ -595,7 +647,7 @@ describe('App', () => {
     await screen.findByTestId('moment-artifact-rail')
 
     await userEvent.click(screen.getByRole('button', { name: '← Back' }))
-    expect(await screen.findByRole('heading', { name: 'Meetings' })).toBeInTheDocument()
+    expect(await screen.findByRole('region', { name: 'Moments' })).toBeInTheDocument()
     expect(screen.queryByTestId('moment-artifact-rail')).toBeNull()
   })
 })
