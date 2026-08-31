@@ -133,12 +133,13 @@ story; a note for the next.
 - `make lint` — clean, no new baseline entry.
 - `make typecheck` — clean, 13 files.
 - `make test-fast` — 2385 passed.
-- `make test` — the full gate. The builder's last complete run before the
-  generalisation was **2804 passed, 3 failed**; all three were shape pins that
-  this change legitimately widens (`search.counts()` covering a fourth index, in
-  two suites, and `SearchResponse` gaining its documents array) and all three
-  were updated. **Re-run it and confirm green** — the builder's post-fix run is
-  reported in the completion message, and an independent run is worth having.
+- `make test` — **2820 passed, 3 skipped, 0 failed, exit 0** (15m48s, at
+  `53e354bf`). The three skips are the standing ones: `pyannote` not installed,
+  and the two network tests that need an explicit env var. An earlier complete
+  run found 3 failures, all shape pins this change legitimately widens
+  (`search.counts()` covering a fourth index, in two suites, and
+  `SearchResponse` gaining its documents array); all three were updated and the
+  run above is post-fix. An independent re-run is still worth having.
 - `python3 _bmad/scripts/branch_conflicts.py --against story/12-4`.
 
 ## Owed at integration, not by this story
