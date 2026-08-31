@@ -100,6 +100,12 @@ deferred: []
 - Given `make test-fast` (lint and typecheck included) and, once before review, `make test`, when they run, then both pass.
 - Given `python3 _bmad/scripts/branch_conflicts.py --against story/6-2a`, when run before the final push, then it prints `clean` against `main` and every other `story/*`.
 
+### Review Findings
+
+- [ ] [Review][Patch] F1: eager media-tool gate defeats the per-entry `exists` short-circuit [`server/meetingminer/youtube.py:1114`]
+- [ ] [Review][Patch] F2: refusal-vocabulary test does not enforce explicit or declared rules [`server/tests/test_youtube_playlist.py:283`]
+- [ ] [Review][Patch] F3: per-entry `ConfigError` survival is implemented but unverified [`server/tests/test_youtube_playlist.py:294`]
+
 ## Spec Change Log
 
 ## Review Triage Log
