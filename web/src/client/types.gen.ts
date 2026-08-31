@@ -2985,7 +2985,7 @@ export type ListMeetingSpeakersErrors = {
      */
     404: unknown;
     /**
-     * `meeting-not-viewable` — the meeting exists but an evidence stage has not settled; first ingest or augmentation is in flight. Transient: retry once ingestion settles. Carries the same extensions as the sibling meeting reads: `meetingId`, `augmenting` (bool) and `jobStatus` (str).
+     * `meeting-not-viewable` — the meeting exists but its worker is running with unsettled evidence. Transient: retry once ingestion settles. A non-running unsettled job is served only by this route as the speaker-recovery read. The refusal carries the sibling reads' `meetingId`, `augmenting` (bool) and `jobStatus` (str) extensions.
      */
     409: unknown;
     /**
@@ -3027,7 +3027,7 @@ export type AssignMeetingSpeakerErrors = {
      */
     404: unknown;
     /**
-     * `assignment-target-busy` — the meeting's job is `running`, so re-arming it would race the worker; carries `jobId` and `jobStatus`. Retry once the job settles. An unviewable meeting whose job is not running is deliberately accepted by this PUT as the curator's recovery path; no other meeting read or write receives that exception.
+     * `assignment-target-busy` — the meeting's job is `running`, so re-arming it would race the worker; carries `jobId` and `jobStatus`. Retry once the job settles. An unviewable meeting whose job is not running is deliberately accepted by this PUT as the curator's recovery path; only the paired speakers GET receives the read half of that exception.
      */
     409: unknown;
     /**
