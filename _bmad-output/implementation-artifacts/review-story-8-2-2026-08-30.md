@@ -69,3 +69,11 @@ Adversarial review of Story 8.2 implementation and its stated footprint against 
 - **Finding** — `check_selectable()` implements write-time membership with `if binding not in offered`, while `resolve()` independently implements read-time membership with `if selected not in offered` at line 177. They share `catalog_bindings()`, but the membership decision itself is duplicated. This violates the frozen “one function used by both the write path and the read path” rule and leaves the two refusal boundaries free to drift when membership semantics change.
 - **Evidence** — direct branch tracing of both functions shows separate membership conditionals and no shared predicate/call. Existing tests exercise the two outcomes independently, so both remain green if one side later adds normalization or another membership rule without the other.
 - **Suggested direction** — introduce one dependency-free membership predicate (or make both paths call the same checker) and pin that both write-time refusal and read-time stale detection route through it.
+
+### Finding 8 — a valid catalog binding can be too long for the selection API
+
+- **Location** — `server/meetingminer/api/settings.py:42`
+- **Severity** — medium
+- **Finding** — the request-only `SelectedBinding` type caps a model tag at 200 characters, while `config.CatalogEntry.binding` uses `NonEmptyText` with no maximum. The API can therefore serve a valid catalog entry from `GET /settings/models` and then reject that exact entry as an invalid request before the shared catalog membership rule runs, violating the promise that any catalog binding can be persisted.
+- **Evidence** — `server/meetingminer/config.py:169` defines `NonEmptyText` with only stripping and `min_length=1`; `CatalogEntry.binding` uses it at line 238. The PUT body independently adds `max_length=200`, and existing tests cover blank and out-of-catalog values but no catalog entry beyond that boundary.
+- **Suggested direction** — make the writable value domain identical to the catalog value domain (preferably by removing the independent request cap and letting catalog membership bound accepted values), then add a route-level regression using a valid catalog entry longer than 200 characters.
