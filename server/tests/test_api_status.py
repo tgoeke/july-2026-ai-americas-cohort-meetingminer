@@ -33,6 +33,7 @@ from meetingminer import db
 from meetingminer.api import status as status_module
 from meetingminer.api.status import ProbeResult
 from meetingminer.config import AppConfig
+from meetingminer.domain import model_selection
 
 FAKE_SECRETS = {
     "anthropic_api_key": "sk-ant-FAKE-SECRET-anthropic-0000",
@@ -43,11 +44,24 @@ FAKE_SECRETS = {
     "meili_master_key": "FAKE-SECRET-meili-5555",
 }
 
-RESPONSE_FIELDS = {"generatedAt", "overall", "api", "stores", "llmRoles", "worker"}
+RESPONSE_FIELDS = {
+    "generatedAt", "overall", "observedBy", "api", "stores", "providers",
+    "llmRoles", "worker",
+}
 COMPONENT_FIELDS = {"id", "label", "state", "detail", "remediation"}
 ROLE_FIELDS = {
     "role", "model", "fallback", "provider", "keyState", "state", "detail",
     "remediation",
+    # story 8.2a: the active binding beside the file default, and whose
+    # reading this row is.
+    "source", "defaultBinding", "fileBinding", "selected", "staleSelection",
+    "staleReason", "observedBy", "servedBy", "attribution",
+}
+PROVIDER_FIELDS = {
+    "provider", "keyState", "detail", "remediation", "state", "observedBy",
+}
+OBSERVED_BY_FIELDS = {
+    "process", "configPath", "configLoadedAt", "catalogNote", "selectionNote",
 }
 WORKER_FIELDS = {"state", "jobs", "stageBacklog", "detail", "remediation"}
 
@@ -255,6 +269,15 @@ def test_payload_is_an_allowlist_with_no_key_material(
     for row in body["llmRoles"]:
         assert set(row) == ROLE_FIELDS
     assert set(body["worker"]) == WORKER_FIELDS
+    assert set(body["observedBy"]) == OBSERVED_BY_FIELDS
+    for row in body["providers"]:
+        assert set(row) == PROVIDER_FIELDS
+    # Every provider `config.yaml` declares gets a row, not only the ones a
+    # role happens to bind today (story 8.2a: "is my key good" is asked before
+    # anything is selected).
+    assert {row["provider"] for row in body["providers"]} == set(
+        fake_secret_config.settings.providers
+    )
 
     # The api row is trivially up: this response is the evidence.
     assert body["api"]["state"] == "ok"
@@ -604,3 +627,410 @@ def test_postgres_down_reports_the_stores_remediation_not_the_stopped_one(
     assert worker["jobs"] == {}
     assert worker["remediation"] == status_module._STORES_REMEDIATION
     assert body["overall"] == "degraded"
+
+
+# --- story 8.2a: providers[], the active binding, and whose view it is -----
+
+
+# The disclaimer a role row must carry when the process that answered is not
+# the process that makes the call. Pinned verbatim, like the stopped-worker
+# sentence above and for the same reason: a vocabulary list cannot reject a
+# rewrite that quietly starts speaking for both processes at once.
+EXTRACTION_SNAPSHOT_DISCLAIMER = (
+    "Read by the api process, which does not call `llm.roles.extraction` —"
+    " the worker does, from its own `config.yaml` snapshot and its own"
+    " resolution of the stored selection. This row is the api process's"
+    " snapshot, not the worker's, and the two disagree until both are"
+    " restarted after a `config.yaml` edit."
+)
+
+# Distinctive enough that any six-character window of one is unmistakable in
+# a payload: the key-material test asserts on windows, and a secret sharing a
+# window with a provider name ("anthropic") could only be checked whole.
+UNMISTAKABLE_SECRETS = {
+    "anthropic_api_key": "sk-ant-QQZZ-9x8w7v6u5t4s3r2q1p",
+    "openai_api_key": "sk-QQZZ-mnbvcxzlkjhgfdsapoiuy",
+    "openrouter_api_key": "sk-or-QQZZ-1a2b3c4d5e6f7g8h9i",
+    "postgres_password": "QQZZ-pgpw-qwertyuiopasdfghjk",
+    "neo4j_password": "QQZZ-neo-zxcvbnmasdfghjklqwe",
+    "meili_master_key": "QQZZ-meili-poiuytrewqlkjhgfd",
+}
+
+# Every path a completion could be reached by on the four configured
+# providers. A probe URL containing any of these is a paid call, which the
+# acceptance criterion forbids outright.
+PAID_ENDPOINT_FRAGMENTS = (
+    "completion", "chat/", "/messages", "/responses", "/generate",
+    "/embeddings", "/embed",
+)
+
+
+@pytest.fixture()
+def stored_selection(test_pool: ConnectionPool):
+    """Write a role selection into ``app_setting``, and take it back out.
+
+    ``app_setting`` is user-declared data, not evidence, so the ``client``
+    fixture's truncation does not cover it — a selection left behind would be
+    read as the binding in force by every later test in the session.
+    """
+
+    def _write(role: str, binding: str) -> None:
+        with test_pool.connection() as conn:
+            model_selection.write_selection(conn, role, binding)
+
+    yield _write
+    with test_pool.connection() as conn:
+        conn.execute("DELETE FROM app_setting WHERE key LIKE 'llm.role.%'")
+
+
+def unmistakable_secret_config(
+    app_config: AppConfig, monkeypatch: pytest.MonkeyPatch, **overrides: object
+) -> AppConfig:
+    """The committed config with window-checkable fake secrets installed."""
+    config = app_config.model_copy(
+        update={
+            "secrets": app_config.secrets.model_copy(
+                update={**UNMISTAKABLE_SECRETS, **overrides}
+            )
+        }
+    )
+    monkeypatch.setattr(api_main.app.state, "config", config)
+    return config
+
+
+def assert_no_key_fragment_serializes(text: str) -> None:
+    """No window of any secret appears anywhere in the serialized response.
+
+    Windows rather than whole values: the failure this guards against is a
+    surface that "safely" prints a prefix or a masked tail, which is still key
+    material and still enough to correlate against a leaked log.
+    """
+    for name, secret in UNMISTAKABLE_SECRETS.items():
+        for start in range(len(secret) - 6 + 1):
+            window = secret[start : start + 6]
+            assert window not in text, (
+                f"a {6}-character window of {name} ({window!r}) serialized"
+            )
+
+
+def test_probes_are_free_list_endpoints_and_never_a_completion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The acceptance criterion, asserted on the one function that does the I/O.
+
+    Every other test in this file stubs ``_probe_provider``; this one exercises
+    it, because "probed through free endpoints only (a model list, never a
+    completion)" is a property of the URL it builds and the verb it reaches it
+    with, and nothing above it can restore that property once it is lost.
+    """
+    seen: list[str] = []
+
+    class _Response:
+        status_code = 200
+        is_success = True
+
+    def _get(url: str, headers=None, timeout=None):
+        seen.append(url)
+        return _Response()
+
+    def _refuse(*args: object, **kwargs: object) -> NoReturn:
+        raise AssertionError("a status probe issued a request that was not a GET")
+
+    monkeypatch.setattr(status_module.httpx, "get", _get)
+    monkeypatch.setattr(status_module.httpx, "post", _refuse)
+    monkeypatch.setattr(status_module.httpx, "request", _refuse)
+
+    status_module._probe_provider("anthropic", "https://api.anthropic.com", "k")
+    status_module._probe_provider("openai", "https://api.openai.com/v1", "k")
+    status_module._probe_provider("openrouter", "https://openrouter.ai/api/v1", "k")
+    status_module._probe_provider("ollama", "http://localhost:11434", None)
+
+    assert seen == [
+        "https://api.anthropic.com/v1/models",
+        "https://api.openai.com/v1/models",
+        "https://openrouter.ai/api/v1/models",
+        "http://localhost:11434/api/tags",
+    ]
+    for url in seen:
+        for fragment in PAID_ENDPOINT_FRAGMENTS:
+            assert fragment not in url, f"probe URL {url} reaches a paid endpoint"
+
+
+def test_no_fragment_of_any_key_serializes_in_any_branch(
+    client, app_config: AppConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Key material never serializes — on the healthy path or either failure.
+
+    The three branches are the three that touch a key at all: a key that
+    verifies, a key the provider refuses, and a key that is not set. Each is
+    scanned whole, so a leak through a new field (`providers[]`, the
+    attribution block) fails here rather than at a demo.
+    """
+    unmistakable_secret_config(app_config, monkeypatch)
+    monkeypatch.setattr(status_module, "_probe_provider", probe_stub({}, []))
+    assert_no_key_fragment_serializes(client.get("/status").text)
+
+    status_module._PROBE_CACHE.clear()
+    monkeypatch.setattr(
+        status_module,
+        "_probe_provider",
+        probe_stub(
+            {
+                "openai": ProbeResult("invalid-key", "the provider refused the key (HTTP 401)"),
+                "anthropic": ProbeResult("invalid-key", "the provider refused the key (HTTP 403)"),
+            },
+            [],
+        ),
+    )
+    assert_no_key_fragment_serializes(client.get("/status").text)
+
+    status_module._PROBE_CACHE.clear()
+    unmistakable_secret_config(
+        app_config, monkeypatch, openai_api_key=None, anthropic_api_key=None
+    )
+    assert_no_key_fragment_serializes(client.get("/status").text)
+
+
+def test_provider_rows_name_the_provider_and_its_remediation(
+    client, fake_secret_config: AppConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FR39's first half: key validity per configured provider, with the fix.
+
+    The row is about the *provider*, not a role — the question it answers is
+    asked before anything is selected — so it names the env var and the
+    processes that would have to be restarted, and it degrades the surface.
+    """
+    monkeypatch.setattr(
+        status_module,
+        "_probe_provider",
+        probe_stub(
+            {"openai": ProbeResult("invalid-key", "the provider refused the key (HTTP 401)")},
+            [],
+        ),
+    )
+
+    body = client.get("/status").json()
+    openai_row = next(row for row in body["providers"] if row["provider"] == "openai")
+    assert openai_row["keyState"] == "invalid"
+    assert openai_row["state"] == "degraded"
+    assert "OPENAI_API_KEY" in openai_row["detail"]
+    assert "OPENAI_API_KEY" in openai_row["remediation"]
+    assert ".env" in openai_row["remediation"]
+    assert body["overall"] == "degraded"
+
+    healthy = next(row for row in body["providers"] if row["provider"] == "anthropic")
+    assert healthy["keyState"] == "present"
+    assert healthy["state"] == "ok"
+    assert healthy["remediation"] is None
+
+
+def test_a_missing_key_reaches_the_provider_row_without_a_probe(
+    client, app_config: AppConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A missing key is a fact about this process's `.env`, not a question to
+    spend a request on — and the provider row must not probe it either."""
+    unmistakable_secret_config(app_config, monkeypatch, openai_api_key=None)
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(status_module, "_probe_provider", probe_stub({}, calls))
+
+    body = client.get("/status").json()
+    openai_row = next(row for row in body["providers"] if row["provider"] == "openai")
+    assert openai_row["keyState"] == "missing"
+    assert openai_row["state"] == "degraded"
+    assert "OPENAI_API_KEY is not set" in openai_row["detail"]
+    assert all(provider != "openai" for provider, _ in calls)
+
+
+def test_one_request_probes_each_endpoint_at_most_once(
+    client, fake_secret_config: AppConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`providers[]` and the role rows share the cache rather than doubling it.
+
+    Both surfaces ask the same question of the same endpoints; polling must
+    stay one free request per endpoint per TTL, not one per row.
+    """
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(status_module, "_probe_provider", probe_stub({}, calls))
+
+    assert client.get("/status").status_code == 200
+    assert len(calls) == len(set(calls)), f"an endpoint was probed twice: {calls}"
+
+
+def test_a_stored_selection_is_the_binding_reported_and_probed(
+    client,
+    fake_secret_config: AppConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    stored_selection,
+) -> None:
+    """FR39's second half: the *active* binding, resolved from story 8.2.
+
+    The committed chat role defaults to `openai/gpt-5.2` and offers
+    `ollama/gpt-oss:120b`. Selecting the second changes the provider, so a
+    surface that reported the file's `model` would show the health of an
+    endpoint no chat call is going to touch — the wrong-selection blindness
+    this story exists to remove.
+    """
+    stored_selection("chat", "ollama/gpt-oss:120b")
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(status_module, "_probe_provider", probe_stub({}, calls))
+
+    body = client.get("/status").json()
+    chat = next(row for row in body["llmRoles"] if row["role"] == "chat")
+    assert chat["model"] == "ollama/gpt-oss:120b"
+    assert chat["provider"] == "ollama"
+    assert chat["source"] == "selection"
+    assert chat["selected"] == "ollama/gpt-oss:120b"
+    assert chat["staleSelection"] is None
+    # The file half travels beside the effective binding, never replaced by it.
+    assert chat["defaultBinding"] == "openai/gpt-5.2"
+    assert chat["fileBinding"] == fake_secret_config.settings.llm.roles.chat.model
+    assert "`llm.roles.chat` (ollama/gpt-oss:120b)" in chat["detail"]
+    # The endpoint probed is the selected binding's.
+    ollama_base = fake_secret_config.settings.providers["ollama"].base_url
+    assert ("ollama", ollama_base) in calls
+
+
+def test_a_discarded_selection_is_named_and_degrades_the_role_row(
+    client,
+    fake_secret_config: AppConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    stored_selection,
+) -> None:
+    """A choice the catalog no longer offers is reported, never applied and
+    never hidden — and the row is not green while the owner's choice is not
+    the one in force (the story's own "a wrong selection is visible")."""
+    stored_selection("chat", "openrouter/withdrawn-binding")
+    monkeypatch.setattr(status_module, "_probe_provider", probe_stub({}, []))
+
+    body = client.get("/status").json()
+    chat = next(row for row in body["llmRoles"] if row["role"] == "chat")
+    assert chat["source"] == "file-default"
+    assert chat["model"] == "openai/gpt-5.2"
+    assert chat["staleSelection"] == "openrouter/withdrawn-binding"
+    assert "openrouter/withdrawn-binding" in chat["staleReason"]
+    assert "openrouter/withdrawn-binding" in chat["detail"]
+    assert chat["state"] == "degraded"
+    assert "config.yaml" in chat["remediation"]
+    assert body["overall"] == "degraded"
+
+
+def test_an_unreadable_selection_is_never_reported_as_the_file_default(
+    client, fake_secret_config: AppConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With Postgres down the selection cannot be read, so the binding in force
+    is unknown. Showing the file default as if it were in force would be the
+    surface reporting a state it cannot support (AD-18)."""
+    monkeypatch.setattr(status_module, "_probe_provider", probe_stub({}, []))
+    monkeypatch.setattr(status_module, "_check_postgres", postgres_down)
+
+    body = client.get("/status").json()
+    chat = next(row for row in body["llmRoles"] if row["role"] == "chat")
+    assert chat["source"] == "unknown"
+    assert chat["state"] == "degraded"
+    assert "could not be determined" in chat["detail"]
+    assert "Postgres" in chat["remediation"]
+    # The file half is still reported — it is what the file says, which is
+    # true regardless of the store being reachable.
+    assert chat["defaultBinding"] == "openai/gpt-5.2"
+
+
+def test_the_judge_role_is_never_reported_as_selection_governed(
+    client,
+    fake_secret_config: AppConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    stored_selection,
+) -> None:
+    """`api/settings.py` refuses to persist a judge choice because the eval
+    harness binds the file value directly. A row written by any other means
+    must therefore never be shown as the binding in force."""
+    stored_selection("judge", "ollama/gpt-oss:120b")
+    monkeypatch.setattr(status_module, "_probe_provider", probe_stub({}, []))
+
+    body = client.get("/status").json()
+    judge = next(row for row in body["llmRoles"] if row["role"] == "judge")
+    assert judge["source"] == "file-default"
+    assert judge["model"] == "openai/gpt-5.2"
+    assert judge["selected"] is None
+    assert "does not adopt a stored selection" in judge["detail"]
+
+
+def test_every_reading_is_attributed_to_the_process_that_answered(
+    client, fake_secret_config: AppConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The third criterion, and the 2026-08-31 incident it comes from.
+
+    A config edit was followed by a worker restart and no api restart, and this
+    endpoint reported local extraction from its stale snapshot while the worker
+    was calling a paid provider. The catalog is a process-start snapshot and
+    the two processes hold their own, so no row here may read as a statement
+    about "the system": every row names the process that produced it, the role
+    rows name the process that would actually make the call, and the row for a
+    role this process does not call carries the disclaimer verbatim.
+    """
+    monkeypatch.setattr(status_module, "_probe_provider", probe_stub({}, []))
+
+    body = client.get("/status").json()
+
+    observed = body["observedBy"]
+    assert observed["process"] == "api"
+    assert observed["configPath"].endswith("config.yaml")
+    assert observed["configLoadedAt"] is not None
+    assert "loaded it at startup" in observed["catalogNote"]
+    assert "restart the api and the worker together" in observed["selectionNote"]
+
+    for row in body["llmRoles"] + body["providers"]:
+        assert row["observedBy"] == "api"
+
+    extraction = next(row for row in body["llmRoles"] if row["role"] == "extraction")
+    assert extraction["servedBy"] == "worker"
+    assert extraction["attribution"] == EXTRACTION_SNAPSHOT_DISCLAIMER
+
+    chat = next(row for row in body["llmRoles"] if row["role"] == "chat")
+    assert chat["servedBy"] == "api"
+    assert "which is also the process that calls" in chat["attribution"]
+
+    judge = next(row for row in body["llmRoles"] if row["role"] == "judge")
+    assert judge["servedBy"] == "eval harness"
+    assert "not the eval harness's" in judge["attribution"]
+
+
+def test_no_wording_anywhere_speaks_for_the_whole_system(
+    client, fake_secret_config: AppConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The wording rule from the third criterion, applied to the whole payload.
+
+    A binding or health reading describes the process that answered. Phrases
+    that assert a system-wide or worker-side state are exactly the ones that
+    made the 2026-08-31 report false, so they are banned outright rather than
+    reviewed case by case. Model identifiers are configuration facts and are
+    removed before the ban applies, the way the worker row's guard does it.
+    """
+    monkeypatch.setattr(status_module, "_probe_provider", probe_stub({}, []))
+    body = client.get("/status").json()
+
+    banned = (
+        "the system is",
+        "the system uses",
+        "the system will",
+        "system-wide",
+        "both processes are",
+        "the worker is using",
+        "the worker is bound",
+        "the worker is calling",
+    )
+    prose: list[str] = [
+        body["observedBy"]["catalogNote"],
+        body["observedBy"]["selectionNote"],
+    ]
+    for row in body["llmRoles"]:
+        prose += [row["detail"], row["attribution"], row["remediation"] or ""]
+    for row in body["providers"]:
+        prose += [row["detail"], row["remediation"] or ""]
+
+    for sentence in prose:
+        lowered = sentence.lower()
+        for phrase in banned:
+            assert phrase not in lowered, (
+                f"a status sentence speaks for a process it cannot observe"
+                f" ({phrase!r}): {sentence}"
+            )
