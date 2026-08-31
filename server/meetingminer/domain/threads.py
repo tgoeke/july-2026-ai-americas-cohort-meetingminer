@@ -169,6 +169,36 @@ def cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
     return max(-1.0, min(1.0, dot / (left_norm * right_norm)))
 
 
+def _normalized_vectors(
+    topics: Sequence[TopicForThreading], vectors: Mapping[UUID, Vector]
+) -> dict[UUID, Vector]:
+    """Unit vectors for one derivation, with each norm computed exactly once.
+
+    All-pairs comparison is required for an exact partition, but repeating two
+    O(d) norms for every pair is not. A zero vector remains zero and therefore
+    has dot similarity 0.0 with every other vector, matching
+    :func:`cosine_similarity`.
+    """
+    expected_width = len(vectors[topics[0].id])
+    normalized: dict[UUID, Vector] = {}
+    for topic in topics:
+        vector = vectors[topic.id]
+        if len(vector) != expected_width:
+            raise ThreadDerivationError(
+                f"cannot compare a {expected_width}-dimension vector with a"
+                f" {len(vector)}-dimension one — every topic name is embedded"
+                " by the same model in one pass, so a width mismatch is a bug"
+                " here, not a model response"
+            )
+        norm = math.sqrt(sum(value * value for value in vector))
+        normalized[topic.id] = (
+            tuple(value / norm for value in vector)
+            if norm != 0.0
+            else tuple(0.0 for _ in vector)
+        )
+    return normalized
+
+
 class _DisjointSet:
     """Union-find over topic ids. Path compression, union by size.
 
@@ -208,13 +238,11 @@ def cluster_topics(
 ) -> tuple[ThreadCluster, ...]:
     """Partition topics into threads. Pure — no database, no model, no clock.
 
-    Pair generation is O(n²) in the number of topics. At corpus scale — a few
-    hundred meetings with a handful of topics each — that is a few hundred
-    thousand dot products over short vectors, which is cheaper than the round
-    trip that fetched the rows. It is written plainly rather than indexed
-    because an approximate-neighbour index would make the partition depend on
-    the index's recall, and the acceptance criteria ask for a partition that
-    depends only on the topics.
+    Pair generation is O(n²) in the number of topics because an approximate
+    neighbour index would make the partition depend on index recall. The
+    implementation still normalizes each vector only once and retains only
+    each topic's best qualifying similarity: exact all-pairs semantics do not
+    require O(n²) norm work or score storage.
     """
     if not topics:
         return ()
@@ -247,16 +275,30 @@ def cluster_topics(
         for other in same_name[1:]:
             sets.union(same_name[0], other)
 
-    # The embedding leg, plus the per-pair scores the membership rows record.
-    similarities: dict[tuple[UUID, UUID], float] = {}
+    # The embedding leg. A non-name member needs only its strongest qualifying
+    # score for the membership row. Any score below threshold cannot be that
+    # maximum because the topic necessarily has at least one qualifying edge
+    # to have joined the final cluster by embedding.
+    normalized_vectors = _normalized_vectors(topics, vectors)
+    best_similarities: dict[UUID, float] = {}
     ordered = sorted(topics, key=lambda topic: topic.order_key)
     for index, left in enumerate(ordered):
         for right in ordered[index + 1 :]:
-            score = cosine_similarity(vectors[left.id], vectors[right.id])
-            similarities[(left.id, right.id)] = score
-            similarities[(right.id, left.id)] = score
+            score = max(
+                -1.0,
+                min(
+                    1.0,
+                    math.sumprod(
+                        normalized_vectors[left.id], normalized_vectors[right.id]
+                    ),
+                ),
+            )
             if score >= threshold:
                 sets.union(left.id, right.id)
+                best_similarities[left.id] = max(best_similarities.get(left.id, score), score)
+                best_similarities[right.id] = max(
+                    best_similarities.get(right.id, score), score
+                )
 
     grouped: dict[UUID, list[TopicForThreading]] = {}
     for topic in ordered:
@@ -271,7 +313,12 @@ def cluster_topics(
                 name=seed.name,
                 seed_topic_id=seed.id,
                 members=tuple(
-                    _member(topic, seed=seed, members=members, similarities=similarities)
+                    _member(
+                        topic,
+                        seed=seed,
+                        members=members,
+                        best_similarities=best_similarities,
+                    )
                     for topic in sorted(members, key=lambda topic: topic.order_key)
                 ),
             )
@@ -298,7 +345,7 @@ def _member(
     *,
     seed: TopicForThreading,
     members: Sequence[TopicForThreading],
-    similarities: Mapping[tuple[UUID, UUID], float],
+    best_similarities: Mapping[UUID, float],
 ) -> ThreadMember:
     """Which leg is recorded as having carried this topic into the thread.
 
@@ -319,9 +366,13 @@ def _member(
     )
     if shares_name:
         return ThreadMember(topic_id=topic.id, linked_by=NAME_LINK, similarity=None)
-    best = max(
-        similarities[(topic.id, other.id)] for other in members if other.id != topic.id
-    )
+    best = best_similarities.get(topic.id)
+    if best is None:
+        raise ThreadDerivationError(
+            f"topic {topic.id} belongs to a multi-topic cluster but has neither"
+            " a shared normalized name nor a qualifying embedding edge — the"
+            " partition and its membership evidence disagree"
+        )
     return ThreadMember(topic_id=topic.id, linked_by=EMBEDDING_LINK, similarity=best)
 
 

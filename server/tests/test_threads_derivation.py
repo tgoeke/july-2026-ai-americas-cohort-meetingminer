@@ -263,6 +263,28 @@ def test_rerunning_the_partition_over_unchanged_topics_reproduces_it_exactly() -
     assert second == first
 
 
+def test_each_vector_norm_is_computed_once_not_once_per_pair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exact all-pairs comparison still needs only one normalization per
+    topic. Recomputing two norms for every pair turns the configured
+    1,024-dimensional vectors into three full scans per comparison."""
+    topics, vectors = scenario()
+    real_sqrt = __import__("math").sqrt
+    calls = 0
+
+    def counted_sqrt(value: float) -> float:
+        nonlocal calls
+        calls += 1
+        return real_sqrt(value)
+
+    monkeypatch.setattr("meetingminer.domain.threads.math.sqrt", counted_sqrt)
+
+    cluster_topics(topics, vectors=vectors, threshold=0.6)
+
+    assert calls == len(topics)
+
+
 def test_the_seed_is_the_earliest_topic_in_the_cluster() -> None:
     """Chronological, so a thread is named for where the subject started and
     a later meeting cannot rename it."""
