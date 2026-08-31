@@ -56,6 +56,14 @@ without a valid reason, and only then computes `total`, `offset` and the page.
   validates, drops-and-names, and sorts. It knows nothing about `limit` or
   `offset`; the route slices its output. `total` is therefore always the count
   of rows the caller can actually page through.
+- **The envelope distinguishes filtered and corpus totals.** `total` counts the
+  validated set after `meeting`, `thread`, and `kind`; `corpusTotal` counts the
+  validated selected corpus before those filters (or both corpora when no
+  `corpus` is selected). The server computes both in one request.
+- **Offset pages are live, not a snapshot.** Every request ranks against the
+  corpus as it exists then. Ordering is not stable across requests, so a
+  candidate may repeat or be skipped across an offset boundary as ranking
+  moves. Within one response, `offset + len(items) <= total` always holds.
 - **Every item carries a non-empty ordered `reasons[]`** of
   `{kind, label, ref?, at?}`, ordered by the size of the contribution that
   produced them, with ties broken on the vocabulary order and then the label.
@@ -173,15 +181,16 @@ without a valid reason, and only then computes `total`, `offset` and the page.
 **Acceptance Criteria:**
 - Given a corpus with artifacts, ranking signals, threads and recent
   meetings, when `GET /moments/feed` is called, then it returns
-  `{items, total, limit, offset}` with each item carrying exactly the AC's
+  `{items, total, corpusTotal, limit, offset}` with each item carrying exactly the AC's
   fifteen fields and a non-empty ordered `reasons[]`.
 - Given a moment whose only signal produces no renderable reason, when the
   feed is served, then it is absent from `items`, not counted in `total`, and
   named in a `moments.feed.item_dropped` log line — demonstrated red against a
   build that counted `total` from the candidate scan.
-- Given five candidates of which one is reasonless, when the feed is paged two
-  at a time, then every page reports `total: 4` and the union of the pages is
-  four distinct moments with none repeated and none skipped.
+- Given five candidates of which one is reasonless, when one feed request is
+  paged two at a time, then it reports `total: 4` and
+  `offset + len(items) <= total`; separate offset requests are ranked live and
+  explicitly do not promise a stable cross-request snapshot.
 - Given two action items with stated calendar timing, when they are scored,
   then the nearer date scores strictly higher, and an item whose timing the
   transcript never stated scores zero for timing.
@@ -192,6 +201,15 @@ without a valid reason, and only then computes `total`, `offset` and the page.
   new ruff baseline entry.
 
 ## Spec Change Log
+
+- **2026-08-31, owner ruling after review — live offset pages and an unfiltered
+  corpus denominator.** F9 is resolved by documenting that every request ranks
+  the current corpus and may repeat or skip a candidate across offset requests;
+  no `asOf` or cursor is added. The envelope adds `corpusTotal`, computed
+  server-side in the same request before `meeting`, `thread`, and `kind`
+  filtering, so Story 10.5 can render its “Moments 6 of 24” header. B-51 holds
+  the stable-snapshot option until readers page deeply rather than use “Show
+  more” once or twice.
 
 - **2026-08-31, implementation — `server/meetingminer/config.py` edited,
   outside the footprint table, deliberately and on the record.** The AC

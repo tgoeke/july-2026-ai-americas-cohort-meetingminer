@@ -739,3 +739,25 @@ Restoring the designed copy needs a served field — a `resolvedBy`
 `speaker:<meetingId>:<tag>` alias exists. That is a story 7.2 response-shape
 change, which 7.2's one-shape criterion pins, so it is a spec decision rather
 than an edit.
+
+---
+
+### B-51 · Add a stable feed snapshot only when readers page deeply — M
+
+Story 10.4 ranks every `GET /moments/feed` request against the corpus as it
+exists at request time. That is the intended live-feed behavior, and the wire
+contract says plainly that offset ordering is not stable across requests: a
+candidate may repeat or be skipped across a boundary as ranking moves.
+
+Two mechanisms could freeze a future paging session: a client-supplied `asOf`
+used by every request in the session, or an opaque cursor that carries the
+server-owned ranking snapshot. Either adds state and a new client contract for
+little benefit while readers normally click “Show more” only once or twice.
+
+**Do only when:** the feed has grown large enough that readers routinely page
+deeply rather than click “Show more” once or twice. At that point, choose and
+specify either `asOf` or an opaque cursor; do not silently strengthen offset
+semantics without a wire mechanism.
+
+**Done when:** one paging session has a documented stable-snapshot token and
+tests prove that ranking movement cannot repeat or skip candidates inside it.
