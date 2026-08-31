@@ -18,6 +18,9 @@ every pre-existing moment id still resolves and that only the draft moved.
 
 from __future__ import annotations
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Sequence
 from uuid import UUID, uuid4
@@ -164,6 +167,43 @@ def _stage_statuses(pool: ConnectionPool, job_id: UUID) -> dict[str, str]:
             pool, "SELECT name, status FROM job_stage WHERE job_id = %s", job_id
         )
     }
+
+
+class _GatedConnection:
+    """Pause one route connection after its job-status read."""
+
+    def __init__(self, conn: Any, entered: threading.Event, release: threading.Event):
+        self._conn = conn
+        self._entered = entered
+        self._release = release
+
+    def execute(self, query: Any, params: Any = None, **kwargs: Any) -> Any:
+        import meetingminer.api.speakers as api_speakers
+
+        if query == api_speakers._SPEAKER_TAG_EXISTS:
+            self._entered.set()
+            assert self._release.wait(timeout=10), "route gate was never released"
+        return self._conn.execute(query, params, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._conn, name)
+
+
+class _GatedPool:
+    def __init__(
+        self,
+        pool: ConnectionPool,
+        entered: threading.Event,
+        release: threading.Event,
+    ):
+        self._pool = pool
+        self._entered = entered
+        self._release = release
+
+    @contextmanager
+    def connection(self):
+        with self._pool.connection() as conn:
+            yield _GatedConnection(conn, self._entered, self._release)
 
 
 # --- the alias write -------------------------------------------------------
@@ -441,6 +481,50 @@ def test_a_running_job_is_refused(client, test_pool) -> None:
     assert response.json()["type"] == "urn:meetingminer:problem:assignment-target-busy"
     assert response.json()["jobStatus"] == "running"
     assert _stage_statuses(test_pool, seeded.job_id)["align"] == "done"
+
+
+def test_a_worker_cannot_claim_between_the_status_check_and_rearm(
+    client, test_pool, monkeypatch
+) -> None:
+    """The job status check must lock the row through the route's writes."""
+    seeded = _assignable_meeting(test_pool, "assign-claim-race")
+    entered = threading.Event()
+    release = threading.Event()
+    claimed = threading.Event()
+    monkeypatch.setattr(
+        client.app.state, "pool", _GatedPool(test_pool, entered, release)
+    )
+
+    def claim_after_competing_rearm() -> None:
+        with test_pool.connection() as conn:
+            conn.execute(
+                "UPDATE job SET status = 'queued' WHERE id = %s", (seeded.job_id,)
+            )
+            conn.commit()
+            job = runner.claim_job(conn)
+            assert job is not None and job.id == seeded.job_id
+        claimed.set()
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        request = workers.submit(
+            _put,
+            client,
+            seeded.meeting_id,
+            PLACEHOLDER_TAG,
+            {"participantId": str(seeded.participant_ids[0])},
+        )
+        assert entered.wait(timeout=10), "assignment never reached the race gate"
+        competitor = workers.submit(claim_after_competing_rearm)
+        claimed_before_assignment_committed = claimed.wait(timeout=0.5)
+        release.set()
+        response = request.result(timeout=10)
+        competitor.result(timeout=10)
+
+    assert response.status_code == 200
+    assert claimed_before_assignment_committed is False
+    assert _rows(
+        test_pool, "SELECT status FROM job WHERE id = %s", seeded.job_id
+    ) == [("running",)]
 
 
 @pytest.mark.parametrize(

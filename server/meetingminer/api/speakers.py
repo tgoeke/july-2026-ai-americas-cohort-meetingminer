@@ -231,10 +231,13 @@ def list_meeting_speakers(
 
 # The job behind one meeting, and what it is doing right now. Both columns are
 # needed before any write: the id to re-arm, the status to refuse re-arming a
-# job the single worker (AD-9) is currently inside.
+# job the single worker (AD-9) is currently inside. The row lock closes the
+# check-to-rearm window: a worker claimant that won first commits ``running``
+# before this statement returns, while a claimant that arrives after this
+# statement waits until the assignment and its queued stages commit together.
 _JOB_FOR_MEETING = (
     "SELECT j.id, j.status FROM job j JOIN meeting m ON m.job_id = j.id"
-    " WHERE m.id = %s"
+    " WHERE m.id = %s FOR UPDATE OF j"
 )
 
 # Whether this meeting's transcript actually carries the tag being assigned.
