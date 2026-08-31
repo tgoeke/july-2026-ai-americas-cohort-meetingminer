@@ -531,6 +531,7 @@ describe('Add-meeting, progress', () => {
     // The existing stage renderer, not a second one.
     expect(screen.getByTestId('stage-frames')).toHaveAttribute('data-status', 'running')
     expect(screen.getByRole('button', { name: /^Open/ })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Name speakers' })).not.toBeInTheDocument()
     expect(screen.getByTestId('step-ingesting')).toHaveAttribute('data-status', 'running')
 
     // A stage moves: the bar patches in place, with no reload and no re-fetch.
@@ -589,6 +590,43 @@ describe('Add-meeting, progress', () => {
     expect(screen.getByTestId('stage-transcribe')).toHaveAttribute('data-status', 'done')
     expect(screen.getByText('6 moments')).toBeInTheDocument()
     expect(screen.getByTestId('step-ingesting')).toHaveAttribute('data-status', 'done')
+  })
+
+  it('offers Name speakers after a new auto-caption meeting finishes transcription', async () => {
+    const onNameSpeakers = vi.fn()
+    sdk.probeAcquisition.mockResolvedValue({
+      data: probeResult({ captions: { kind: 'auto', language: 'en' } }),
+      error: undefined,
+    })
+    sdk.startAcquisition.mockResolvedValue({
+      data: { acquisitionId: ACQUISITION, sourceId: 'youtube:dQw4w9WgXcQ', status: 'queued' },
+      error: undefined,
+    })
+    queueStatuses(
+      acquisition({ status: 'posted', result: 'created', jobId: JOB, meetingId: MEETING }),
+    )
+    sdk.listMeetings.mockResolvedValue({
+      data: {
+        meetings: [
+          meetingRow({
+            status: 'succeeded',
+            viewable: true,
+            stages: [
+              { name: 'probe', status: 'done', error: null },
+              { name: 'transcribe', status: 'done', error: null },
+            ],
+          }),
+        ],
+      },
+      error: undefined,
+    })
+
+    render(<AddMeeting onNameSpeakers={onNameSpeakers} />)
+    await typeUrl(VIDEO_URL)
+    await user.click(screen.getByTestId('submit-acquisition'))
+
+    await user.click(await screen.findByRole('button', { name: 'Name speakers' }))
+    expect(onNameSpeakers).toHaveBeenCalledWith(MEETING)
   })
 
   it('re-seeds after the stream baseline races an in-flight stale seed', async () => {

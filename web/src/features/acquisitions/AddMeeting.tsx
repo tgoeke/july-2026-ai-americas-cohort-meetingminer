@@ -51,6 +51,8 @@ type ProbeState =
 export interface AddMeetingProps {
   /** Where Open goes once the meeting is viewable. Injected so the screen has no router dependency in tests. */
   onOpenMeeting?: (meetingId: string) => void
+  /** Where Name speakers goes once an auto-captioned meeting has been transcribed. */
+  onNameSpeakers?: (meetingId: string) => void
 }
 
 /**
@@ -66,7 +68,7 @@ export interface AddMeetingProps {
  * `useJobEvents`, and the meeting is the existing card built from the existing
  * `rows.ts` helpers.
  */
-export function AddMeeting({ onOpenMeeting }: AddMeetingProps = {}) {
+export function AddMeeting({ onOpenMeeting, onNameSpeakers }: AddMeetingProps = {}) {
   const [tab, setTab] = useState<TabId>('youtube')
   const [url, setUrl] = useState('')
   const [probeState, setProbeState] = useState<ProbeState>({ kind: 'idle' })
@@ -429,8 +431,14 @@ export function AddMeeting({ onOpenMeeting }: AddMeetingProps = {}) {
             {posted && status?.jobId != null && (
               <IngestingMeetingCard
                 jobId={status.jobId}
+                speakerLabelsMissing={
+                  status.result === 'created' &&
+                  probeState.kind === 'answered' &&
+                  probeState.probe.captions?.kind === 'auto'
+                }
                 onIngestStatus={setIngesting}
                 onOpen={(meetingId) => onOpenMeeting?.(meetingId)}
+                onNameSpeakers={(meetingId) => onNameSpeakers?.(meetingId)}
               />
             )}
           </div>
