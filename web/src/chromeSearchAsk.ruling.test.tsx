@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -57,5 +57,23 @@ describe('F10 owner ruling: compact Search and Ask chrome', () => {
     await userEvent.click(screen.getByTestId('chat-question-input'))
     expect(searchSurface).toHaveAttribute('aria-expanded', 'false')
     expect(askSurface).toHaveAttribute('aria-expanded', 'true')
+
+    await userEvent.keyboard('{Escape}')
+    expect(askSurface).toHaveAttribute('aria-expanded', 'false')
+
+    await userEvent.click(screen.getByTestId('search-input'))
+    await userEvent.click(screen.getByRole('link', { name: 'Threads' }))
+    await waitFor(() => expect(window.location.pathname).toBe('/threads'))
+    expect(searchSurface).toHaveAttribute('aria-expanded', 'false')
+
+    expect(header?.firstElementChild).toHaveClass('min-[1200px]:h-14')
+    await userEvent.click(screen.getByTestId('chat-question-input'))
+    expect(document.getElementById('chrome-ask-results')).toHaveClass('shadow-md')
+    expect(await screen.findByTestId('model-select-unavailable')).toHaveTextContent(
+      'model unavailable',
+    )
+    expect(screen.getByTestId('model-select-unavailable')).not.toHaveTextContent(
+      'cannot read the model catalog',
+    )
   })
 })

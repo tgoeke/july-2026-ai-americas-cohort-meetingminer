@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -76,5 +76,18 @@ describe('F13 owner ruling: global bindings', () => {
     setSingleKeyShortcutsEnabled(false)
     await userEvent.keyboard('a')
     expect(screen.getByTestId('chat-question-input')).not.toHaveFocus()
+  })
+
+  it('ignores modifiers and repeats and cancels an armed chord on pointer activity', async () => {
+    render(<App />)
+    fireEvent.keyDown(window, { key: 'a', ctrlKey: true })
+    fireEvent.keyDown(window, { key: '/', repeat: true })
+    expect(screen.getByTestId('chat-question-input')).not.toHaveFocus()
+    expect(screen.getByTestId('search-input')).not.toHaveFocus()
+
+    await userEvent.keyboard('g')
+    fireEvent.pointerDown(document.body)
+    await userEvent.keyboard('t')
+    expect(window.location.pathname).toBe('/')
   })
 })

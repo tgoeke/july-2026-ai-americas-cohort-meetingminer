@@ -39,9 +39,10 @@ import { useModelSettings } from './useModelSettings'
 export interface ModelSelectProps {
   /** The role this select binds. The ask box binds `chat`. */
   role?: string
+  compact?: boolean
 }
 
-export function ModelSelect({ role: roleName = ASK_BOX_ROLE }: ModelSelectProps = {}) {
+export function ModelSelect({ role: roleName = ASK_BOX_ROLE, compact = false }: ModelSelectProps = {}) {
   const { load, health, pending, failure, select } = useModelSettings()
   const [open, setOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
@@ -77,8 +78,12 @@ export function ModelSelect({ role: roleName = ASK_BOX_ROLE }: ModelSelectProps 
 
   if (load.kind === 'loading') {
     return (
-      <span data-testid="model-select-loading" className="text-xs text-muted-foreground">
-        reading the model catalog…
+      <span
+        data-testid="model-select-loading"
+        className="max-w-20 truncate text-xs text-muted-foreground"
+        title={compact ? 'reading the model catalog…' : undefined}
+      >
+        {compact ? 'model…' : 'reading the model catalog…'}
       </span>
     )
   }
@@ -87,8 +92,12 @@ export function ModelSelect({ role: roleName = ASK_BOX_ROLE }: ModelSelectProps 
     // Named, not silent, and not fatal to the ask box: a question can still be
     // asked on whatever binding the api resolves server-side.
     return (
-      <span data-testid="model-select-unavailable" className="text-xs text-muted-foreground">
-        cannot read the model catalog from {API_BASE}: {load.message}
+      <span
+        data-testid="model-select-unavailable"
+        className="max-w-24 truncate text-xs text-muted-foreground"
+        title={compact ? `cannot read the model catalog from ${API_BASE}: ${load.message}` : undefined}
+      >
+        {compact ? 'model unavailable' : `cannot read the model catalog from ${API_BASE}: ${load.message}`}
       </span>
     )
   }
@@ -99,8 +108,8 @@ export function ModelSelect({ role: roleName = ASK_BOX_ROLE }: ModelSelectProps 
     // the judge is file-only by owner decision (story 8.2) and never appears.
     // Saying so beats inventing a control that a `PUT` would refuse.
     return (
-      <span data-testid="model-select-not-offered" className="text-xs text-muted-foreground">
-        the {roleName} role is not offered for selection
+      <span data-testid="model-select-not-offered" className="max-w-24 truncate text-xs text-muted-foreground">
+        {compact ? `${roleName} unavailable` : `the ${roleName} role is not offered for selection`}
       </span>
     )
   }
@@ -152,7 +161,7 @@ export function ModelSelect({ role: roleName = ASK_BOX_ROLE }: ModelSelectProps 
   }
 
   return (
-    <span className="flex flex-col gap-1">
+    <span className={compact ? 'relative inline-flex max-w-24' : 'flex flex-col gap-1'}>
       <span ref={containerRef} className="relative inline-flex self-end">
         <button
           ref={triggerRef}
@@ -163,7 +172,7 @@ export function ModelSelect({ role: roleName = ASK_BOX_ROLE }: ModelSelectProps 
           aria-controls={open ? listboxId : undefined}
           aria-disabled={options.length === 0 || undefined}
           aria-label={triggerAccessibleName(role, activeHealth)}
-          className="flex items-center gap-2 rounded-md border px-2 py-1 text-xs"
+          className={`flex items-center gap-2 rounded-md border px-2 py-1 text-xs ${compact ? 'max-w-24 overflow-hidden' : ''}`}
           onClick={() => {
             // An empty catalog opens nothing: there is no choice to present,
             // and no default is invented to fill the gap.
@@ -241,44 +250,52 @@ export function ModelSelect({ role: roleName = ASK_BOX_ROLE }: ModelSelectProps 
         )}
       </span>
 
-      {options.length === 0 && (
-        <span data-testid="model-select-empty" className="text-xs text-muted-foreground">
-          {NO_MODELS_CONFIGURED}
-        </span>
-      )}
+      <span
+        className={
+          compact
+            ? 'absolute top-[calc(100%+0.25rem)] right-0 z-50 flex w-72 flex-col gap-1 rounded-md border bg-popover p-2 text-xs shadow-md empty:hidden'
+            : 'contents'
+        }
+      >
+        {options.length === 0 && (
+          <span data-testid="model-select-empty" className="text-xs text-muted-foreground">
+            {NO_MODELS_CONFIGURED}
+          </span>
+        )}
 
-      {busyBinding !== undefined && (
-        <span data-testid="model-select-pending" className="text-xs text-muted-foreground">
-          binding {role.role} to {busyBinding}…
-        </span>
-      )}
+        {busyBinding !== undefined && (
+          <span data-testid="model-select-pending" className="text-xs text-muted-foreground">
+            binding {role.role} to {busyBinding}…
+          </span>
+        )}
 
-      {open && (
-        // Where the binding in force came from: a stored choice that applies
-        // to the next call, or the file default it inherited. Never restart
-        // language — a selection needs none.
-        <span data-testid="model-select-source" className="text-xs text-muted-foreground">
-          {sourceNotice(role)}
-        </span>
-      )}
+        {open && (
+          // Where the binding in force came from: a stored choice that applies
+          // to the next call, or the file default it inherited. Never restart
+          // language — a selection needs none.
+          <span data-testid="model-select-source" className="text-xs text-muted-foreground">
+            {sourceNotice(role)}
+          </span>
+        )}
 
-      {stale !== null && (
-        <span data-testid="model-select-stale" className="text-xs text-muted-foreground">
-          {stale}
-        </span>
-      )}
+        {stale !== null && (
+          <span data-testid="model-select-stale" className="text-xs text-muted-foreground">
+            {stale}
+          </span>
+        )}
 
-      {refusal !== undefined && (
-        // In place, under the select, with the rule first — never a toast
-        // (EXPERIENCE.md § Refusal box).
-        <span
-          role="alert"
-          data-testid="model-select-refusal"
-          className="rounded-md border border-destructive/40 p-2 text-xs text-destructive"
-        >
-          {refusal}
-        </span>
-      )}
+        {refusal !== undefined && (
+          // In place, under the select, with the rule first — never a toast
+          // (EXPERIENCE.md § Refusal box).
+          <span
+            role="alert"
+            data-testid="model-select-refusal"
+            className="rounded-md border border-destructive/40 p-2 text-xs text-destructive"
+          >
+            {refusal}
+          </span>
+        )}
+      </span>
     </span>
   )
 }
