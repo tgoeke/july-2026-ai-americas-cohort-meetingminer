@@ -88,6 +88,11 @@ BASELINE_ROUTER_ORDER = [
     # router (the `media.py` way) and no other module claims a `/threads`
     # prefix, so its position carries no matching hazard.
     "threads",
+    # Story 6.4a: `uploads.py` is default-order too, sorting last by name. Its
+    # literal `/uploads` and parameterized `/uploads/{upload_session_id}`
+    # diverge at the segment after `/uploads`, and no other module claims that
+    # prefix, so its position carries no matching hazard.
+    "uploads",
 ]
 
 

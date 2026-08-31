@@ -600,6 +600,10 @@ def test_the_module_level_slow_set_is_exactly_the_measured_twelve() -> None:
 SLOW_TESTS = (
     "test_api_events::test_a_slow_configured_heartbeat_is_not_overridden_by_a_faster_default",
     "test_api_events::test_configured_poll_cadence_is_honored",
+    # Story 6.4a: the one upload row that uses the real ffprobe rather than a
+    # stubbed one, on an mp4 the session fixture builds with ffmpeg. Its cost is
+    # two subprocesses, not test logic.
+    "test_api_uploads::test_a_real_recording_passes_the_video_and_duration_checks",
     "test_api_speaker_assignment::TestRerun",
     "test_artifact_publish::test_approve_projects_into_both_stores",
     "test_worker_extract::test_search_never_returns_an_extracted_artifacts_content",
@@ -645,8 +649,8 @@ def _decorated_slow_definitions(path: Path) -> set[str]:
     return found
 
 
-def test_the_per_test_slow_set_is_exactly_the_measured_four() -> None:
-    """Derived from the syntax of every test module and compared both ways: a fifth decorator would remove a fast test from the default run with every other contract green, a missing one would re-admit a timer- or twin-bound test, and a mark inside a probe string is no mark."""
+def test_the_per_test_slow_set_is_exactly_the_measured_set() -> None:
+    """Derived from the syntax of every test module and compared both ways: an unpinned decorator would remove a fast test from the default run with every other contract green, a missing one would re-admit a timer-, tool- or twin-bound test, and a mark inside a probe string is no mark."""
     marked: set[str] = set()
     for path in SERVER_TESTS.glob("test_*.py"):
         marked |= _decorated_slow_definitions(path)
