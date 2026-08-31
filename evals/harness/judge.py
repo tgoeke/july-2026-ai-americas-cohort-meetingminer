@@ -333,8 +333,12 @@ def artifact_item(
     artifact: ArtifactRow,
     segments: tuple[TranscriptSegment, ...],
 ) -> JudgeItem:
-    """One extraction item. ``citation_present`` is mechanically true: an
-    `artifact` row cannot exist without a `moment_id` FK (0009_artifacts.sql)."""
+    """One moment-anchored extraction item.
+
+    ``citation_present`` is mechanically true because ``Corpus.artifacts_for``
+    excludes NULL-scoped rows and 0009's composite FK anchors every remaining
+    artifact to a moment in its own meeting.
+    """
     return JudgeItem(
         kind="artifact",
         item_id=artifact.id,
