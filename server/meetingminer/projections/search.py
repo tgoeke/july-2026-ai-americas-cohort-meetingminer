@@ -43,7 +43,12 @@ import meilisearch
 
 from meetingminer.adapters.embed.port import Vector
 from meetingminer.projections.chunking import Chunk
-from meetingminer.projections.documents import DOCUMENTS_INDEX, document_record
+from meetingminer.projections.documents import (
+    DOCUMENTS_INDEX,
+    assert_carries_review_label,
+    assert_not_citable,
+    document_record,
+)
 from meetingminer.projections.evidence import ExtractionDocumentRow, MeetingEvidence
 from meetingminer.projections.publish_gate import (
     ARTIFACTS_INDEX,
@@ -389,6 +394,14 @@ def project_documents(
     id, so a re-extraction — which upserts that row rather than inserting a
     second — is an idempotent overwrite rather than a duplicate.
     """
+    # This public writer is the last boundary before the store. Keep both
+    # invariants here as well as in ``document_record`` so a new caller cannot
+    # bypass AD-18 or open a citation path by supplying a raw mapping. Validate
+    # the whole batch before the first write: one malformed later record must
+    # not leave a partially applied projection behind.
+    for document in documents:
+        assert_carries_review_label(document)
+        assert_not_citable(document)
     if documents:
         _add(client, DOCUMENTS_INDEX, documents)
     return len(documents)
