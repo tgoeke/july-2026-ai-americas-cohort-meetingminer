@@ -47,7 +47,17 @@ function body(payload: unknown, status = 200) {
   } as unknown as Response
 }
 
-function answer(url: string): Response {
+function answer(url: string, method = 'GET'): Response {
+  if (method !== 'GET') {
+    return body({
+      threadId: EVAL_HARNESS.threadId,
+      name: EVAL_HARNESS.name,
+      derivedName: EVAL_HARNESS.name,
+      nameIsCurated: false,
+      colorOrdinal: EVAL_HARNESS.colorOrdinal,
+      mergedIntoThreadId: null,
+    })
+  }
   if (url.endsWith('/threads')) {
     const status = served.threadsStatus ?? 200
     if (status !== 200) {
@@ -73,7 +83,9 @@ beforeEach(() => {
   served = {}
   vi.stubGlobal(
     'fetch',
-    vi.fn((input: RequestInfo | URL) => Promise.resolve(answer(String(input)))),
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
+      Promise.resolve(answer(String(input), init?.method ?? 'GET')),
+    ),
   )
 })
 
@@ -178,6 +190,24 @@ describe('the bands tier — how the screen opens', () => {
 })
 
 describe('the list column', () => {
+  it('invalidates timeline data after curation instead of leaving the corrected list on a stale canvas', async () => {
+    const user = userEvent.setup()
+    await bandsTier()
+    const bandRequests = () =>
+      vi.mocked(fetch).mock.calls.filter((call) => String(call[0]).includes('level=bands')).length
+    const before = bandRequests()
+
+    const list = screen.getByRole('complementary', { name: 'Threads' })
+    await user.click(within(list).getAllByRole('button', { name: 'Merge into…' })[0])
+    await user.selectOptions(
+      within(list).getByRole('combobox', { name: /merge retrieval split into/i }),
+      EVAL_HARNESS.threadId,
+    )
+    await user.click(within(list).getByRole('button', { name: 'Merge' }))
+
+    await waitFor(() => expect(bandRequests()).toBeGreaterThan(before))
+  })
+
   it('searches by name and says so when nothing matches', async () => {
     const user = userEvent.setup()
     await bandsTier()

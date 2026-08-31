@@ -56,6 +56,14 @@ The review branch must be rebased onto the then-current `origin/main` before clo
 - **Suggested direction:** Inside the same Neo4j transaction as the scoped delete/write, retire only `Thread` nodes with no remaining `INCLUDES` edge after current topics have been written. Do not delete a cross-meeting thread merely because one meeting stopped using it; orphanhood must be evaluated graph-wide after the replacement.
 - **Remediation:** The graph projection now removes graph-wide orphan `Thread` nodes after writing the current meeting's topics and edges, inside the same Neo4j transaction. A thread still used by any projected meeting retains an `INCLUDES` edge and survives; the absorbed last-use node is retired. The twin-backed red regression is green.
 
+### F6 — Confirmed, remediation in progress: curation left the timeline on stale cached membership
+
+- **Location:** `web/src/features/threads/Threads.tsx` (`reReadThreads`, `cacheRef`, `requestedKeyRef`, and the timeline-fetch effect)
+- **Severity:** Major
+- **Finding:** After rename, merge, or split succeeds, the Threads screen increments only `listRetryVersion`. The corrected list is fetched again, but the timeline request key and drawn/cache entries are unchanged, so no `level=bands` request follows and the canvas continues to show the pre-curation membership. The same screen therefore presents two contradictory answers about the user's correction.
+- **Evidence:** Added the integration regression `invalidates timeline data after curation instead of leaving the corrected list on a stale canvas`. Against the unfixed branch, the merge returned successfully and the list re-read completed, but the number of timeline band requests stayed at three rather than increasing; the run ended **1 failed, 683 passed** with `expected 3 to be greater than 3`.
+- **Suggested direction:** Treat successful curation as invalidating both list and timeline data. Clear the timeline cache/request guard and advance the timeline retry generation while retaining the currently drawn tier until the replacement fetch resolves, matching the screen's existing anti-flicker behavior.
+
 ## Verification
 
 Pending.
