@@ -69,7 +69,7 @@ class RoleSelectionView(BaseModel):
     #: still-declared `model`. Served *beside* the effective binding rather
     #: than replaced by it, so a reader can always see both halves.
     default: str
-    file_model: str
+    file_binding: str
     #: What is stored for this role, whether or not it is still selectable.
     selected: str | None
     effective_binding: str
@@ -137,7 +137,7 @@ def _view(role: str, role_binding: Any, selected: str | None) -> RoleSelectionVi
             for entry in role_binding.catalog
         ],
         default=effective.default_binding,
-        file_model=effective.file_model,
+        file_binding=effective.file_model,
         selected=effective.selected,
         effective_binding=effective.binding,
         provider=effective.provider,

@@ -59,7 +59,7 @@ SETTINGS_PAYLOAD: dict[str, Any] = {
                 },
             ],
             "default": "openai/gpt-5.2",
-            "fileModel": "openai/gpt-5.2",
+            "fileBinding": "openai/gpt-5.2",
             "selected": "ollama/gpt-oss:120b",
             "effectiveBinding": "ollama/gpt-oss:120b",
             "provider": "ollama",
@@ -77,7 +77,7 @@ SETTINGS_PAYLOAD: dict[str, Any] = {
                 }
             ],
             "default": "ollama/gpt-oss:120b",
-            "fileModel": "ollama/gpt-oss:120b",
+            "fileBinding": "ollama/gpt-oss:120b",
             "selected": None,
             "effectiveBinding": "ollama/gpt-oss:120b",
             "provider": "ollama",

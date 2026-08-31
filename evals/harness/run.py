@@ -277,7 +277,7 @@ def fetch_effective_bindings(
                 "selection_source": row["source"],
                 "selected": row.get("selected"),
                 "stale_selection": row.get("staleSelection"),
-                "file_model": row.get("fileModel"),
+                "file_model": row.get("fileBinding"),
                 "file_default": row.get("default"),
             }
             for row in rows

@@ -106,7 +106,8 @@ def test_with_nothing_chosen_every_role_reports_the_files_default(
         assert view["selected"] is None
         assert view["effectiveBinding"] == configured.default
         assert view["source"] == "file-default"
-        assert view["fileModel"] == configured.model
+        assert view["fileBinding"] == configured.model
+        assert "fileModel" not in view
         assert view["staleSelection"] is None
 
 

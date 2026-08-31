@@ -1465,9 +1465,9 @@ export type RoleSelectionView = {
      */
     default: string;
     /**
-     * Filemodel
+     * Filebinding
      */
-    fileModel: string;
+    fileBinding: string;
     /**
      * Selected
      */
