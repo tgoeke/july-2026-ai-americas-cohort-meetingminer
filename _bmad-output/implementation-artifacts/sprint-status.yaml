@@ -132,7 +132,7 @@ development_status:
   10-2-threads-and-the-graph-projection: done
   10-2a-thread-curation: backlog
   10-2b-thread-questions-in-chat: backlog
-  10-3-thread-timeline-api-with-level-of-detail: backlog
+  10-3-thread-timeline-api-with-level-of-detail: review
   10-4-moments-feed-ranking: backlog
   10-5-moments-view-and-front-door: backlog
   10-6-threads-zoomable-timeline: backlog
