@@ -34,3 +34,12 @@ Adversarial review of the Story 7.4 web implementation, with emphasis on unsettl
 - **Finding:** `applyJobEvent()` treats `job.done` as completion of every re-armed stage, including `extract`, and `landedSentence()` then states that extractions now carry the name. The wire deliberately emits `job.done` when evidence through `moments` becomes complete; `extract` is explicitly outside `EVIDENCE_STAGES` and may still be queued or running.
 - **Evidence:** `_done_event()` contains no stage completion data and fires from `snapshot.complete`; `EVIDENCE_STAGES` ends at `moments`. The event stream also regards evidence-complete jobs as settled and may close after that transition. The frozen Story 7.4 matrix nevertheless defines `job.done` as the rerun-landed trigger and requires a sentence claiming extraction completed, so the implementation follows an internally incompatible contract.
 - **Suggested direction:** Owner must amend one side of the contract: either provide a wire signal/status read that proves all `rearmedStages` (including `extract`) settled and make the UI wait for it, or narrow the landed claim to what `job.done` actually proves. Do not silently reinterpret `job.done` in the client.
+
+### F3 — A route-parameter change leaves the old meeting actionable
+
+- **Location:** `web/src/features/speakers/SpeakerNaming.tsx:116`; `web/src/features/speakers/SpeakerNaming.route.tsx:10`
+- **Severity:** High
+- **Status:** Confirmed — patch required
+- **Finding:** Changing `/meetings/:meetingId/speakers` can reuse the mounted component. Its effect starts new reads but does not invalidate old speakers, selection, draft, clip, transcript, failures, or rerun state. Until the new reads settle, an old row remains usable while `save()` already builds the request path from the new `meetingId`, allowing an old meeting's selected tag to be assigned on the new meeting.
+- **Evidence:** `load` closes over the new ID, but `selected` continues to resolve from the prior `speakers` array and `selectedTag`; the save path uses the new prop. `SPEAKER_00`-style tags commonly exist in more than one meeting, so this is reachable without any malformed data.
+- **Suggested direction:** Key the stateful screen by meeting identity so a parameter change synchronously remounts and clears all meeting-owned state before the new load. Preserve stale rows only across rereads of the same meeting.
