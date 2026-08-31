@@ -578,8 +578,10 @@ def test_a_queued_speaker_rerun_can_be_corrected_before_the_worker_claims_it(
     )
 
 
-def test_only_speaker_put_bypasses_the_failed_evidence_gate(client, test_pool) -> None:
-    """Reads and unrelated writes remain locked out by `_require_viewable`."""
+def test_speaker_recovery_read_and_write_bypass_the_failed_evidence_gate(
+    client, test_pool
+) -> None:
+    """Cold recovery can list tags; sibling reads and writes stay locked."""
     seeded = _seed(test_pool, source_id="assign-failed-boundary", has_recording=False)
     _settle_job(test_pool, seeded.job_id)
     assert _put(
@@ -590,13 +592,20 @@ def test_only_speaker_put_bypasses_the_failed_evidence_gate(client, test_pool) -
     ).status_code == 200
     _fail_speaker_rerun(test_pool, seeded.job_id)
 
-    responses = (
-        client.get(f"/meetings/{seeded.meeting_id}/speakers"),
+    speakers = client.get(f"/meetings/{seeded.meeting_id}/speakers")
+    assert speakers.status_code == 200, speakers.text
+    assert {row["speakerLabel"] for row in speakers.json()["speakers"]} == {
+        PLACEHOLDER_TAG,
+        NAMED_TAG,
+    }
+
+    still_gated = (
+        client.get(f"/meetings/{seeded.meeting_id}/drilldown"),
         client.get(f"/meetings/{seeded.meeting_id}/moments"),
         client.post(f"/moments/{seeded.moment_ids[0]}/approve"),
     )
 
-    for response in responses:
+    for response in still_gated:
         assert response.status_code == 409
         assert response.json()["type"] == (
             "urn:meetingminer:problem:meeting-not-viewable"
