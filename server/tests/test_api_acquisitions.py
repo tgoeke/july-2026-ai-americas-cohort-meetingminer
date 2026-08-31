@@ -446,6 +446,9 @@ def test_a_second_launch_for_the_same_source_is_refused_by_conflict(
     assert conflict.headers["content-type"].startswith(PROBLEM_MEDIA_TYPE)
     body = conflict.json()
     assert body["type"] == "urn:meetingminer:problem:acquisition-in-progress"
+    assert body["rule"] == "acquisition-in-progress"
+    assert "poll" in body["remediation"].lower()
+    assert "upload session" not in body["remediation"].lower()
     assert body["acquisitionId"] == first.json()["acquisitionId"]
     assert body["sourceId"] == SOURCE_ID
 

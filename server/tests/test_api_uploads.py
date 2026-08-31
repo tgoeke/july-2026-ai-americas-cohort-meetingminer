@@ -22,10 +22,13 @@ Three properties are asserted over and over, because they are what the story
 from __future__ import annotations
 
 import ast
+import asyncio
 import hashlib
 import json
+import os
 import re
 import shutil
+import threading
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -37,7 +40,7 @@ from fastapi.routing import APIRoute
 
 import meetingminer.api.main as api_main
 import meetingminer.api.uploads as api_uploads
-from meetingminer import acquisitions, mintdrop, uploads
+from meetingminer import acquisitions, mintdrop, uploads, youtube
 from meetingminer.config import AppConfig, ConfigError
 from meetingminer.domain.drops import (
     EVIDENCE_FILENAMES,
@@ -868,6 +871,76 @@ def test_a_session_can_be_read_back_and_discarded(client: Any, make_env: Callabl
     assert client.delete(f"/uploads/{session_id}").status_code == 404
 
 
+def test_failed_recursive_delete_is_a_named_state_error_and_quarantines_the_session(
+    client: Any,
+    make_env: Callable[..., Env],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = make_env()
+    session_id = post_session(client, data=fields(), files=[vtt_part()]).json()[
+        "uploadSessionId"
+    ]
+    original = env.uploads_root / session_id
+    monkeypatch.setattr(uploads.shutil, "rmtree", lambda *_a, **_k: None)
+
+    with pytest.raises(uploads.UploadStateError, match="could not be removed"):
+        uploads.discard_session(env.uploads_root, session_id)
+
+    assert not original.exists()
+    assert len(list(env.uploads_root.glob(f"{uploads.DISCARD_PREFIX}{session_id}-*"))) == 1
+
+
+def test_delete_cleanup_failure_is_a_complete_named_http_refusal(
+    client: Any,
+    make_env: Callable[..., Env],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = make_env()
+    session_id = post_session(client, data=fields(), files=[vtt_part()]).json()[
+        "uploadSessionId"
+    ]
+    monkeypatch.setattr(uploads.shutil, "rmtree", lambda *_a, **_k: None)
+
+    response = client.delete(f"/uploads/{session_id}")
+
+    assert response.status_code == 503
+    assert refusal(response)[0] == "upload-session-unwritable"
+
+
+def test_create_state_failure_is_a_complete_named_http_refusal(
+    client: Any,
+    make_env: Callable[..., Env],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    make_env()
+
+    async def _fail(**_kwargs: Any) -> Any:
+        raise uploads.UploadStateError("session write failed")
+
+    monkeypatch.setattr(uploads, "create_session", _fail)
+    response = post_session(client, data=fields(), files=[vtt_part()])
+    assert response.status_code == 503
+    assert refusal(response)[0] == "upload-staging-unwritable"
+
+
+def test_get_state_failure_is_a_complete_named_http_refusal(
+    client: Any,
+    make_env: Callable[..., Env],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    make_env()
+    monkeypatch.setattr(
+        uploads,
+        "read_session",
+        lambda *_a, **_k: (_ for _ in ()).throw(
+            uploads.UploadStateError("session json is corrupt")
+        ),
+    )
+    response = client.get(f"/uploads/{uuid.uuid4()}")
+    assert response.status_code == 503
+    assert refusal(response)[0] == "upload-session-unreadable"
+
+
 def test_an_unknown_session_id_is_a_named_404(client: Any, make_env: Callable[..., Env]) -> None:
     make_env()
     response = client.get(f"/uploads/{uuid.uuid4()}")
@@ -915,6 +988,114 @@ def test_the_sweep_leaves_an_upload_in_flight_alone(make_env: Callable[..., Env]
     later = datetime.now(timezone.utc) + timedelta(minutes=61)
     assert uploads.sweep_expired(env.uploads_root, limits, now=later) == [in_flight.name]
     assert foreign.is_dir()
+
+
+def test_a_live_create_owner_survives_a_concurrent_ttl_sweep(
+    make_env: Callable[..., Env],
+) -> None:
+    """Ownership is process-visible without holding the claim lock over await."""
+    env = make_env(session_ttl_minutes=1)
+    limits = uploads.UploadLimits.from_config(env.config)
+    entered_body = threading.Event()
+    release_body = threading.Event()
+    result: list[uploads.UploadSession] = []
+    failures: list[BaseException] = []
+    raw = multipart_body(list(fields().items()), file=("meeting.vtt", ZOOM_VTT))
+
+    async def _body() -> Any:
+        entered_body.set()
+        await asyncio.to_thread(release_body.wait)
+        yield raw
+
+    def _create() -> None:
+        try:
+            result.append(
+                asyncio.run(
+                    uploads.create_session(
+                        root=env.uploads_root,
+                        content_type="multipart/form-data; boundary=mmboundary",
+                        content_length=len(raw),
+                        body=_body(),
+                        limits=limits,
+                        now=lambda: datetime.now(timezone.utc),
+                    )
+                )
+            )
+        except BaseException as exc:  # surfaced in the test thread below
+            failures.append(exc)
+
+    creator = threading.Thread(target=_create)
+    creator.start()
+    assert entered_body.wait(timeout=2)
+    try:
+        directories = env.session_dirs()
+        assert len(directories) == 1
+        directory = directories[0]
+        owner_files = list(directory.glob(".create-owner-*"))
+        assert len(owner_files) == 1
+        old = (datetime.now(timezone.utc) - timedelta(minutes=5)).timestamp()
+        os.utime(directory, (old, old))
+        os.utime(owner_files[0], (old, old))
+
+        assert uploads.sweep_expired(
+            env.uploads_root, limits, now=datetime.now(timezone.utc)
+        ) == []
+        assert directory.is_dir()
+    finally:
+        release_body.set()
+        creator.join(timeout=3)
+    assert not creator.is_alive()
+    assert failures == []
+    assert [session.session_id for session in result] == [directory.name]
+    assert not list(directory.glob(".create-owner-*"))
+
+
+def test_incomplete_session_age_uses_current_child_file_activity(
+    make_env: Callable[..., Env],
+) -> None:
+    env = make_env(session_ttl_minutes=10)
+    limits = uploads.UploadLimits.from_config(env.config)
+    now = datetime.now(timezone.utc)
+    directory = env.uploads_root / str(uuid.uuid4())
+    directory.mkdir(parents=True)
+    child = directory / "recording.mp4"
+    child.write_bytes(b"still arriving")
+    old = (now - timedelta(hours=1)).timestamp()
+    os.utime(directory, (old, old))
+    os.utime(child, (now.timestamp(), now.timestamp()))
+
+    assert uploads.sweep_expired(env.uploads_root, limits, now=now) == []
+    assert uploads.sweep_expired(
+        env.uploads_root, limits, now=now + timedelta(minutes=11)
+    ) == [directory.name]
+
+
+def test_completed_session_ttl_starts_when_the_body_finishes(
+    make_env: Callable[..., Env],
+) -> None:
+    env = make_env(session_ttl_minutes=30)
+    limits = uploads.UploadLimits.from_config(env.config)
+    began = datetime(2026, 8, 31, 12, 0, tzinfo=timezone.utc)
+    completed = began + timedelta(hours=2)
+    clock = {"now": began}
+    raw = multipart_body(list(fields().items()), file=("meeting.vtt", ZOOM_VTT))
+
+    async def _body() -> Any:
+        clock["now"] = completed
+        yield raw
+
+    session = asyncio.run(
+        uploads.create_session(
+            root=env.uploads_root,
+            content_type="multipart/form-data; boundary=mmboundary",
+            content_length=len(raw),
+            body=_body(),
+            limits=limits,
+            now=lambda: clock["now"],
+        )
+    )
+    assert session.created_at == "2026-08-31T14:00:00Z"
+    assert session.expires_at == "2026-08-31T14:30:00Z"
 
 
 # --- the acquisition ---------------------------------------------------------
@@ -984,6 +1165,43 @@ def test_upload_child_command_names_the_real_session_and_cleanup_root(
         "--state-root",
         str(state_root),
     ]
+
+
+def test_launch_upload_composes_the_real_child_arguments(
+    client: Any,
+    make_env: Callable[..., Env],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = make_env()
+    session_id = post_session(client, data=fields(), files=[vtt_part()]).json()[
+        "uploadSessionId"
+    ]
+    captured: dict[str, Any] = {}
+
+    @dataclass(frozen=True)
+    class _Process:
+        pid: int = os.getpid()
+
+    def _popen(argv: list[str], **kwargs: Any) -> _Process:
+        captured["argv"] = argv
+        captured["kwargs"] = kwargs
+        return _Process()
+
+    monkeypatch.setattr(acquisitions.subprocess, "Popen", _popen)
+    record = acquisitions.launch_upload(env.config, session_id)
+
+    assert captured["argv"] == acquisitions.child_command(
+        record.acquisition_id,
+        None,
+        env.acquisitions_root,
+        upload_session_id=session_id,
+        sessions_root=env.uploads_root,
+    )
+    assert captured["argv"][captured["argv"].index("--upload-session") + 1] == session_id
+    assert captured["argv"][captured["argv"].index("--sessions-root") + 1] == str(
+        env.uploads_root
+    )
+    assert captured["kwargs"]["start_new_session"] is True
 
 
 def test_cli_dispatches_upload_mode_to_the_upload_runner(
@@ -1114,6 +1332,24 @@ def test_an_unknown_session_cannot_be_acquired(
     assert refusal(response)[0] == "upload-session-not-found"
 
 
+def test_upload_acquisition_state_failure_is_a_complete_named_http_refusal(
+    client: Any,
+    make_env: Callable[..., Env],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    make_env()
+    monkeypatch.setattr(
+        acquisitions,
+        "launch_upload",
+        lambda *_a, **_k: (_ for _ in ()).throw(
+            acquisitions.AcquisitionStateError("claim lock is unavailable")
+        ),
+    )
+    response = start_acquisition(client, str(uuid.uuid4()))
+    assert response.status_code == 503
+    assert refusal(response)[0] == "acquisition-state-unwritable"
+
+
 def test_launching_an_upload_acquisition_claims_the_session(
     client: Any, make_env: Callable[..., Env], sleeping_child: list[Any]
 ) -> None:
@@ -1163,6 +1399,182 @@ def test_live_upload_claims_are_protected_from_the_ttl_sweep(
     assert directory.is_dir()
 
 
+def test_launch_claim_blocks_delete_until_the_live_owner_is_published(
+    client: Any,
+    make_env: Callable[..., Env],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = make_env()
+    session_id = post_session(client, data=fields(), files=[vtt_part()]).json()[
+        "uploadSessionId"
+    ]
+    entered_start = threading.Event()
+    release_start = threading.Event()
+    delete_done = threading.Event()
+    launch_failures: list[BaseException] = []
+    responses: list[Any] = []
+
+    def _start(
+        _config: AppConfig,
+        root: Path,
+        record: acquisitions.AcquisitionRecord,
+        _argv: list[str],
+    ) -> acquisitions.AcquisitionRecord:
+        entered_start.set()
+        assert release_start.wait(timeout=2)
+        live = record.advanced(pid=os.getpid())
+        acquisitions.write_record(root, live)
+        return live
+
+    monkeypatch.setattr(acquisitions, "_start_child", _start)
+
+    def _launch() -> None:
+        try:
+            acquisitions.launch_upload(env.config, session_id)
+        except BaseException as exc:
+            launch_failures.append(exc)
+
+    def _delete() -> None:
+        responses.append(client.delete(f"/uploads/{session_id}"))
+        delete_done.set()
+
+    launcher = threading.Thread(target=_launch)
+    launcher.start()
+    assert entered_start.wait(timeout=2)
+    deleter = threading.Thread(target=_delete)
+    deleter.start()
+    assert not delete_done.wait(timeout=0.1)
+    release_start.set()
+    launcher.join(timeout=2)
+    deleter.join(timeout=2)
+
+    assert launch_failures == []
+    assert responses[0].status_code == 409
+    assert refusal(responses[0])[0] == "acquisition-in-progress"
+    assert (env.uploads_root / session_id).is_dir()
+
+
+def test_launch_claim_blocks_sweep_until_the_live_owner_is_published(
+    client: Any,
+    make_env: Callable[..., Env],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = make_env(session_ttl_minutes=1)
+    session_id = post_session(client, data=fields(), files=[vtt_part()]).json()[
+        "uploadSessionId"
+    ]
+    directory = env.uploads_root / session_id
+    payload = json.loads((directory / uploads.SESSION_FILENAME).read_text())
+    payload["expiresAt"] = "2020-01-01T00:00:00Z"
+    (directory / uploads.SESSION_FILENAME).write_text(json.dumps(payload))
+    entered_start = threading.Event()
+    release_start = threading.Event()
+    upload_done = threading.Event()
+    fresh: list[Any] = []
+
+    def _start(
+        _config: AppConfig,
+        root: Path,
+        record: acquisitions.AcquisitionRecord,
+        _argv: list[str],
+    ) -> acquisitions.AcquisitionRecord:
+        entered_start.set()
+        assert release_start.wait(timeout=2)
+        live = record.advanced(pid=os.getpid())
+        acquisitions.write_record(root, live)
+        return live
+
+    monkeypatch.setattr(acquisitions, "_start_child", _start)
+    launcher = threading.Thread(
+        target=acquisitions.launch_upload, args=(env.config, session_id)
+    )
+    launcher.start()
+    assert entered_start.wait(timeout=2)
+
+    def _post_fresh() -> None:
+        fresh.append(post_session(client, data=fields(), files=[vtt_part()]))
+        upload_done.set()
+
+    uploader = threading.Thread(target=_post_fresh)
+    uploader.start()
+    assert not upload_done.wait(timeout=0.1)
+    release_start.set()
+    launcher.join(timeout=2)
+    uploader.join(timeout=3)
+
+    assert fresh[0].status_code == 201, fresh[0].text
+    assert directory.is_dir()
+
+
+def test_terminal_cleanup_blocks_a_second_launch_until_the_session_is_gone(
+    client: Any,
+    make_env: Callable[..., Env],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = make_env()
+    session_id = post_session(client, data=fields(), files=[vtt_part()]).json()[
+        "uploadSessionId"
+    ]
+    acquisition_id = str(uuid.uuid4())
+    terminal = acquisitions.AcquisitionRecord(
+        acquisition_id=acquisition_id,
+        source_id="sha256:done",
+        url=f"upload:{session_id}",
+        status="posted",
+        created_at=STARTED_AT,
+        updated_at=STARTED_AT,
+        result="created",
+        kind=acquisitions.KIND_UPLOAD,
+        upload_session_id=session_id,
+    )
+    acquisitions.write_record(env.acquisitions_root, terminal)
+    entered_cleanup = threading.Event()
+    release_cleanup = threading.Event()
+    launch_done = threading.Event()
+    real_discard = uploads.discard_session
+    launch_failures: list[BaseException] = []
+    started: list[bool] = []
+
+    def _discard(root: Path, claimed_session_id: str) -> bool:
+        entered_cleanup.set()
+        assert release_cleanup.wait(timeout=2)
+        return real_discard(root, claimed_session_id)
+
+    monkeypatch.setattr(uploads, "discard_session", _discard)
+    monkeypatch.setattr(
+        acquisitions,
+        "_start_child",
+        lambda *_a, **_k: started.append(True),
+    )
+
+    completer = threading.Thread(
+        target=acquisitions._complete_upload_record,
+        args=(env.acquisitions_root, env.uploads_root, session_id, terminal),
+    )
+    completer.start()
+    assert entered_cleanup.wait(timeout=2)
+
+    def _launch() -> None:
+        try:
+            acquisitions.launch_upload(env.config, session_id)
+        except BaseException as exc:
+            launch_failures.append(exc)
+        finally:
+            launch_done.set()
+
+    launcher = threading.Thread(target=_launch)
+    launcher.start()
+    assert not launch_done.wait(timeout=0.1)
+    release_cleanup.set()
+    completer.join(timeout=2)
+    launcher.join(timeout=2)
+
+    assert started == []
+    assert len(launch_failures) == 1
+    assert isinstance(launch_failures[0], uploads.UploadSessionNotFound)
+    assert not (env.uploads_root / session_id).exists()
+
+
 def test_parent_process_start_failure_discards_the_claimed_session(
     client: Any,
     make_env: Callable[..., Env],
@@ -1180,6 +1592,102 @@ def test_parent_process_start_failure_discards_the_claimed_session(
     response = start_acquisition(client, session_id)
     assert response.status_code == 500
     assert env.session_dirs() == []
+
+
+def test_terminal_cleanup_failure_never_publishes_posted_beside_a_reusable_session(
+    client: Any,
+    make_env: Callable[..., Env],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = make_env()
+    session_id = post_session(client, data=fields(), files=[vtt_part()]).json()[
+        "uploadSessionId"
+    ]
+    acquisition_id = str(uuid.uuid4())
+    running = acquisitions.AcquisitionRecord(
+        acquisition_id=acquisition_id,
+        source_id=f"upload:{session_id}",
+        url=f"upload:{session_id}",
+        status="running",
+        created_at=STARTED_AT,
+        updated_at=STARTED_AT,
+        pid=os.getpid(),
+        kind=acquisitions.KIND_UPLOAD,
+        upload_session_id=session_id,
+    )
+    acquisitions.write_record(env.acquisitions_root, running)
+    monkeypatch.setattr(uploads.shutil, "rmtree", lambda *_a, **_k: None)
+
+    completed = acquisitions._complete_upload_record(
+        env.acquisitions_root,
+        env.uploads_root,
+        session_id,
+        running.advanced(
+            status="posted", source_id="sha256:done", result="created"
+        ),
+    )
+
+    assert completed.status == "failed"
+    assert completed.refusal is not None
+    assert completed.refusal.rule == "upload-session-unwritable"
+    assert not (env.uploads_root / session_id).exists()
+    persisted = acquisitions.read_record(env.acquisitions_root, acquisition_id)
+    assert persisted.status == "failed"
+    assert persisted.refusal is not None
+    assert persisted.refusal.rule == "upload-session-unwritable"
+
+
+def test_transient_terminal_status_write_failure_is_recovered_as_failed(
+    client: Any,
+    make_env: Callable[..., Env],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = make_env()
+    session_id = post_session(client, data=fields(), files=[vtt_part()]).json()[
+        "uploadSessionId"
+    ]
+    acquisition_id = str(uuid.uuid4())
+    running = acquisitions.AcquisitionRecord(
+        acquisition_id=acquisition_id,
+        source_id=f"upload:{session_id}",
+        url=f"upload:{session_id}",
+        status="running",
+        created_at=STARTED_AT,
+        updated_at=STARTED_AT,
+        pid=os.getpid(),
+        kind=acquisitions.KIND_UPLOAD,
+        upload_session_id=session_id,
+    )
+    acquisitions.write_record(env.acquisitions_root, running)
+    real_write = acquisitions.write_record
+    attempts = 0
+
+    def _write(root: Path, record: acquisitions.AcquisitionRecord) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise acquisitions.AcquisitionStateError("status replace failed")
+        real_write(root, record)
+
+    monkeypatch.setattr(acquisitions, "write_record", _write)
+    completed = acquisitions._complete_upload_record(
+        env.acquisitions_root,
+        env.uploads_root,
+        session_id,
+        running.advanced(
+            status="posted", source_id="sha256:done", result="created"
+        ),
+    )
+
+    assert attempts == 2
+    assert completed.status == "failed"
+    assert completed.refusal is not None
+    assert completed.refusal.rule == "acquisition-state-unwritable"
+    persisted = acquisitions.read_record(env.acquisitions_root, acquisition_id)
+    assert persisted.status == "failed"
+    assert persisted.refusal is not None
+    assert persisted.refusal.rule == "acquisition-state-unwritable"
+    assert not (env.uploads_root / session_id).exists()
 
 
 def test_the_runner_mints_posts_and_removes_the_session(
@@ -1392,6 +1900,160 @@ def test_an_upload_and_a_hand_mint_produce_one_identity(
     assert metadata["startedAtPrecision"] == "second"
     assert uploaded.tool == metadata["provenance"]["tool"] == "mint-drop"
     assert env.session_dirs() == []
+
+
+def test_upload_exists_preserves_an_immutable_youtube_tool_version(
+    client: Any,
+    make_env: Callable[..., Env],
+    sleeping_child: list[Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = make_env()
+    recording = b"existing youtube recording"
+    created = post_session(
+        client,
+        data=fields(transcriptDialect=None),
+        files=[mp4_part(recording)],
+    ).json()
+    session_id = created["uploadSessionId"]
+    accepted = start_acquisition(client, session_id).json()
+    digest = hashlib.sha256(recording).hexdigest()
+    source_id = f"sha256:{digest}"
+    drop = env.drops / mintdrop.drop_name(STARTED_AT, TITLE, source_id)
+    drop.mkdir()
+    (drop / "recording.mp4").write_bytes(recording)
+    metadata = {
+        "schemaVersion": 1,
+        "sourceId": source_id,
+        "corpus": "real",
+        "startedAt": STARTED_AT,
+        "startedAtPrecision": "second",
+        "provenance": {
+            "tool": youtube.PROGRAM,
+            "title": TITLE,
+            "mintedAt": STARTED_AT,
+            "suppliedBy": "test",
+            "startedAtSource": "release_timestamp",
+            "ytDlpVersion": "2026.07.04",
+            "files": [
+                {
+                    "dropFilename": "recording.mp4",
+                    "sourcePath": "/private/tmp/source.mp4",
+                    "sha256": digest,
+                    "byteSize": len(recording),
+                }
+            ],
+        },
+    }
+    (drop / METADATA_FILENAME).write_text(
+        json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+    )
+
+    monkeypatch.undo()
+    monkeypatch.setattr(api_main.app.state, "config", env.config)
+    monkeypatch.setattr(mintdrop, "_assert_is_a_video", lambda _path: None)
+    monkeypatch.setattr(
+        acquisitions, "post_ingest", lambda *a, **k: ("created", 201, None)
+    )
+    record = acquisitions.run_upload_acquisition(
+        env.config,
+        accepted["acquisitionId"],
+        session_id,
+        state_root=env.acquisitions_root,
+        sessions_root=env.uploads_root,
+    )
+
+    assert record.result == "exists"
+    assert record.source_id == source_id
+    assert record.tool == youtube.PROGRAM
+    assert record.tool_version == "2026.07.04"
+
+
+@pytest.mark.parametrize(
+    ("parts", "dialect", "expected_evidence"),
+    [
+        ([txt_part()], None, {"transcript.txt"}),
+        ([vtt_part()], "plain", {"transcript.vtt"}),
+        ([vtt_part()], "teams-vtt", {"transcript.vtt"}),
+        ([vtt_part()], "zoom", {"transcript.vtt", "transcript.txt"}),
+        ([mp4_part(b"video bytes")], None, {"recording.mp4"}),
+        (
+            [mp4_part(b"video bytes"), vtt_part(), txt_part()],
+            "plain",
+            {"recording.mp4", "transcript.vtt", "transcript.txt"},
+        ),
+    ],
+    ids=["text", "plain-vtt", "teams-vtt", "zoom-vtt", "recording", "multi-file"],
+)
+def test_hand_mint_and_upload_are_exactly_equal_for_every_supported_shape(
+    client: Any,
+    make_env: Callable[..., Env],
+    sleeping_child: list[Any],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    parts: list[tuple[str, tuple[str, bytes, str]]],
+    dialect: str | None,
+    expected_evidence: set[str],
+) -> None:
+    env = make_env()
+    created = post_session(
+        client,
+        data=fields(transcriptDialect=dialect),
+        files=parts,
+    )
+    assert created.status_code == 201, created.text
+    session_id = created.json()["uploadSessionId"]
+    accepted = start_acquisition(client, session_id).json()
+
+    operator = tmp_path / "operator"
+    operator.mkdir()
+    supplied: list[str] = []
+    for _, (filename, body, _) in parts:
+        path = operator / filename
+        path.write_bytes(body)
+        supplied.append(str(path))
+
+    monkeypatch.undo()
+    monkeypatch.setattr(api_main.app.state, "config", env.config)
+    monkeypatch.setattr(mintdrop, "_assert_is_a_video", lambda _path: None)
+    monkeypatch.setattr(
+        acquisitions, "post_ingest", lambda *a, **k: ("created", 201, None)
+    )
+    effective_dialect = created.json()["transcriptDialect"]
+    with uploads.dialects.workspace() as workspace:
+        conversion = uploads.dialects.convert_supplied(
+            supplied, dialect=effective_dialect, into=workspace
+        )
+        hand = mintdrop.mint(
+            supplied=conversion.supplied,
+            corpus="real",
+            drops_root=env.drops,
+            config_path=env.config.config_path,
+            title=TITLE,
+            started_at_argument=STARTED_AT,
+            identity_root=env.drops,
+            provenance_extra=conversion.provenance_extra,
+        )
+    uploaded = acquisitions.run_upload_acquisition(
+        env.config,
+        accepted["acquisitionId"],
+        session_id,
+        state_root=env.acquisitions_root,
+        sessions_root=env.uploads_root,
+    )
+
+    assert hand.status == "created"
+    assert uploaded.status == "posted"
+    assert uploaded.result == "exists"
+    assert uploaded.source_id == hand.source_id
+    metadata = read_metadata(hand.path)
+    assert metadata["startedAt"] == STARTED_AT
+    assert metadata["startedAtPrecision"] == "second"
+    assert {
+        path.name
+        for path in hand.path.iterdir()
+        if path.name in EVIDENCE_FILENAMES
+    } == expected_evidence
 
 
 @pytest.mark.parametrize(

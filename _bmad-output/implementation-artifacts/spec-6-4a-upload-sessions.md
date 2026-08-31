@@ -4,7 +4,7 @@ type: 'feature'
 created: '2026-08-31'
 baseline_revision: '2d68dcc6dba31007c7d6fd84f0884edbc79508d5'
 baseline_commit: '311788ba'
-status: 'in-review'
+status: 'in-progress'
 review_loop_iteration: 1
 followup_review_recommended: false
 context:
@@ -192,6 +192,17 @@ the session directory. The api never mints, never converts and never ingests.
 
 ## Spec Change Log
 
+- **2026-08-31, second remediation red phase.** Added focused regressions for
+  F-18 through F-27 before changing production code. Against `b0de6123`, the
+  focused selection reported **10 failed, 12 passed, 113 deselected**: deletion
+  failure was still a false 404, create/read/start state failures were bare
+  500s, a live create had no owner marker, terminal cleanup returned no durable
+  result and did not recover a failed status write, immutable YouTube provenance
+  lost `ytDlpVersion`, and a YouTube collision named an upload session. The 12
+  passing cases were the coverage-only rows: exact multi-shape identity, real
+  launch argv composition, barrier interleavings, completion-time TTL and
+  child-file activity. Those are retained as regression coverage rather than
+  misreported as pre-fix production failures.
 - **2026-08-31, review remediation.** Closed all seventeen routed findings.
   Multipart completion and observed-byte ceilings now fail closed; metadata,
   filename, RFC 3339 and dialect shapes are validated before publication;
@@ -278,6 +289,16 @@ content rather than carrying a cosmetic diff into a shared artifact during a
 parallel wave.
 
 ## Verification
+
+**Second-remediation red phase (2026-08-31, production at `b0de6123`):**
+
+- `uv run --project server pytest server/tests/test_api_uploads.py
+  server/tests/test_api_acquisitions.py -q -k '<F-18..F-27 focused selection>'`
+  -- **10 failed, 12 passed, 113 deselected**. The failing node IDs were the
+  recursive-delete/quarantine pair, create/get/acquisition-state refusal rows,
+  live-create ownership, terminal cleanup and transient status-write recovery,
+  immutable YouTube tool version, and kind-correct YouTube collision remedy.
+  The passing nodes were newly added verification-gap coverage, not fixes.
 
 **Review-remediation results (2026-08-31):**
 
