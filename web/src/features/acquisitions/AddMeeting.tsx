@@ -312,6 +312,12 @@ export function AddMeeting({ onOpenMeeting }: AddMeetingProps = {}) {
               <p data-testid="probe-answered" className="font-mono text-xs text-muted-foreground">
                 {probeSummary(probeState.probe)}
               </p>
+              {probeState.probe.captions?.kind === 'auto' && (
+                <p data-testid="auto-caption-warning" className="text-xs text-amber-800 dark:text-amber-300">
+                  Auto-generated captions do not include speaker labels. Segments will initially
+                  appear as <span className="font-mono">Unknown</span>.
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">Nothing has been written.</p>
             </>
           )}
