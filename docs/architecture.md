@@ -126,9 +126,13 @@ the ports are infrastructure location, applied by the loader to the configured
 endpoints rather than written into a second config file. A default outside its
 own catalog, an active `model` outside an authored catalog, and a catalog entry
 naming a provider `providers:` does not declare are refused when the file loads.
-Bindings cannot scatter across env vars,
-code defaults, and flags, and the eval harness snapshots the resolved config into
-every run so any run is reproducible.
+A user's selection is user-declared data (AD-5): persisted in Postgres by the
+api, resolved at call time by api and worker, and recorded in every eval run's
+config snapshot beside the file values. Nothing outside the catalog can be
+selected, and no selection is a fallback: a failing binding surfaces as an
+error. Bindings cannot scatter across env vars, code defaults, and flags, and
+the eval harness snapshots the resolved config into every run so any run is
+reproducible.
 
 **AD-11 — Jobs are Postgres rows advanced by the host worker.** The api enqueues
 by inserting a row; the worker claims it and advances named stages, checkpointing

@@ -319,10 +319,13 @@ required and non-empty, so an authored `catalog: []` is already refused by the
 default-in-catalog rule with a message that names it. The UX design's "empty catalog renders
 honestly" case is a UI robustness requirement for 8.3, not a loadable config state.
 
-**Deferred to 8.2:** the rest of the owner-approved AD-10 wording — that a user's selection is
-user-declared data persisted in Postgres, resolved at call time by api and worker, and recorded
-in every eval run's config snapshot beside the file values. It is deliberately not written now,
-because AD-10 would then describe behavior no code implements.
+**Implemented by the follow-up review:** AD-10 now carries the full
+owner-approved decision, including that a user's selection is user-declared
+data persisted in Postgres, resolved at call time by api and worker, recorded
+in every eval run's config snapshot beside the file values, bounded by the
+catalog, and never a fallback. Stories 8.2 and later still own implementing
+those clauses; the architecture decision is the contract they build from, not
+an implementation-status report.
 
 ## Verification
 
