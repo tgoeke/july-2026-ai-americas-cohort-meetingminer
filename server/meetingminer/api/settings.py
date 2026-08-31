@@ -169,6 +169,26 @@ def get_model_settings(request: Request) -> ModelSettingsResponse:
     "/settings/roles/{role}",
     operation_id="selectRoleBinding",
     response_model=RoleSelectionView,
+    responses={
+        404: {
+            "content": {
+                "application/problem+json": {
+                    "schema": {"$ref": "#/components/schemas/ProblemDetails"}
+                }
+            },
+            "description": "`unknown-role` — no LLM role has that name.",
+        },
+        422: {
+            "content": {
+                "application/problem+json": {
+                    "schema": {"$ref": "#/components/schemas/ProblemDetails"}
+                }
+            },
+            "description": "`binding-not-in-catalog` — the role exists but"
+            " its catalog does not offer the requested binding."
+            " `invalid-request` — the request body failed validation.",
+        },
+    },
 )
 def select_role_binding(
     request: Request, role: str, body: RoleSelectionRequest

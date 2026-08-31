@@ -208,6 +208,18 @@ def test_a_blank_binding_is_refused(client: TestClient) -> None:
     assert response.headers["content-type"].startswith(PROBLEM_JSON)
 
 
+def test_selection_refusals_are_declared_as_problems_in_openapi(
+    client: TestClient,
+) -> None:
+    responses = client.app.openapi()["paths"]["/settings/roles/{role}"]["put"][
+        "responses"
+    ]
+    expected = {"$ref": "#/components/schemas/ProblemDetails"}
+
+    assert responses["404"]["content"][PROBLEM_JSON]["schema"] == expected
+    assert responses["422"]["content"][PROBLEM_JSON]["schema"] == expected
+
+
 # --- the catalog changing under a stored selection --------------------------
 
 

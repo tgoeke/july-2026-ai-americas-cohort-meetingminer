@@ -2613,9 +2613,13 @@ export type SelectRoleBindingData = {
 
 export type SelectRoleBindingErrors = {
     /**
-     * Validation Error
+     * `unknown-role` — no LLM role has that name.
      */
-    422: HttpValidationError;
+    404: ProblemDetails;
+    /**
+     * `binding-not-in-catalog` — the role exists but its catalog does not offer the requested binding. `invalid-request` — the request body failed validation.
+     */
+    422: ProblemDetails;
 };
 
 export type SelectRoleBindingError = SelectRoleBindingErrors[keyof SelectRoleBindingErrors];
