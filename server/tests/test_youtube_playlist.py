@@ -449,6 +449,20 @@ def test_a_mint_refusal_on_one_entry_is_also_survived(
     assert "refused:mint-refused" in capsys.readouterr().out
 
 
+def test_a_config_refusal_on_one_entry_is_also_survived(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    outcomes = {
+        FIRST_ID: youtube.ConfigError("configuration changed mid-run"),
+        SECOND_ID: mint_result(tmp_path, SECOND_ID),
+        PRIVATE_ID: mint_result(tmp_path, PRIVATE_ID),
+    }
+    code, urls, _ = run_with_stubbed_acquire(monkeypatch, tmp_path, outcomes=outcomes)
+    assert len(urls) == 3
+    assert code == 1
+    assert "refused:config" in capsys.readouterr().out
+
+
 def test_an_entry_that_is_not_a_video_is_refused_without_acquiring_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
