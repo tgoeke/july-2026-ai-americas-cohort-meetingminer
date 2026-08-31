@@ -3128,3 +3128,28 @@ No owner decision or deferred item remains. Focused tests: 157 passed / 1 named
 network skip; `make test-fast`: 1927 passed / 2 named skips; `make test`: 2305
 server tests passed / 2 named skips plus the web build. Review report:
 `review-story-6-2a-2026-08-30.md`.
+
+## 6-2a landed, 2026-08-30 ~20:10 — playlist acquisition; epic 6's acquisition half is done
+
+`main` at `b4a71fc`. `make youtube-drop URL=<playlist> PLAYLIST=1` enumerates
+with one `yt-dlp --flat-playlist` call, then mints and posts each entry through
+story 6.2's own unchanged `acquire()` — one drop and one `POST /ingests` per
+entry, `exists` short-circuiting per entry before any probe or download. A
+refused entry is recorded `refused:<rule>` and the run continues; the summary
+table names every entry's outcome and the run exits non-zero if anything failed.
+
+Review found three (1 medium, 2 low), all fixed red-first: the media-tool-free
+`exists` path was not preserved for playlist entries, the refusal-rule
+vocabulary was not actually closed (now enforced by runtime *and* AST checks),
+and per-entry `ConfigError` continuation had no regression. Gate at landing:
+`make test` 2,305, `test-fast` 1,927, lint and typecheck clean.
+
+**`YoutubeError` gained an optional `rule=` at 27 raise sites.** Additive, every
+message byte-identical, and the vocabulary is now pinned two ways so a new
+raise site cannot invent a rule token silently. Worth knowing before touching
+that module.
+
+**Still never exercised against a live playlist.** The suite is offline by
+construction and a real multi-video run is minutes of downloads. Recorded as a
+residual risk rather than quietly assumed away — the first real playlist run is
+the test that matters, and it has not happened.
