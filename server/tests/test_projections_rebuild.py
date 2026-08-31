@@ -1575,6 +1575,56 @@ def test_rebuild_repopulates_published_artifacts_and_excludes_drafts(
     assert rows == [{"id": str(published), "moment": str(seeded.moment_ids[0])}]
 
 
+def test_rebuild_names_a_published_meeting_scoped_artifact_skip(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    projection_stores: Any,
+    fake_embedder: FakeEmbedder,
+) -> None:
+    """A correct store exclusion is still observable under AD-18."""
+    _driver, client = projection_stores
+    with pool.connection() as conn:
+        seeded = seed_meeting(conn, source_id="rebuild-meeting-summary")
+        summary_id = seed_artifact(
+            conn,
+            None,  # type: ignore[arg-type] -- migration 0022's meeting scope
+            seeded.meeting_id,
+            kind="summary",
+            title="Executive summary",
+            body="Whole-meeting analysis with no replayable anchor.",
+        )
+
+    events: list[dict[str, Any]] = []
+
+    def record(event: str, **fields: Any) -> None:
+        events.append({"event": event, **fields})
+
+    report = _rebuild(
+        pool,
+        app_config,
+        fake_embedder,
+        meeting_ids=[seeded.meeting_id],
+        log=record,
+    )
+
+    assert report.ok
+    assert str(summary_id) not in _artifact_ids_in_search(client)
+    assert [
+        event
+        for event in events
+        if event["event"] == "projection.artifact_skipped"
+    ] == [
+        {
+            "event": "projection.artifact_skipped",
+            "artifact_id": summary_id,
+            "reason": (
+                "meeting-scoped: no moment to cite, so there is nothing citable"
+                " to project (AD-6)"
+            ),
+        }
+    ]
+
+
 def test_rebuild_all_wipes_a_stale_artifacts_index(
     pool: ConnectionPool,
     app_config: AppConfig,

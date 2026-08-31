@@ -168,7 +168,7 @@ _ORDERED = " ORDER BY a.created_at, a.id"
 # for a reason nobody states, is the shape AD-18 exists to prevent.
 _MEETING_SCOPED_PUBLISHED = (
     "SELECT a.id FROM artifact a"
-    " WHERE a.id = ANY(%s) AND a.state = %s AND a.moment_id IS NULL"
+    " WHERE a.state = %s AND a.moment_id IS NULL"
 )
 
 
@@ -222,9 +222,12 @@ def published_artifacts(
 
 
 def meeting_scoped_published(
-    conn: Connection, artifact_ids: Sequence[UUID]
+    conn: Connection,
+    artifact_ids: Sequence[UUID] | None = None,
+    *,
+    meeting_id: UUID | None = None,
 ) -> frozenset[UUID]:
-    """Which of these ids are published and scoped to a meeting, not a moment.
+    """Published meeting-scoped ids in exactly one requested read scope.
 
     Only so a caller can name its reason for skipping one. Nothing decides
     projection policy from this — :func:`published_artifacts` has already done
@@ -232,9 +235,21 @@ def meeting_scoped_published(
     row is one whose ``moment_id`` is NULL, which is the single fact migration
     0022's CHECK ties to the kind list.
     """
-    if not artifact_ids:
-        return frozenset()
-    rows = conn.execute(
-        _MEETING_SCOPED_PUBLISHED, (list(artifact_ids), PUBLISHED_STATE)
-    ).fetchall()
+    if (meeting_id is None) == (artifact_ids is None):
+        raise ValueError(
+            "meeting_scoped_published takes exactly one scope: meeting_id or"
+            " artifact_ids"
+        )
+    if meeting_id is not None:
+        rows = conn.execute(
+            _MEETING_SCOPED_PUBLISHED + " AND a.meeting_id = %s",
+            (PUBLISHED_STATE, meeting_id),
+        ).fetchall()
+    else:
+        if not artifact_ids:
+            return frozenset()
+        rows = conn.execute(
+            _MEETING_SCOPED_PUBLISHED + " AND a.id = ANY(%s)",
+            (PUBLISHED_STATE, list(artifact_ids)),
+        ).fetchall()
     return frozenset(row[0] for row in rows)

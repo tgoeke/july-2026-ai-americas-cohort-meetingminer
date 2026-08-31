@@ -26,6 +26,7 @@ This module's only Postgres write is its own ``meeting_projection`` row.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Callable, Iterator, Sequence
@@ -417,6 +418,22 @@ def _project_embeddings(
     return counts
 
 
+_MEETING_SCOPED_SKIP_REASON = (
+    "meeting-scoped: no moment to cite, so there is nothing citable to project"
+    " (AD-6)"
+)
+
+
+def _log_meeting_scoped_skips(artifact_ids: Iterable[UUID], log: Logger) -> None:
+    """Name every intentional non-citable exclusion with one shared reason."""
+    for artifact_id in sorted(artifact_ids, key=str):
+        log(
+            "projection.artifact_skipped",
+            artifact_id=artifact_id,
+            reason=_MEETING_SCOPED_SKIP_REASON,
+        )
+
+
 def _project_one(
     conn: Connection,
     config: AppConfig,
@@ -434,6 +451,10 @@ def _project_one(
     # (story 4.4): the per-meeting delete removes their documents/nodes, and
     # Postgres — never a store — is what says which artifacts exist.
     artifacts = () if embed_only else published_artifacts(conn, meeting_id=meeting_id)
+    if not embed_only:
+        _log_meeting_scoped_skips(
+            meeting_scoped_published(conn, meeting_id=meeting_id), log
+        )
 
     structural = False
     moment_count = chunk_count = artifact_count = 0
@@ -641,16 +662,14 @@ def project_published_artifacts(
             )
             for requested in artifact_ids:
                 if requested not in found:
-                    emit(
-                        "projection.artifact_skipped",
-                        artifact_id=requested,
-                        reason=(
-                            "meeting-scoped: no moment to cite, so there is"
-                            " nothing citable to project (AD-6)"
-                            if requested in meeting_scoped
-                            else "not found in state 'published'"
-                        ),
-                    )
+                    if requested in meeting_scoped:
+                        _log_meeting_scoped_skips((requested,), emit)
+                    else:
+                        emit(
+                            "projection.artifact_skipped",
+                            artifact_id=requested,
+                            reason="not found in state 'published'",
+                        )
         if not artifacts:
             return 0
         for artifact in artifacts:
