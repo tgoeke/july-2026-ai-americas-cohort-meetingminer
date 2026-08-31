@@ -252,7 +252,7 @@ def test_every_rule_has_a_status_and_a_remedy() -> None:
     assert set(uploads.REMEDIATIONS) == set(uploads.REFUSAL_RULES)
     assert set(uploads.PROBLEM_STATUS) == set(uploads.REFUSAL_RULES)
     assert all(text.strip() for text in uploads.REMEDIATIONS.values())
-    assert set(uploads.PROBLEM_STATUS.values()) == {400, 404, 413, 415, 422, 503}
+    assert set(uploads.PROBLEM_STATUS.values()) == {400, 404, 409, 413, 415, 422, 503}
 
 
 def test_every_rule_raised_is_in_the_vocabulary() -> None:
@@ -429,6 +429,25 @@ def test_an_offset_other_than_z_is_accepted_and_normalized(
     assert response.json()["startedAt"] == STARTED_AT
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        "2026-08-05 12:00:19+00:00",
+        "20260805T120019+0000",
+        "2026-W32-3T12:00:19+00:00",
+        "2026-08-05T12:00:19+00:00:30",
+    ],
+)
+def test_started_at_is_the_rfc3339_subset_of_the_shared_mint_parser(
+    client: Any, make_env: Callable[..., Env], value: str
+) -> None:
+    env = make_env()
+    response = post_session(client, data=fields(startedAt=value), files=[vtt_part()])
+    assert response.status_code == 400
+    assert refusal(response)[0] == "upload-started-at-invalid"
+    assert env.session_dirs() == []
+
+
 def test_a_vtt_without_a_declared_dialect_is_refused(
     client: Any, make_env: Callable[..., Env]
 ) -> None:
@@ -444,6 +463,25 @@ def test_an_unknown_dialect_is_refused(client: Any, make_env: Callable[..., Env]
     response = post_session(client, data=fields(transcriptDialect="webex"), files=[vtt_part()])
     assert response.status_code == 400
     assert refusal(response)[0] == "upload-metadata-invalid"
+    assert env.session_dirs() == []
+
+
+@pytest.mark.parametrize(
+    ("parts", "dialect"),
+    [([txt_part()], "zoom"), ([vtt_part(), txt_part()], "zoom")],
+)
+def test_a_zoom_session_must_be_convertible_before_it_is_published(
+    client: Any,
+    make_env: Callable[..., Env],
+    parts: list[tuple[str, tuple[str, bytes, str]]],
+    dialect: str,
+) -> None:
+    env = make_env()
+    response = post_session(
+        client, data=fields(transcriptDialect=dialect), files=parts
+    )
+    assert response.status_code == 422
+    assert refusal(response)[0] == "upload-dialect-conversion"
     assert env.session_dirs() == []
 
 
@@ -468,6 +506,20 @@ def test_an_unsupported_file_type_is_refused(client: Any, make_env: Callable[...
     assert env.session_dirs() == []
 
 
+def test_filename_extension_classification_matches_mint_drop_without_normalization(
+    client: Any, make_env: Callable[..., Env]
+) -> None:
+    env = make_env()
+    response = post_session(
+        client,
+        data=fields(),
+        files=[vtt_part(name="recording\uff0evtt")],
+    )
+    assert response.status_code == 415
+    assert refusal(response)[0] == "upload-unsupported-type"
+    assert env.session_dirs() == []
+
+
 def test_two_files_for_one_role_are_refused(client: Any, make_env: Callable[..., Env]) -> None:
     env = make_env()
     response = post_session(
@@ -480,7 +532,13 @@ def test_two_files_for_one_role_are_refused(client: Any, make_env: Callable[...,
     assert env.session_dirs() == []
 
 
-def multipart_body(parts: list[tuple[str, str]], boundary: str = "mmboundary") -> bytes:
+def multipart_body(
+    parts: list[tuple[str, str]],
+    boundary: str = "mmboundary",
+    *,
+    file: tuple[str, bytes] | None = None,
+    close: bool = True,
+) -> bytes:
     """A hand-built multipart body of text fields only.
 
     Built by hand because an HTTP client with no files to send falls back to
@@ -494,8 +552,34 @@ def multipart_body(parts: list[tuple[str, str]], boundary: str = "mmboundary") -
             f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode()
         )
         chunks.append(value.encode("utf-8") + b"\r\n")
-    chunks.append(f"--{boundary}--\r\n".encode())
+    if file is not None:
+        filename, body = file
+        chunks.append(f"--{boundary}\r\n".encode())
+        chunks.append(
+            (
+                'Content-Disposition: form-data; name="files";'
+                f' filename="{filename}"\r\nContent-Type: text/vtt\r\n\r\n'
+            ).encode()
+        )
+        chunks.append(body + b"\r\n")
+    if close:
+        chunks.append(f"--{boundary}--\r\n".encode())
     return b"".join(chunks)
+
+
+def test_duplicate_immutable_metadata_is_refused(
+    client: Any, make_env: Callable[..., Env]
+) -> None:
+    env = make_env()
+    parts = list(fields().items()) + [("title", "a different meeting")]
+    response = client.post(
+        "/uploads",
+        content=multipart_body(parts, file=("meeting.vtt", ZOOM_VTT)),
+        headers={"content-type": "multipart/form-data; boundary=mmboundary"},
+    )
+    assert response.status_code == 400
+    assert refusal(response)[0] == "upload-duplicate-metadata"
+    assert env.session_dirs() == []
 
 
 def test_a_session_with_no_evidence_is_refused(client: Any, make_env: Callable[..., Env]) -> None:
@@ -576,6 +660,46 @@ def test_a_declared_length_over_the_body_cap_is_refused_before_a_directory_exist
     assert env.session_dirs() == []
 
 
+def test_the_declared_body_ceiling_budgets_every_supported_evidence_role() -> None:
+    limits = uploads.UploadLimits(
+        max_recording_bytes=101,
+        max_transcript_bytes=23,
+        max_duration_minutes=5,
+        session_ttl_minutes=5,
+    )
+    assert limits.max_body_bytes == 101 + 2 * 23 + uploads.MAX_FIELD_BYTES * 8
+
+
+def test_observed_bytes_enforce_the_whole_request_ceiling_when_the_header_lies(
+    make_env: Callable[..., Env],
+) -> None:
+    env = make_env()
+    limits = uploads.UploadLimits.from_config(env.config)
+    valid = multipart_body(
+        list(fields().items()), file=("meeting.vtt", ZOOM_VTT)
+    )
+
+    async def _body() -> Any:
+        yield valid
+        yield b"x" * (limits.max_body_bytes - len(valid) + 1)
+
+    import asyncio
+
+    with pytest.raises(uploads.UploadRefused) as caught:
+        asyncio.run(
+            uploads.create_session(
+                root=env.uploads_root,
+                content_type="multipart/form-data; boundary=mmboundary",
+                content_length=1,
+                body=_body(),
+                limits=limits,
+                now=datetime.now(timezone.utc),
+            )
+        )
+    assert caught.value.rule == "upload-too-large"
+    assert env.session_dirs() == []
+
+
 def test_a_body_that_is_not_multipart_is_refused(client: Any, make_env: Callable[..., Env]) -> None:
     env = make_env()
     response = client.post("/uploads", json={"title": TITLE})
@@ -594,6 +718,61 @@ def test_a_malformed_multipart_body_is_refused(client: Any, make_env: Callable[.
     assert response.status_code == 400
     assert refusal(response)[0] in {"upload-malformed", "upload-no-evidence"}
     assert env.session_dirs() == []
+
+
+def test_a_complete_last_part_without_the_closing_boundary_is_refused(
+    client: Any, make_env: Callable[..., Env]
+) -> None:
+    env = make_env()
+    body = multipart_body(
+        list(fields().items()), file=("meeting.vtt", ZOOM_VTT), close=False
+    )
+    response = client.post(
+        "/uploads",
+        content=body,
+        headers={"content-type": "multipart/form-data; boundary=mmboundary"},
+    )
+    assert response.status_code == 400
+    assert refusal(response)[0] == "upload-malformed"
+    assert env.session_dirs() == []
+
+
+def test_parser_constructor_failures_are_named_multipart_refusals(
+    client: Any, make_env: Callable[..., Env]
+) -> None:
+    env = make_env()
+    boundary = "b" * 257
+    response = client.post(
+        "/uploads",
+        content=b"",
+        headers={"content-type": f"multipart/form-data; boundary={boundary}"},
+    )
+    assert response.status_code == 400
+    assert refusal(response)[0] == "upload-malformed"
+    assert env.session_dirs() == []
+
+
+def test_recording_probe_is_offloaded_from_the_request_event_loop(
+    client: Any,
+    make_env: Callable[..., Env],
+    ffprobe_present: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    make_env()
+    calls: list[Callable[..., Any]] = []
+
+    async def _to_thread(function: Callable[..., Any], *args: Any) -> Any:
+        calls.append(function)
+        return function(*args)
+
+    monkeypatch.setattr(uploads.asyncio, "to_thread", _to_thread)
+    response = post_session(
+        client,
+        data=fields(transcriptDialect=None),
+        files=[mp4_part(b"video bytes")],
+    )
+    assert response.status_code == 201, response.text
+    assert calls == [uploads._assert_video_within_cap]
 
 
 def test_a_recording_that_is_not_a_video_is_refused(

@@ -47,27 +47,28 @@ about each other, and ``acquisitions.REMEDIATIONS`` is pinned to YouTube's set.
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 import os
 import re
 import shutil
 import tempfile
-import unicodedata
 import uuid
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, AsyncIterator, Iterable
+from typing import Any, AsyncIterator, Callable, Iterable
 
-from python_multipart.multipart import MultipartParser, parse_options_header
+from python_multipart.multipart import MultipartParser, MultipartState, parse_options_header
 
 from meetingminer.config import AppConfig, ConfigError, validate_drops_root
 from meetingminer.domain.drops import (
     EVIDENCE_FILENAMES,
     RECORDING_FILENAME,
+    TRANSCRIPT_TEXT_FILENAME,
     TRANSCRIPT_VTT_FILENAME,
-    sha256_and_size,
 )
 from meetingminer.mintdrop import (
     EXTENSION_TO_CANONICAL,
@@ -121,6 +122,13 @@ MAX_TITLE_CHARS = 300
 #: sweep is checked before it is removed rather than trusted.
 SESSION_ID_PATTERN = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
+# Upload is the stricter wire boundary. The shared mint parser deliberately
+# accepts a wider ISO-8601 language for its operator CLI; only this RFC 3339
+# subset is accepted over HTTP before both paths share normalization.
+RFC3339_SECOND_PATTERN = re.compile(
+    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})"
+)
+
 
 class UploadError(RuntimeError):
     """Base for this module's failures."""
@@ -162,8 +170,10 @@ REFUSAL_RULES = frozenset(
         # the metadata is missing or is not what the drop contract needs
         "upload-metadata-missing",
         "upload-metadata-invalid",
+        "upload-duplicate-metadata",
         "upload-started-at-invalid",
         "upload-dialect-undeclared",
+        "upload-dialect-conversion",
         # the files are not evidence this system can hold
         "upload-no-evidence",
         "upload-unsupported-type",
@@ -178,6 +188,11 @@ REFUSAL_RULES = frozenset(
         "upload-staging-unwritable",
         # the session named does not exist
         "upload-session-not-found",
+        "upload-session-unreadable",
+        # acquisition request/claim refusals owned by the upload surface
+        "acquisition-source-ambiguous",
+        "acquisition-source-missing",
+        "acquisition-in-progress",
     }
 )
 
@@ -209,6 +224,10 @@ REMEDIATIONS: dict[str, str] = {
     "upload-metadata-invalid": (
         "Correct the named field to one of the values it accepts."
     ),
+    "upload-duplicate-metadata": (
+        "Send each metadata field exactly once. Upload metadata becomes part of"
+        " a write-once drop, so part order cannot choose between two values."
+    ),
     "upload-started-at-invalid": (
         "Give the meeting's start as a full RFC 3339 timestamp with its offset"
         " (2026-08-05T12:00:19Z or 2026-08-05T08:00:19-04:00). A date alone does"
@@ -218,6 +237,11 @@ REMEDIATIONS: dict[str, str] = {
         "Say which export the .vtt is — plain, teams-vtt, or zoom. It is declared,"
         " never detected: a wrong guess produces a meeting whose every speaker is"
         " Unknown, and the drop cannot be rewritten."
+    ),
+    "upload-dialect-conversion": (
+        "Correct the transcript export or choose the matching dialect. A Zoom"
+        " upload requires one convertible .vtt and no supplied .txt because"
+        " conversion produces that text transcript."
     ),
     "upload-no-evidence": (
         "Attach a recording (.mp4) and/or a transcript (.vtt or .txt). A"
@@ -262,6 +286,20 @@ REMEDIATIONS: dict[str, str] = {
         "Upload the files again: this session has expired, was discarded, or was"
         " already turned into a drop."
     ),
+    "upload-session-unreadable": (
+        "Upload the files again. The staged session is incomplete or unreadable"
+        " and cannot safely become a write-once drop."
+    ),
+    "acquisition-source-ambiguous": (
+        "Send exactly one source: url or uploadSessionId, never both."
+    ),
+    "acquisition-source-missing": (
+        "Send url for a published video or uploadSessionId for staged files."
+    ),
+    "acquisition-in-progress": (
+        "Poll the named acquisition instead of starting or deleting this upload"
+        " session while its detached runner owns it."
+    ),
 }
 
 #: One HTTP status per rule. Four buckets: the client sent the wrong thing
@@ -275,8 +313,10 @@ PROBLEM_STATUS: dict[str, int] = {
     "upload-unknown-field": 400,
     "upload-metadata-missing": 400,
     "upload-metadata-invalid": 400,
+    "upload-duplicate-metadata": 400,
     "upload-started-at-invalid": 400,
     "upload-dialect-undeclared": 400,
+    "upload-dialect-conversion": 422,
     "upload-no-evidence": 400,
     "upload-duplicate-role": 400,
     "upload-empty-file": 400,
@@ -288,6 +328,10 @@ PROBLEM_STATUS: dict[str, int] = {
     "upload-probe-unavailable": 503,
     "upload-staging-unwritable": 503,
     "upload-session-not-found": 404,
+    "upload-session-unreadable": 503,
+    "acquisition-source-ambiguous": 400,
+    "acquisition-source-missing": 400,
+    "acquisition-in-progress": 409,
 }
 
 
@@ -324,7 +368,11 @@ class UploadLimits:
         Used only for the ``Content-Length`` short-circuit. The per-file caps
         are what actually decide, and they are enforced as bytes arrive.
         """
-        return self.max_recording_bytes + self.max_transcript_bytes + MAX_FIELD_BYTES * 8
+        return (
+            self.max_recording_bytes
+            + 2 * self.max_transcript_bytes
+            + MAX_FIELD_BYTES * 8
+        )
 
 
 @dataclass(frozen=True)
@@ -552,7 +600,13 @@ def expired_at(created: datetime, limits: UploadLimits) -> datetime:
     return created + timedelta(minutes=limits.session_ttl_minutes)
 
 
-def sweep_expired(root: Path, limits: UploadLimits, *, now: datetime) -> list[str]:
+def sweep_expired(
+    root: Path,
+    limits: UploadLimits,
+    *,
+    now: datetime,
+    protected_session_ids: Iterable[str] = (),
+) -> list[str]:
     """Remove session directories past their TTL; return the ids removed.
 
     Cheap and bounded — one ``listdir`` of a directory that holds only live
@@ -569,12 +623,15 @@ def sweep_expired(root: Path, limits: UploadLimits, *, now: datetime) -> list[st
     if not root.is_dir():
         return []
     removed: list[str] = []
+    protected = frozenset(protected_session_ids)
     try:
         entries = sorted(root.iterdir())
     except OSError:
         return []
     for entry in entries:
         if not entry.is_dir() or not SESSION_ID_PATTERN.fullmatch(entry.name):
+            continue
+        if entry.name in protected:
             continue
         try:
             session = read_session(root, entry.name)
@@ -587,7 +644,9 @@ def sweep_expired(root: Path, limits: UploadLimits, *, now: datetime) -> list[st
                 continue
         else:
             try:
-                mtime = datetime.fromtimestamp(entry.stat().st_mtime, tz=timezone.utc)
+                mtime = datetime.fromtimestamp(
+                    _latest_activity_mtime(entry), tz=timezone.utc
+                )
             except OSError:
                 continue
             if expired_at(mtime, limits) > now:
@@ -596,6 +655,20 @@ def sweep_expired(root: Path, limits: UploadLimits, *, now: datetime) -> list[st
         if not entry.exists():
             removed.append(entry.name)
     return removed
+
+
+def _latest_activity_mtime(directory: Path) -> float:
+    """Latest write in an incomplete session, including the file being streamed.
+
+    Writing bytes to an existing file does not refresh its parent directory's
+    mtime. Looking at the immediate children keeps the sweep cheap while making
+    a long upload age from current activity instead of directory creation.
+    """
+    latest = directory.stat().st_mtime
+    for child in directory.iterdir():
+        with suppress(OSError):
+            latest = max(latest, child.stat().st_mtime)
+    return latest
 
 
 def _parse_stamp(raw: str) -> datetime:
@@ -641,6 +714,7 @@ class _PartSink:
         self._canonical: str | None = None
         self._handle: Any = None
         self._written = 0
+        self._digest = hashlib.sha256()
         self._text = bytearray()
 
     # -- parts
@@ -658,6 +732,7 @@ class _PartSink:
         self._canonical = None
         self._handle = None
         self._written = 0
+        self._digest = hashlib.sha256()
         self._text = bytearray()
 
     def on_header_field(self, data: bytes, start: int, end: int) -> None:
@@ -732,6 +807,7 @@ class _PartSink:
             )
         try:
             self._handle.write(chunk)
+            self._digest.update(chunk)
         except OSError as exc:
             raise UploadRefused(
                 f"{self._filename!r} could not be written to the staging"
@@ -742,6 +818,11 @@ class _PartSink:
     def on_part_end(self) -> None:
         if self._handle is None:
             if self._name is not None:
+                if self._name in self.fields:
+                    raise UploadRefused(
+                        f"metadata field {self._name!r} was supplied more than once",
+                        rule="upload-duplicate-metadata",
+                    )
                 self.fields[self._name] = _decode(bytes(self._text)).strip()
             return
         try:
@@ -754,18 +835,16 @@ class _PartSink:
             ) from exc
         self._handle = None
         canonical = self._canonical or ""
-        path = self.directory / canonical
         if self._written == 0:
             raise UploadRefused(
                 f"{self._filename!r} is empty — an empty file is not evidence",
                 rule="upload-empty-file",
             )
-        digest, size = sha256_and_size(path)
         self.files[canonical] = UploadedFile(
             canonical=canonical,
             original_filename=self._filename or canonical,
-            sha256=digest,
-            byte_size=size,
+            sha256=self._digest.hexdigest(),
+            byte_size=self._written,
         )
 
     def close(self) -> None:
@@ -791,7 +870,11 @@ def _canonical_for(filename: str) -> str:
     produce the same drop. The client's own path separators are stripped first:
     a browser may send a full path, and nothing here may read one.
     """
-    name = unicodedata.normalize("NFKD", filename).replace("\\", "/").rsplit("/", 1)[-1]
+    # Browser path components are irrelevant because the staged destination is
+    # the canonical role. Do not compatibility-normalize the spelling before
+    # classification: mint-drop applies exactly Path(...).suffix.lower(), and
+    # upload must accept precisely the same extension language.
+    name = filename.replace("\\", "/").rsplit("/", 1)[-1]
     suffix = Path(name).suffix.lower()
     canonical = EXTENSION_TO_CANONICAL.get(suffix)
     if canonical is None:
@@ -834,7 +917,7 @@ async def create_session(
     content_length: int | None,
     body: AsyncIterator[bytes],
     limits: UploadLimits,
-    now: datetime,
+    now: datetime | Callable[[], datetime],
 ) -> UploadSession:
     """Receive one multipart session into its own staging directory.
 
@@ -867,23 +950,41 @@ async def create_session(
 
     sink = _PartSink(directory, limits)
     try:
-        parser = MultipartParser(
-            boundary,
-            {
-                "on_part_begin": sink.on_part_begin,
-                "on_header_field": sink.on_header_field,
-                "on_header_value": sink.on_header_value,
-                "on_header_end": sink.on_header_end,
-                "on_headers_finished": sink.on_headers_finished,
-                "on_part_data": sink.on_part_data,
-                "on_part_end": sink.on_part_end,
-            },
-        )
         try:
+            # Construction itself validates client-controlled boundary bytes
+            # (including the dependency's length limit), so it belongs inside
+            # the same named-refusal boundary as write/finalize.
+            parser = MultipartParser(
+                boundary,
+                {
+                    "on_part_begin": sink.on_part_begin,
+                    "on_header_field": sink.on_header_field,
+                    "on_header_value": sink.on_header_value,
+                    "on_header_end": sink.on_header_end,
+                    "on_headers_finished": sink.on_headers_finished,
+                    "on_part_data": sink.on_part_data,
+                    "on_part_end": sink.on_part_end,
+                },
+            )
+            received = 0
             async for chunk in body:
                 if chunk:
+                    received += len(chunk)
+                    if received > limits.max_body_bytes:
+                        raise UploadRefused(
+                            f"the upload delivered more than this server's"
+                            f" {limits.max_body_bytes}-byte cap for one session",
+                            rule="upload-too-large",
+                        )
                     parser.write(chunk)
             parser.finalize()
+            # python-multipart 0.0.32's finalize() is intentionally a no-op;
+            # only END proves the mandatory closing boundary arrived.
+            if parser.state is not MultipartState.END:
+                raise UploadRefused(
+                    "the multipart body ended before its closing boundary",
+                    rule="upload-malformed",
+                )
         except UploadError:
             raise
         except Exception as exc:  # the parser's own errors, and a dropped socket
@@ -894,12 +995,12 @@ async def create_session(
         finally:
             sink.close()
 
-        session = _finish(
+        session = await _finish(
             session_id=session_id,
             directory=directory,
             sink=sink,
             limits=limits,
-            now=now,
+            now=now() if callable(now) else now,
         )
         write_session(session)
     except BaseException:
@@ -908,7 +1009,7 @@ async def create_session(
     return session
 
 
-def _finish(
+async def _finish(
     *,
     session_id: str,
     directory: Path,
@@ -952,7 +1053,9 @@ def _finish(
 
     recording = next((f for f in files if f.canonical == RECORDING_FILENAME), None)
     if recording is not None:
-        _assert_video_within_cap(directory / recording.canonical, limits)
+        await asyncio.to_thread(
+            _assert_video_within_cap, directory / recording.canonical, limits
+        )
 
     created = _stamp(now)
     return UploadSession(
@@ -989,6 +1092,11 @@ def _started_at(raw: str) -> str:
     rather than accepted: a date is a date the *file* was made, not a time the
     meeting started, and the UI collects a real timestamp (story 6.5a).
     """
+    if RFC3339_SECOND_PATTERN.fullmatch(raw) is None:
+        raise UploadRefused(
+            f"startedAt must be RFC 3339 with a numeric offset or Z: {raw!r}",
+            rule="upload-started-at-invalid",
+        )
     try:
         started_at, precision = started_at_from_argument(raw)
     except MintError as exc:
@@ -1012,6 +1120,7 @@ def _dialect(declared: str | None, files: Iterable[UploadedFile]) -> str:
     default stands.
     """
     has_vtt = any(f.canonical == TRANSCRIPT_VTT_FILENAME for f in files)
+    has_txt = any(f.canonical == TRANSCRIPT_TEXT_FILENAME for f in files)
     value = (declared or "").strip()
     if not value:
         if has_vtt:
@@ -1027,6 +1136,17 @@ def _dialect(declared: str | None, files: Iterable[UploadedFile]) -> str:
             f"unknown transcript dialect {value!r} — expected one of"
             f" {', '.join(dialects.DIALECTS)}",
             rule="upload-metadata-invalid",
+        )
+    if value == dialects.DIALECT_ZOOM and (not has_vtt or has_txt):
+        shape = (
+            "no .vtt was supplied"
+            if not has_vtt
+            else "a .txt was supplied beside the .vtt"
+        )
+        raise UploadRefused(
+            f"the Zoom dialect cannot convert this session: {shape}; Zoom"
+            " conversion requires one .vtt and produces transcript.txt itself",
+            rule="upload-dialect-conversion",
         )
     return value
 
