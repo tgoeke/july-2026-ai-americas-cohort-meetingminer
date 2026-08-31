@@ -114,3 +114,12 @@ Adversarial review of the Story 7.4 web implementation, with emphasis on unsettl
 - **Evidence:** The strip is a static `role="group"`; only the connection-lost paragraph has `role="status"`. Stage frames mutate descendant text without an announcement primitive. The JSX renders the primary Save button before Unresolved, reversing the spine's explicit tab order.
 - **Suggested direction:** Add one atomic polite status summary for the rerun (not one live region per stage), and render Unresolved before Save while retaining Save as the single filled primary action. Verify both the stage announcement and the tab sequence.
 - **Red/green evidence:** The new keyboard test first tabbed directly from the populated field to Save, and the progress test found no status role after `align` became running. The controls now render Unresolved before the still-primary Save button, and one screen-reader-only atomic status summarizes the current rerun stages or terminal result. Both regressions pass.
+
+### F11 — The claimed roving speaker group is not behaviorally equivalent
+
+- **Location:** `_bmad-output/implementation-artifacts/spec-7-4-speaker-naming-ui.md:120`; `web/src/features/speakers/SpeakerNaming.tsx:610`
+- **Severity:** Medium
+- **Status:** Open — frozen-spec decision required; not patched
+- **Finding:** The deviation says giving every speaker row a tab stop is behaviorally equivalent to the spine's roving group. It is not: Tab traverses every row instead of entering the group once at the selected row, so a meeting with many tags adds every tag to the page's sequential focus order. Arrow-key behavior does not erase those extra tab stops.
+- **Evidence:** No row supplies `tabIndex`; therefore each native button defaults to `0`. The arrow handler moves focus and selection, but after that move all other row buttons remain tabbable. The stated reason for departing from EXPERIENCE.md's roving-group requirement is false even though the buttons themselves remain semantically sound.
+- **Suggested direction:** Amend the frozen Story 7.4 deviation, then implement actual roving tabindex (`0` for the selected row, `-1` for the others) while retaining native buttons and the existing arrow behavior. Per the handoff, this frozen-spec root cause remains open rather than being silently changed in review.
