@@ -466,10 +466,23 @@ def split_thread(
                 " name instead",
             )
 
-        # Distinct *subjects*, not distinct topic rows: two topics in one
-        # meeting whose names normalize alike share one durable key, so they
-        # share one pin and move together. Deduplicated here rather than left
-        # to the primary key, so the request writes one row per key.
+        # The durable key must identify exactly one topic in the thread at the
+        # instant of the split.  The live SQL reader can apply a pin only to
+        # its one `topic_id` hint, while the next derivation applies the same
+        # pin by `(meeting_id, normalized_name)`.  Accepting an ambiguous key
+        # would therefore show one topic moved now and silently move every
+        # same-key topic on rerun.  Refuse that state instead of letting the
+        # human's correction widen after it appeared to land.
+        held_by_key: dict[tuple[UUID, str], list[UUID]] = {}
+        for held_topic_id, (meeting_id, name) in held.items():
+            try:
+                held_key = pin_content_key(meeting_id=meeting_id, topic_name=name)
+            except ThreadCurationError:
+                # A punctuation-only name matters only if the request selects
+                # it; the requested loop below returns that named refusal.
+                continue
+            held_by_key.setdefault(held_key, []).append(held_topic_id)
+
         pins: dict[tuple[UUID, str], UUID] = {}
         for topic_id in sorted(requested):
             meeting_id, name = held[topic_id]
@@ -477,7 +490,17 @@ def split_thread(
                 key = pin_content_key(meeting_id=meeting_id, topic_name=name)
             except ThreadCurationError as exc:
                 raise Problem(422, "invalid-request", str(exc)) from None
-            pins.setdefault(key, topic_id)
+            collisions = held_by_key[key]
+            if len(collisions) > 1:
+                raise Problem(
+                    422,
+                    "invalid-request",
+                    f"topic {topic_id} has a durable subject key shared by"
+                    f" {len(collisions)} topics in meeting {meeting_id}:"
+                    f" {key[1]!r} — the split cannot identify exactly which"
+                    " topic should keep the correction across a re-extraction",
+                )
+            pins[key] = topic_id
 
         row = conn.execute(
             _MINT_CURATED_THREAD,

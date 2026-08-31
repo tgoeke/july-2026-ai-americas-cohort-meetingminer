@@ -12,13 +12,14 @@ The review branch must be rebased onto the then-current `origin/main` before clo
 
 ## Findings
 
-### F1 — Open for remediation: an ambiguous split silently widens on rerun
+### F1 — Remediated: an ambiguous split silently widened on rerun
 
 - **Location:** `server/meetingminer/api/thread_curation.py` (`split_thread`, durable-pin construction); `server/meetingminer/domain/thread_curation.py` (`EFFECTIVE_MEMBERSHIP` versus `ThreadCuration.thread_for`)
 - **Severity:** Major
 - **Finding:** The API accepts a split that selects one topic UUID when the same meeting contains another topic whose name normalizes to the same `(meeting_id, normalized_name)` key. The immediate SQL read path joins the pin's one `topic_id` hint, so it shows only the selected topic moved. The next `derive_threads` pass joins by the durable content key and moves both topics. A successful curation therefore changes after rerun without another human action—the central silent-overwrite failure this story exists to prevent.
 - **Evidence:** Added `test_a_split_refuses_a_subject_key_that_identifies_multiple_topics`. Against the unfixed branch it failed red: the request returned `201 Created` and logged `threads.split` instead of the required `422` refusal. Migration 0014 has no uniqueness constraint on `(meeting_id, normalized topic name)`, so the state is record-valid and reachable.
 - **Suggested direction:** Refuse a split whenever any requested durable subject key identifies more than one currently held topic. Name the ambiguity and leave every row unchanged. Supporting a grouped move later would require a read representation that can make all affected topics visible immediately; the current single `topic_id` hint cannot do so honestly.
+- **Remediation:** `split_thread` now indexes every currently held topic by the durable key and refuses a requested key that maps to more than one row before minting a thread or pin. The red regression is green; the complete curation module is **23 passed**.
 
 ## Verification
 
