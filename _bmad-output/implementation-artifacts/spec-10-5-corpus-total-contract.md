@@ -73,5 +73,6 @@ context:
 **Implementation result:** The exact-envelope regression failed red against the
 stale reader, then passed with the generated contract. TypeScript, all 551 web
 tests, and the complete fast repository loop pass. The review report records
-the timeline audit and conflict scan. Commit is pending; the parent agent owns
+the timeline audit and conflict scan. Implementation commit
+`0f98d7c9956ef29ad4e13f13242c40ad5e667bc7` is local; the parent agent owns
 the required force-with-lease push of this intentionally rebased branch.
