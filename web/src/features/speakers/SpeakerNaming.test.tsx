@@ -436,6 +436,21 @@ describe('the three assignment paths', () => {
     })
   })
 
+  it('tabs from the name field through Unresolved before Save', async () => {
+    answers()
+    const user = userEvent.setup()
+    await loaded()
+
+    const field = screen.getByRole('combobox')
+    await user.type(field, 'Alice Chen')
+    field.focus()
+
+    await user.tab()
+    expect(screen.getByRole('button', { name: 'Unresolved — keep the tag' })).toHaveFocus()
+    await user.tab()
+    expect(screen.getByRole('button', { name: 'Save' })).toHaveFocus()
+  })
+
   it('shows suggestions but never applies one', async () => {
     answers()
     sdk.assignMeetingSpeaker.mockResolvedValue({ data: assignment(), error: undefined })
@@ -551,6 +566,23 @@ describe('the rerun a naming starts', () => {
       /transcript, graph, and extractions now name SPEAKER_00 as Priya Natarajan\./,
     )
     expect(landed).toHaveTextContent('Moment ids and citations unchanged.')
+  })
+
+  it('announces stage transitions through one polite status', async () => {
+    answers()
+    sdk.assignMeetingSpeaker.mockResolvedValue({ data: assignment(), error: undefined })
+    const user = userEvent.setup()
+    await loaded()
+
+    await user.type(screen.getByRole('combobox'), 'Priya Natarajan')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByTestId('rerun-strip')
+
+    emit({ event: 'job.stage', jobId: 'job-1', stage: 'align', status: 'running' })
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'SPEAKER_00 rerun — align running, moments queued, extract queued.',
+    )
   })
 
   it('re-reads both sources once the rerun lands', async () => {
