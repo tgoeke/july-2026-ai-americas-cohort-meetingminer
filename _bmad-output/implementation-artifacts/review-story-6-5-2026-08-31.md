@@ -28,7 +28,7 @@ Date: 2026-08-31
 - **Finding** — A rejected probe correctly renders `TransportNotice`, but the Submit explanation beside it says `The pre-flight check refused this URL.` The same failure is therefore presented as both an outage and a source refusal.
 - **Evidence** — `ProbeState.failed` preserves the discriminated `Failure`, and lines 311–329 render transport and refusal with different components. The `submitReason` branch at lines 204–205 discards that discriminator and labels every failed probe a refusal. This contradicts the frozen constraint that an unreachable api is never dressed as a refusal and the review contract's requirement to verify the distinction on every failure path.
 - **Suggested direction** — Derive the disabled-submit explanation from `failure.kind`, retaining refusal language only for an api-issued refusal and giving transport failure a neutral recovery sentence.
-- **Disposition** — patchable; remediation in progress.
+- **Disposition** — fixed red-first. The strengthened outage test failed because the neutral retry sentence was absent and the refusal sentence was present; it passed after the explanation began branching on `failure.kind`.
 
 ## Disposition
 
