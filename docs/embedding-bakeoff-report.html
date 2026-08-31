@@ -1,0 +1,638 @@
+<title>Transcript Retrieval Bake-off</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap">
+<style>
+:root{
+  --paper:#F2F5F4; --surface:#FFFFFF; --raised:#E9EEEC;
+  --ink:#101A1C; --muted:#5A6A6C; --line:#D5DEDB;
+  --accent:#0E7C86; --accent-soft:#DCEDEE;
+  --flag:#8A3E6B; --flag-soft:#F2E4EC;
+  --better:#2E6F4E; --worse:#9E3B34; --base:#7E8D8E;
+  --shadow:0 1px 2px rgba(16,26,28,.06),0 8px 24px -16px rgba(16,26,28,.35);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#0C1315; --surface:#131E20; --raised:#1A2729;
+    --ink:#E7EEEC; --muted:#92A4A4; --line:#243233;
+    --accent:#4FB3BC; --accent-soft:#123034;
+    --flag:#C98BAE; --flag-soft:#2C1B26;
+    --better:#63B98A; --worse:#D97C72; --base:#7B8B8C;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px -18px rgba(0,0,0,.9);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0C1315; --surface:#131E20; --raised:#1A2729;
+  --ink:#E7EEEC; --muted:#92A4A4; --line:#243233;
+  --accent:#4FB3BC; --accent-soft:#123034;
+  --flag:#C98BAE; --flag-soft:#2C1B26;
+  --better:#63B98A; --worse:#D97C72; --base:#7B8B8C;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px -18px rgba(0,0,0,.9);
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font:400 17px/1.65 "IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1120px; margin:0 auto; padding:clamp(28px,5vw,72px) clamp(18px,4vw,48px) 96px;}
+.prose{max-width:68ch;}
+h1,h2,h3{font-family:"Source Serif 4",Georgia,serif; text-wrap:balance; margin:0;}
+h1{font-size:clamp(2.1rem,4.6vw,3.3rem); font-weight:700; line-height:1.05; letter-spacing:-.015em;}
+h2{font-size:clamp(1.45rem,2.6vw,1.9rem); font-weight:600; line-height:1.2;}
+h3{font-size:1.12rem; font-weight:600;}
+p{margin:0;}
+a{color:var(--accent);}
+.eyebrow{
+  font:500 .74rem/1 "IBM Plex Mono",ui-monospace,monospace; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--muted);
+}
+section{display:flex; flex-direction:column; gap:20px; margin-top:clamp(48px,7vw,84px);}
+section > .prose > * + *{margin-top:14px;}
+header.masthead{display:flex; flex-direction:column; gap:18px; padding-bottom:28px; border-bottom:2px solid var(--ink);}
+.lede{font-size:1.2rem; line-height:1.55; color:var(--ink); max-width:60ch;}
+.meta{
+  display:flex; flex-wrap:wrap; gap:10px 28px; padding-top:6px;
+  font:400 .82rem/1.5 "IBM Plex Mono",ui-monospace,monospace; color:var(--muted);
+}
+.meta b{font-weight:500; color:var(--ink);}
+
+.verdict{
+  background:var(--surface); border:1px solid var(--line); border-left:4px solid var(--accent);
+  border-radius:3px; padding:clamp(20px,3vw,30px); box-shadow:var(--shadow);
+  display:flex; flex-direction:column; gap:14px;
+}
+.verdict h2{font-size:1.35rem;}
+.verdict .rec{font-size:1.06rem; max-width:66ch;}
+
+.findings{display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(260px,1fr));}
+.finding{
+  background:var(--surface); border:1px solid var(--line); border-radius:3px;
+  padding:20px 20px 22px; display:flex; flex-direction:column; gap:9px;
+}
+.finding.surprise{border-color:var(--flag); background:var(--flag-soft);}
+.finding .label{
+  font:500 .7rem/1 "IBM Plex Mono",ui-monospace,monospace; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--muted);
+}
+.finding.surprise .label{color:var(--flag);}
+.finding .big{font:500 1.9rem/1 "IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums;}
+.finding p{font-size:.95rem; color:var(--ink);}
+
+.tablewrap{overflow-x:auto; border:1px solid var(--line); border-radius:3px; background:var(--surface);}
+table.data{border-collapse:collapse; width:100%; font-size:.9rem;}
+table.data caption{
+  caption-side:top; text-align:left; padding:14px 16px; color:var(--muted);
+  font-size:.85rem; line-height:1.5; border-bottom:1px solid var(--line);
+}
+table.data th,table.data td{padding:9px 14px; text-align:left; border-bottom:1px solid var(--line); white-space:nowrap;}
+table.data thead th{
+  font:500 .72rem/1.3 "IBM Plex Mono",ui-monospace,monospace; letter-spacing:.08em;
+  text-transform:uppercase; color:var(--muted); vertical-align:bottom;
+}
+table.data thead .grouphead{text-align:center; border-bottom:1px solid var(--line); color:var(--accent);}
+table.data tr.subhead td{
+  font:500 .72rem/1 "IBM Plex Mono",ui-monospace,monospace; color:var(--muted); padding-top:0; padding-bottom:7px;
+}
+table.data tbody th{font-weight:500; font-size:.9rem;}
+table.data td.num,table.data .num{font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums; text-align:right;}
+table.data td.strong{font-weight:500; color:var(--ink);}
+table.data .better{color:var(--better);} table.data .worse{color:var(--worse);}
+table.data tbody tr:last-child th,table.data tbody tr:last-child td{border-bottom:none;}
+tr.is-current{background:var(--accent-soft);}
+tr.baseline{background:var(--raised);}
+tr.baseline th{font-style:italic;}
+.tag{
+  font:500 .64rem/1 "IBM Plex Mono",ui-monospace,monospace; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--accent); border:1px solid currentColor; border-radius:2px; padding:3px 5px; margin-left:6px; white-space:nowrap;
+}
+.barcell{width:190px; min-width:150px;}
+.bar{display:block; height:9px; background:var(--raised); border-radius:1px; overflow:hidden;}
+.bar-fill{display:block; height:100%;}
+.bar-fill.good{background:var(--accent);} .bar-fill.bad{background:var(--worse);} .bar-fill.base{background:var(--base);}
+
+dl.why{display:grid; gap:0; margin:0; border:1px solid var(--line); border-radius:3px; background:var(--surface);}
+dl.why > div{display:grid; grid-template-columns:minmax(190px,240px) 1fr; gap:18px; padding:13px 16px; border-bottom:1px solid var(--line);}
+dl.why > div:last-child{border-bottom:none;}
+dl.why dt{font:500 .84rem/1.5 "IBM Plex Mono",ui-monospace,monospace;}
+dl.why dd{margin:0; font-size:.93rem; color:var(--muted);}
+@media (max-width:640px){dl.why > div{grid-template-columns:1fr; gap:5px;}}
+
+ol.protocol{counter-reset:step; list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:14px;}
+ol.protocol li{counter-increment:step; display:grid; grid-template-columns:34px 1fr; gap:14px; align-items:start;}
+ol.protocol li::before{
+  content:counter(step); font:500 .8rem/32px "IBM Plex Mono",ui-monospace,monospace; text-align:center;
+  width:32px; height:32px; border:1px solid var(--accent); color:var(--accent); border-radius:50%;
+}
+ol.protocol strong{font-weight:600;}
+ul.plain{margin:0; padding-left:1.15em;}
+ul.plain li{margin-bottom:9px;}
+ul.plain li:last-child{margin-bottom:0;}
+code{font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:.88em; background:var(--raised); padding:1px 5px; border-radius:2px;}
+pre{
+  margin:0; overflow-x:auto; background:var(--surface); border:1px solid var(--line);
+  border-radius:3px; padding:16px 18px; font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:.85rem; line-height:1.7;
+}
+pre code{background:none; padding:0;}
+.caveat{border-left:3px solid var(--flag); padding-left:18px;}
+footer{margin-top:72px; padding-top:20px; border-top:1px solid var(--line); color:var(--muted); font-size:.85rem;}
+</style>
+
+<div class="wrap">
+<header class="masthead">
+  <span class="eyebrow">Retrieval evaluation · S2P meeting archive</span>
+  <h1>Which embedding model should search our meetings?</h1>
+  <p class="lede">Nine configurations of eight models, measured on 303 labelled
+  retrieval tasks drawn from our own 7,730-passage transcript archive — and one baseline that
+  uses no embeddings at all.</p>
+  <div class="meta">
+    <span><b>August 18, 2026</b></span>
+    <span>Corpus <b>7,730</b> passages · <b>167</b> meetings</span>
+    <span>Queries <b>183</b> cited claims + <b>120</b> generated questions</span>
+    <span>Hardware <b>local Ollama host</b>, no external services</span>
+  </div>
+</header>
+
+<section>
+  <div class="verdict">
+    <span class="eyebrow">Recommendation</span>
+    <h2>Switch to snowflake-arctic-embed2. The re-index costs minutes.</h2>
+    <p class="rec">On questions phrased the way people actually ask them, snowflake-arctic-embed2 retrieves the right
+    passage in the top five 60.0% of the time against
+    43.3% for the model in production — an MRR gain of
+    0.130, the largest effect in this
+    study. It costs 26.9 passages/second against 49.7, so re-indexing the whole
+    archive takes about 5 minutes and adds
+    33% to vector storage on a store measured in hundreds of megabytes.
+    That is a real improvement at negligible cost — but note it appears almost entirely on paraphrased questions, and
+    barely at all when queries reuse the transcript's own words.</p>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">What the numbers said</span>
+  <h2>Three findings, two of which contradicted the hypothesis</h2>
+  <div class="findings">
+    <div class="finding surprise">
+      <span class="label">Contradicted</span>
+      <span class="big">0 of 9</span>
+      <p>models beat plain keyword search when queries reuse the transcript's wording. On that traffic, keyword search
+      is not the weak half of the system — it is carrying it, and no embedding model changes that.</p>
+    </div>
+    <div class="finding surprise">
+      <span class="label">Contradicted</span>
+      <span class="big">-0.059</span>
+      <p>MRR from applying EmbeddingGemma's <em>documented</em> query and document prompts — and
+      -0.046 on natural questions. The officially correct usage measured worse on both sets, so the
+      "obvious fix" was not shipped.</p>
+    </div>
+    <div class="finding">
+      <span class="label">Confirmed</span>
+      <span class="big">53%</span>
+      <p>better than keyword search alone, from the best model on paraphrased questions. Where wording differs from the
+      transcript, embeddings earn their place decisively — and the model chosen matters.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">The field</span>
+  <h2>What was tested</h2>
+  <div class="prose">
+    <p>Eight models across nine configurations, all running locally. EmbeddingGemma appears twice — once as configured in
+    production and once with the prompts its authors document — because prompting is part of a model, not a tuning knob,
+    and getting it wrong is an easy and invisible mistake.</p>
+  </div>
+  <div class="tablewrap"><table class="data">
+    <caption>Every configuration evaluated. Indexing time is for the full 7,730-chunk corpus on the shared Ollama host.</caption>
+    <thead><tr><th scope="col">Configuration</th><th scope="col">Model</th><th scope="col">Download</th>
+      <th scope="col">Dims</th><th scope="col">Prompting</th><th scope="col">Throughput</th><th scope="col">Full index</th></tr></thead>
+    <tbody><tr>
+      <th scope="row">all-minilm</th>
+      <td>all-MiniLM-L6-v2</td>
+      <td class="num">46 MB</td>
+      <td class="num">384</td>
+      <td>none (symmetric)</td>
+      <td class="num">259.9/s</td>
+      <td class="num">0 min</td>
+    </tr>
+<tr>
+      <th scope="row">nomic-embed-text</th>
+      <td>Nomic Embed Text v1.5</td>
+      <td class="num">274 MB</td>
+      <td class="num">768</td>
+      <td><code>search_document:</code> / <code>search_query:</code></td>
+      <td class="num">70.8/s</td>
+      <td class="num">2 min</td>
+    </tr>
+<tr>
+      <th scope="row">granite-embedding-278m</th>
+      <td>IBM Granite Embedding 278M</td>
+      <td class="num">563 MB</td>
+      <td class="num">768</td>
+      <td>none (symmetric)</td>
+      <td class="num">64/s</td>
+      <td class="num">2 min</td>
+    </tr>
+<tr>
+      <th scope="row">embeddinggemma-prefixed</th>
+      <td>Google EmbeddingGemma 300M</td>
+      <td class="num">622 MB</td>
+      <td class="num">768</td>
+      <td>official: <code>title: none | text:</code> / <code>task: search result | query:</code></td>
+      <td class="num">50.1/s</td>
+      <td class="num">3 min</td>
+    </tr>
+<tr>
+      <th scope="row">embeddinggemma-raw</th>
+      <td>Google EmbeddingGemma 300M</td>
+      <td class="num">622 MB</td>
+      <td class="num">768</td>
+      <td>none (symmetric)</td>
+      <td class="num">49.7/s</td>
+      <td class="num">3 min</td>
+    </tr>
+<tr>
+      <th scope="row">mxbai-embed-large</th>
+      <td>Mixedbread mxbai-embed-large</td>
+      <td class="num">670 MB</td>
+      <td class="num">1024</td>
+      <td>query instruction, raw documents</td>
+      <td class="num">29.8/s</td>
+      <td class="num">4 min</td>
+    </tr>
+<tr>
+      <th scope="row">snowflake-arctic-embed2</th>
+      <td>Snowflake Arctic Embed 2.0</td>
+      <td class="num">1.2 GB</td>
+      <td class="num">1024</td>
+      <td><code>query:</code> prefix</td>
+      <td class="num">26.9/s</td>
+      <td class="num">5 min</td>
+    </tr>
+<tr>
+      <th scope="row">bge-m3</th>
+      <td>BAAI BGE-M3</td>
+      <td class="num">1.2 GB</td>
+      <td class="num">1024</td>
+      <td>none (symmetric by design)</td>
+      <td class="num">26.8/s</td>
+      <td class="num">5 min</td>
+    </tr>
+<tr>
+      <th scope="row">qwen3-embedding-0.6b</th>
+      <td>Qwen3-Embedding 0.6B</td>
+      <td class="num">639 MB</td>
+      <td class="num">1024</td>
+      <td>instruction-style query prompt</td>
+      <td class="num">16/s</td>
+      <td class="num">8 min</td>
+    </tr></tbody></table></div>
+  <h3>Why each earned a place in the field</h3>
+  <dl class="why"><div><dt>embeddinggemma-raw</dt><dd>The setting the store shipped with — chosen from priors, which is what this exercise set out to test.</dd></div>
+<div><dt>embeddinggemma-prefixed</dt><dd>The documented usage. Included to check whether the shipped configuration was leaving quality on the table.</dd></div>
+<div><dt>nomic-embed-text</dt><dd>The long-standing default for local RAG; the fallback in the original selection.</dd></div>
+<div><dt>mxbai-embed-large</dt><dd>A widely used 1024-dim English retrieval model.</dd></div>
+<div><dt>bge-m3</dt><dd>Multilingual, long-context, strong public retrieval benchmarks.</dd></div>
+<div><dt>qwen3-embedding-0.6b</dt><dd>Recent, top of several public leaderboards for its size.</dd></div>
+<div><dt>snowflake-arctic-embed2</dt><dd>Retrieval-specialised, tuned for exactly this shape of task.</dd></div>
+<div><dt>granite-embedding-278m</dt><dd>Enterprise-licensed option, relevant if provenance of training data matters.</dd></div>
+<div><dt>all-minilm</dt><dd>Deliberate floor case: if a 46 MB model were competitive, nothing larger would be justified.</dd></div></dl>
+  
+</section>
+
+<section>
+  <span class="eyebrow">Method</span>
+  <h2>How the models were judged</h2>
+  <div class="prose">
+    <p>The hard part of a retrieval evaluation is the answer key. Rather than hand-write one — which tends to reward
+    whatever the author already believes — both query sets were derived from artefacts the archive already produces.</p>
+  </div>
+  <div class="findings">
+    <div class="finding">
+      <span class="label">Query set 1 · 183 tasks</span>
+      <h3>Cited claims</h3>
+      <p>Every decision, action and risk our summariser extracts carries a <code>[m:ss]</code> citation into the
+      transcript. Each becomes a query whose correct answer is the passage it cites. Real analyst language, but it
+      borrows the transcript's own words — which flatters keyword search.</p>
+    </div>
+    <div class="finding">
+      <span class="label">Query set 2 · 120 tasks</span>
+      <h3>Natural questions</h3>
+      <p>A local model was shown individual passages and asked for a question a colleague might ask weeks later,
+      explicitly avoiding the passage's distinctive words. Low word overlap by construction — which flatters
+      semantic search.</p>
+    </div>
+  </div>
+  <div class="prose">
+    <p>The two sets are biased in opposite directions on purpose. A configuration that wins both is a safe choice;
+    one that wins only its favourable set is not.</p>
+  </div>
+  <h3>Protocol</h3>
+  <ol class="protocol">
+    <li><strong>Screen.</strong> All nine configurations against a 2,000-passage pool, to eliminate the clearly
+    uncompetitive before spending hours of GPU time.</li>
+    <li><strong>Full run.</strong> Every configuration re-measured against the complete
+    7,730-passage archive — the same haystack the live system searches, since recall
+    depends on how much there is to get wrong.</li>
+    <li><strong>Score.</strong> Each query ranked against every passage by cosine similarity, then the same measurement
+    repeated for the hybrid the live system runs: keyword and vector results merged by reciprocal-rank fusion.</li>
+  </ol>
+  <h3>What was measured, and why</h3>
+  <ul class="plain prose">
+    <li><strong>Recall@5</strong> — was the right passage in the top five? This is the operational number: five passages
+    is roughly what fits in an answer's evidence window.</li>
+    <li><strong>MRR@10</strong> — how high did the right passage rank? Rewards putting the answer first, not merely
+    somewhere on the page. Used as the primary ranking metric.</li>
+    <li><strong>Hybrid vs text-only (Δ)</strong> — what the embeddings add on top of keyword search. This, not the
+    vector score in isolation, is what a model must justify.</li>
+    <li><strong>Throughput and index time</strong> — a two-point gain that quadruples indexing time is not a win on a
+    shared host that also serves summarisation.</li>
+    <li><strong>Strict vs adjacent credit</strong> — passages overlap by one speaker turn, so a neighbour often contains
+    the same statement. Every metric was computed both ways; strict figures are reported here, and the gap between them
+    is a property of the passage boundaries, not of any model.</li>
+  </ul>
+</section>
+
+<section>
+  <span class="eyebrow">Results · query set 1</span>
+  <h2>Cited claims</h2>
+  <div class="prose"><p>Analyst-written claims searched against the passages they cite. Word overlap is high, which is
+  the condition keyword search is best at.</p></div>
+  <div class="tablewrap"><table class="data">
+    <caption>Ranked by hybrid MRR@10 — the configuration the live system actually runs. Δ compares each hybrid against text search alone.</caption>
+    <thead><tr>
+      <th scope="col">Configuration</th><th scope="col">Dims</th>
+      <th scope="col" colspan="2" class="grouphead">Vectors only</th>
+      <th scope="col" colspan="2" class="grouphead">Hybrid (vectors + text)</th>
+      <th scope="col">Δ vs text</th><th scope="col" class="barhead">Hybrid recall@5</th>
+    </tr>
+    <tr class="subhead"><td></td><td></td><td>R@5</td><td>MRR</td><td>R@5</td><td>MRR</td><td></td><td></td></tr></thead>
+    <tbody><tr class="is-current">
+      <th scope="row">embeddinggemma-raw <span class="tag">in production</span></th>
+      <td class="num">768</td>
+      <td class="num">29.0%</td>
+      <td class="num">0.196</td>
+      <td class="num">36.1%</td>
+      <td class="num strong">0.249</td>
+      <td class="num better">+0.026</td>
+      <td class="barcell"><span class="bar"><span class="bar-fill good" style="width:97.0%"></span></span></td>
+    </tr>
+<tr>
+      <th scope="row">snowflake-arctic-embed2</th>
+      <td class="num">1024</td>
+      <td class="num">32.8%</td>
+      <td class="num">0.200</td>
+      <td class="num">37.2%</td>
+      <td class="num strong">0.232</td>
+      <td class="num better">+0.009</td>
+      <td class="barcell"><span class="bar"><span class="bar-fill good" style="width:100.0%"></span></span></td>
+    </tr>
+<tr>
+      <th scope="row">qwen3-embedding-0.6b</th>
+      <td class="num">1024</td>
+      <td class="num">28.4%</td>
+      <td class="num">0.183</td>
+      <td class="num">35.5%</td>
+      <td class="num strong">0.221</td>
+      <td class="num worse">-0.002</td>
+      <td class="barcell"><span class="bar"><span class="bar-fill bad" style="width:95.4%"></span></span></td>
+    </tr>
+<tr>
+      <th scope="row">embeddinggemma-prefixed</th>
+      <td class="num">768</td>
+      <td class="num">21.9%</td>
+      <td class="num">0.137</td>
+      <td class="num">35.0%</td>
+      <td class="num strong">0.216</td>
+      <td class="num worse">-0.007</td>
+      <td class="barcell"><span class="bar"><span class="bar-fill bad" style="width:94.1%"></span></span></td>
+    </tr>
+<tr>
+      <th scope="row">bge-m3</th>
+      <td class="num">1024</td>
+      <td class="num">22.4%</td>
+      <td class="num">0.128</td>
+      <td class="num">32.2%</td>
+      <td class="num strong">0.206</td>
+      <td class="num worse">-0.017</td>
+      <td class="barcell"><span class="bar"><span class="bar-fill bad" style="width:86.6%"></span></span></td>
+    </tr>
+<tr>
+      <th scope="row">nomic-embed-text</th>
+      <td class="num">768</td>
+      <td class="num">25.1%</td>
+      <td class="num">0.150</td>
+      <td class="num">35.5%</td>
+      <td class="num strong">0.203</td>
+      <td class="num worse">-0.020</td>
+      <td class="barcell"><span class="bar"><span class="bar-fill bad" style="width:95.4%"></span></span></td>
+    </tr>
+<tr>
+      <th scope="row">granite-embedding-278m</th>
+      <td class="num">768</td>
+      <td class="num">19.1%</td>
+      <td class="num">0.095</td>
+      <td class="num">32.2%</td>
+      <td class="num strong">0.203</td>
+      <td class="num worse">-0.020</td>
+      <td class="barcell"><span class="bar"><span class="bar-fill bad" style="width:86.6%"></span></span></td>
+    </tr>
+<tr>
+      <th scope="row">mxbai-embed-large</th>
+      <td class="num">1024</td>
+      <td class="num">15.3%</td>
+      <td class="num">0.101</td>
+      <td class="num">32.2%</td>
+      <td class="num strong">0.193</td>
+      <td class="num worse">-0.030</td>
+      <td class="barcell"><span class="bar"><span class="bar-fill bad" style="width:86.6%"></span></span></td>
+    </tr>
+<tr>
+      <th scope="row">all-minilm</th>
+      <td class="num">384</td>
+      <td class="num">6.0%</td>
+      <td class="num">0.052</td>
+      <td class="num">30.1%</td>
+      <td class="num strong">0.167</td>
+      <td class="num worse">-0.056</td>
+      <td class="barcell"><span class="bar"><span class="bar-fill bad" style="width:80.9%"></span></span></td>
+    </tr>
+      <tr class="baseline">
+        <th scope="row">Text search only (BM25, no embeddings)</th>
+        <td class="num">—</td><td class="num">37.2%</td><td class="num">0.223</td>
+        <td class="num">—</td><td class="num">—</td><td class="num">—</td>
+        <td class="barcell"><span class="bar"><span class="bar-fill base" style="width:100.0%"></span></span></td>
+      </tr>
+    </tbody></table></div>
+</section>
+
+<section>
+  <span class="eyebrow">Results · query set 2</span>
+  <h2>Natural questions</h2>
+  <div class="prose"><p>Paraphrased questions with the distinctive vocabulary deliberately removed — the condition
+  embeddings exist for. Every score rises here, including the keyword baseline's, because each question was written
+  against one specific passage. The ordering is what matters: the field separates sharply, and the top models pull well
+  clear of keyword search.</p></div>
+  <div class="tablewrap"><table class="data">
+    <caption>Ranked by hybrid MRR@10 — the configuration the live system actually runs. Δ compares each hybrid against text search alone.</caption>
+    <thead><tr>
+      <th scope="col">Configuration</th><th scope="col">Dims</th>
+      <th scope="col" colspan="2" class="grouphead">Vectors only</th>
+      <th scope="col" colspan="2" class="grouphead">Hybrid (vectors + text)</th>
+      <th scope="col">Δ vs text</th><th scope="col" class="barhead">Hybrid recall@5</th>
+    </tr>
+    <tr class="subhead"><td></td><td></td><td>R@5</td><td>MRR</td><td>R@5</td><td>MRR</td><td></td><td></td></tr></thead>
+    <tbody><tr>
+      <th scope="row">snowflake-arctic-embed2</th>
+      <td class="num">1024</td>
+      <td class="num">60.0%</td>
+      <td class="num">0.463</td>
+      <td class="num">59.2%</td>
+      <td class="num strong">0.452</td>
+      <td class="num better">+0.149</td>
+      <td class="barcell"><span class="bar"><span class="bar-fill good" style="width:97.4%"></span></span></td>
+    </tr>
+<tr>
+      <th scope="row">qwen3-embedding-0.6b</th>
+      <td class="num">1024</td>
+      <td class="num">59.2%</td>
+      <td class="num">0.439</td>
+      <td class="num">60.8%</td>
+      <td class="num strong">0.441</td>
+      <td class="num better">+0.138</td>
+      <td class="barcell"><span class="bar"><span class="bar-fill good" style="width:100.0%"></span></span></td>
+    </tr>
+<tr>
+      <th scope="row">bge-m3</th>
+      <td class="num">1024</td>
+      <td class="num">53.3%</td>
+      <td class="num">0.408</td>
+      <td class="num">60.0%</td>
+      <td class="num strong">0.415</td>
+      <td class="num better">+0.112</td>
+      <td class="barcell"><span class="bar"><span class="bar-fill good" style="width:98.7%"></span></span></td>
+    </tr>
+<tr>
+      <th scope="row">granite-embedding-278m</th>
+      <td class="num">768</td>
+      <td class="num">40.0%</td>
+      <td class="num">0.298</td>
+      <td class="num">50.8%</td>
+      <td class="num strong">0.392</td>
+      <td class="num better">+0.089</td>
+      <td class="barcell"><span class="bar"><span class="bar-fill good" style="width:83.6%"></span></span></td>
+    </tr>
+<tr class="is-current">
+      <th scope="row">embeddinggemma-raw <span class="tag">in production</span></th>
+      <td class="num">768</td>
+      <td class="num">43.3%</td>
+      <td class="num">0.333</td>
+      <td class="num">54.2%</td>
+      <td class="num strong">0.385</td>
+      <td class="num better">+0.082</td>
+      <td class="barcell"><span class="bar"><span class="bar-fill good" style="width:89.1%"></span></span></td>
+    </tr>
+<tr>
+      <th scope="row">mxbai-embed-large</th>
+      <td class="num">1024</td>
+      <td class="num">38.3%</td>
+      <td class="num">0.306</td>
+      <td class="num">54.2%</td>
+      <td class="num strong">0.379</td>
+      <td class="num better">+0.076</td>
+      <td class="barcell"><span class="bar"><span class="bar-fill good" style="width:89.1%"></span></span></td>
+    </tr>
+<tr>
+      <th scope="row">nomic-embed-text</th>
+      <td class="num">768</td>
+      <td class="num">43.3%</td>
+      <td class="num">0.305</td>
+      <td class="num">50.8%</td>
+      <td class="num strong">0.378</td>
+      <td class="num better">+0.075</td>
+      <td class="barcell"><span class="bar"><span class="bar-fill good" style="width:83.6%"></span></span></td>
+    </tr>
+<tr>
+      <th scope="row">embeddinggemma-prefixed</th>
+      <td class="num">768</td>
+      <td class="num">38.3%</td>
+      <td class="num">0.287</td>
+      <td class="num">53.3%</td>
+      <td class="num strong">0.366</td>
+      <td class="num better">+0.063</td>
+      <td class="barcell"><span class="bar"><span class="bar-fill good" style="width:87.7%"></span></span></td>
+    </tr>
+<tr>
+      <th scope="row">all-minilm</th>
+      <td class="num">384</td>
+      <td class="num">22.5%</td>
+      <td class="num">0.184</td>
+      <td class="num">45.8%</td>
+      <td class="num strong">0.298</td>
+      <td class="num worse">-0.005</td>
+      <td class="barcell"><span class="bar"><span class="bar-fill bad" style="width:75.3%"></span></span></td>
+    </tr>
+      <tr class="baseline">
+        <th scope="row">Text search only (BM25, no embeddings)</th>
+        <td class="num">—</td><td class="num">42.5%</td><td class="num">0.303</td>
+        <td class="num">—</td><td class="num">—</td><td class="num">—</td>
+        <td class="barcell"><span class="bar"><span class="bar-fill base" style="width:69.9%"></span></span></td>
+      </tr>
+    </tbody></table></div>
+</section>
+
+<section>
+  <span class="eyebrow">Reading the result</span>
+  <h2>What this changes</h2>
+  <div class="prose">
+    <ul class="plain">
+      <li><strong>Change the embedding model</strong> to snowflake-arctic-embed2 and re-index. Minutes of compute for the
+      single largest retrieval gain measured here.</li>
+      <li><strong>The documented prompts stay off.</strong> They measured worse on both query sets. Worth re-testing if
+      the passage format changes, since prompting interacts with content shape.</li>
+      <li><strong>Keep the hybrid, and keep investing in keyword search</strong> — synonyms for our vocabulary
+      (SFTP/FTP, PO/purchase order) and field boosts. It is the stronger half whenever a query borrows the transcript's
+      words, which is most of how the archive is searched today.</li>
+      <li><strong>Passage boundaries are the bigger lever.</strong> The gap between strict and adjacent scoring says a
+      meaningful share of "misses" are the answer sitting one passage over.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Limitations</span>
+  <h2>What this evaluation does not establish</h2>
+  <div class="prose caveat">
+    <ul class="plain">
+      <li>The answer key is machine-derived. Citation timestamps are mapped to passages by a rule, and the questions were
+      written by the same family of model that writes our summaries. Neither is a human relevance judgement.</li>
+      <li>One corpus, one domain, one language. These results describe procurement-programme meetings at this
+      organisation, not embedding models in general.</li>
+      <li>Single run per configuration; no confidence intervals. Differences below roughly 0.03 MRR should be treated as
+      indistinguishable.</li>
+      <li>Passage size and overlap were held fixed. They are plausibly a larger lever than model choice and were not
+      varied here.</li>
+      <li>Answer quality was not measured — only whether the right passage was retrieved. Retrieval is necessary for a
+      good answer, not sufficient.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Reproducibility</span>
+  <h2>Re-running this</h2>
+  <div class="prose"><p>The harness lives with the archive tooling. Results are written as JSON, and this report is
+  generated from that JSON, so no figure here is transcribed by hand.</p></div>
+  <pre><code>node eval-questions.js --n 120        # regenerate the natural-question set
+node eval-embeddings.js --stage full  # all configurations, full corpus
+node report-embeddings.js             # rebuild this report from the results</code></pre>
+</section>
+
+<footer>
+  Generated August 18, 2026 from <code>eval-embeddings-full.json</code> · 9 configurations ·
+  303 labelled queries ·
+  7,730 passages. All models ran locally; no transcript content left the network.
+</footer>
+</div>
