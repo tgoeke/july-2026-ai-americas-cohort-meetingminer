@@ -111,7 +111,7 @@ development_status:
   epic-7: in-progress
   7-1-diarizer-engine-behind-the-port: done
   7-2-speaker-tags-on-the-wire: done
-  7-3-speaker-assignment: backlog
+  7-3-speaker-assignment: review
   7-4-speaker-naming-ui: backlog
   epic-7-retrospective: optional
 

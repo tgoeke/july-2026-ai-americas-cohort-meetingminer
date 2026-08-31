@@ -3644,3 +3644,26 @@ typecheck and the production build.
 not owed for 8-2. Note story 6.4 does NOT regenerate it and its
 `/acquisitions` routes are therefore missing from the client — that
 regeneration is owed at 6.4's integration and blocks story 6.5.
+
+## Story 7.3 — Speaker Assignment (2026-08-30)
+
+`PUT /meetings/{meetingId}/speakers/{tag}` takes a participant id, a new display
+name, or `unresolved`. It writes an api-owned `participant_alias` row under
+`speaker:<meetingId>:<tag>` and re-arms the meeting's job for `align → moments →
+extract` only; `align` reads that namespace back before writing each segment,
+follows one merge hop, and records attendance so the graph's `SPOKE_IN` edge has
+a `Participant` node to match. `unresolved` is a deletion of the alias, because
+`participant_alias.participant_id` is `NOT NULL` — which restores `align`'s own
+`placeholder` answer and guesses nothing.
+
+The story's real clause is pinned: a rename leaves every pre-existing moment id,
+approved artifact and published artifact untouched, and extraction replaces
+drafts only. Proved by mutation — perturbing segment timing by 1 ms re-keys
+`transcript:40000` to `transcript:40001` and the test catches it.
+
+Two defects surfaced red-first and were fixed: a curator-minted participant keyed
+by its own alias key could never be merged away, and any participant named as a
+speaker read to Epic 2's merge predicate as having absorbed someone. Four
+recorded footprint departures (`pipeline/stages/align.py`, `api/participants.py`,
+and one forced line each in `test_api_speakers.py` and `test_compose_contract.py`)
+are in the spec's Change Log. B-39 and B-40 filed. Left at `review`.

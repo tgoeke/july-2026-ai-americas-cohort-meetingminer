@@ -539,3 +539,49 @@ URL-derived one; unset, the derivation is byte-identical — and
 other process can be the holder it sees. The same story gave every worktree a
 private compose stack on its own ports, so a holder from another worktree is on
 another lock anyway; the key is what makes the test's own assertions exact.
+
+---
+
+### B-39 · A source-attributed speaker label cannot be pushed back to unresolved — S
+
+Story 7.3's `PUT /meetings/{id}/speakers/{tag}` records `unresolved` by
+*deleting* the `speaker:<meetingId>:<tag>` alias row, because
+`participant_alias.participant_id` is `NOT NULL` and there is no way to store
+"this tag names nobody". Deleting the key restores `align`'s own answer, which
+for a diarizer tag is `placeholder` with no participant — the acceptance
+criterion exactly.
+
+For a label the *source* attributed (`Goeke, Timothy` in a Teams export),
+`align`'s own answer is `resolved` against the meeting roster, so choosing
+`unresolved` there is accepted, re-arms the job, and leaves the tag resolved.
+A curator who believes a source got the attribution wrong has no way to say
+so.
+
+Fixing it needs somewhere to record a negative assertion — a nullable
+`participant_id` with a state column, or a separate api-owned table — which is
+a migration and a schema decision, deliberately outside the story that found
+it. Until then the route's behavior is honest but incomplete: it can add an
+attribution and remove one it added, not overrule the source.
+
+---
+
+### B-40 · A curator's typed speaker name splits one person across meetings — S
+
+Story 7.3 mints a `participant` row for a display name typed into the speakers
+screen, keyed `curated:<meetingId>:<tag>`. The key is per-meeting, so the same
+human typed into two meetings gets two rows, both listed by `GET
+/participants`.
+
+This is deliberate rather than accidental. The api may not import `pipeline`
+(`api/ingests.py`), so it cannot compute `pipeline/speakers.identity_key_for`'s
+`name:<normalized>` key without a second copy of `normalize_display_name` —
+and two spellings of an identity key silently collapse two humans onto one
+row, which is the failure that module warns about at length. A split is the
+recoverable direction: `POST /participants/{id}/merge` joins the rows, and
+story 7.3 fixed the predicate that was blocking exactly that merge.
+
+The real fix is to move `normalize_display_name` (and `identity_key_for`) out
+of `pipeline/speakers.py` into `domain/`, where both layers may use the one
+definition, and have the api mint `name:<normalized>` like the worker does.
+That is a small move, but it edits a module story 7.1 and B-36 were both
+holding when this was found.
