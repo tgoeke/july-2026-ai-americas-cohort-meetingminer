@@ -28,11 +28,20 @@ companions its frontmatter lists, plus the per-story frozen contracts in
 - Never hand-edit `web/src/client/`. It is generated and committed on purpose so
   a fresh clone builds without a live api; regenerate it with `make client`,
   which needs the api running.
-- Starting the worker costs nothing as of 2026-08-22. `llm.roles.extraction`
-  is `ollama/gpt-oss:120b` with an `ollama/qwen3:30b` fallback — both local —
-  and extraction is the only `llm.roles.*` call the worker makes. The paid
-  roles are `chat` and `judge` (`openai/gpt-5.2`), reached from the api, never
-  the worker. The earlier warning here described a `claude-sonnet-5` extraction
+- **Starting the worker is NOT free right now (2026-08-31).**
+  `llm.roles.extraction` is temporarily bound to `openai/gpt-5.2` — a paid
+  model — with `ollama/gpt-oss:120b` as its declared fallback, by owner
+  decision, for the demo-corpus ingest only. Extraction is three
+  whole-transcript passes per meeting, so an unattended worker run spends real
+  money. **Revert to `ollama/gpt-oss:120b` when the ingest is done**; the
+  pre-switch file is at `/tmp/config.yaml.pre-paid-extraction` and the reason
+  is in `config.yaml`'s extraction block. Until then, treat starting the worker
+  as a paid operation.
+
+  Extraction is still the only `llm.roles.*` call the worker makes; `chat` and
+  `judge` (`openai/gpt-5.2`) are reached from the api, never the worker. The
+  standing arrangement — every worker binding local, so an unattended ingest
+  cannot surprise anyone with a bill — resumes on revert. The earlier warning here described a `claude-sonnet-5` extraction
   binding and an ~850-call paused backlog; neither exists now, and the backlog
   is empty. Check `/status` for the live binding before assuming either way.
 - Each `llm.roles.<role>` block declares a `catalog` of the bindings that role
