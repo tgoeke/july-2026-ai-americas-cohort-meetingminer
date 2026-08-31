@@ -64,3 +64,35 @@ The review will also account for the required rebase onto `origin/main` before c
 - **Finding:** `_started_at()` delegates syntax entirely to `mintdrop.started_at_from_argument()`, whose `datetime.fromisoformat()` accepts a broader ISO 8601 language than RFC 3339. Uploads accept space-separated timestamps, basic dates/times, ISO week dates, and offsets containing seconds even though the frozen upload contract requires RFC 3339 with an offset.
 - **Evidence:** Values such as `2026-08-05 12:00:19+00:00` and `20260805T120019+0000` reach second precision and are normalized rather than refused. Existing tests cover date-only, missing-offset, and junk inputs but not the RFC grammar boundary.
 - **Suggested direction:** Gate upload input with an explicit RFC 3339 pattern (`T`, extended date/time, optional fractional seconds, and `Z` or `±HH:MM`) before calling the shared mint parser. Keep the shared parser for normalization so upload/CLI identity remains identical for the accepted subset.
+
+### F-7 — Some completed sessions are guaranteed to fail only after the 201 response
+
+- **Location:** `server/meetingminer/uploads.py:1005-1031` and `server/meetingminer/transcripts/dialects.py:262-290`
+- **Severity:** Medium
+- **Finding:** `_dialect()` accepts `transcriptDialect=zoom` when no VTT was uploaded, and accepts a Zoom VTT beside an uploaded TXT. The session is published as complete, but `dialects.convert_supplied()` later requires one VTT and forbids an accompanying TXT because Zoom conversion itself produces `transcript.txt`. These shapes can never mint.
+- **Evidence:** `_dialect()` only requires a declaration when a VTT exists; once a non-empty known value is supplied it returns it without relating it to the staged roles. `_zoom_source()` deterministically raises for no VTT or any TXT. The request therefore answers 201 for an acquisition that can only become failed later.
+- **Suggested direction:** Validate the declared dialect against the complete role set before `session.json` is published. Refuse Zoom without exactly a VTT and refuse Zoom plus TXT using the upload vocabulary, leaving the staging root empty.
+
+### F-8 — Upload state and transcript failures fall into YouTube's `unclassified` rule
+
+- **Location:** `server/meetingminer/acquisitions.py:377-396` and `server/meetingminer/acquisitions.py:1061-1069`
+- **Severity:** Medium
+- **Finding:** The upload runner catches `UploadSessionNotFound`, `UploadStateError`, and `dialects.DialectError`, then calls `refusal_for()`. That dispatcher recognizes only `UploadRefused`; every other upload-specific exception falls through `youtube.refusal_rule()` to `unclassified` with YouTube-owned remediation.
+- **Evidence:** A session lost in a launch/delete/sweep race or a malformed Zoom transcript produces a failed acquisition, but its stable `rule` says only `unclassified` and tells the client to use the generic YouTube remediation. This contradicts the deliberate second closed vocabulary and AD-18's named degradation boundary.
+- **Suggested direction:** Add explicit upload rules/remediations/statuses for unreadable/lost session state and transcript conversion refusal, and dispatch those exception classes before the YouTube classifier. Pin the two vocabularies as disjoint and complete.
+
+### F-9 — Several acquisition failure paths skip the promised session cleanup
+
+- **Location:** `server/meetingminer/acquisitions.py:778-817`, `server/meetingminer/acquisitions.py:1031-1111`, and `server/meetingminer/acquisitions.py:1182-1197`
+- **Severity:** High
+- **Finding:** Cleanup is only in `run_upload_acquisition()`'s `finally`, and even there `sessions` is assigned after `resolve_api_url()` and `resolve_drops_root()`. A resolution failure skips deletion; a detached child's config-load failure returns before entering the runner; and a log-open or `Popen` failure in the parent leaves the session despite writing/returning a failed acquisition.
+- **Evidence:** These are ordinary host failures named by the existing refusal model, not process-kill hypotheticals. Each contradicts the frozen Always clause that a failed acquisition removes the session and can retain multi-gigabyte evidence until a later sweep.
+- **Suggested direction:** Resolve/retain the sessions root before any fallible runner setup; pass the already trusted absolute sessions root to upload-mode child argv so pre-dispatch config failure can clean it; and compensate parent-side upload launch failures. Add red tests at each boundary.
+
+### F-10 — A claimed or actively streaming session can be deleted underneath its owner
+
+- **Location:** `server/meetingminer/acquisitions.py:821-868`, `server/meetingminer/uploads.py:555-598`, and `server/meetingminer/api/uploads.py:250-345`
+- **Severity:** High
+- **Finding:** The session itself has no claim visible to DELETE or the TTL sweep. `launch_upload()` reads it before taking the acquisition lock and does not re-read under that lock; DELETE never takes that lock; and the sweep knows nothing about live upload acquisitions. A later request can erase bytes after the API has returned 202. A second launch can also pre-read the session, wait for the first to become terminal, and then return another 202 for bytes being removed. For no-`session.json` directories, expiry uses directory mtime, which ordinary writes to an already-created file do not refresh; a long active stream can be swept too.
+- **Evidence:** All three operations mutate/read the same session directory without one serialized ownership check. The acquisition record is the existing claim authority, but only another launch consults it. The sweep's comment says an in-flight upload must not be deleted out from under itself while its mtime rule permits exactly that once the configured TTL passes.
+- **Suggested direction:** Serialize upload launch, DELETE, and sweeping against the acquisition claim lock; re-read inside the launch critical section; expose live upload-session ids so sweep skips them; refuse DELETE for a live claim; and age incomplete uploads from current file activity. Start the completed session TTL when the 201 state is published, not before a slow body is consumed.
