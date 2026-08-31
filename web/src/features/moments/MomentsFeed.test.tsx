@@ -54,6 +54,26 @@ function serveFeed(pages: (offset: number) => Page) {
   const calls: Array<URL> = []
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const url = new URL(String(input))
+    if (url.pathname.endsWith('/threads')) {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            threads: [
+              {
+                threadId: 'thread-1',
+                name: 'retrieval split',
+                mentionCount: 3,
+                meetingCount: 2,
+                firstMentionAt: '2026-08-01T12:00:00Z',
+                lastMentionAt: '2026-08-31T12:00:00Z',
+                colorOrdinal: 1,
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    }
     if (!url.pathname.endsWith('/moments/feed')) {
       return Promise.reject(new Error('no api in this test'))
     }
@@ -258,7 +278,7 @@ describe('MomentsFeed', () => {
     await userEvent.selectOptions(screen.getByTestId('filter-kind'), 'decision')
     await waitFor(() => expect(calls.at(-1)?.searchParams.get('kind')).toBe('decision'))
 
-    // The thread options are the threads the served items carry.
+    // The thread option comes from the complete thread catalog, not this page.
     await userEvent.selectOptions(screen.getByTestId('filter-thread'), 'thread-1')
     await waitFor(() => expect(calls.at(-1)?.searchParams.get('thread')).toBe('thread-1'))
   })
@@ -318,15 +338,21 @@ describe('MomentsFeed', () => {
   })
 
   it('names the api address when the feed cannot be reached, and retries', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockRejectedValueOnce(new Error('fetch failed'))
-      .mockResolvedValue(
+    let feedAttempt = 0
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = new URL(String(input))
+      if (url.pathname.endsWith('/threads')) {
+        return Promise.resolve(new Response(JSON.stringify({ threads: [] })))
+      }
+      feedAttempt += 1
+      if (feedAttempt === 1) return Promise.reject(new Error('fetch failed'))
+      return Promise.resolve(
         new Response(JSON.stringify({ items: [item()], total: 1, unfilteredTotal: 1, limit: 24, offset: 0 }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         }),
       )
+    })
     vi.stubGlobal('fetch', fetchMock)
     renderFeed()
 

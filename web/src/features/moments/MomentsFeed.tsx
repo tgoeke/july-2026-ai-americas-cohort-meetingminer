@@ -18,6 +18,7 @@ import {
   type FeedFilters,
   type MomentFeedItem,
 } from './feed'
+import { fetchThreadOptions, type ThreadOption } from './threads'
 
 /** The corpus tags a drop is recorded under (`docs/glossary.md`). The select
  * also carries any other tag the served items actually use, so a corpus this
@@ -84,6 +85,12 @@ export function MomentsFeed({
   const [expanded, setExpanded] = useState<string | null>(null)
   const [focusAfterAppend, setFocusAfterAppend] = useState<string | null>(null)
   const [announcement, setAnnouncement] = useState('')
+  const [threadQuery, setThreadQuery] = useState('')
+  const [threadCatalog, setThreadCatalog] = useState<
+    | { kind: 'loading' }
+    | { kind: 'ready'; options: Array<ThreadOption> }
+    | { kind: 'error'; message: string }
+  >({ kind: 'loading' })
 
   // Asynchronous ownership (EXPERIENCE.md): every read carries a generation,
   // a newer read aborts the older one, and a late response for a superseded
@@ -168,6 +175,21 @@ export function MomentsFeed({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, filterKey])
 
+  useEffect(() => {
+    const own = new AbortController()
+    void fetchThreadOptions(own.signal).then(
+      (options) => setThreadCatalog({ kind: 'ready', options }),
+      (error: unknown) => {
+        if (own.signal.aborted) return
+        setThreadCatalog({
+          kind: 'error',
+          message: error instanceof Error ? error.message : String(error),
+        })
+      },
+    )
+    return () => own.abort()
+  }, [])
+
   const setFilter = useCallback(
     (name: keyof FeedFilters, value: string | null) => {
       const next = new URLSearchParams(params)
@@ -220,17 +242,13 @@ export function MomentsFeed({
     setFocusAfterAppend(null)
   }, [focusAfterAppend])
 
-  // Thread options come from the threads the served items actually carry.
-  // `GET /threads` (story 10.3) is the designed source and becomes the source
-  // once it lands; until then the client offers only threads it has observed
-  // rather than inventing a list.
   const threadOptions = useMemo(() => {
-    const byId = new Map<string, string>()
-    for (const item of items ?? []) {
-      for (const thread of item.threads) byId.set(thread.threadId, thread.name)
-    }
-    return [...byId.entries()].sort((a, b) => a[1].localeCompare(b[1]))
-  }, [items])
+    if (threadCatalog.kind !== 'ready') return []
+    const needle = threadQuery.trim().toLocaleLowerCase()
+    return threadCatalog.options
+      .filter((thread) => needle === '' || thread.name.toLocaleLowerCase().includes(needle))
+      .map((thread): [string, string] => [thread.threadId, thread.name])
+  }, [threadCatalog, threadQuery])
 
   const corpusOptions = useMemo(() => {
     const seen = new Set<string>(KNOWN_CORPORA)
@@ -251,7 +269,10 @@ export function MomentsFeed({
       : state.kind === 'error'
         ? (state.stale?.unfilteredTotal ?? 0)
         : 0
-  const threadName = threadOptions.find(([id]) => id === filters.thread)?.[1] ?? null
+  const threadName =
+    threadCatalog.kind === 'ready'
+      ? (threadCatalog.options.find((thread) => thread.threadId === filters.thread)?.name ?? null)
+      : null
 
   return (
     <section className="flex flex-col gap-2" data-testid="moments-feed" aria-label="Moments">
@@ -280,10 +301,12 @@ export function MomentsFeed({
             options={corpusOptions.map((corpus) => [corpus, corpus])}
             onChange={(value) => setFilter('corpus', value)}
           />
-          <FilterSelect
-            name="thread"
+          <ThreadFilter
             value={filters.thread}
             options={threadOptions}
+            query={threadQuery}
+            onQueryChange={setThreadQuery}
+            unavailable={threadCatalog.kind === 'error' ? threadCatalog.message : null}
             onChange={(value) => setFilter('thread', value)}
           />
           <FilterSelect
@@ -378,6 +401,65 @@ export function MomentsFeed({
         </>
       )}
     </section>
+  )
+}
+
+function ThreadFilter({
+  value,
+  options,
+  query,
+  onQueryChange,
+  unavailable,
+  onChange,
+}: {
+  value: string | null
+  options: Array<[string, string]>
+  query: string
+  onQueryChange: (value: string) => void
+  unavailable: string | null
+  onChange: (value: string | null) => void
+}) {
+  const visibleOptions: Array<[string, string]> =
+    value !== null && value !== '' && !options.some(([id]) => id === value)
+      ? [[value, value], ...options]
+      : options
+  return (
+    <span className="inline-flex min-h-6 items-center gap-1.5 rounded-md border px-2 py-1 text-xs" style={{ borderColor: 'var(--control-border)' }}>
+      <label htmlFor="moments-thread-search" className="text-muted-foreground">
+        thread
+      </label>
+      <input
+        id="moments-thread-search"
+        data-testid="filter-thread-search"
+        type="search"
+        value={query}
+        placeholder="find"
+        aria-label="Search threads"
+        className="w-20 bg-transparent text-xs text-foreground outline-none"
+        onChange={(event) => onQueryChange(event.target.value)}
+      />
+      <select
+        data-testid="filter-thread"
+        aria-label="Filter by thread"
+        className="max-w-36 bg-transparent text-xs text-foreground outline-none"
+        value={value ?? ''}
+        onChange={(event) => onChange(event.target.value === '' ? null : event.target.value)}
+      >
+        <option value="">any</option>
+        {visibleOptions.map(([id, name]) => (
+          <option key={id} value={id}>{name}</option>
+        ))}
+      </select>
+      {unavailable !== null && (
+        <span
+          data-testid="thread-filter-unavailable"
+          className="text-muted-foreground"
+          title={unavailable}
+        >
+          unavailable
+        </span>
+      )}
+    </span>
   )
 }
 
