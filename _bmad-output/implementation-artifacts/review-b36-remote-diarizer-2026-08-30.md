@@ -50,3 +50,34 @@ The report skeleton commit `74cbf2b` follows that reviewed builder range and is 
 - **Finding:** Fixed. `_post` called `path.stat()` before `path.open()`. If the path was replaced or changed between those operations, `Content-Length` described the old object while the request streamed the newly opened object. The adapter now opens first and sizes the upload with `os.fstat(handle.fileno())`, so the header and streamed bytes start from the same file object.
 - **Evidence:** Against the unfixed code, a deterministic stale-stat probe reported a one-byte audio size while opening a larger file. The engine declared/read 214 multipart bytes and returned healthy `()` even though the server's received body did not contain the closing boundary; the new regression was observed red with `KeyError: 'file'`. After the fix, the focused test passed and asserted both the complete audio payload and closing multipart boundary.
 - **Suggested direction:** Open first and derive the advertised size from that exact descriptor (`fstat`), preserving streaming and explicit `Content-Length`; add a regression that makes path metadata stale and proves the complete multipart body still arrives.
+
+## Review verdict
+
+**Pass after remediation.** Four findings were confirmed (1 high, 3 medium), all four were fixed red-first on `story/b36-remote-diarizer-review`, and no finding remains open. The review changed only the new adapter, its new test module, and review/tracking artifacts. It did not choose a default engine, touch B-36's STT half, contact the LAN host, merge, or commit to `main`.
+
+## Design-decision assessment
+
+- Keeping `remote-http` outside `ENGINES` is acceptable for this footprint. `ENGINES` is still a zero-argument class registry; `pyannote` already establishes the configured-constructor special case, while `ENGINE_CHOICES` and its test keep the diagnostic exhaustive. A factory-registry refactor would touch `noop` registration without fixing a present correctness defect.
+- Independent `round(seconds * 1000)` is correct and monotone for finite inputs. Its per-boundary error is at most 0.5 ms; a finite turn with `end >= start` cannot round to `end_ms < start_ms`. Non-finite and unrepresentable inputs are now rejected by F1. Shared boundaries and collapsed turns remain pinned by tests.
+- Timeline-order canonicalization matches the frozen matrix. Its difference from pyannote's host-iteration numbering is not a port defect: the emitted names remain recording-local placeholders, and no identity may be inferred from the number.
+- Failing the full response on one reversed turn is the frozen fail-closed choice. Collapsed zero-millisecond turns remain silently dropped before claiming a label, matching the in-process precedent.
+- The cap arithmetic is correct: exactly 1000 speakers ends at `SPEAKER_999`, which `is_placeholder_label` accepts; speaker 1001 is refused before `SPEAKER_1000` can escape the placeholder namespace.
+- No build-time health probe is correct per the matrix. Syntax/config binding is resolved without contacting the operator-scheduled host; reachability is a property of the eventual call.
+- HTTP error handling is status-agnostic, preserves JSON `reason` text and unparseable body text, names the endpoint, and includes the model when a valid error body supplies one. Truncated bodies now fail by name rather than becoming empty success.
+- The 900-second default is supported by the recorded queueing measurements. Pydantic enforces positive finiteness, and F3 now makes the value one total monotonic request deadline rather than only a socket inactivity timeout.
+- The three builder deviations are accurately recorded: `ENGINE_CHOICES`, the two `test_compose_contract.py` registries satisfied without widening the footprint, and Ruff's `.encode()` form. Editing the shared contract registry would incorrectly place this dependency-free module in the pyannote-extra lane or grow the pinned slow set for a test skipped by default.
+- Repository search found only one non-loopback network path in the module: the live test guarded by `MM_DIARIZE_REMOTE_NETWORK_TEST=1`. All ordinary transport tests bind `127.0.0.1:0`; the full gate reported the live test skipped by that flag.
+
+## Verification after remediation
+
+- `uv run --project server pytest server/tests/test_diarize_remote.py -q` — 45 passed, 1 skipped in 1.55s.
+- `uv run --project server pytest server/tests/test_diarize_pyannote.py server/tests/test_stt_adapter.py server/tests/test_config.py -q` — 180 passed, 1 skipped in 21.28s.
+- `make lint` — clean. `make typecheck` — clean in 13 source files.
+- Builder mutation replay — all 8 original mutations were caught: truncation instead of rounding; host-order labels; dropped reversed turn; retained collapsed turn; off-by-one speaker cap; missing `Content-Length`; unreachable-host empty fallback; swallowed host reason. The source matched the committed fix afterward (`git status --short` and scoped `git diff` empty).
+- `make test-fast` — 2,007 passed, 3 skipped, 378 deselected in 67.96s; the LAN test named `MM_DIARIZE_REMOTE_NETWORK_TEST` in its skip reason.
+- `make test` — exit 0: puller 128 passed; web 294 passed; evals 643 passed; diarize-extra 92 passed; server 2,385 passed, 3 skipped in 575.36s; production web build succeeded.
+- `python3 _bmad/scripts/branch_conflicts.py --against story/b36-remote-diarizer` — the rebased review branch is clean against `main`; the builder branch still shows the documented shared `sprint-notes.md` seam. Review-vs-builder conflicts are expected because this branch contains the fixes.
+
+## Residual limits
+
+The LAN host was not contacted. The env-flagged live test remains unrun, turn quality remains unvalidated against ground truth, and no end-to-end `transcribe` run was made with `remote-http` bound because `noop` deliberately remains the committed default. Those are unchanged handoff limits, not open code-review findings.

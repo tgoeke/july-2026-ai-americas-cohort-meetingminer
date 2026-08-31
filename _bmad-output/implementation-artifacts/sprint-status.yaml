@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-18-2026 10:04
-last_updated: 08-30-2026 21:00
+last_updated: 08-30-2026 21:21
 project: meetingminer
 project_key: NOKEY
 tracking_system: file-system
@@ -147,4 +147,4 @@ development_status:
   epic-11-retrospective: optional
 
   # Added by a concurrent branch; re-file under its epic.
-  b36-remote-diarizer: review
+  b36-remote-diarizer: done

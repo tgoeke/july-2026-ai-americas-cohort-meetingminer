@@ -2,9 +2,9 @@
 title: 'B-36 (diarizer half): bind the LAN diarization endpoint behind the Diarizer port'
 type: 'feature'
 created: '2026-08-30'
-status: 'review'
+status: 'done'
 baseline_revision: 'a401d6cd0ba5e04a689ff052dae9c36c5d0e5e1b'
-review_loop_iteration: 0
+review_loop_iteration: 1
 followup_review_recommended: false
 context: []
 warnings:
