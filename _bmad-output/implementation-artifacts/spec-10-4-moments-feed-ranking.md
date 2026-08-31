@@ -4,8 +4,8 @@ type: 'feature'
 created: '2026-08-31'
 baseline_revision: '3211a7f96b86d7df496cefa451b2cbd431e6d8b4'
 status: 'review'
-review_loop_iteration: 0
-followup_review_recommended: false
+review_loop_iteration: 1
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-10-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/build-prompt-story-10-4-2026-08-31.md'
@@ -15,7 +15,6 @@ context:
 warnings: []
 deferred:
   - 'thread.colorOrdinal is served as null until story 10.3 migration 0017 lands'
-  - 'B-46: relocate ranking.signals_prompt under llm.roles.extraction'
 ---
 
 <intent-contract>
@@ -253,26 +252,44 @@ without a valid reason, and only then computes `total`, `offset` and the page.
   across requests. Each request chooses a new `now`; fixing multi-request
   duplicate/skip behavior requires an `asOf`, cursor, or an explicit contract
   relaxation, all of which are frozen-wire decisions.
-- [ ] [Review][Patch] F1 — Recency contributions disappear after one half-life
+- [x] [Review][Patch] F1 — Recency contributions disappear after one half-life
   instead of decaying. [`server/meetingminer/api/moments_feed.py:472`]
-- [ ] [Review][Patch] F2 — Multiple timed action rows multiply a categorical
+- [x] [Review][Patch] F2 — Multiple timed action rows multiply a categorical
   weight. [`server/meetingminer/api/moments_feed.py:408`]
-- [ ] [Review][Patch] F3 — Thread count, invalid names, and uncapped wire chips
+- [x] [Review][Patch] F3 — Thread count, invalid names, and uncapped wire chips
   violate the thread contract. [`server/meetingminer/api/moments_feed.py:517`]
-- [ ] [Review][Patch] F4 — Timed action items disappear from the
+- [x] [Review][Patch] F4 — Timed action items disappear from the
   `kind=action-item` feed. [`server/meetingminer/api/moments_feed.py:408`]
-- [ ] [Review][Patch] F5 — Free-text timing parsing both misses and invents
+- [x] [Review][Patch] F5 — Free-text timing parsing both misses and invents
   urgency. [`server/meetingminer/api/moments_feed.py:247`]
-- [ ] [Review][Patch] F6 — The production extraction-to-feed handoff and
+- [x] [Review][Patch] F6 — The production extraction-to-feed handoff and
   replacement rules are unverified.
   [`server/meetingminer/pipeline/stages/extract.py:653`]
-- [ ] [Review][Patch] F7 — Ranking configuration accepts infinity.
+- [x] [Review][Patch] F7 — Ranking configuration accepts infinity.
   [`server/meetingminer/config.py:933`]
-- [ ] [Review][Patch] F8 — Conflicting duplicate signal IDs are silently
+- [x] [Review][Patch] F8 — Conflicting duplicate signal IDs are silently
   discarded. [`server/meetingminer/pipeline/extraction.py:1112`]
 
-Known B-46 prompt relocation remains a remediation obligation, not a new review
-discovery. The review report carries the full evidence and triage.
+### Remediation result — 2026-08-31
+
+- intent_gap: 1 (F9, open owner decision)
+- bad_spec: 0
+- patch: 8 (high 2, medium 6), all resolved red-first or as explicitly named
+  coverage-only work
+- defer: 0
+- reject: 12 deduplicated/already-known candidates
+- addressed_findings:
+  - F1-F8 are fixed on `story/10-4-review`; exact commits and red/green evidence
+    are recorded in the review report.
+  - B-46 is closed: `ranking_signals_prompt` now lives on
+    `llm.roles.extraction`, the stage reads it through `_PROMPT_FIELD`, and the
+    backlog entry was removed.
+  - A thread-bearing feed item is the normal API test case. The bigint text
+    conversion is pinned beyond 32 bits; true migration 0017 integration still
+    waits for Story 10.3 to land on `main`.
+
+Status remains `review`, not `done`: F9 is an unresolved frozen-wire decision,
+`make client` remains integration-owned, and this lane is forbidden to merge.
 
 ## Design Notes
 
