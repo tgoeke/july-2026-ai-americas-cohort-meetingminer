@@ -28,6 +28,7 @@ import http.client
 import io
 import json
 import math
+import os
 import secrets
 import time
 import urllib.error
@@ -171,10 +172,13 @@ class RemoteHttpDiarizer:
         ).encode()
         suffix = f"\r\n--{boundary}--\r\n".encode()
 
+        handle: IO[bytes] | None = None
         try:
-            file_size = path.stat().st_size
             handle = path.open("rb")
+            file_size = os.fstat(handle.fileno()).st_size
         except OSError as exc:
+            if handle is not None:
+                handle.close()
             raise DiarizerError(
                 f"the {ENGINE_NAME} diarizer cannot read the audio it was asked"
                 f" to send to {self.endpoint}: {path} ({exc})"

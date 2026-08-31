@@ -316,6 +316,30 @@ def test_seconds_become_integer_milliseconds(
     assert request.content_length == len(request.body)
 
 
+def test_content_length_uses_the_open_audio_descriptor(
+    diarize_stub: Install, audio: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base_url, received = diarize_stub(answers(turns_body()))
+    engine = RemoteHttpDiarizer(base_url=base_url, timeout_seconds=5.0)
+    real_stat = Path.stat
+
+    def _stale_stat(path: Path, *args: Any, **kwargs: Any) -> Any:
+        result = real_stat(path, *args, **kwargs)
+        if path != audio:
+            return result
+
+        class StaleAudioStat:
+            st_size = 1
+
+        return StaleAudioStat()
+
+    monkeypatch.setattr(Path, "stat", _stale_stat)
+
+    assert engine.diarize(audio) == ()
+    assert received[0].fields["file"][1] == audio.read_bytes()
+    assert received[0].body.endswith(b"--\r\n")
+
+
 def test_empty_turns_is_success_not_an_error(
     diarize_stub: Install, audio: Path
 ) -> None:
