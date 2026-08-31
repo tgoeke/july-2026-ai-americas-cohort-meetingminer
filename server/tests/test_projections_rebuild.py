@@ -1724,7 +1724,6 @@ def test_the_projection_module_opens_no_file_to_index_a_document(
     any part of building or writing a document record reached the filesystem,
     the rebuild would fail rather than pass.
     """
-    import builtins
     import meetingminer.projections.documents as documents_module
     import meetingminer.projections.evidence as evidence_module
     import meetingminer.projections.search as search_module
