@@ -49,6 +49,17 @@
 -- inserts a *new* `thread` row, which takes a new ordinal by the ordinary
 -- insert path, exactly as 0017's own comment anticipated.
 
+-- A resolved pin is human provenance in the worker-owned output, not one of
+-- the three machine legs migration 0015 originally admitted. The curation
+-- record remains API-owned; this fourth value lets the derivation faithfully
+-- state which input decided the membership after a replacement topic UUID has
+-- made the split-time hint stale.
+ALTER TABLE topic_thread DROP CONSTRAINT topic_thread_linked_by_check;
+ALTER TABLE topic_thread ADD CONSTRAINT topic_thread_linked_by_check
+    CHECK (linked_by IN (
+        'seed', 'normalized-name', 'embedding-similarity', 'curated'
+    ));
+
 -- ---------------------------------------------------------------------------
 -- Rename.
 -- ---------------------------------------------------------------------------

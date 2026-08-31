@@ -75,11 +75,14 @@ from psycopg.types.json import Jsonb
 from meetingminer.adapters.embed.port import Embedder, Vector
 from meetingminer.config import AppConfig
 from meetingminer.domain.thread_curation import (
+    CURATED_LINK_RULE,
     CURATED_SPLIT_PREFIX,
     read_thread_curation,
 )
 
-# The three `topic_thread.linked_by` legs migration 0015's CHECK declares.
+# The machine `topic_thread.linked_by` legs migration 0015 declares. Migration
+# 0021 adds `curated`, used when curation rather than a machine leg decided the
+# derived membership.
 SEED = "seed"
 NAME_LINK = "normalized-name"
 EMBEDDING_LINK = "embedding-similarity"
@@ -607,7 +610,7 @@ def derive_threads(
                 normalized_name=topic.normalized_name,
                 derived_thread_id=thread_id,
             )
-            _upsert_membership(conn, member, thread_id=target)
+            _upsert_membership(conn, member, thread_id=target, curated=pinned)
             if pinned:
                 curated_links += 1
             elif member.linked_by == NAME_LINK:
@@ -778,7 +781,9 @@ def _attached_thread_to_reuse(
     return next((row[0] for row in attached if row[0] not in unavailable), None)
 
 
-def _upsert_membership(conn: Connection, member: ThreadMember, *, thread_id: UUID) -> None:
+def _upsert_membership(
+    conn: Connection, member: ThreadMember, *, thread_id: UUID, curated: bool = False
+) -> None:
     """Attach one topic to its thread, moving it if it was somewhere else.
 
     ``topic_thread.topic_id`` is the primary key, so a move is one statement
@@ -795,7 +800,12 @@ def _upsert_membership(conn: Connection, member: ThreadMember, *, thread_id: UUI
         " WHERE topic_thread.thread_id IS DISTINCT FROM EXCLUDED.thread_id"
         "    OR topic_thread.linked_by IS DISTINCT FROM EXCLUDED.linked_by"
         "    OR topic_thread.similarity IS DISTINCT FROM EXCLUDED.similarity",
-        (member.topic_id, thread_id, member.linked_by, member.similarity),
+        (
+            member.topic_id,
+            thread_id,
+            CURATED_LINK_RULE if curated else member.linked_by,
+            None if curated else member.similarity,
+        ),
     )
 
 

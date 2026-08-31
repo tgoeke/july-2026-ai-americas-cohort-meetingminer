@@ -48,8 +48,8 @@ The SQL half instead joins the pin's ``topic_id`` hint, and that is sufficient
 because of what each half is for: **the SQL join only has to cover the window
 between a split being made and the next derivation running.** In that window
 the topic rows are the ones the split named, so the hint is exact. Once the
-derivation has run, ``topic_thread`` itself carries the pinned answer and the
-hint is redundant. After a re-extraction the hint dangles, matches nothing,
+derivation has run, ``topic_thread`` itself carries the pinned target and its
+curated provenance, so the hint is redundant. After a re-extraction the hint dangles, matches nothing,
 and is redundant again — the re-extracted topics have no ``topic_thread`` row
 of their own until the next derivation either way, which is story 10.2's
 existing, documented un-threaded state.
@@ -77,10 +77,10 @@ from psycopg import Connection
 # one normalizer), and deferring the lighter half is what keeps the module
 # graph loadable. It is a handful of calls per split, never a hot path.
 
-# The `link_rule` a thread minted by a split carries, and the `linked_by` an
-# effective membership reports when a pin placed it. Neither value is ever
-# written by `domain/threads.py`, so both are unambiguous evidence of a human
-# decision in a table that otherwise holds only machine output.
+# The `link_rule` a thread minted by a split carries, and the `linked_by` a
+# derived/effective membership reports when a pin placed it. The API writes
+# the former while `domain/threads.py` writes the latter from the API-owned
+# pin input, so both are unambiguous evidence of a human decision.
 CURATED_LINK_RULE = "curated"
 
 # The namespace of a split thread's `identity_key`. Disjoint from every key
