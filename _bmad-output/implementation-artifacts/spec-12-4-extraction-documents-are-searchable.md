@@ -3,7 +3,7 @@ title: 'Story 12.4: Extraction Documents Are Searchable'
 type: 'feature'
 created: '2026-08-31'
 baseline_revision: 'd250cf89ee5eb40e401e7f2f8ded74d9fab81a33'
-status: 'review'
+status: 'in-progress'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -144,6 +144,23 @@ AD-4; it is not re-argued here.
 - Given `publish_gate.py`, then its module docstring names the exception and
   points at AD-4.
 - Given `make test`, then the full gate passes with no new ruff baseline entry.
+
+### Review Findings
+
+- [ ] [Review][Decision] Prevent document claims from borrowing an unrelated
+  moment citation — the document schema has no claim-to-moment anchors, so the
+  current prompt fold can supply a claim while an arbitrary retrieved moment
+  supplies the marker. Owner must choose removal from synthesis or a
+  deterministic claim-to-moment relation. See F-03 in
+  `review-story-12-4-2026-08-31.md`.
+- [ ] [Review][Decision] Define the finite indexed-document size policy —
+  arbitrary length, exact full text, and one unchunked record cannot all hold
+  under Meilisearch's finite HTTP payload ceiling. Owner must choose a retained
+  source limit, configured store limit, searchable truncation, or revised
+  chunking/identity. See F-11 in `review-story-12-4-2026-08-31.md`.
+- [x] [Review][Patch] Ten patchable findings fixed red-first on
+  `story/12-4-review`; full private-stack gate green. See F-01, F-02, F-04
+  through F-07, F-09, F-10, and F-12 in the review report.
 
 ## Spec Change Log
 
