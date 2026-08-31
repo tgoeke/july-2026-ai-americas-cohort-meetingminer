@@ -399,7 +399,7 @@ Two separable pieces of work, and the second is worth more than the first:
   the host in `config.yaml` (AD-9's rule: where inference runs is a config
   change, never a code change). This is an optimisation — transcription already
   works locally — but it is what makes the recorded architecture true.
-- **`Diarizer` over HTTP, which is the one that unblocks something.** The
+- **`Diarizer` over HTTP — the endpoint now EXISTS (2026-08-30).** The
   `Diarizer` port has no working engine at all: `noop` returns nothing and
   `pyannote` needs a HuggingFace licence acceptance and a token this project
   does not have. The spine notes the guest's NeMo install "carries diarizer
@@ -409,6 +409,30 @@ Two separable pieces of work, and the second is worth more than the first:
   `~/Downloads/RUNBOOK-threadripper-diarize-addendum.md` (owner-held, outside
   the repo). Story 7.1's acceptance criteria already name this endpoint as the
   config-swappable alternative, so the story contract anticipates it.
+
+  **Delivered and verified 2026-08-30.** `POST /diarize` on the same guest
+  returns `{"turns":[{"start","end","speaker"}],"model":...}` from NeMo's
+  `ClusteringDiarizer` (`vad_multilingual_marblenet` + `titanet_large`). It
+  meets the port's contract as specified: `SPEAKER_NN` is local to the
+  recording, silence returns `{"turns": []}` with HTTP 200, overlaps use
+  `drop_shorter` rather than inventing a split timestamp, and `/transcribe`
+  and `/diarize` share one inference lock so they queue instead of contending.
+  When VM116 owns the GPU the service stays reachable and returns 503 with a
+  named reason rather than hanging — a named failure our caller can treat as
+  data. Their measurements with ASR resident: 10 min in 15.41s (peak 3,461
+  MiB), 60 min in 57.53s (RTF 0.0160, peak 8,817 MiB). Verified here against a
+  real 247s meeting recording: 14s wall, 82 turns, 2 speakers, chronologically
+  ordered, median turn 1.98s.
+
+  **What remains is ours**: a remote `Diarizer` adapter plus a `diarizer.engine`
+  value and endpoint binding in `config.yaml`. No `HF_TOKEN` and no licence
+  acceptance is involved on this path, unlike the in-process `pyannote` engine,
+  which is still blocked on accepting the gated model's conditions. Two facts
+  any adapter must respect: the endpoint is operator-scheduled (VM120 is
+  `onboot=0` and shares its GPU with VM116), so a stage bound to it must fail
+  by name when it is down rather than silently degrading; and turn *quality*
+  is still unvalidated — 2 speakers on a scripted two-person demo is plausible
+  but is not ground truth, so judge it against the new corpus.
 
 Constraints for whoever picks this up: VM 120 and VM 116 pass through the same
 RTX 4080 and must never run together, and VM 120 is `onboot=0` — so the
