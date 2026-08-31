@@ -279,6 +279,7 @@ def test_the_query_lanes_hit_type_has_nowhere_to_put_a_citation() -> None:
     """
     names = {field.name for field in dataclass_fields(DocumentHit)}
     assert not {"moment_id", "moment_ids", "artifact_id", "start_ms", "end_ms"} & names
+    assert {"corpus", "sha256"} <= names
 
 
 def test_the_wire_model_has_nowhere_to_put_a_citation() -> None:
@@ -320,7 +321,14 @@ def test_the_document_query_retrieves_no_moment_id_and_pins_the_review_state(
     assert f'reviewState = "{REVIEW_STATE}"' in parameters["filter"]
     retrieved = set(parameters["attributesToRetrieve"])
     assert not FORBIDDEN_CITATION_KEYS & retrieved
-    assert {"reviewState", "authorship", "reviewLabel", "citable"} <= retrieved
+    assert {
+        "reviewState",
+        "authorship",
+        "reviewLabel",
+        "citable",
+        "corpus",
+        "sha256",
+    } <= retrieved
 
 
 @pytest.mark.parametrize(
@@ -442,6 +450,16 @@ def test_the_loader_refuses_a_documents_index_that_cannot_state_its_review_state
         _config_with_documents(
             tmp_path, filterable_attributes=["meetingId", "corpus", "kind"]
         )
+
+
+@pytest.mark.parametrize("missing", ["meetingId", "corpus"])
+def test_the_loader_requires_every_filter_used_by_scoped_document_search(
+    tmp_path: Path, missing: str
+) -> None:
+    configured = ["meetingId", "corpus", "kind", "reviewState"]
+    configured.remove(missing)
+    with pytest.raises(ConfigError, match=missing):
+        _config_with_documents(tmp_path, filterable_attributes=configured)
 
 
 # --- the gate's account of itself ------------------------------------------

@@ -270,6 +270,10 @@ def document_record(
         "itemCount": row.item_count,
         "artifactCount": row.artifact_count,
         "byteSize": row.byte_size,
+        # The row version Postgres and the API compare after ranking. A rerun
+        # preserves this record's UUID, so identity alone cannot distinguish an
+        # old indexed body from the replacement text now in the database.
+        "sha256": row.sha256,
     }
     # AD-18 and AD-6, in the record itself, through the generic marking: the
     # state a reader needs, who wrote it, the sentence to render, and whether

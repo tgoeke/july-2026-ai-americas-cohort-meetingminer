@@ -29,6 +29,7 @@ from psycopg_pool import ConnectionPool
 from meetingminer import projections
 from meetingminer.api.search import SEARCH_TERM_MAX_LENGTH
 from meetingminer.config import AppConfig
+from meetingminer.projections.documents import DOCUMENTS_INDEX
 from meetingminer.projections.publish_gate import ARTIFACTS_INDEX
 from meetingminer.projections.query import ArtifactHit, search_moments
 from meetingminer.projections.stores import (
@@ -46,6 +47,7 @@ from projection_seed import (
     seed_meeting,
 )
 from projection_seed import insert_artifact as seed_artifact
+from projection_seed import insert_extraction_document as seed_document
 
 pytestmark = pytest.mark.slow(reason="/search runs against the Meilisearch test twin: 41 tests, 60.5s at e5510c7")
 
@@ -1219,6 +1221,86 @@ def test_the_combined_page_never_exceeds_the_requested_limit(
     body = search(search_client, q="SFTP", limit=1)
     assert len(body["hits"]) == 1
     assert body["hits"][0]["artifactId"] == str(artifact_id)
+
+
+# --- extraction documents stay aligned with Postgres ---------------------
+
+
+def test_a_reextracted_document_with_a_stale_index_version_is_dropped(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    projection_stores: Any,
+    search_client: Any,
+    embedder: SpreadEmbedder,
+    capsys: Any,
+) -> None:
+    """Old indexed prose cannot wear the replacement run's provenance."""
+    with pool.connection() as conn:
+        seeded = seed_meeting(conn, source_id="search-document-version")
+        document_id = seed_document(
+            conn,
+            seeded.meeting_id,
+            text="# Old analysis\n\nUniquely mentions ReticulatedQuorlix.\n",
+        )
+        conn.commit()
+    project(pool, app_config, seeded.meeting_id, embedder)
+
+    before = search(search_client, q="ReticulatedQuorlix")
+    assert [row["documentId"] for row in before["documents"]] == [str(document_id)]
+
+    with pool.connection() as conn:
+        assert (
+            seed_document(
+                conn,
+                seeded.meeting_id,
+                text="# Replacement analysis\n\nThe old subject is absent.\n",
+            )
+            == document_id
+        )
+        conn.commit()
+
+    after = search(search_client, q="ReticulatedQuorlix")
+    assert after["documents"] == []
+    assert after["documentsTotal"] == 0
+    assert "search.stale_document_version" in capsys.readouterr().out
+
+
+def test_a_document_hit_whose_index_scope_disagrees_with_postgres_is_dropped(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    projection_stores: Any,
+    search_client: Any,
+    embedder: SpreadEmbedder,
+    capsys: Any,
+) -> None:
+    """A corrupt index record cannot cross meeting or corpus scope."""
+    _driver, meili = projection_stores
+    with pool.connection() as conn:
+        seeded = seed_meeting(conn, source_id="search-document-scope")
+        document_id = seed_document(
+            conn,
+            seeded.meeting_id,
+            text="# Scoped analysis\n\nMentions ScopeQuorlix.\n",
+        )
+        conn.commit()
+    project(pool, app_config, seeded.meeting_id, embedder)
+    await_task(
+        meili,
+        meili.index(DOCUMENTS_INDEX).update_documents(
+            [
+                {
+                    "id": str(document_id),
+                    "meetingId": str(uuid4()),
+                    "corpus": "scripted",
+                }
+            ]
+        ),
+    )
+
+    body = search(search_client, q="ScopeQuorlix")
+    assert body["documents"] == []
+    assert body["documentsTotal"] == 0
+    assert "search.stale_document_scope" in capsys.readouterr().out
 
 
 def test_artifact_first_paging_reaches_every_artifact_and_moment_exactly_once(
