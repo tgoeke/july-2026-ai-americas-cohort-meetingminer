@@ -62,6 +62,7 @@ from meetingminer.projections.query import (
 )
 from meetingminer.projections.stores import ProjectionError
 from meetingminer.projections.review import (
+    HUMAN_APPROVED,
     MACHINE,
     NO_LIFECYCLE,
     REVIEW_KEYS,
@@ -539,6 +540,9 @@ def test_the_marking_reports_which_state_a_row_is_in_not_merely_unreviewed() -> 
         review_state="extracted", authorship=MACHINE, citable=True, subject="x"
     ).reviewed
     assert marking(
+        review_state="approved", authorship=MACHINE, citable=True, subject="x"
+    ).reviewed
+    assert marking(
         review_state="published", authorship=MACHINE, citable=True, subject="x"
     ).reviewed
 
@@ -573,6 +577,27 @@ def test_a_state_the_system_cannot_explain_is_refused() -> None:
         )
 
 
+@pytest.mark.parametrize("authorship", ["", "robot", "human-ish"])
+def test_an_authorship_the_system_cannot_explain_is_refused(authorship: str) -> None:
+    with pytest.raises(ReviewMarkingRefused, match="authorship"):
+        marking(
+            review_state="extracted",
+            authorship=authorship,
+            citable=True,
+            subject="x",
+        )
+
+
+def test_a_human_authorship_cannot_carry_a_machine_written_state_sentence() -> None:
+    with pytest.raises(ReviewMarkingRefused, match="machine-written"):
+        marking(
+            review_state="extracted",
+            authorship=HUMAN_APPROVED,
+            citable=True,
+            subject="x",
+        )
+
+
 def test_the_generic_guard_accepts_any_explicable_state() -> None:
     """The split the two rules need.
 
@@ -594,6 +619,10 @@ def test_the_generic_guard_accepts_any_explicable_state() -> None:
     assert_carries_marking(artifact_record)
     with pytest.raises(DocumentRecordRefused):
         assert_carries_review_label(artifact_record)
+
+    artifact_record["authorship"] = ""
+    with pytest.raises(ReviewMarkingRefused, match="authorship"):
+        assert_carries_marking(artifact_record)
 
 
 def test_the_documents_module_reuses_the_generic_review_keys() -> None:
