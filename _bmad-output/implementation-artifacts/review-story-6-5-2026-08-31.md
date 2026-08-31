@@ -48,6 +48,15 @@ Date: 2026-08-31
 - **Suggested direction** — Match `parse_qs` by discarding empty `v` values before applying the exactly-one rule, while continuing to reject two non-empty candidates.
 - **Disposition** — fixed red-first. The server-accepted URL row failed as `invalid` against the original client parser, then passed after blank values were filtered before the exactly-one check.
 
+### F5 — A newly edited URL can be submitted before its probe runs
+
+- **Location** — `web/src/features/acquisitions/AddMeeting.tsx:110`
+- **Severity** — high
+- **Finding** — After one URL has an answered probe, editing the field to a different shape-valid video leaves the old `answered` state visible and Submit enabled until the new 600 ms debounce elapses. Clicking during that window starts the new URL without a successful preflight.
+- **Evidence** — The effect changes ownership immediately but does not change `probeState` until the timer sets `probing` at lines 114–115. `submitDisabled` at line 192 depends only on `probeState.kind`, while the click handler submits the current `shape.normalized` at line 339. This violates the frozen requirement that Submit remain disabled until the current normalized URL's probe answers and defeats the probe's refusal-before-write purpose.
+- **Suggested direction** — Clear the previous answer synchronously when a different normalized URL schedules a probe, then enable Submit only after that generation answers. Add a regression test covering the debounce window after editing an answered URL.
+- **Disposition** — patchable; remediation in progress.
+
 ## Disposition
 
 Review in progress. No pass/fail verdict has been assigned.
