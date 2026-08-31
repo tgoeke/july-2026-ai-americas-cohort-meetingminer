@@ -29,4 +29,15 @@ describe('F13 owner ruling: persisted shortcut preference', () => {
     expect(listener).toHaveBeenCalledOnce()
     window.removeEventListener('meetingminer:single-key-shortcuts', listener)
   })
+
+  it('falls back without throwing when browser storage is denied', () => {
+    setSingleKeyShortcutsEnabled(true)
+    vi.stubGlobal('localStorage', {
+      getItem: () => { throw new DOMException('denied') },
+      setItem: () => { throw new DOMException('denied') },
+    })
+    expect(areSingleKeyShortcutsEnabled()).toBe(true)
+    expect(() => setSingleKeyShortcutsEnabled(false)).not.toThrow()
+    expect(areSingleKeyShortcutsEnabled()).toBe(false)
+  })
 })
