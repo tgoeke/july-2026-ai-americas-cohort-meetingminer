@@ -6,8 +6,10 @@ Repository: MeetingMiner. Review artifact:
 The reviewed builder range was exactly `d250cf89..3c75e95d` on
 `story/12-4` (eight commits, from `76a6a2dd` through `3c75e95d`). That builder
 branch has not moved since review started. The remediated branch is
-`story/12-4-review`, rebased onto `origin/main` at `807314e7` and pushed at
-`83cc819e`. Do not merge it; the owner runs `integrate`.
+`story/12-4-review`, rebased onto `origin/main` at `807314e7`. When `main`
+advanced during the full gate, its one UI-layout commit `c56c7123` was merged
+as `f6403347` to preserve the already-pushed review history. The branch is
+pushed. Do not merge it; the owner runs `integrate`.
 
 ## Story verdict
 
@@ -108,6 +110,8 @@ their real output:
 Current verification is green: `make lint`, `make typecheck`,
 `make test-fast`, and `make test` all exited 0. The full server gate reported
 2979 passed, 3 standing skips, 0 failed; the production web build succeeded.
+After the latest-main merge, `make test-fast` and the production web build were
+run again and both exited 0.
 
 ## Explicitly out of scope
 
