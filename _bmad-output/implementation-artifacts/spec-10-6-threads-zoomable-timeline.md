@@ -112,7 +112,7 @@ scale so equal ratios take equal time.
 
 ## Tasks & Acceptance
 
-- [ ] **F18 — optional deep-link anchor.** Add one URL decision in
+- [x] **F18 — optional deep-link anchor.** Add one URL decision in
   `web/src/features/threads/` that emits `/threads/:threadId?at=<RFC3339>` when
   a moment timestamp is supplied and a bare path otherwise. Consume `at` in
   `Threads.tsx`: a valid anchor centres a meetings-tier view at that instant;
@@ -121,7 +121,7 @@ scale so equal ratios take equal time.
   default. Pin both paths red-first in a new review test file. Story 10.5's
   moment-card producer is not on `origin/main`; expose the URL decision for its
   integration rather than importing or recreating that unlanded story here.
-- [ ] **Story 10.3 F2 compatibility.** Extend the live-shape contract test with
+- [x] **Story 10.3 F2 compatibility.** Extend the live-shape contract test with
   a moments response whose envelope window excludes the row's `occurredAt`.
   It must parse and draw because mention-anchor membership selected the row and
   `occurredAt` describes evidence/seek position. Remove any bounded-window
@@ -260,6 +260,11 @@ All paths under `web/src/features/threads/`, all new.
 
 ## Verification
 
+- Owner-ruling implementation: `pnpm --dir web exec vitest run` over
+  `src/features/threads` — 90 passed; `pnpm --dir web exec tsc -b --force` —
+  exit 0; `make web-test` — 531 passed; `make test-fast` — ruff and mypy green,
+  puller 128 passed, web 531 passed, evals 655 passed, server 2178 passed / 3
+  standing named skips / 411 slow tests deselected.
 - `make test-fast` — green at `39ccfba`: ruff `All checks passed!`, mypy
   `Success: no issues found in 13 source files`, vitest `353 passed (20 files)`,
   pytest `2173 passed, 3 skipped, 411 deselected in 103.27s`. The three skips

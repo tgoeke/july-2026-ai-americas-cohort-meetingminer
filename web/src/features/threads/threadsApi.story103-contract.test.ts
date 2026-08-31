@@ -98,6 +98,28 @@ describe('Story 10.3 wire contract', () => {
     })
   })
 
+  it('keeps a moment whose evidence instant lies outside the mention-anchor window', () => {
+    const occurredAt = '2026-06-01T00:00:01Z'
+    const moments = parseTimeline('moments', {
+      ...envelope,
+      level: 'moments',
+      truncated: false,
+      moments: [
+        {
+          momentId: MOMENT_ID,
+          meetingId: MEETING_ID,
+          title: 'Evidence begins after the mention anchor',
+          startMs: 2_678_401_000,
+          occurredAt,
+          occurredAtPrecision: 'second',
+          speakers: [],
+        },
+      ],
+    })
+
+    expect(moments.level === 'moments' && moments.moments[0]?.occurredAt).toBe(occurredAt)
+  })
+
   it('refuses truncated or malformed responses instead of half-drawing them', () => {
     expect(() =>
       parseTimeline('moments', {

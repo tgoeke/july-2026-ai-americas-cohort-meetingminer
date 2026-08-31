@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useLocation, useParams } from 'react-router'
 import { useOpenPath } from '@/routes/navigation'
 import { sortThreads, ThreadList, type ThreadSort } from './ThreadList'
 import { TimelineCanvas } from './TimelineCanvas'
@@ -25,6 +25,7 @@ import {
   type TimelinePayload,
 } from './threadsApi'
 import { useTimelineView } from './useTimelineView'
+import { threadTimelineAnchor } from './threadTimelinePath'
 
 /**
  * The Threads screen (story 10.6).
@@ -60,6 +61,14 @@ export function Threads() {
   // `/threads/:threadId` opens the screen with that thread already entered;
   // `/threads` opens on every band. Both mount this component.
   const { threadId: routeThreadId } = useParams()
+  const location = useLocation()
+  const routeAnchor = useMemo(() => threadTimelineAnchor(location.search), [location.search])
+  const routeAnchorFailure =
+    routeAnchor.kind === 'invalid'
+      ? `threads: invalid \`at\` — ${routeAnchor.reason}; received \`${routeAnchor.source}\`.`
+      : routeAnchor.kind === 'valid' && routeThreadId === undefined
+        ? 'threads: invalid `at` — a moment anchor requires `/threads/:threadId`.'
+        : null
 
   const [threads, setThreads] = useState<Array<ThreadSummary> | null>(null)
   const [listFailure, setListFailure] = useState<ThreadsFailure | null>(null)
@@ -112,19 +121,55 @@ export function Threads() {
     void loadThreads()
   }, [loadThreads])
 
-  // The corpus span is only known once the list has landed, so the opening
-  // window is fitted then — not before, and never twice.
-  const fittedRef = useRef(false)
+  // Route defaults are applied only after the served extents exist. The
+  // location key makes navigation back to an already visited URL a fresh
+  // default, while ordinary zoom and pan leave the reader's view alone.
+  const appliedRouteRef = useRef<string | null>(null)
   useEffect(() => {
-    if (corpusSpan === null || fittedRef.current) return
-    fittedRef.current = true
-    view.fitTo(corpusSpan, TIER_MIN_SCALE.bands)
-  }, [corpusSpan, view])
+    if (threads === null || routeAnchorFailure !== null || !view.measured) return
+    const routeKey = `${location.key}:${routeThreadId ?? ''}:${location.search}`
+    if (appliedRouteRef.current === routeKey) return
+
+    if (routeThreadId === undefined) {
+      if (corpusSpan === null) return
+      tierRef.current = 'bands'
+      view.fitTo(corpusSpan, TIER_MIN_SCALE.bands)
+      appliedRouteRef.current = routeKey
+      return
+    }
+
+    const selected = threads.find((thread) => thread.threadId === routeThreadId)
+    if (selected === undefined) return
+    tierRef.current = 'bands'
+    if (routeAnchor.kind === 'valid') {
+      // A zero-length fit is widened symmetrically by `fitView`; the meetings
+      // floor therefore centres the calling instant in a meetings-tier window.
+      view.fitTo({ from: routeAnchor.epochMs, to: routeAnchor.epochMs }, TIER_MIN_SCALE.meetings)
+    } else {
+      view.fitTo(
+        {
+          from: Date.parse(selected.firstMentionAt),
+          to: Date.parse(selected.lastMentionAt),
+        },
+        TIER_MIN_SCALE.bands,
+      )
+    }
+    appliedRouteRef.current = routeKey
+  }, [
+    corpusSpan,
+    location.key,
+    location.search,
+    routeAnchor,
+    routeAnchorFailure,
+    routeThreadId,
+    threads,
+    view,
+  ])
 
   // --- the tier fetch -------------------------------------------------------
 
   const wanted = useMemo(() => {
-    if (threads === null) return null
+    if (threads === null || routeAnchorFailure !== null) return null
     const span = fetchSpan(view.view, view.width)
     const ids =
       tier === 'bands'
@@ -134,7 +179,7 @@ export function Threads() {
           : [focusedThreadId]
     if (ids.length === 0) return null
     return { ids, span, key: cacheKey(ids, tier, span) }
-  }, [threads, tier, focusedThreadId, view.view, view.width])
+  }, [threads, tier, focusedThreadId, view.view, view.width, routeAnchorFailure])
 
   useEffect(() => {
     const generation = generationRef.current + 1
@@ -277,6 +322,24 @@ export function Threads() {
       <main className="mx-auto w-full max-w-[1600px] p-8">
         <h1 className="text-3xl font-semibold tracking-tight">Threads</h1>
         <p className="mt-4 text-sm text-muted-foreground">Loading threads…</p>
+      </main>
+    )
+  }
+
+  if (routeAnchorFailure !== null) {
+    return (
+      <main className="mx-auto w-full max-w-[1600px] p-8">
+        <h1 className="text-3xl font-semibold tracking-tight">Threads</h1>
+        <div
+          role="alert"
+          className="mt-4 rounded-md border border-destructive bg-destructive/12 p-3 text-sm"
+        >
+          <p className="font-mono text-xs text-destructive">{routeAnchorFailure}</p>
+          <p className="mt-1 text-muted-foreground">
+            → open a thread with one RFC 3339 moment timestamp, or remove `at` for the thread-span
+            view.
+          </p>
+        </div>
       </main>
     )
   }

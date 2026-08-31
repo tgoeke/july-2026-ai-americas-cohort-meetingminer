@@ -42,6 +42,8 @@ export interface TimelineViewApi {
   rootRef: (node: HTMLDivElement | null) => void
   /** The measured canvas width in CSS pixels. */
   width: number
+  /** True once the mounted canvas has supplied either its width or the jsdom fallback. */
+  measured: boolean
   /** Zoom by `factor` (>1 zooms out) keeping `focusX` fixed on screen. */
   zoomAt: (factor: number, focusX: number) => void
   /** Zoom about the centre of the canvas. */
@@ -72,6 +74,7 @@ function prefersReducedMotion(): boolean {
 export function useTimelineView(initial: View, epochMs: number): TimelineViewApi {
   const [view, setView] = useState<View>(initial)
   const [width, setWidth] = useState<number>(FALLBACK_WIDTH)
+  const [measured, setMeasured] = useState(false)
 
   const nodeRef = useRef<HTMLDivElement | null>(null)
   const targetRef = useRef<View>(initial)
@@ -153,6 +156,7 @@ export function useTimelineView(initial: View, epochMs: number): TimelineViewApi
       const measure = () => {
         const measured = node.clientWidth - TIMELINE_GUTTER_PX
         setWidth(measured > 0 ? measured : FALLBACK_WIDTH)
+        setMeasured(true)
       }
       measure()
       if (typeof ResizeObserver === 'function') {
@@ -197,7 +201,7 @@ export function useTimelineView(initial: View, epochMs: number): TimelineViewApi
   )
 
   return useMemo(
-    () => ({ view, rootRef, width, zoomAt, zoom, pan, panPixels, fitTo }),
-    [view, rootRef, width, zoomAt, zoom, pan, panPixels, fitTo],
+    () => ({ view, rootRef, width, measured, zoomAt, zoom, pan, panPixels, fitTo }),
+    [view, rootRef, width, measured, zoomAt, zoom, pan, panPixels, fitTo],
   )
 }
