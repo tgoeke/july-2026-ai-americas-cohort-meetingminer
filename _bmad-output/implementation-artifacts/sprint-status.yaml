@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-18-2026 10:04
-last_updated: 08-30-2026 22:30
+last_updated: 08-30-2026 23:15
 project: meetingminer
 project_key: NOKEY
 tracking_system: file-system
@@ -117,7 +117,7 @@ development_status:
 
   epic-8: in-progress
   8-1-ad-10-amendment-and-binding-catalog: done
-  8-2-persisted-selection: review
+  8-2-persisted-selection: done
   8-2a-provider-health-on-the-status-surface: backlog
   8-3-model-picker-ui: backlog
   epic-8-retrospective: optional

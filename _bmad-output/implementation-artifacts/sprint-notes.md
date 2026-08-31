@@ -3597,3 +3597,50 @@ log: `test_api_registry.py`'s `BASELINE_ROUTER_ORDER`, `test_extraction_core.py`
 `litellm` stub (which needed `NotFoundError` or the adapter's new `except` raised
 `AttributeError`), and `test_harness_boundary.py`'s httpx allowlist — which grew
 the same way for stories 5.3 and 5.4. No coverage appended to a shared module.
+
+## 8-2 landed, 2026-08-30 ~23:15 — the model choice is real, and it cannot lie
+
+`main` at `420325c`; migration `0016_app_setting.sql` applied. An api-owned
+`app_setting` table holds the selection; `PUT /settings/roles/{role}` persists
+it and `GET /settings/models` serves the catalog with the active choice; chat
+reads the selection per request and the worker per job; the eval snapshot
+records the effective binding beside the file value.
+
+**Backlog B-38 closed here** (`ca9689a`). A provider that does not serve the
+configured model now raises a distinct `LlmModelNotServedError` naming the
+provider — taken from story 8.1's single `provider_for_model` rule rather than
+the SDK's own guess — plus the endpoint and the model, and `FallbackLlm`
+re-raises it **ahead** of the clause that substitutes. A test pins that a
+model-not-found never reaches the fallback. Genuine host outages keep the
+deliberate `LlmUnavailableError` fallback.
+
+**Two owner rulings, 2026-08-30, both from one principle — nothing may mislead
+about which model is being called:**
+
+- **`judge` is excluded from the settings surface.** Review found that a stored
+  judge choice was persisted and reported as `effectiveBinding` while the only
+  production judge path still bound the file role in
+  `evals/harness/judge.py`, so a selection could be displayed as in effect and
+  silently ignored. Rather than widen this story into the eval harness, `judge`
+  is now explicitly file-only: absent from `GET /settings/models`, refused by
+  name on write, and pinned by a test that fails if it reappears while the
+  harness still binds the file role. Wiring it properly is **B-41**, filed with
+  the evidence — including that `evals/tests/test_run_judge.py` replaces
+  `build_llm` without asserting which binding was passed, which is why the
+  non-adoption went unnoticed.
+- **A catalog binding with no resolvable endpoint is refused at config load.**
+  Previously such a binding produced a runtime error naming only "the
+  provider's default endpoint", which does not meet B-38's requirement that the
+  message name an actionable URL. Guessing one from the SDK would contradict
+  AD-10, so the config now fails closed instead. **This amends story 8.1's rule
+  that a synthesized legacy entry may load without a matching `providers:`
+  entry — an existing `config.yaml` relying on that exemption will now fail to
+  load, which is the intent.**
+
+Gate at landing: 2,510 server tests, 655 evals, 294 web, 128 puller, plus lint,
+typecheck and the production build.
+
+**The committed TS client is regenerated on this branch**, so `make client` is
+not owed for 8-2. Note story 6.4 does NOT regenerate it and its
+`/acquisitions` routes are therefore missing from the client — that
+regeneration is owed at 6.4's integration and blocks story 6.5.
