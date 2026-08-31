@@ -341,7 +341,10 @@ function FilterSelect({
   onChange: (value: string | null) => void
 }) {
   return (
-    <label className="inline-flex min-h-6 items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs">
+    <label
+      className="inline-flex min-h-6 items-center gap-1.5 rounded-md border px-2 py-1 text-xs"
+      style={{ borderColor: 'var(--control-border)' }}
+    >
       <span className="text-muted-foreground">{name}</span>
       <select
         data-testid={`filter-${name}`}
