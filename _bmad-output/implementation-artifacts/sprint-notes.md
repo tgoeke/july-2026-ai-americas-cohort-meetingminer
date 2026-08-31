@@ -4160,3 +4160,29 @@ anchor owns membership. Final foreground gates: Threads 111 passed, forced
 TypeScript build passed, and `make test-fast` passed with ruff/mypy green,
 puller 128, web 552, evals 655, and server 2315 passed / 3 named skips / 411
 deselected.
+
+## Story 10.6 landed — 2026-08-31
+
+Landed from `story/10-6-review`. Verdict **pass**: all 16 patchable findings
+fixed red-first, both owner rulings resolved, gates green (2315 passed, 3 named
+skips). Web-only — no migration, no client regeneration owed.
+
+**F18 (deep-link time anchor) implemented as ruled.** An optional `at` parameter
+carries the calling moment and owns a meetings request centred on it; a bare
+`/threads/:threadId` derives its view from the selected thread's own first/last
+span rather than inventing a window. Route, list and request generations,
+remounts, resizes, invalid anchors — and story 10.3 F2's out-of-window evidence
+instant — are all pinned by tests.
+
+**F17 (no durable browser check) accepted by owner ruling, and paired with
+backlog B-52.** The geometry is CSS `calc` that jsdom cannot execute, so no
+vitest test could have covered it either way; coverage rests on the builder's
+one-off Chrome 151 probe, which is recorded as such rather than implied to be a
+standing test.
+
+**Still owed at integration:** story 10.5 carries `ThreadsPlaceholder.route.tsx`,
+created only because both lanes wanted the same filename. Now that the real
+Threads screen is on `main`, that placeholder must be deleted when 10.5 lands —
+it is marked for deletion in its own file header, in 10.5's review prompt, and
+here. 10.5's review session was still running at the time of this merge and will
+rebase onto this.
