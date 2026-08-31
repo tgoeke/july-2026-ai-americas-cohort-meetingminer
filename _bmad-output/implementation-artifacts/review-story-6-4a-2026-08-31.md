@@ -152,3 +152,51 @@ The review will also account for the required rebase onto `origin/main` before c
 - **Finding:** Upload launch tests replace `child_command()` wholesale with `/bin/sleep`, while runner tests invoke `run_upload_acquisition()` directly. No test proves production emits `--upload-session` or that `main()` routes that flag to the upload runner.
 - **Evidence:** Changing the emitted flag to `--url`, or dispatching upload mode to `run_acquisition()`, leaves the current 202 launch and direct-runner tests green.
 - **Suggested direction:** Pin the exact upload child command and drive `main()` with upload arguments while stubbing only the terminal runner call.
+
+### F-18 — A live upload request can still be swept as abandoned
+
+- **Location:** `server/meetingminer/api/uploads.py:257-282` and `server/meetingminer/uploads.py:603-646`
+- **Severity:** High
+- **Finding:** The create route releases the acquisition claim lock before streaming begins, while an incomplete staging directory has no ownership marker. A concurrent `POST /uploads` can therefore sweep a request that is still receiving bytes or awaiting ffprobe once its latest file activity is older than the configured TTL.
+- **Evidence:** The sweep deliberately deletes no-`session.json` directories by child-file mtime, and the current one-minute test configuration is shorter than ffprobe's permitted 600-second timeout. The existing incomplete-directory test proves such a directory is removed; it never establishes that no request owns it.
+- **Suggested direction:** Give every in-flight create a process-visible ownership marker that sweep excludes, remove it on every exit, and test a sweep interleaved with a controlled live request. Do not hold the blocking filesystem claim lock across an awaited multi-gigabyte stream.
+
+### F-19 — Failed deletion can publish terminal ownership beside a reusable session
+
+- **Location:** `server/meetingminer/uploads.py:582-598` and `server/meetingminer/acquisitions.py:1061-1078`
+- **Severity:** High
+- **Finding:** `discard_session()` suppresses recursive-delete errors and returns `False`, but `_complete_upload_record()` ignores that result and writes `posted` or `failed`. A complete session can remain claimable beside a terminal record, reopening the duplicate-consumer window the ownership remediation claims to close.
+- **Evidence:** Injecting an `rmtree` failure leaves `session.json` and all evidence intact; `launch_upload()` consults only live records, so it can claim the same session again after the first record becomes terminal. DELETE also translates failed removal into a misleading 404.
+- **Suggested direction:** Make deletion failure a named upload-state error and never publish terminal status unless the session is absent after cleanup. Pin both terminal completion and DELETE with a failed-removal regression.
+
+### F-20 — Upload infrastructure failures still omit RFC 9457 refusal extensions
+
+- **Location:** `server/meetingminer/api/uploads.py:285-286`, `server/meetingminer/api/uploads.py:312-313`, `server/meetingminer/api/uploads.py:358-359`, and `server/meetingminer/api/acquisitions.py:280-281`
+- **Severity:** Medium
+- **Finding:** Several upload state and acquisition-start failures still construct bare Problems without `rule` and `remediation`, despite the frozen contract requiring `rule`, `detail`, and `remediation` on every refusal.
+- **Evidence:** `upload-session-unreadable` already exists in the closed upload vocabulary, but the upload router bypasses the shared refusal helper. `AcquisitionStateError` similarly returns `acquisition-state-unwritable` without the two extensions.
+- **Suggested direction:** Route every upload state/start failure through stable rules in the upload vocabulary and assert the full three-field shape for POST, GET, DELETE, and acquisition launch failures.
+
+### F-21 — A duplicate YouTube launch receives upload-session remediation
+
+- **Location:** `server/meetingminer/api/acquisitions.py:267-279`
+- **Severity:** Medium
+- **Finding:** The shared `AcquisitionInProgress` handler always uses the upload vocabulary's remediation, which tells the client not to delete an upload session. A YouTube acquisition has no upload session.
+- **Evidence:** Both launch kinds raise the same exception class, while the handler does not inspect `record.kind`. Existing YouTube collision coverage asserts IDs and type but not the remediation text.
+- **Suggested direction:** Select a kind-appropriate stable rule/remediation while preserving YouTube's pinned refusal vocabulary, and add assertions for both source kinds.
+
+### F-22 — Existing YouTube provenance loses its tool version through the upload door
+
+- **Location:** `server/meetingminer/acquisitions.py:1190-1208`
+- **Severity:** Medium
+- **Finding:** Upload acquisition reads only `provenance.toolVersion`, while immutable YouTube drops store the value as `ytDlpVersion`. Rediscovering such a drop reports `tool=yt-dlp` with a null version even though the direct YouTube path reports the version.
+- **Evidence:** The direct runner explicitly reads `ytDlpVersion`; the upload runner's generalized provenance branch does not. This is observable only for an `exists` result whose winning drop came from YouTube.
+- **Suggested direction:** Derive the version according to the immutable provenance tool, covering both `toolVersion` and `ytDlpVersion`, and pin a pre-existing YouTube drop.
+
+### F-23 — A terminal status-write failure strands a dead record as running
+
+- **Location:** `server/meetingminer/acquisitions.py:1061-1078` and `server/meetingminer/acquisitions.py:1211-1217`
+- **Severity:** High
+- **Finding:** `_complete_upload_record()` removes the session before writing the terminal record. If that write fails, the runner's `finally` only retries deletion; the previous `running` record remains with a dead PID even when mint and intake succeeded.
+- **Evidence:** `main()` catches the resulting acquisition error and exits, but there is no second durable status path after the session is already gone. The status surface therefore reports stale progress rather than terminal degradation.
+- **Suggested direction:** Make terminal publication recoverable without exposing a reusable session—preserve enough state for a retry/compensating failed write—and add an injected write-failure regression that cannot leave a live-looking record.
