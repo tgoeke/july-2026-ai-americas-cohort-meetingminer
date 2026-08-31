@@ -4,9 +4,9 @@ type: 'feature'
 created: '2026-08-31'
 baseline_revision: '8bd54e868c591f000417ef916476500e768c7c18'
 baseline_commit: '8bd54e868c591f000417ef916476500e768c7c18'
-status: 'review'
+status: 'done'
 review_loop_iteration: 1
-followup_review_recommended: true
+followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/planning-artifacts/epics.md'
   - '{project-root}/_bmad-output/implementation-artifacts/spec-10-6-threads-zoomable-timeline.md'
@@ -14,8 +14,6 @@ context:
 warnings: []
 deferred:
   - 'B-59 — the generated TypeScript client does not know the trace operations'
-  - 'B-60 — no test covers a trace stop that actually carries screens'
-  - 'B-61 — an undated meeting cannot arise, so the unplaceable lane is unbuilt'
 ---
 
 <intent-contract>
@@ -112,6 +110,17 @@ refetching a tier per threshold.
 4. Web semantic timeline: world coordinates, constant label size, altitude-aware
    representation, lane packing at the current altitude, meeting click-through.
 
+### Review Findings — 2026-08-31
+
+- [x] [Review][High] Count distinct traced moments so synonymous topics on one
+  moment cannot falsely claim a cap. [`server/meetingminer/api/threads.py:283`]
+- [x] [Review][High] Clear and invalidate trace state when a reused route
+  component returns from `/threads/:threadId` to the empty `/threads` front
+  door. [`web/src/features/threads/ThreadTrace.tsx:86`]
+- [x] [Review][Medium] Fit the initial timeline only after its real rendered
+  width is known, and key fit ownership to the trace extent.
+  [`web/src/features/threads/TraceTimeline.tsx:79`]
+
 ## Code Map
 
 **Server**
@@ -121,7 +130,7 @@ refetching a tier per threshold.
 | `server/meetingminer/domain/thread_trace.py` *(new)* | The three rules that are invisible from outside when they drift: the suggestion band and its span-first sort, near-duplicate dropping (`duplicate_key`, `drop_near_duplicates`), and `completeness_note`, which is a function of the counts so the two legs cannot describe themselves the same way. Database-free and model-free. |
 | `server/meetingminer/api/threads.py` | `GET /threads/suggestions` and `GET /threads/trace` beside story 10.3's routes, with seven new SQL constants. Both new routes are declared **before** `/threads/{thread_id}/timeline`, the module's stated literals-first discipline. |
 | `server/tests/test_thread_trace.py` *(new)* | The domain rules, 15 tests, no database. |
-| `server/tests/test_api_thread_trace.py` *(new)* | Both endpoints, 24 tests. Postgres-only and fast: the sample leg replaces `search_moments` and `meili_client` at the module boundary, because what is under test is how the route assembles and *describes* a ranked list, not whether Meilisearch ranks. |
+| `server/tests/test_api_thread_trace.py` *(new)* | Both endpoints, 28 tests. Postgres-only and fast: the sample leg replaces `search_moments` and `meili_client` at the module boundary, because what is under test is how the route assembles and *describes* a ranked list, not whether Meilisearch ranks. Review coverage includes band edges, synonymous topics, a positive screenshot chain, and day precision. |
 
 **Web**
 
@@ -133,7 +142,7 @@ refetching a tier per threshold.
 | `web/src/features/threads/ThreadTrace.tsx` *(new)* | The front door: empty state, box, suggestions, candidates, the completeness sentence, related subjects. |
 | `web/src/features/threads/trace.css` *(new)* | Sizes in real pixels, colours from `index.css` tokens. |
 | `web/src/features/threads/{ThreadsTimeline,ThreadFocus}.route.tsx` | Repointed from 10.6's `Threads` to `ThreadTrace`. Paths unchanged. |
-| `web/src/features/threads/trace.test.ts`, `ThreadTrace.test.tsx` *(new)* | 24 + 14 tests. |
+| `web/src/features/threads/trace.test.ts`, `ThreadTrace.test.tsx` *(new)* | 24 + 18 tests. |
 
 **Footprint note.** `domain/thread_trace.py` and `docs/backlog.md` are outside
 the two paths the build prompt named. The first is a new file no story owns,
@@ -151,6 +160,11 @@ file it in `docs/backlog.md` or it does not exist.
 | `795c1afc` | The endpoint tests, including an AD-17 path sweep written over every SQL constant the module holds rather than a listed few. |
 | `30e237af` | The web feature: empty front door, semantic timeline, routes repointed. |
 | `52d7c363` | The web tests, plus two robustness fixes to `TraceTimeline` found by writing them. |
+| `853cad1a` | Review F1: red test and distinct-moment trace counts. |
+| `aae85d0b` | Review F2: red route-reuse test and empty-front-door state invalidation. |
+| `68f4cb9a` | Review F3: red narrow-viewport test and real-width fitting. |
+| `d9b8fd83` | Review coverage for suggestion-band edges, screens, and day precision. |
+| `f2fff78e` | Rebased review artifacts and backlog ids reconciled with current main. |
 
 ## Verification
 
@@ -162,23 +176,20 @@ containers healthy).
 | `make lint` | All checks passed. |
 | `web/node_modules/.bin/tsc -b` | Clean, exit 0. |
 | `oxlint src/features/threads` | No finding in any new file; the seven warnings are all pre-existing 10.6 modules. |
-| `make web-test` | **784 passed, 65 files.** 746 before this story, so the 38 added are the new ones and nothing regressed. |
-| `pytest server/tests/test_api_thread_trace.py test_thread_trace.py test_api_threads.py test_thread_timeline_levels.py` | **88 passed** — the 39 new tests alongside story 10.3's existing 49. |
-| `make test` (full gate, `-m ""`) | **2800 passed, 3 skipped**, exit 0, in 13m29s, against this worktree's own stack. |
+| `make web-test` | **788 passed, 65 files.** 746 before this story, so 42 were added by the build and review. |
+| `pytest server/tests/test_api_thread_trace.py test_thread_trace.py test_api_threads.py test_thread_timeline_levels.py` | **92 passed** — the 43 story/review tests alongside story 10.3's existing 49. |
+| `make test` (full gate, `-m ""`) | Puller 128 passed; web 788 passed; eval harness 655 passed; isolated worker/STT/diarization 92 passed; store probe 1 passed; complete server suite **2901 passed, 3 skipped**; production web build clean; exit 0. |
 
-The full gate was run twice by accident — a first invocation was moved to the
-background by a tool timeout and reported no output, so a second was started
-before the first was seen to have finished. The first completed green (the
-figures above); the second was stopped once that was known. Two suites in one
-checkout queue on the projection lock rather than corrupting a store
-(`AGENTS.md`), so the overlap cost time and nothing else.
+The review gate ran in the foreground against the review worktree's own stack.
+The API and worker were not started, `make evals-run` was not invoked, and no
+paid model was called.
 
 **What each acceptance criterion is held by**
 
 | Criterion | Held by |
 |---|---|
-| Opens empty | `ThreadTrace.test.tsx` "opens empty — a box and suggestions, never a catalogue", which also asserts exactly one fetch on mount |
-| Suggestions rank by span, not frequency | `test_api_thread_trace.py::test_suggestions_rank_by_span_not_by_mention_count` |
+| Opens empty | `ThreadTrace.test.tsx` "opens empty — a box and suggestions, never a catalogue", plus the review's deep-link-to-root route-reuse regression |
+| Suggestions rank by span, not frequency | `test_api_thread_trace.py::test_suggestions_rank_by_span_not_by_mention_count` and `test_suggestion_band_includes_both_edges_without_widening` |
 | One-meeting rows never offered | `test_a_one_meeting_subject_is_never_offered` |
 | Near-duplicates dropped | `test_near_duplicates_do_not_take_two_slots`, `test_thread_trace.py::test_plural_twins_do_not_take_two_slots` and the containment case |
 | Two ways in, stated in words | `test_a_typed_phrase_that_names_a_subject_takes_the_exhaustive_leg`, `test_free_text_is_a_sample_and_says_so`, and both `data-mode` assertions in the screen tests |
@@ -188,25 +199,24 @@ checkout queue on the projection lock rather than corrupting a store
 | Semantic zoom, constant labels | `trace.test.ts` — the altitude block, and "draws fewer ticks as the view zooms out, never smaller ones" |
 | Lanes packed at the current altitude | `trace.test.ts::packs against the pixel footprint at THIS altitude, not the date` — the same two stops need two lanes at 8 px/day and one at 210 |
 | Zoom about the cursor | "keeps what is under the pointer under the pointer" and the 60-step no-drift case |
-| Opens at the altitude where the span fits | `fitPpd` tests plus `TraceTimeline`'s fit-on-label-change effect |
+| Opens at the altitude where the span fits | `fitPpd` tests plus "fits the whole span to the rendered width, not the fallback width" |
 | Meeting click opens the meeting view | "opens the meeting view when a meeting is clicked" |
-| No screens states its reason, never over-claims | `test_a_stop_carries_the_facts_a_no_screen_reason_is_built_from`, `noScreenReason` tests, and the screen test that visits each stop |
+| No screens states its reason, never over-claims | `test_a_stop_carries_the_facts_a_no_screen_reason_is_built_from`, `noScreenReason` tests, `test_a_stop_with_a_screen_carries_its_opaque_id_and_count`, and "renders the opaque screenshot carried by a stop" |
 | Co-occurring subjects offered | `test_related_subjects_never_offer_the_one_already_open`, "offers the neighbouring subjects" |
 | Nothing matched says so plainly | `test_a_wording_that_matches_nothing_offers_nothing_it_cannot_back` |
-| Undated named as unplaceable | **Not built — see below and B-61.** |
+| Day precision does not invent a time | `test_day_precision_is_anchored_at_midnight_and_preserved` and "labels day-precision stops as date only" |
 
-## Not built here
+## Deferred and deliberately retained
 
-**The undated lane (B-61).** The criteria require a meeting carrying no date to
-sit at one end and be named unplaceable. `meeting.started_at` is `NOT NULL`
-(migration 0002), so no such row can reach a trace, and building the lane would
-have been dead code shaped like a safeguard. The near neighbour is handled:
+**The undated lane (B-61) is closed as not applicable.** Migration 0002 makes
+`meeting.started_at` `NOT NULL`, so no undated row can reach a trace. Review
+tests pin the reachable near-neighbour end to end:
 `started_at_precision = 'day'` anchors at midnight and is labelled `date only`,
 so no clock is invented (AD-18).
 
-**A trace stop with screens is untested (B-60).** The absent case — the one
-AD-18 turns on — is covered on both sides. The present case is covered by
-nothing, because seeding a `screenshot` requires the whole `screen` chain.
+**Positive screen coverage (B-60) is closed.** The review found that the
+required `screen`/`screenshot` seed is compact and added server and browser
+regressions for `screenCount`, opaque `screenshotId`, and rendered media.
 
 **The generated client (B-59).** `make client` needs a running api and the
 build was told not to start one; `traceApi.ts` therefore reads both endpoints
