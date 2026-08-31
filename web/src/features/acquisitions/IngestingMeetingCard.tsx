@@ -77,10 +77,10 @@ export function IngestingMeetingCard({
       }
       const found = data.meetings.find((meeting) => meeting.jobId === jobId) ?? null
       setSeedError(null)
-      // A row that has not appeared yet is left null rather than invented: the
-      // worker mints the meeting row after intake, so "not there yet" is a
-      // real and temporary state with its own sentence below.
-      if (found !== null) commit(found)
+      // `/meetings` is job-backed, so the job appears before its left-joined
+      // meeting does. A null meeting id is still the pre-mint state, not enough
+      // information to render a meeting card.
+      if (found?.meetingId != null) commit(found)
     } catch (err) {
       if (unmountedRef.current) return
       setSeedError(transportFailure(err instanceof Error ? err.message : String(err)).message)
