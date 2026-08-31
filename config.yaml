@@ -616,10 +616,18 @@ threads:
   link_rule: normalized-name-or-embedding-similarity
   # Cosine similarity at or above which two topic *names* are one subject.
   #
-  # Rationale. These are short strings — three or four words — and embedders
-  # score short strings high against one another, so the usable band sits well
-  # above the 0.7-ish figure that would be unremarkable for whole passages.
-  # 0.82 is set above that band deliberately.
+  # Rationale. Embedders score short strings high against one another, so the
+  # usable band sits well above the 0.7-ish figure that would be unremarkable
+  # for whole passages. 0.82 is set above that band deliberately.
+  #
+  # Corrected 2026-08-31 after measuring: an earlier version of this note said
+  # these are "three or four words". They are not — the real median is six and
+  # they run much longer ("Additional Louisiana area 2022 work (storm sewer,
+  # piling, specific walls incl. future 2023 work)"). Nothing produces two
+  # byte-identical strings of that shape, which is why the *name* leg of the
+  # link rule contributes zero links on the real corpus and every link comes
+  # from the embedding leg. The number below survived measurement unchanged;
+  # only this reasoning was wrong. Do not re-derive 0.82 from the old premise.
   #
   # It is conservative on purpose, because the two failure modes are not
   # symmetric. A missed link surfaces as two threads a human merges in story
