@@ -128,7 +128,8 @@ Adversarial review of the Story 7.4 web implementation, with emphasis on unsettl
 
 - **Location:** `web/src/features/speakers/SpeakerNaming.tsx:103`; `web/src/features/speakers/SpeakerNaming.tsx:716`; `web/src/features/speakers/SpeakerNaming.tsx:884`
 - **Severity:** Medium
-- **Status:** Confirmed — patch required
+- **Status:** Fixed on `story/7-4-review`
 - **Finding:** `hasRecording` defaults to `false`, so speakers can load first while drilldown is pending or refused and the naming column immediately claims `Transcript only — no recording`. That absence is not served evidence. If drilldown alone fails, its failure text also has no Retry control, leaving the clips/transcript half of an otherwise usable screen permanently stale.
 - **Evidence:** The two reads settle independently. Only a successful drilldown sets `hasRecording`; every pending and failure path retains the false default. The speakers failure box owns the screen's only Retry button, while the independent transcript failure branch renders plain text.
 - **Suggested direction:** Model recording availability as unknown until drilldown succeeds, say that it is loading/unavailable without claiming absence, and place Retry with the independent transcript failure as well. Verify both a pending drilldown and a drilldown-only refusal.
+- **Red/green evidence:** With speakers loaded and drilldown unresolved, the screen first rendered the false `Transcript only — no recording` sentence; a drilldown-only 409 exposed no Retry. Recording availability is now tri-state and stays explicitly loading until a successful answer, while the independent transcript failure carries its own Retry. Both regressions pass.
