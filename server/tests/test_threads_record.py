@@ -2,11 +2,10 @@
 
 Two halves. The schema contract pins what migration 0015 declares: the
 `identity_key` uniqueness a rerun lands on, the one-thread-per-topic primary
-key, the `linked_by`/`similarity` agreement, and the three no-orphan routes
-(last link removed, link moved to another thread, `TRUNCATE`). The derivation
-half runs `domain.threads.derive_threads` against the per-run test database and
-pins the clause the acceptance criteria hinge on: a rerun over unchanged topics
-yields the same threads, ids included.
+key, the `linked_by`/`similarity` agreement, and retention of empty identity
+rows across membership deletion, movement, and `TRUNCATE`. The derivation half
+runs `domain.threads.derive_threads` against the per-run test database and pins
+identity across unchanged topics, earlier backfills, and Story 10.1 replacement.
 
 DB-backed against the per-run test database (named skip when the compose
 Postgres is down). Seeding is deliberately minimal — job, meeting, moment,
@@ -177,30 +176,29 @@ def test_a_topic_belongs_to_exactly_one_thread(pool: ConnectionPool) -> None:
             )
 
 
-def test_a_thread_with_no_topic_is_refused_at_commit(pool: ConnectionPool) -> None:
-    """The DEFERRABLE constraint trigger, mirroring 0014's `topic`."""
-    # `23514` is check_violation, which psycopg maps to `CheckViolation` — the
-    # same errcode 0014's `topic_requires_mention` raises, deliberately, so a
-    # missing-child refusal reads the same whichever table raised it.
-    with pytest.raises(errors.CheckViolation) as excinfo:
-        with pool.connection() as conn:
-            conn.execute(
-                "INSERT INTO thread (identity_key, name, link_rule)"
-                " VALUES ('orphan', 'orphan', 'normalized-name-or-embedding-similarity')"
-            )
-    assert "requires at least one topic" in str(excinfo.value)
+def test_a_thread_with_no_topic_is_retained_as_durable_identity(
+    pool: ConnectionPool,
+) -> None:
+    with pool.connection() as conn:
+        thread_id = conn.execute(
+            "INSERT INTO thread (identity_key, name, link_rule)"
+            " VALUES ('empty', 'empty', 'normalized-name-or-embedding-similarity')"
+            " RETURNING id"
+        ).fetchone()[0]
+    with pool.connection() as conn:
+        assert _thread_count(conn, thread_id) == 1
 
 
-def test_removing_the_last_membership_removes_the_thread(pool: ConnectionPool) -> None:
+def test_removing_the_last_membership_retains_the_thread(pool: ConnectionPool) -> None:
     with pool.connection() as conn:
         meeting_id = seed_meeting(conn, "threads-last-link")
         topic_id = add_topic(conn, meeting_id, "Vendor feed")
         thread_id = add_thread(conn, identity_key="vendor feed", topic_ids=[topic_id])
         conn.execute("DELETE FROM topic_thread WHERE topic_id = %s", (topic_id,))
-        assert _thread_count(conn, thread_id) == 0
+        assert _thread_count(conn, thread_id) == 1
 
 
-def test_moving_the_last_membership_removes_the_emptied_thread(pool: ConnectionPool) -> None:
+def test_moving_the_last_membership_retains_the_emptied_thread(pool: ConnectionPool) -> None:
     """The re-derivation route: a cluster's members all move elsewhere."""
     with pool.connection() as conn:
         meeting_id = seed_meeting(conn, "threads-move")
@@ -211,28 +209,29 @@ def test_moving_the_last_membership_removes_the_emptied_thread(pool: ConnectionP
         conn.execute(
             "UPDATE topic_thread SET thread_id = %s WHERE topic_id = %s", (survivor, moved)
         )
-        assert _thread_count(conn, emptied) == 0
+        assert _thread_count(conn, emptied) == 1
         assert _thread_count(conn, survivor) == 1
 
 
-def test_deleting_the_topic_cascades_and_removes_the_emptied_thread(pool: ConnectionPool) -> None:
+def test_deleting_the_topic_cascades_but_retains_thread_identity(
+    pool: ConnectionPool,
+) -> None:
     """An extraction rerun replaces a meeting's topics wholesale (0014)."""
     with pool.connection() as conn:
         meeting_id = seed_meeting(conn, "threads-cascade")
         topic_id = add_topic(conn, meeting_id, "Vendor feed")
         thread_id = add_thread(conn, identity_key="vendor feed", topic_ids=[topic_id])
         conn.execute("DELETE FROM topic WHERE id = %s", (topic_id,))
-        assert _thread_count(conn, thread_id) == 0
+        assert _thread_count(conn, thread_id) == 1
 
 
-def test_truncating_memberships_removes_every_thread(pool: ConnectionPool) -> None:
-    """Row triggers do not fire for TRUNCATE; the statement trigger does."""
+def test_truncating_memberships_retains_every_thread(pool: ConnectionPool) -> None:
     with pool.connection() as conn:
         meeting_id = seed_meeting(conn, "threads-truncate")
         topic_id = add_topic(conn, meeting_id, "Vendor feed")
         add_thread(conn, identity_key="vendor feed", topic_ids=[topic_id])
         conn.execute("TRUNCATE topic_thread")
-        assert conn.execute("SELECT count(*) FROM thread").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM thread").fetchone()[0] == 1
 
 
 def test_an_embedding_link_must_carry_its_similarity(pool: ConnectionPool) -> None:
@@ -510,7 +509,7 @@ def test_replace_all_topic_rerun_keeps_an_unchanged_singleton_thread_id(
     assert replacement_thread == original_thread
 
 
-def test_a_rerun_after_a_topic_moves_empties_and_removes_its_old_thread(
+def test_a_rerun_after_a_topic_moves_retains_its_old_thread_as_empty(
     pool: ConnectionPool, app_config: AppConfig
 ) -> None:
     with pool.connection() as conn:
@@ -522,13 +521,19 @@ def test_a_rerun_after_a_topic_moves_empties_and_removes_its_old_thread(
         derive_threads(conn, app_config, embedder=StubEmbedder(ORTHOGONAL))
     with pool.connection() as conn:
         assert conn.execute("SELECT count(*) FROM thread").fetchone()[0] == 2
+        emptied = conn.execute(
+            "SELECT id FROM thread WHERE identity_key = 'budget review'"
+        ).fetchone()[0]
         conn.execute("UPDATE topic SET name = 'Vendor feed' WHERE name = 'Budget review'")
 
     with pool.connection() as conn:
         derive_threads(conn, app_config, embedder=StubEmbedder(ORTHOGONAL))
 
     with pool.connection() as conn:
-        assert [row[1] for row in thread_rows(conn)] == ["vendor feed"]
+        assert [row[1] for row in thread_rows(conn)] == ["budget review", "vendor feed"]
+        assert conn.execute(
+            "SELECT count(*) FROM topic_thread WHERE thread_id = %s", (emptied,)
+        ).fetchone()[0] == 0
 
 
 def test_an_unreachable_model_host_writes_nothing(

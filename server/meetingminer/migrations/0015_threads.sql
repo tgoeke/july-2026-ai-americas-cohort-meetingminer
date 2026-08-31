@@ -15,19 +15,17 @@
 -- replaced on every rerun: derivation must be IDEMPOTENT — a rerun over
 -- unchanged topics must yield the *same* threads, ids included, because the
 -- graph projection, 10.2a's curation and 10.3's timeline all key on
--- `thread.id`. So a thread is identified by `identity_key`, a value the
--- derivation computes from the cluster alone (the normalized name of its
--- earliest topic), and the derivation UPSERTs on it rather than deleting and
--- re-minting. `DELETE FROM thread` on every run would satisfy the record but
--- break every reference the moment a rerun changed nothing.
+-- `thread.id`. So a thread is identified by `identity_key`, a value derived
+-- from normalized cluster content rather than topic chronology, and the
+-- derivation reuses an existing row before minting. Empty identity rows are
+-- retained because story 10.1 replaces a meeting's topic rows wholesale; a
+-- later explicit sweep may remove rows proven genuinely dead.
 
 CREATE TABLE thread (
     id           uuid PRIMARY KEY DEFAULT uuidv7(),
-    -- What makes a rerun land on this same row. The normalized name of the
-    -- cluster's seed topic — the earliest by (meeting.started_at, meeting.id,
-    -- normalized name, topic.id). UNIQUE because the derivation upserts on
-    -- it, and because two clusters cannot present the same seed name: every
-    -- topic sharing a normalized name is already unioned into one cluster.
+    -- What makes a rerun land on this same row. The canonical normalized name
+    -- selected from cluster content, independent of meeting chronology.
+    -- UNIQUE because topics sharing normalized content are already unioned.
     identity_key text NOT NULL UNIQUE,
     -- The display name, taken verbatim from the seed topic. The machine may
     -- rewrite this on a rerun when the seed's own name changed; it never
@@ -75,63 +73,9 @@ CREATE TABLE topic_thread (
 -- The projection and the traversal both read a thread's membership.
 CREATE INDEX topic_thread_thread_id_idx ON topic_thread (thread_id);
 
--- A thread and its seed link are inserted in one transaction by the
--- derivation, so the parent-side invariant must be checked at commit, after
--- the link has had a chance to arrive. Same construction as 0014's
--- `topic_requires_mention`, and for the same reason: it also covers direct
--- SQL, so no transaction may commit a thread that was never given a topic.
-CREATE FUNCTION require_thread_topic() RETURNS trigger
-LANGUAGE plpgsql AS $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM thread WHERE id = NEW.id)
-       AND NOT EXISTS (
-           SELECT 1 FROM topic_thread WHERE thread_id = NEW.id
-       ) THEN
-        RAISE EXCEPTION 'thread % requires at least one topic', NEW.id
-            USING ERRCODE = '23514';
-    END IF;
-    RETURN NULL;
-END;
-$$;
-
-CREATE CONSTRAINT TRIGGER thread_requires_topic
-    AFTER INSERT ON thread
-    DEFERRABLE INITIALLY DEFERRED
-    FOR EACH ROW EXECUTE FUNCTION require_thread_topic();
-
--- A thread with no topics is navigation to nowhere. Enforce it at the record,
--- not in the derivation: a topic cascade can happen at any time (an
--- extraction rerun replaces a meeting's topics wholesale), and re-derivation
--- moves memberships between threads. Locking the thread serializes concurrent
--- removals of different memberships so two transactions cannot each observe
--- the other's still-present link and leave an empty thread after both commit.
-CREATE FUNCTION delete_thread_when_last_topic_removed() RETURNS trigger
-LANGUAGE plpgsql AS $$
-BEGIN
-    PERFORM 1 FROM thread WHERE id = OLD.thread_id FOR UPDATE;
-    DELETE FROM thread
-    WHERE id = OLD.thread_id
-      AND NOT EXISTS (
-          SELECT 1 FROM topic_thread WHERE thread_id = OLD.thread_id
-      );
-    RETURN OLD;
-END;
-$$;
-
-CREATE TRIGGER topic_thread_delete_or_move_orphan_thread
-    AFTER DELETE OR UPDATE OF thread_id ON topic_thread
-    FOR EACH ROW EXECUTE FUNCTION delete_thread_when_last_topic_removed();
-
--- Row triggers do not run for TRUNCATE. A statement-level trigger closes that
--- route so bulk removal preserves the same no-orphan invariant.
-CREATE FUNCTION delete_threads_when_memberships_truncated() RETURNS trigger
-LANGUAGE plpgsql AS $$
-BEGIN
-    DELETE FROM thread;
-    RETURN NULL;
-END;
-$$;
-
-CREATE TRIGGER topic_thread_truncate_threads
-    AFTER TRUNCATE ON topic_thread
-    FOR EACH STATEMENT EXECUTE FUNCTION delete_threads_when_memberships_truncated();
+-- A thread row is durable identity, not an assertion that a membership exists
+-- at this instant. In particular, story 10.1 deletes and recreates all topics
+-- for one meeting before thread derivation runs again. Cascades and TRUNCATE
+-- therefore remove memberships only; they never delete thread identity as a
+-- side effect. Genuinely dead rows require a separate, explicit sweep with a
+-- retention policy rather than an eager last-link trigger.

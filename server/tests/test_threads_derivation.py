@@ -324,13 +324,21 @@ def test_each_vector_norm_is_computed_once_not_once_per_pair(
 
 
 def test_the_seed_is_the_earliest_topic_in_the_cluster() -> None:
-    """Chronological, so a thread is named for where the subject started and
-    a later meeting cannot rename it."""
+    """Chronology selects presentation and the seed link, not identity."""
     topics = [topic(1, "Vendor Feed", day=9), topic(2, "vendor feed", day=1)]
     clusters = cluster_topics(topics, vectors=orthogonal(topics), threshold=0.82)
     assert clusters[0].seed_topic_id == IDS[2]
     assert clusters[0].name == "vendor feed"
     assert clusters[0].identity_key == "vendor feed"
+
+
+def test_identity_key_comes_from_normalized_content_not_chronology() -> None:
+    topics = [topic(1, "Zulu feed", day=0), topic(2, "Alpha feed", day=9)]
+    vectors = {IDS[1]: (1.0, 0.0), IDS[2]: (1.0, 0.0)}
+    cluster = cluster_topics(topics, vectors=vectors, threshold=0.82)[0]
+    assert cluster.seed_topic_id == IDS[1]
+    assert cluster.name == "Zulu feed"
+    assert cluster.identity_key == "alpha feed"
 
 
 def test_topics_in_one_meeting_break_the_seed_tie_deterministically() -> None:
@@ -360,10 +368,19 @@ def test_a_punctuation_only_name_gets_its_own_key_and_links_no_one() -> None:
     topics = [topic(1, "—"), topic(2, "***", day=1)]
     clusters = cluster_topics(topics, vectors=orthogonal(topics), threshold=0.82)
     assert len(clusters) == 2
-    assert {cluster.identity_key for cluster in clusters} == {
-        f"topic:{IDS[1]}",
-        f"topic:{IDS[2]}",
-    }
+    keys = {cluster.identity_key for cluster in clusters}
+    assert len(keys) == 2
+    assert all(key.startswith("topic-name-sha256:") for key in keys)
+    assert all(str(topic_id) not in key for key in keys for topic_id in IDS[1:3])
+
+    first_key = next(
+        cluster.identity_key for cluster in clusters if cluster.seed_topic_id == IDS[1]
+    )
+    replacement = topic(3, "—", day=4)
+    recreated = cluster_topics(
+        [replacement], vectors=orthogonal([replacement]), threshold=0.82
+    )
+    assert recreated[0].identity_key == first_key
 
 
 def test_a_duplicated_topic_is_a_named_refusal() -> None:

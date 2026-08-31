@@ -22,14 +22,13 @@ convention the next maintainer might not notice:
    is independent of the order the pairs are considered. There is no greedy
    "assign to the first match above threshold" pass whose output would depend
    on a sort.
-2. Each cluster's **seed** is its deterministic minimum under
-   ``(meeting.started_at, meeting.id, normalized name, topic.id)`` — earliest
-   rather than alphabetically first, because new meetings almost always arrive
-   *later*, so a chronological seed survives corpus growth where an
-   alphabetical one would be re-seeded by any new topic that sorts before it.
-3. ``identity_key`` is the seed's normalized name, and the derivation UPSERTs
-   threads on it. Seeds cannot collide: every topic sharing a normalized name
-   is already in one cluster, so no two clusters present the same seed name.
+2. ``identity_key`` comes from cluster content: the lexicographically first
+   non-empty normalized name. Chronology selects only the machine display name
+   and the membership row labelled ``seed``; an earlier backfill cannot become
+   identity merely because of its timestamp.
+3. A cluster first reuses the row already named by that content key, then a row
+   already attached to one of its topics, before minting. Empty rows survive
+   topic replacement, so an unchanged normalized name reclaims the same id.
 4. Every UPSERT carries a ``WHERE`` that fires only on an actual change, so an
    unchanged rerun writes nothing at all — not even ``updated_at``.
 
@@ -47,6 +46,7 @@ declares, and the graph learns about threads by reading them back through
 
 from __future__ import annotations
 
+import hashlib
 import math
 import unicodedata
 from dataclasses import dataclass
@@ -93,7 +93,7 @@ class TopicForThreading:
 
     @property
     def order_key(self) -> tuple[datetime, UUID, str, UUID]:
-        """The total order the cluster seed is the minimum of."""
+        """The total order used for presentation, never durable identity."""
         return (self.meeting_started_at, self.meeting_id, self.normalized_name, self.id)
 
 
@@ -338,7 +338,7 @@ def cluster_topics(
         seed = min(members, key=lambda topic: topic.order_key)
         clusters.append(
             ThreadCluster(
-                identity_key=_identity_key(seed),
+                identity_key=_identity_key(members),
                 name=seed.name,
                 seed_topic_id=seed.id,
                 members=tuple(
@@ -357,16 +357,25 @@ def cluster_topics(
     return tuple(clusters)
 
 
-def _identity_key(seed: TopicForThreading) -> str:
-    """What a rerun lands on. Non-empty and collision-free by construction.
+def _identity_key(members: Sequence[TopicForThreading]) -> str:
+    """The cluster's canonical content key, independent of chronology.
 
-    Normally the seed's normalized name. A topic whose name carries no
-    alphanumeric character normalizes to the empty string, which is no key at
-    all, so such a cluster is keyed on its seed's own id instead. The two forms
-    cannot collide: normalization strips ``:``, so no normalized name can look
-    like ``topic:<uuid>``.
+    The ordinary form is one of the cluster's normalized names. Equal names
+    are already unioned, so two live clusters cannot claim the same key. A
+    punctuation-only cluster has no non-empty normalized name; its fallback is
+    a bounded digest of normalized raw name content rather than a topic UUID,
+    so Story 10.1 replacing the row does not replace the thread identity.
     """
-    return seed.normalized_name or f"topic:{seed.id}"
+    normalized_names = sorted(
+        {topic.normalized_name for topic in members if topic.normalized_name}
+    )
+    if normalized_names:
+        return normalized_names[0]
+    raw_names = sorted(
+        unicodedata.normalize("NFKC", topic.name).casefold() for topic in members
+    )
+    digest = hashlib.sha256(raw_names[0].encode("utf-8")).hexdigest()
+    return f"topic-name-sha256:{digest}"
 
 
 def _member(
@@ -406,7 +415,7 @@ def _member(
 
 
 def _assert_keys_are_unique(clusters: Sequence[ThreadCluster]) -> None:
-    """A guard on the argument that seeds cannot collide.
+    """A guard on the argument that content keys cannot collide.
 
     ``thread.identity_key`` is UNIQUE, so a collision would surface as a
     constraint violation halfway through a write. Checked here, where the
@@ -418,9 +427,9 @@ def _assert_keys_are_unique(clusters: Sequence[ThreadCluster]) -> None:
         if previous is not None:
             raise ThreadDerivationError(
                 f"two clusters both claim identity key {cluster.identity_key!r}"
-                f" (seed topics {previous} and {cluster.seed_topic_id}) — every"
-                " topic sharing a normalized name should already be in one"
-                " cluster, so this is a partitioning bug"
+                f" (presentation topics {previous} and {cluster.seed_topic_id})"
+                " — every topic sharing normalized content should already be"
+                " in one cluster, so this is a partitioning bug"
             )
         seen[cluster.identity_key] = cluster.seed_topic_id
 
@@ -482,10 +491,11 @@ def derive_threads(
     transaction: nothing here commits, so a failure anywhere leaves the record
     exactly as it was.
 
-    Threads whose members all move elsewhere are not deleted here. Migration
-    0015's row trigger removes a thread when its last membership leaves, which
-    keeps the no-orphan invariant true for the extraction rerun and the direct
-    ``DELETE`` as well as for this pass.
+    Threads whose members disappear or move elsewhere are retained as empty
+    identity rows. Story 10.1 replaces a meeting's topics wholesale, so
+    membership cannot be the condition for identity lifetime; the next pass
+    reuses a matching content key, and a future explicit sweep may remove rows
+    proven genuinely dead.
     """
     emit = log or _noop
     settings = config.settings.threads
@@ -550,6 +560,28 @@ def _upsert_thread(
     thread, and "the derivation changed nothing" would be unobservable. The
     cost is one extra SELECT in exactly the case where nothing was written.
     """
+    existing = _thread_to_reuse(conn, cluster)
+    if existing is not None:
+        row = conn.execute(
+            "UPDATE thread"
+            " SET name = %s, link_rule = %s, derivation = %s"
+            " WHERE id = %s"
+            "   AND (name IS DISTINCT FROM %s"
+            "        OR link_rule IS DISTINCT FROM %s"
+            "        OR derivation IS DISTINCT FROM %s)"
+            " RETURNING id",
+            (
+                cluster.name,
+                link_rule,
+                Jsonb(derivation),
+                existing,
+                cluster.name,
+                link_rule,
+                Jsonb(derivation),
+            ),
+        ).fetchone()
+        return row[0] if row is not None else existing
+
     row = conn.execute(
         "INSERT INTO thread (identity_key, name, link_rule, derivation)"
         " VALUES (%s, %s, %s, %s)"
@@ -575,13 +607,38 @@ def _upsert_thread(
     return unchanged[0]
 
 
+def _thread_to_reuse(conn: Connection, cluster: ThreadCluster) -> UUID | None:
+    """Resolve durable identity before an insert can mint a replacement.
+
+    A retained empty row with the canonical content key wins, which is the
+    Story 10.1 replace-all path. Otherwise reuse a row already attached to a
+    cluster member, which preserves identity when a newly backfilled topic
+    changes the cluster's canonical candidate. Multiple prior rows can meet
+    after a bridge appears; ordering makes the survivor deterministic.
+    """
+    keyed = conn.execute(
+        "SELECT id FROM thread WHERE identity_key = %s", (cluster.identity_key,)
+    ).fetchone()
+    if keyed is not None:
+        return keyed[0]
+    members = [member.topic_id for member in cluster.members]
+    attached = conn.execute(
+        "SELECT DISTINCT th.id, th.identity_key"
+        " FROM topic_thread tt JOIN thread th ON th.id = tt.thread_id"
+        " WHERE tt.topic_id = ANY(%s)"
+        " ORDER BY th.identity_key, th.id LIMIT 1",
+        (members,),
+    ).fetchone()
+    return attached[0] if attached is not None else None
+
+
 def _upsert_membership(conn: Connection, member: ThreadMember, *, thread_id: UUID) -> None:
     """Attach one topic to its thread, moving it if it was somewhere else.
 
     ``topic_thread.topic_id`` is the primary key, so a move is one statement
-    and never a delete-then-insert — which matters because deleting the last
-    membership of a thread fires the trigger that removes the thread, and a
-    delete-then-insert pass would destroy and re-mint every thread it touched.
+    and never a delete-then-insert. Empty thread rows intentionally survive,
+    because Story 10.1 may remove and recreate every topic in the meeting
+    before this derivation has a chance to reattach the replacement rows.
     """
     conn.execute(
         "INSERT INTO topic_thread (topic_id, thread_id, linked_by, similarity)"
