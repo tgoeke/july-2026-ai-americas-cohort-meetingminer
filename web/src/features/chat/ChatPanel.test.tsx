@@ -122,10 +122,14 @@ function pickerResponse(request: Request): Response {
 
 beforeEach(() => {
   fetchMock = vi.fn()
+  // `vi.fn()`'s type is not callable on its own; the chat half of the router
+  // needs the signature `chatStream()` actually uses.
+  const chatFetch = fetchMock as unknown as (
+    url: unknown,
+    init?: RequestInit,
+  ) => Promise<Response>
   vi.stubGlobal('fetch', (input: unknown, init?: RequestInit) =>
-    input instanceof Request
-      ? Promise.resolve(pickerResponse(input))
-      : fetchMock(input, init),
+    input instanceof Request ? Promise.resolve(pickerResponse(input)) : chatFetch(input, init),
   )
 })
 
