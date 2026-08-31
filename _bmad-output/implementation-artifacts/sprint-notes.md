@@ -3515,3 +3515,11 @@ expose either because it never deleted and reinserted topic rows.
 The two unfiled deferrals were corrected at the same time: production invocation
 is **B-39** and per-corpus color ordinals are **B-40**, both now present with
 evidence and completion contracts in `docs/backlog.md`.
+
+Final review on current `origin/main` (`e5e0ff9`) found and fixed one more
+high-severity edge case: two products of a split could both reuse the same old
+thread row. Existing content-key rows are now reserved and every retained row
+can be claimed once per derivation. Final gates: focused threads 63 passed;
+`test-fast` server 2071 passed / 3 named skips / 405 deselected; full server
+2476 passed / 3 named skips plus puller, web, eval harness, diarization,
+store reachability, and the production build. Review verdict: **Pass**.

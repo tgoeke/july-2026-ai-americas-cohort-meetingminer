@@ -188,3 +188,24 @@ Not done, deliberately, and named rather than implied: nothing calls
 `derive_threads` in production yet (B-39 — the worker settle point is story
 10.1's file), and `thread.color_ordinal` is not added (B-40). Both are filed in
 `docs/backlog.md`.
+
+### Owner remediation result — 2026-08-30
+
+Status: **review complete — Pass** on final integration base
+`e5e0ff9c6e0f52492ee26be0f5f985109da9efe0`.
+
+Owner-directed findings F1/F5 are closed red-first: the earlier
+embedding-linked backfill retains its original `thread.id` while persisting the
+canonical normalized content key, and the Story 10.1 replace-all regression
+deletes/reinserts topic rows yet reclaims the identical singleton UUID. The
+existing unchanged-rerun test could not expose either path because it never
+deletes and reinserts topics. Sequential review added and fixed F9: one prior
+thread splitting into two clusters now assigns retained rows one-to-one instead
+of collapsing the split.
+
+Final verification after the last rebase: focused thread suites **63 passed**;
+`make test-fast` server **2071 passed, 3 named skips, 405 deselected** plus
+puller 128, web 294, and eval harness 643; `make test` server **2476 passed, 3
+named skips** in 656.44s plus diarization 92, store reachability, all auxiliary
+suites, and the production web build. Ruff and mypy are clean. B-39 and B-40
+are filed in `docs/backlog.md`; migration 0015 still does not collide with main.
