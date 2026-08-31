@@ -199,7 +199,19 @@ to name-only clustering, and make retry/restart behavior explicit.
 thread membership, an embedder outage leaves prior thread state intact, and an
 integration regression proves both paths without a real model call.
 
-### B-40 · Allocate durable per-corpus thread color ordinals — M
+### B-40 · Allocate durable per-corpus thread color ordinals — CLOSED
+
+**Closed 2026-08-31 by story 10.3.** Migration 0017 adds `thread.color_ordinal`,
+allocated from a Postgres sequence with a trigger that refuses any later change
+to it, and `GET /threads` serves it. The open question this item held — what
+"per corpus" means when `thread` has no corpus column — is answered in the
+migration header: threads are derived corpus-wide and can span `meeting.corpus`
+values, so the owning corpus is the database of record (AD-2) and one monotone
+sequence in it gives every thread exactly one colour. Partitioning by
+`meeting.corpus` would have given a cross-corpus thread two.
+
+The original entry follows.
+
 
 Epic 10 requires a server-owned positive color ordinal that is allocated once,
 never recycled, and survives human merge/split/rename. Story 10.2 cannot define
@@ -214,6 +226,28 @@ a split product receives a new one, and deleted ordinals are never reused.
 **Done when:** the API serves a stable per-corpus ordinal for every thread and
 concurrent allocation, merge, split, rename, and deletion tests prove uniqueness
 and non-reuse.
+
+### B-42 · AD-17's id-addressed media route does not exist — M
+
+AD-17 says the api resolves a media request by looking the row up from an id,
+never by joining a client-supplied path onto a root. `api/media.py` does that
+for one case only — `GET /media/recordings/{meetingId}` — while stills are
+served through the path-addressed `GET /media/{path:path}`, which means
+`screenshot.path` has to reach the client for a still to render.
+
+Story 10.3's timeline and story 10.4's feed both serve opaque `screenshotId`
+values on the strength of a `GET /media/files/{mediaId}` route their acceptance
+criteria name and no story has built; `api/media.py` was outside both
+footprints. Until it exists, a client holding a `screenshotId` cannot fetch the
+bytes without going back to a path-serving route for them.
+
+**Do:** add an id-addressed route that resolves `screenshot.id` (and any other
+evidence-file row) to its stored path server-side and streams it through the
+existing containment check and range parser, then retire path-addressed still
+serving from the clients that use it.
+
+**Done when:** every id the api serves for a still resolves through the
+id-addressed route, and no response body anywhere carries a storage path.
 
 ### B-41 · Adopt persisted judge selection in the eval harness — M
 
