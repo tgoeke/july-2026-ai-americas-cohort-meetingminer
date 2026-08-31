@@ -219,15 +219,16 @@ Run these; a skip or failure that is not listed here is a finding, not noise.
   pre-existing `only-export-components` warnings, none in this story's files.
 - `make test` — **2737 passed, 3 skipped**, 710s (11m50s), exit 0. The web
   production build (`tsc -b && vite build`) is part of that target and is clean.
-- `python3 _bmad/scripts/branch_conflicts.py --against story/8-2a` — 6 clean
-  pairs, 15 conflicting. Against the in-flight web stories the only conflicts
-  are `sprint-notes.md` (10-5, 10-6) and `docs/backlog.md` (10-6), both of
-  which `main` already conflicts with; **no source file this story touched
-  conflicts with `story/10-5`, `story/10-5-review`, `story/10-6` or
-  `story/10-6-review`.** The one genuinely new conflict is
-  `story/8-2a × story/12-1` on `web/src/client/index.ts`: both branches
-  regenerated the client, and the resolution on landing is to regenerate again
-  rather than to merge the generated line. Conflicts against `story/7-4`,
+- `python3 _bmad/scripts/branch_conflicts.py --against story/8-2a`, measured at
+  `f194eeec` (this branch's tip) — 4 clean pairs, 17 conflicting. Against the
+  in-flight web stories the only conflicts are `sprint-notes.md` (10-5, 10-6 —
+  a file this story did not touch, inherited from `main`) and `docs/backlog.md`
+  (10-6, 10-6-review — B-52's append meets their own entries); **no source file
+  this story touched conflicts with `story/10-5`, `story/10-5-review`,
+  `story/10-6` or `story/10-6-review`.** Two genuinely new conflicts:
+  `story/12-1` and `story/12-1-review` on `web/src/client/index.ts`, where both
+  branches regenerated the client — the resolution on landing is to regenerate
+  again rather than to merge the generated line. Conflicts against `story/7-4`,
   `story/8-3`, `story/10-3` and `story/10-4` are stale-branch noise — `main`
   conflicts with each of them identically, because those stories have landed and
   their branches were not deleted.
