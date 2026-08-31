@@ -56,6 +56,8 @@ ASSIGNMENT_FIELDS = {
     "displayName",
     "jobId",
     "rearmedStages",
+    "acceptedWhileUnviewable",
+    "previousJobStatus",
 }
 
 # One transcript that carries both shapes and still cuts into three moments,
@@ -170,6 +172,21 @@ def _stage_statuses(pool: ConnectionPool, job_id: UUID) -> dict[str, str]:
     }
 
 
+def _fail_speaker_rerun(pool: ConnectionPool, job_id: UUID) -> None:
+    """Leave the job exactly as a failed assignment-owned align rerun does."""
+    with pool.connection() as conn:
+        conn.execute(
+            "UPDATE job_stage SET status = 'failed', error = 'alignment failed'"
+            " WHERE job_id = %s AND name = 'align'",
+            (job_id,),
+        )
+        conn.execute(
+            "UPDATE job SET status = 'failed', error = 'alignment failed'"
+            " WHERE id = %s",
+            (job_id,),
+        )
+
+
 class _GatedConnection:
     """Pause one route connection after its job-status read."""
 
@@ -241,6 +258,8 @@ def test_the_response_carries_exactly_the_declared_fields(client, test_pool) -> 
     assert body["participantId"] == str(target)
     assert body["jobId"] == str(seeded.job_id)
     assert body["rearmedStages"] == list(SPEAKER_ASSIGNMENT_STAGES)
+    assert body["acceptedWhileUnviewable"] is False
+    assert body["previousJobStatus"] == "done"
 
 
 def test_a_new_display_name_mints_an_api_owned_participant(client, test_pool) -> None:
@@ -465,22 +484,59 @@ def test_an_unknown_meeting_is_refused(client) -> None:
     assert response.json()["type"] == "urn:meetingminer:problem:not-found"
 
 
-def test_a_meeting_whose_evidence_is_unsettled_is_refused(client, test_pool) -> None:
-    """The sibling reads' 409, reused rather than restated."""
-    seeded = _seed(
-        test_pool,
-        source_id="assign-unsettled",
-        turns=(),
-        has_recording=False,
-        stage_overrides={"align": "queued"},
-    )
-    _seed_tagged_segments(test_pool, seeded, ((PLACEHOLDER_TAG, "placeholder"),))
+def test_a_failed_speaker_rerun_can_be_corrected_and_rearmed(
+    client, test_pool
+) -> None:
+    """The curator action that caused the lockout is also its recovery path."""
+    seeded = _seed(test_pool, source_id="assign-failed-rerun", has_recording=False)
     _settle_job(test_pool, seeded.job_id)
+    first = _put(
+        client,
+        seeded.meeting_id,
+        PLACEHOLDER_TAG,
+        {"participantId": str(seeded.participant_ids[0])},
+    )
+    assert first.status_code == 200
+    _fail_speaker_rerun(test_pool, seeded.job_id)
 
     response = _put(client, seeded.meeting_id, PLACEHOLDER_TAG, {"unresolved": True})
 
-    assert response.status_code == 409
-    assert response.json()["type"] == "urn:meetingminer:problem:meeting-not-viewable"
+    assert response.status_code == 200
+    assert response.json()["acceptedWhileUnviewable"] is True
+    assert response.json()["previousJobStatus"] == "failed"
+    assert _alias_target(test_pool, seeded.meeting_id, PLACEHOLDER_TAG) is None
+    assert _rows(
+        test_pool, "SELECT status, error FROM job WHERE id = %s", seeded.job_id
+    ) == [("queued", None)]
+    assert {
+        name: _stage_statuses(test_pool, seeded.job_id)[name]
+        for name in SPEAKER_ASSIGNMENT_STAGES
+    } == {name: "queued" for name in SPEAKER_ASSIGNMENT_STAGES}
+
+
+def test_only_speaker_put_bypasses_the_failed_evidence_gate(client, test_pool) -> None:
+    """Reads and unrelated writes remain locked out by `_require_viewable`."""
+    seeded = _seed(test_pool, source_id="assign-failed-boundary", has_recording=False)
+    _settle_job(test_pool, seeded.job_id)
+    assert _put(
+        client,
+        seeded.meeting_id,
+        PLACEHOLDER_TAG,
+        {"participantId": str(seeded.participant_ids[0])},
+    ).status_code == 200
+    _fail_speaker_rerun(test_pool, seeded.job_id)
+
+    responses = (
+        client.get(f"/meetings/{seeded.meeting_id}/speakers"),
+        client.get(f"/meetings/{seeded.meeting_id}/moments"),
+        client.post(f"/moments/{seeded.moment_ids[0]}/approve"),
+    )
+
+    for response in responses:
+        assert response.status_code == 409
+        assert response.json()["type"] == (
+            "urn:meetingminer:problem:meeting-not-viewable"
+        )
 
 
 def test_a_running_job_is_refused(client, test_pool) -> None:

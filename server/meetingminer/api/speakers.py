@@ -44,6 +44,7 @@ from meetingminer.domain.speaker_assignments import (
     curated_identity_key,
     speaker_alias_key,
 )
+from meetingminer.projections.evidence import meeting_evidence_complete
 
 router = APIRouter()
 
@@ -366,6 +367,15 @@ class SpeakerAssignmentResponse(BaseModel):
     display_name: str | None
     job_id: UUID
     rearmed_stages: list[str]
+    # This PUT is the one deliberate exception to the meeting evidence gate:
+    # a failed assignment rerun must be correctable by the action that caused
+    # it. Surface that exceptional acceptance instead of making it look like
+    # an ordinary assignment against settled evidence.
+    accepted_while_unviewable: bool
+    # The rearm changes the persisted job status to `queued`; preserve the
+    # status it replaced so a caller can distinguish recovery from `failed`
+    # from an edit made while an earlier rerun was merely queued.
+    previous_job_status: str
 
 
 _ASSIGNMENT_PROBLEM_RESPONSES = {
@@ -391,12 +401,11 @@ _ASSIGNMENT_PROBLEM_RESPONSES = {
     409: {
         "model": ProblemDetails,
         "content": {"application/problem+json": {}},
-        "description": "`meeting-not-viewable` — an evidence stage has not"
-        " settled; carries `meetingId`, `augmenting` and `jobStatus` like the"
-        " sibling meeting reads."
-        " `assignment-target-busy` — the meeting's job is `running`, so"
+        "description": "`assignment-target-busy` — the meeting's job is `running`, so"
         " re-arming it would race the worker; carries `jobId` and `jobStatus`."
-        " Both are transient: retry once the job settles.",
+        " Retry once the job settles. An unviewable meeting whose job is not"
+        " running is deliberately accepted by this PUT as the curator's"
+        " recovery path; no other meeting read or write receives that exception.",
     },
 }
 
@@ -434,10 +443,6 @@ def assign_meeting_speaker(
     with pool.connection() as conn:
         if conn.execute(_MEETING_EXISTS, (meeting_id,)).fetchone() is None:
             raise Problem(404, "not-found", f"no meeting with id {meeting_id}")
-        # The sibling reads' gate: an assignment made against evidence that
-        # has not settled would be re-derived away by the ingest still in
-        # flight.
-        _require_viewable(conn, meeting_id)
         job_id, job_status = conn.execute(_JOB_FOR_MEETING, (meeting_id,)).fetchone()
         if job_status == "running":
             raise Problem(
@@ -449,6 +454,13 @@ def assign_meeting_speaker(
                 jobId=str(job_id),
                 jobStatus=job_status,
             )
+        # Deliberate, route-local recovery exception: every other meeting read
+        # and write still calls `_require_viewable`, including the GET beside
+        # this PUT. A failed speaker rerun is unviewable because of the
+        # assignment the curator must correct, so gating this exact action on
+        # viewability would make the lockout self-perpetuating. Do not move
+        # this policy into `_require_viewable` or generalize it to the router.
+        accepted_while_unviewable = not meeting_evidence_complete(conn, meeting_id)
         if conn.execute(_SPEAKER_TAG_EXISTS, (meeting_id, tag)).fetchone() is None:
             raise Problem(
                 404,
@@ -503,4 +515,6 @@ def assign_meeting_speaker(
         display_name=display_name,
         job_id=job_id,
         rearmed_stages=list(SPEAKER_ASSIGNMENT_STAGES),
+        accepted_while_unviewable=accepted_while_unviewable,
+        previous_job_status=job_status,
     )
