@@ -7,12 +7,14 @@ import {
   isFailedHealth,
   NO_MODELS_CONFIGURED,
   optionAccessibleDescription,
+  optionAccessibleName,
   optionsFor,
   providerHealthIndex,
   providerTrait,
   roleNamed,
   rolesOf,
   selectionRefusal,
+  selectionUnconfirmed,
   sourceNotice,
   staleSelectionNotice,
   triggerAccessibleName,
@@ -138,7 +140,29 @@ describe('providerHealthIndex', () => {
       word: 'invalid',
       remediation: 'set a valid OPENAI_API_KEY in .env',
     })
-    expect(index.get('ollama')?.word).toBe('ok')
+    expect(healthFor(index, 'ollama', 'extraction').word).toBe('ok')
+  })
+
+  it('does not transfer one role endpoint’s reachability to another role', () => {
+    const index = providerHealthIndex(
+      status([
+        statusRow({ role: 'chat', provider: 'ollama', keyState: 'not-required', state: 'ok' }),
+        statusRow({
+          role: 'extraction',
+          provider: 'ollama',
+          keyState: 'not-required',
+          state: 'degraded',
+          remediation: 'check the extraction override at http://10.77.0.52:11434',
+        }),
+      ]),
+    )
+
+    expect(healthFor(index, 'ollama', 'chat').word).toBe('ok')
+    expect(healthFor(index, 'ollama', 'extraction')).toEqual({
+      word: 'unreachable',
+      remediation: 'check the extraction override at http://10.77.0.52:11434',
+    })
+    expect(healthFor(index, 'ollama', 'summary').word).toBe('unknown')
   })
 
   it('skips a row whose provider the spelling rule could not identify', () => {
@@ -257,9 +281,16 @@ describe('the sentences the picker says', () => {
       ),
     )
     const description = optionAccessibleDescription(broken)
-    expect(description).toContain('remote · paid')
-    expect(description).toContain('health invalid')
-    expect(description).toContain('set a valid OPENAI_API_KEY in .env')
+    expect(optionAccessibleName(broken)).toContain('remote · paid')
+    expect(optionAccessibleName(broken)).toContain('health invalid')
+    expect(description).toBe('set a valid OPENAI_API_KEY in .env')
+  })
+
+  it('names an option without decorative glyphs or duplicating its description', () => {
+    const [option] = optionsFor(role(), new Map())
+    expect(optionAccessibleName(option)).toBe(
+      'GPT-5.2, openai/gpt-5.2, openai, remote · paid, health unknown',
+    )
   })
 
   it('tells a stored choice from an inherited default, with no restart language', () => {
@@ -290,10 +321,26 @@ describe('the sentences the picker says', () => {
   })
 
   it('restates the binding in force after a refusal and substitutes nothing', () => {
-    const message = selectionRefusal(role(), 'binding-not-in-catalog')
+    const message = selectionRefusal(
+      role(),
+      'ollama/gpt-oss:120b',
+      'binding-not-in-catalog — binding is not offered',
+    )
+    expect(message.startsWith('binding-not-in-catalog')).toBe(true)
     expect(message).toContain('binding-not-in-catalog')
     expect(message).toContain('still bound to openai/gpt-5.2')
     expect(message).toMatch(/nothing was substituted/)
+  })
+
+  it('does not claim a transport failure proves the api refused the write', () => {
+    const message = selectionUnconfirmed(
+      role(),
+      'ollama/gpt-oss:120b',
+      'the connection closed',
+    )
+    expect(message).toContain('could not confirm whether the api accepted')
+    expect(message).toContain('last binding reported by the api was openai/gpt-5.2')
+    expect(message).not.toContain('did not accept')
   })
 
   it('invents no default for an empty catalog', () => {

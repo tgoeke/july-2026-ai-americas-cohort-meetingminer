@@ -187,6 +187,9 @@ describe('ModelSelect', () => {
       'set OPENAI_API_KEY in .env and restart the api',
     )
     expect(broken.getAttribute('aria-description')).toContain('set OPENAI_API_KEY')
+    expect(broken).toHaveAccessibleName(
+      'GPT-5.2, openai/gpt-5.2, openai, remote · paid, health missing',
+    )
     // Not disabled and not hidden — the failure must surface at the ask.
     expect(broken).not.toHaveAttribute('aria-disabled')
     await user.click(broken)
@@ -228,62 +231,78 @@ describe('ModelSelect', () => {
     await user.click(screen.getByTestId('model-option-ollama/gpt-oss:120b'))
 
     const refusal = await screen.findByTestId('model-select-refusal')
+    expect(refusal).toHaveTextContent('binding-not-in-catalog')
     expect(refusal).toHaveTextContent("does not offer 'ollama/gpt-oss:120b'")
     expect(refusal).toHaveTextContent('still bound to openai/gpt-5.2')
     expect(refusal).toHaveTextContent('nothing was substituted')
     // The trigger still names the binding the api last reported, and no other
     // entry was marked in its place.
-    expect(screen.getByTestId('model-select-trigger')).toHaveTextContent('openai/gpt-5.2')
-    expect(screen.getAllByRole('option')[0]).toHaveAttribute('aria-selected', 'true')
+    const trigger = screen.getByTestId('model-select-trigger')
+    expect(trigger).toHaveTextContent('openai/gpt-5.2')
     expect(puts).toHaveLength(1)
+    expect(screen.queryByTestId('model-select-listbox')).toBeNull()
+    expect(trigger).toHaveFocus()
+    await user.click(trigger)
+    expect(screen.getAllByRole('option')[0]).toHaveAttribute('aria-selected', 'true')
+    await user.keyboard('{Escape}')
   })
 
-  it('keeps the later of two rapid choices, whichever response lands first', async () => {
-    const resolvers: Array<(response: Response) => void> = []
+  it('serializes rapid same-role writes so the later click is also the persisted binding', async () => {
+    let stored = 'openai/gpt-5.2'
+    const resolvers: Array<() => void> = []
     stubApi({
       put: (binding) =>
         new Promise<Response>((resolve) => {
-          resolvers.push((response) => resolve(response))
-          void binding
+          resolvers.push(() => {
+            stored = binding
+            resolve(
+              json(
+                chatRole({
+                  selected: binding,
+                  effectiveBinding: binding,
+                  provider: binding.split('/')[0],
+                  source: 'selection',
+                }),
+              ),
+            )
+          })
         }),
     })
     render(<ModelSelect />)
     const user = await openPicker()
 
     await user.click(screen.getByTestId('model-option-ollama/gpt-oss:120b'))
-    await user.click(screen.getByTestId('model-option-openai/gpt-5.2'))
-    await waitFor(() => expect(resolvers).toHaveLength(2))
+    await user.click(screen.getByTestId('model-select-trigger'))
+    await user.click(await screen.findByTestId('model-option-openai/gpt-5.2'))
+    await waitFor(() => expect(resolvers).toHaveLength(1))
 
-    // The SECOND request answers first, then the first answers late. The late
-    // one is discarded: it belongs to a superseded generation.
-    resolvers[1](
-      json(
-        chatRole({
-          selected: 'openai/gpt-5.2',
-          effectiveBinding: 'openai/gpt-5.2',
-          provider: 'openai',
-          source: 'selection',
-        }),
-      ),
-    )
-    await waitFor(() =>
-      expect(screen.getByTestId('model-select-source')).toHaveTextContent('your selection'),
-    )
-    resolvers[0](
-      json(
-        chatRole({
-          selected: 'ollama/gpt-oss:120b',
-          effectiveBinding: 'ollama/gpt-oss:120b',
-          provider: 'ollama',
-          source: 'selection',
-        }),
-      ),
-    )
+    // The later write is not issued until the earlier one settles. The server
+    // therefore commits in click order, not whichever response happens to win.
+    resolvers[0]()
+    await waitFor(() => expect(resolvers).toHaveLength(2))
+    resolvers[1]()
 
     await waitFor(() =>
       expect(screen.getByTestId('model-select-trigger')).toHaveTextContent('openai/gpt-5.2'),
     )
     expect(screen.getByTestId('model-select-trigger')).not.toHaveTextContent('ollama/gpt-oss:120b')
+    expect(stored).toBe('openai/gpt-5.2')
+  })
+
+  it('reports a rejected PUT as unconfirmed without claiming the server refused it', async () => {
+    stubApi({ put: () => Promise.reject(new TypeError('connection reset')) })
+    render(<ModelSelect />)
+    const user = await openPicker()
+
+    await user.click(screen.getByTestId('model-option-ollama/gpt-oss:120b'))
+
+    const refusal = await screen.findByTestId('model-select-refusal')
+    expect(refusal).toHaveTextContent('could not confirm whether the api accepted')
+    expect(refusal).toHaveTextContent('ollama/gpt-oss:120b')
+    expect(refusal).not.toHaveTextContent('the api did not accept')
+    expect(refusal).not.toHaveTextContent('is still bound')
+    expect(screen.getByTestId('model-select-trigger')).toHaveTextContent('openai/gpt-5.2')
+    await waitFor(() => expect(screen.queryByTestId('model-select-pending')).toBeNull())
   })
 
   it('moves with the arrow keys and selects with Enter', async () => {
@@ -330,11 +349,69 @@ describe('ModelSelect', () => {
     render(<ModelSelect />)
     await openPicker()
 
-    expect(screen.getByTestId('model-option-health-openai/gpt-5.2')).toHaveTextContent('unknown')
+    expect(screen.getByTestId('model-option-health-openai/gpt-5.2')).toHaveTextContent(/^unknown$/)
     expect(screen.queryByTestId('model-option-remediation-openai/gpt-5.2')).toBeNull()
+    expect(screen.getByTestId('model-select-trigger').textContent).not.toContain('●')
     // The catalog still renders and stays selectable: choosing a model does
     // not depend on the health surface being up.
     expect(screen.getAllByRole('option')).toHaveLength(2)
+  })
+
+  it('makes no locality or cost claim when served provider evidence is unclassified', async () => {
+    stubApi({
+      models: () =>
+        json({
+          roles: [
+            chatRole({
+              catalog: [
+                {
+                  binding: 'openai/contradictory-prefix',
+                  label: 'Label claims local and free',
+                  provider: 'bedrock',
+                },
+              ],
+              effectiveBinding: 'openai/contradictory-prefix',
+              provider: null,
+            }),
+          ],
+        }),
+      status: () => json({ ...statusFixture(), llmRoles: [] }),
+    })
+    render(<ModelSelect />)
+
+    const trigger = await screen.findByTestId('model-select-trigger')
+    expect(trigger).toHaveAccessibleName(expect.stringContaining('provider not identified'))
+    expect(trigger).toHaveAccessibleName(expect.stringContaining('not known here'))
+    await openPicker()
+    const option = screen.getByRole('option')
+    expect(option).toHaveAccessibleName(expect.stringContaining('bedrock'))
+    expect(option).toHaveAccessibleName(expect.stringContaining('not known here'))
+    expect(option).not.toHaveAccessibleName(expect.stringMatching(/remote · paid|local · free/))
+  })
+
+  it('groups the catalog by served provider and links to all role settings', async () => {
+    stubApi()
+    render(<ModelSelect />)
+    await openPicker()
+
+    expect(screen.getByRole('group', { name: 'openai' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'ollama' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'All roles… (Settings)' })).toHaveAttribute(
+      'href',
+      '/settings',
+    )
+  })
+
+  it('right-aligns and bounds the popover at the trigger rather than the message column', async () => {
+    stubApi()
+    render(<ModelSelect />)
+    await openPicker()
+
+    const popover = screen.getByTestId('model-select-popover')
+    expect(popover).toHaveClass('right-0')
+    expect(popover).not.toHaveClass('left-0')
+    expect(popover.className).toMatch(/max-h-/)
+    expect(popover).toHaveClass('overflow-y-auto')
   })
 
   it('invents no default for an empty catalog and opens nothing', async () => {

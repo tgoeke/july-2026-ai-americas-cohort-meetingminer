@@ -93,7 +93,7 @@ function json(body: unknown, status = 200): Response {
 
 function stubApi(
   roles: Array<RoleSelectionView>,
-  put?: (role: string, binding: string) => Response,
+  put?: (role: string, binding: string) => Response | Promise<Response>,
 ): Array<{ role: string; binding: string }> {
   const puts: Array<{ role: string; binding: string }> = []
   vi.stubGlobal('fetch', async (input: unknown) => {
@@ -162,6 +162,9 @@ describe('ModelRoles', () => {
     const snapshot = await screen.findByText(/The catalog is config\.yaml as the api read it/)
     expect(snapshot).toHaveTextContent('api restart')
     expect(snapshot).toHaveTextContent('Choosing one of the bindings below is not')
+    expect(screen.getByText(/Every eval run snapshot records the effective binding/)).toHaveTextContent(
+      'beside its file value',
+    )
   })
 
   it('persists a choice for the role whose list was clicked', async () => {
@@ -183,6 +186,55 @@ describe('ModelRoles', () => {
     expect(screen.getByTestId('model-roles-source-extraction')).toHaveTextContent(
       'In force by your selection',
     )
+  })
+
+  it('owns concurrent writes independently for two different roles', async () => {
+    const resolvers = new Map<string, (response: Response) => void>()
+    const roles = [extractionView(), roleView()]
+    const puts = stubApi(
+      roles,
+      (name, binding) =>
+        new Promise<Response>((resolve) => {
+          resolvers.set(name, resolve)
+          void binding
+        }),
+    )
+    const user = userEvent.setup()
+    render(<ModelRoles />)
+
+    await user.click(await screen.findByTestId('model-roles-option-chat-ollama/gpt-oss:120b'))
+    await user.click(screen.getByTestId('model-roles-option-extraction-ollama/gpt-oss:120b'))
+    await waitFor(() => expect(resolvers.size).toBe(2))
+
+    resolvers.get('extraction')?.(
+      json({
+        ...extractionView(),
+        selected: 'ollama/gpt-oss:120b',
+        effectiveBinding: 'ollama/gpt-oss:120b',
+      }),
+    )
+    resolvers.get('chat')?.(
+      json({
+        ...roleView(),
+        selected: 'ollama/gpt-oss:120b',
+        effectiveBinding: 'ollama/gpt-oss:120b',
+        provider: 'ollama',
+        source: 'selection',
+      }),
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('model-roles-source-chat')).toHaveTextContent('your selection'),
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('model-roles-source-extraction')).toHaveTextContent(
+        'your selection',
+      ),
+    )
+    expect(puts).toEqual([
+      { role: 'chat', binding: 'ollama/gpt-oss:120b' },
+      { role: 'extraction', binding: 'ollama/gpt-oss:120b' },
+    ])
   })
 
   it('keeps a broken binding listed, muted, with its fix, and still selectable', async () => {
@@ -221,6 +273,34 @@ describe('ModelRoles', () => {
     const refusal = await screen.findByTestId('model-roles-refusal-chat')
     expect(refusal).toHaveTextContent('still bound to openai/gpt-5.2')
     expect(refusal).toHaveTextContent('nothing was substituted')
+    expect(
+      screen.getByTestId('model-roles-option-chat-openai/gpt-5.2'),
+    ).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('rejects a successful response for a different role without adding that control', async () => {
+    stubApi([roleView()], () =>
+      json(
+        roleView({
+          role: 'judge',
+          selected: 'ollama/gpt-oss:120b',
+          effectiveBinding: 'ollama/gpt-oss:120b',
+          provider: 'ollama',
+          source: 'selection',
+        }),
+      ),
+    )
+    const user = userEvent.setup()
+    render(<ModelRoles />)
+
+    await user.click(
+      await screen.findByTestId('model-roles-option-chat-ollama/gpt-oss:120b'),
+    )
+
+    const refusal = await screen.findByTestId('model-roles-refusal-chat')
+    expect(refusal).toHaveTextContent('returned role judge for requested role chat')
+    expect(screen.getByText('llm.roles.chat')).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/llm\.roles\.judge/)
     expect(
       screen.getByTestId('model-roles-option-chat-openai/gpt-5.2'),
     ).toHaveAttribute('aria-selected', 'true')

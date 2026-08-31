@@ -32,10 +32,11 @@ export type ConfigLoad =
  * page still is, and every section still says so.
  */
 export const READ_ONLY_CONTRACT =
-  'Everything on this page is read-only except the model bound to each LLM ' +
-  'role: changing anything else is a file edit — config.yaml — plus a ' +
-  'restart of the affected process, and no other edit control exists. The ' +
-  'model selection is stored by the api and applies to the next call.'
+  'Everything on this page is read-only except model choices for the roles ' +
+  'offered in Model per role: changing anything else is a file edit — ' +
+  'config.yaml — plus a restart of the affected process, and no other edit ' +
+  'control exists. A model choice is stored by the api and applies to the ' +
+  'next call.'
 
 /**
  * One section's change path. `projections.*` edits additionally need

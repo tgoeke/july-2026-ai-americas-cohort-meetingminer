@@ -28,7 +28,7 @@ export function HealthBadge({ health, testId }: { health: ProviderHealth; testId
       data-testid={testId}
       className={`flex shrink-0 items-center gap-1 text-xs ${healthClass(health.word)}`}
     >
-      <span aria-hidden="true">●</span>
+      {health.word !== 'unknown' && <span aria-hidden="true">●</span>}
       <span>{health.word}</span>
     </span>
   )

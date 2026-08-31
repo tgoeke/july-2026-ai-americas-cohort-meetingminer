@@ -3,8 +3,10 @@ import { API_BASE } from '@/lib/api'
 import { OptionBody } from './ModelOptionRow'
 import {
   CATALOG_IS_A_STARTUP_SNAPSHOT,
+  EFFECTIVE_BINDING_IS_SNAPSHOTTED,
   NO_MODELS_CONFIGURED,
   optionAccessibleDescription,
+  optionAccessibleName,
   optionsFor,
   rolesOf,
   sourceNotice,
@@ -69,6 +71,7 @@ function RoleBlock({
               type="button"
               role="option"
               aria-selected={option.active}
+              aria-label={optionAccessibleName(option)}
               aria-description={optionAccessibleDescription(option)}
               data-testid={`model-roles-option-${role.role}-${option.binding}`}
               // Never `aria-disabled`: a failed binding stays selectable so the
@@ -141,6 +144,7 @@ export function ModelRoles() {
   return (
     <div className="flex flex-col gap-3">
       <p className="text-xs text-muted-foreground">{CATALOG_IS_A_STARTUP_SNAPSHOT}</p>
+      <p className="text-xs text-muted-foreground">{EFFECTIVE_BINDING_IS_SNAPSHOTTED}</p>
       {roles.length === 0 ? (
         <p data-testid="model-roles-none" className="text-sm text-muted-foreground">
           No role is offered for selection.

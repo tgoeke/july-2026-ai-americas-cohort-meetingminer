@@ -6,6 +6,7 @@ import {
   healthFor,
   NO_MODELS_CONFIGURED,
   optionAccessibleDescription,
+  optionAccessibleName,
   optionsFor,
   roleNamed,
   sourceNotice,
@@ -105,15 +106,24 @@ export function ModelSelect({ role: roleName = ASK_BOX_ROLE }: ModelSelectProps 
   }
 
   const options = optionsFor(role, health)
-  const activeHealth = healthFor(health, role.provider)
+  const activeHealth = healthFor(health, role.provider, role.role)
   const parts = triggerParts(role, activeHealth)
   const listboxId = `model-select-${role.role}-listbox`
   const optionId = (index: number) => `model-select-${role.role}-option-${index}`
   const stale = staleSelectionNotice(role)
   const refusal = failure[role.role]
   const busyBinding = pending[role.role]
+  const providerGroups = options.reduce<
+    Array<{ provider: string | null; entries: Array<{ option: (typeof options)[number]; index: number }> }>
+  >((groups, option, index) => {
+    const last = groups.at(-1)
+    if (last?.provider === option.provider) last.entries.push({ option, index })
+    else groups.push({ provider: option.provider, entries: [{ option, index }] })
+    return groups
+  }, [])
 
   const choose = async (binding: string) => {
+    close()
     await select(role, binding)
   }
 
@@ -142,78 +152,99 @@ export function ModelSelect({ role: roleName = ASK_BOX_ROLE }: ModelSelectProps 
   }
 
   return (
-    <span ref={containerRef} className="relative flex flex-col gap-1">
-      <button
-        ref={triggerRef}
-        type="button"
-        data-testid="model-select-trigger"
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-controls={open ? listboxId : undefined}
-        aria-disabled={options.length === 0 || undefined}
-        aria-label={triggerAccessibleName(role, activeHealth)}
-        className="flex items-center gap-2 rounded-md border px-2 py-1 text-xs"
-        onClick={() => {
-          // An empty catalog opens nothing: there is no choice to present, and
-          // no default is invented to fill the gap.
-          if (options.length === 0) return
-          setOpen((current) => {
-            if (!current) {
-              const active = options.findIndex((option) => option.active)
-              setActiveIndex(active === -1 ? 0 : active)
-            }
-            return !current
-          })
-        }}
-      >
-        <span>{parts.role}</span>
-        <span aria-hidden="true">·</span>
-        <code className="font-mono">{parts.binding}</code>
-        <span aria-hidden="true">·</span>
-        <span>{parts.provider}</span>
-        <span aria-hidden="true">●</span>
-        <span aria-hidden="true">{parts.health}</span>
-      </button>
+    <span className="flex flex-col gap-1">
+      <span ref={containerRef} className="relative inline-flex self-end">
+        <button
+          ref={triggerRef}
+          type="button"
+          data-testid="model-select-trigger"
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          aria-controls={open ? listboxId : undefined}
+          aria-disabled={options.length === 0 || undefined}
+          aria-label={triggerAccessibleName(role, activeHealth)}
+          className="flex items-center gap-2 rounded-md border px-2 py-1 text-xs"
+          onClick={() => {
+            // An empty catalog opens nothing: there is no choice to present,
+            // and no default is invented to fill the gap.
+            if (options.length === 0) return
+            setOpen((current) => {
+              if (!current) {
+                const active = options.findIndex((option) => option.active)
+                setActiveIndex(active === -1 ? 0 : active)
+              }
+              return !current
+            })
+          }}
+        >
+          <span>{parts.role}</span>
+          <span aria-hidden="true">·</span>
+          <code className="font-mono">{parts.binding}</code>
+          <span aria-hidden="true">·</span>
+          <span>{parts.provider}</span>
+          {parts.health !== 'unknown' && <span aria-hidden="true">●</span>}
+          <span aria-hidden="true">{parts.health}</span>
+        </button>
+
+        {open && options.length > 0 && (
+          <div
+            data-testid="model-select-popover"
+            className="absolute top-full right-0 z-50 mt-1 flex max-h-[min(24rem,70vh)] w-max max-w-[min(28rem,90vw)] flex-col gap-1 overflow-y-auto rounded-md border bg-popover p-2 shadow-md"
+          >
+            <div
+              ref={listRef}
+              id={listboxId}
+              role="listbox"
+              tabIndex={0}
+              aria-label={`Choose the model bound to the ${role.role} role`}
+              aria-activedescendant={optionId(activeIndex)}
+              aria-busy={busyBinding !== undefined}
+              data-testid="model-select-listbox"
+              onKeyDown={onListKeyDown}
+              className="flex flex-col gap-1"
+            >
+              {providerGroups.map((group, groupIndex) => {
+                const groupId = `model-select-${role.role}-provider-${groupIndex}`
+                return (
+                  <div key={groupId} role="group" aria-labelledby={groupId}>
+                    <span id={groupId} className="px-1.5 text-xs font-medium text-muted-foreground">
+                      {group.provider ?? 'provider not identified'}
+                    </span>
+                    {group.entries.map(({ option, index }) => (
+                      <div
+                        key={option.binding}
+                        id={optionId(index)}
+                        role="option"
+                        aria-selected={option.active}
+                        aria-label={optionAccessibleName(option)}
+                        aria-description={optionAccessibleDescription(option)}
+                        data-testid={`model-option-${option.binding}`}
+                        className={`flex cursor-pointer items-start gap-2 rounded-sm p-1.5 ${
+                          index === activeIndex ? 'bg-muted' : ''
+                        }`}
+                        onClick={() => {
+                          setActiveIndex(index)
+                          void choose(option.binding)
+                        }}
+                      >
+                        <OptionBody option={option} />
+                      </div>
+                    ))}
+                  </div>
+                )
+              })}
+            </div>
+            <a href="/settings" className="mt-1 border-t px-1.5 pt-2 text-xs underline">
+              All roles… (Settings)
+            </a>
+          </div>
+        )}
+      </span>
 
       {options.length === 0 && (
         <span data-testid="model-select-empty" className="text-xs text-muted-foreground">
           {NO_MODELS_CONFIGURED}
         </span>
-      )}
-
-      {open && options.length > 0 && (
-        <div
-          ref={listRef}
-          id={listboxId}
-          role="listbox"
-          tabIndex={0}
-          aria-label={`Choose the model bound to the ${role.role} role`}
-          aria-activedescendant={optionId(activeIndex)}
-          aria-busy={busyBinding !== undefined}
-          data-testid="model-select-listbox"
-          onKeyDown={onListKeyDown}
-          className="absolute top-full left-0 z-50 mt-1 flex w-max max-w-[min(28rem,90vw)] flex-col gap-1 rounded-md border bg-popover p-2 shadow-md"
-        >
-          {options.map((option, index) => (
-            <div
-              key={option.binding}
-              id={optionId(index)}
-              role="option"
-              aria-selected={option.active}
-              aria-description={optionAccessibleDescription(option)}
-              data-testid={`model-option-${option.binding}`}
-              className={`flex cursor-pointer items-start gap-2 rounded-sm p-1.5 ${
-                index === activeIndex ? 'bg-muted' : ''
-              }`}
-              onClick={() => {
-                setActiveIndex(index)
-                void choose(option.binding)
-              }}
-            >
-              <OptionBody option={option} />
-            </div>
-          ))}
-        </div>
       )}
 
       {busyBinding !== undefined && (
