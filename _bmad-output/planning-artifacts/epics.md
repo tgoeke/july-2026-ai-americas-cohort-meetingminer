@@ -2068,3 +2068,87 @@ not have to infer it.
 **Then** its module docstring no longer describes a rule that holds only in
 part: it names the extraction-document exception and points at AD-4, so the
 gate's own account of itself stays true.
+
+### Story 10.7: Threads Is a Query, Not a Catalogue
+
+As a user,
+I want to open Threads empty, type a subject, and fly along a timeline of every meeting where it was discussed,
+So that a thread is a route into the corpus rather than a list of everything the machine derived. (FR42, FR43, UX-DR18)
+
+**Why this story exists.** Story 10.6 built the zoom, and the zoom works. What
+is wrong is both ends of it. The view opens on a catalogue — every derived
+thread as a band, 1,090 of them on the corpus of 2026-08-31, of which **976
+involve exactly one meeting** — so the reader arrives at a wall of rows that are
+not subjects followed across meetings at all. And the deepest zoom ends at a
+moment, when the thing the reader wants is the meeting.
+
+Owner direction 2026-08-31, in their words: *"I go to the threads view and I
+type in a thread topic. Then I get an overview of all the meetings where that
+thread runs through those meetings … you're going to see a timeline across all
+your meetings where that gets surfaced … and then I can click into a meeting
+like I can do in the meeting view."*
+
+**Acceptance Criteria:**
+
+**Given** the Threads view,
+**When** it opens,
+**Then** it is **empty** — no thread list, no bands, no derived catalogue — and
+offers one thing: a place to type a subject. Nothing is drawn until the reader
+asks for something.
+
+**Given** a subject typed into that box,
+**When** the reader is still typing or has not chosen,
+**Then** the view offers **candidate subjects adjacent to what was typed**, as
+suggestions to pick from rather than a single guessed match — "trail closures"
+surfaces both "Cedar Lake Trail closure" and "Trail reopening outlook", and the
+reader chooses. Adjacency comes from the same embedding the derivation already
+uses, so a paraphrase finds its subject.
+
+**Given** a chosen subject,
+**When** the timeline builds,
+**Then** it runs **left to right in time** across **every** meeting where that
+subject surfaced, **on one timeline** — meetings from different recurring
+series are interleaved by date, not separated into lanes. The same subject
+discussed in two different community meeting settings appears as two points on
+one schedule, which is the comparison the reader came for.
+
+**Given** the built timeline,
+**When** the reader zooms and pans,
+**Then** it behaves like story 10.6's canvas — continuous, extending beyond the
+screen, no layout jump — and **meetings reveal their detail as the zoom deepens**
+rather than all at once.
+
+**Given** a meeting on the timeline,
+**When** it is clicked,
+**Then** it opens the **meeting view** — that meeting's moments, artifacts,
+screenshots and everything else already held for it. The meeting is the
+destination; the thread was the route.
+
+**Given** a subject that matches nothing,
+**When** the reader submits it,
+**Then** the view says so plainly and suggests nothing it cannot back — no
+invented subject, no empty timeline presented as a result.
+
+**Partial delivery is acceptable** by owner decision: the timeline and its zoom
+are the point, and shipping them without the deepest tier is better than
+shipping nothing.
+
+### Story 10.7a: Retire the Thread Catalogue
+
+As a maintainer,
+I want `GET /threads` to stop serving a catalogue nobody navigates,
+So that the endpoint matches how threads are actually entered. (FR42)
+
+**Acceptance Criteria:**
+
+**Given** story 10.7's query entry,
+**When** it lands,
+**Then** the unfiltered thread list is no longer the view's front door, and the
+endpoint either serves the suggestion query or is scoped to threads that
+actually span meetings — a one-meeting, one-mention row is not a thread by
+`domain/threads.py`'s own definition and must not be offered as one.
+
+**Given** the derivation,
+**When** it mints identity rows for single-topic clusters,
+**Then** those rows keep existing — they are reuse targets that make a rerun
+idempotent — but existing is not the same as being served.
