@@ -127,7 +127,8 @@ candidates were rejected after tracing the database constraints, the complete
   `main × story/7-2-review` clean. Other reported overlaps are the expected
   source-branch overlap and sprint-notes/docs conflicts already assigned to
   integration.
-- `make check-reviews` — pending final report commit.
+- `make check-reviews` — passed: every dispatched review has a committed
+  report.
 
 ## Remediation commits
 
