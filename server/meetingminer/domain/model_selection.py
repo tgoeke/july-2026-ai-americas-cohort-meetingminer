@@ -52,6 +52,7 @@ __all__ = [
     "bind",
     "catalog_bindings",
     "check_selectable",
+    "is_selectable",
     "log_stale_selection",
     "read_selection",
     "read_selections",
@@ -147,10 +148,15 @@ def catalog_bindings(role_binding: RoleBinding) -> tuple[str, ...]:
     return tuple(entry.binding for entry in role_binding.catalog)
 
 
+def is_selectable(binding: str, offered: Sequence[str]) -> bool:
+    """The one catalog-membership decision used on both write and read."""
+    return binding in offered
+
+
 def check_selectable(role: str, binding: str, role_binding: RoleBinding) -> None:
     """Raise :class:`SelectionNotInCatalogError` unless the catalog offers ``binding``."""
     offered = catalog_bindings(role_binding)
-    if binding not in offered:
+    if not is_selectable(binding, offered):
         raise SelectionNotInCatalogError(role, binding, offered)
 
 
@@ -181,7 +187,7 @@ def resolve(
             selected=None,
         )
 
-    if selected not in offered:
+    if not is_selectable(selected, offered):
         declared = ", ".join(repr(item) for item in offered) or "no bindings at all"
         return EffectiveBinding(
             role=role,

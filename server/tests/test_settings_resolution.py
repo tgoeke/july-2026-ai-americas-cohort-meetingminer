@@ -341,6 +341,31 @@ def test_a_selection_outside_the_catalog_is_refused_on_write() -> None:
     assert "openai/gpt-5.2" in message
 
 
+def test_write_and_read_share_one_catalog_membership_predicate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    binding = _role("openai/gpt-5.2", ["openai/gpt-5.2"])
+    calls: list[tuple[str, tuple[str, ...]]] = []
+
+    def refuse(candidate: str, offered: tuple[str, ...]) -> bool:
+        calls.append((candidate, offered))
+        return False
+
+    monkeypatch.setattr(model_selection, "is_selectable", refuse, raising=False)
+
+    with pytest.raises(model_selection.SelectionNotInCatalogError):
+        model_selection.check_selectable("chat", "openai/gpt-5.2", binding)
+    effective = model_selection.resolve(
+        "chat", binding, selected="openai/gpt-5.2"
+    )
+
+    assert effective.stale_selection == "openai/gpt-5.2"
+    assert calls == [
+        ("openai/gpt-5.2", ("openai/gpt-5.2",)),
+        ("openai/gpt-5.2", ("openai/gpt-5.2",)),
+    ]
+
+
 def test_a_selection_the_catalog_no_longer_offers_is_discarded_on_read() -> None:
     """`config.yaml` can be edited under a stored selection.
 
