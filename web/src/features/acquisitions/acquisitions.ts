@@ -172,10 +172,10 @@ export function stepperSteps(
   ]
 }
 
-/** `posted — job 8f3c…`, the mockup's wording, or plain `posted` with no id. */
+/** `posted — job 8f3c1a2b…`, the contract's eight-char prefix, or plain `posted`. */
 export function postedWordFor(status: AcquisitionStatus): string {
   const jobId = nonEmptyString(status.jobId)
-  return jobId === null ? 'posted' : `posted — job ${jobId.slice(0, 4)}…`
+  return jobId === null ? 'posted' : `posted — job ${jobId.slice(0, 8)}…`
 }
 
 /**

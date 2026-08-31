@@ -100,7 +100,7 @@ Date: 2026-08-31
 - **Finding** — The posted step shows only four job-id characters, while the frozen posted-state matrix requires the first eight before the ellipsis.
 - **Evidence** — `postedWordFor` uses `jobId.slice(0, 4)` and its unit test pins `8f3c…`; the contract requires `posted — job <8 chars>…`. Four characters are materially less useful when correlating the visible acquisition with logs or status output.
 - **Suggested direction** — Render the first eight characters and update the unit and component assertions to pin the contract.
-- **Disposition** — patchable; remediation in progress.
+- **Disposition** — fixed red-first. The strengthened unit assertion received `posted — job 8f3c…` from the original helper, then passed after the prefix changed to eight characters; the component assertion pins the same output.
 
 ## Disposition
 
