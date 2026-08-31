@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-18-2026 10:04
-last_updated: 08-31-2026 00:05
+last_updated: 08-31-2026 14:41
 project: meetingminer
 project_key: NOKEY
 tracking_system: file-system
@@ -137,7 +137,7 @@ development_status:
   10-5-moments-view-and-front-door: done
   10-6-threads-zoomable-timeline: done
   10-6a-evidence-tier-and-inline-replay: backlog
-  10-7-threads-is-a-query-not-a-catalogue: review
+  10-7-threads-is-a-query-not-a-catalogue: done
   10-7a-retire-the-thread-catalogue: backlog
   epic-10-retrospective: optional
 
