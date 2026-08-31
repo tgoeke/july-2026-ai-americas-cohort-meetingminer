@@ -269,8 +269,23 @@ describe('Add-meeting, the pre-flight probe', () => {
       'Retrieval bake-off review · 1h 24m · captions: manual en · youtube:dQw4w9WgXcQ',
     )
     expect(screen.getByText('Nothing has been written.')).toBeInTheDocument()
+    expect(screen.queryByTestId('auto-caption-warning')).not.toBeInTheDocument()
     expect(screen.getByTestId('submit-acquisition')).toBeEnabled()
     expect(sdk.startAcquisition).not.toHaveBeenCalled()
+  })
+
+  it('warns before submit when auto-generated captions carry no speaker labels', async () => {
+    sdk.probeAcquisition.mockResolvedValue({
+      data: probeResult({ captions: { kind: 'auto', language: 'en' } }),
+      error: undefined,
+    })
+    render(<AddMeeting />)
+    await typeUrl(VIDEO_URL)
+
+    expect(screen.getByTestId('auto-caption-warning')).toHaveTextContent(
+      'Auto-generated captions do not include speaker labels. Segments will initially appear as Unknown.',
+    )
+    expect(screen.getByTestId('submit-acquisition')).toBeEnabled()
   })
 
   it('disables Submit immediately when an answered URL is replaced', async () => {

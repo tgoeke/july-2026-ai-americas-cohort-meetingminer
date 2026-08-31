@@ -118,7 +118,7 @@ Date: 2026-08-31
 - **Finding** — When the probe reports `captions.kind: "auto"`, the screen prints only `captions: auto en`. It never tells the user that YouTube auto-generated captions carry no speaker attribution, so the most common corpus outcome—segments arriving as `Unknown`—is hidden until after the acquisition is committed.
 - **Evidence** — `ProbeResult.captions.kind` is a served field and the owner's live probe returned `auto`; the owner also confirmed those captions carry no speaker labels. `EXPERIENCE.md:305` makes the probe's captions answer part of the pre-submit contract, and Flow 1's eventual `Name speakers` action is specifically for captions that carried no speakers (`EXPERIENCE.md:374`). The current answered branch renders only `probeSummary(...)` plus `Nothing has been written.` even though it has enough data to state the limitation without guessing.
 - **Suggested direction** — When and only when the served probe kind is `auto`, put a concise pre-submit warning next to the probe answer that speaker labels are absent and segments will initially appear as `Unknown`; pin both its presence for auto captions and its absence for manual captions.
-- **Disposition** — confirmed; remediation in progress.
+- **Disposition** — fixed red-first. The auto-caption probe regression could not find any speaker-label guidance against the original screen; after remediation, an `auto` answer names the absent labels and initial `Unknown` segments, while the existing manual-caption path pins that no warning is invented.
 
 ## Disposition
 
