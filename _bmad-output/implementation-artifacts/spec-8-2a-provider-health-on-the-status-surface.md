@@ -170,13 +170,15 @@ processes.
   (`MM_YOUTUBE_NETWORK_TEST`), `test_diarize_pyannote.py:266` (no `pyannote` in
   the venv) and `test_diarize_remote.py:774` (`MM_DIARIZE_REMOTE_NETWORK_TEST`,
   the LAN GPU host started by hand).
-- `python3 _bmad/scripts/branch_conflicts.py --against story/8-2a` — 6 clean
-  pairs, 15 conflicting. No source file this story touched conflicts with
-  `story/10-5`, `story/10-5-review`, `story/10-6` or `story/10-6-review`; the
-  only pairs against them are `sprint-notes.md` and `docs/backlog.md`, both of
-  which `main` already conflicts with. The one genuinely new conflict is
-  `story/12-1` on `web/src/client/index.ts`, where both branches regenerated
-  the client; the resolution on landing is to regenerate, not to merge.
+- `python3 _bmad/scripts/branch_conflicts.py --against story/8-2a`, measured at
+  `f194eeec` — 4 clean pairs, 17 conflicting. **No source file this story
+  touched conflicts with `story/10-5`, `story/10-5-review`, `story/10-6` or
+  `story/10-6-review`**: the only pairs against them are
+  `sprint-notes.md` (10-5, 10-6 — untouched here, inherited from `main`) and
+  `docs/backlog.md` (10-6 and 10-6-review, where B-52's append meets their own
+  entries). Two genuinely new conflicts: `story/12-1` and `story/12-1-review`
+  on `web/src/client/index.ts`, where both branches regenerated the client —
+  the resolution on landing is to regenerate, not to merge the generated line.
   Conflicts against `story/7-4`, `story/8-3`, `story/10-3` and `story/10-4` are
   stale-branch noise: `main` conflicts with each identically because those
   stories landed and their branches were not deleted.
