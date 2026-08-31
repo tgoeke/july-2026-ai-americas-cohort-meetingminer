@@ -30,7 +30,7 @@ export interface ComponentStatus {
   remediation: string | null
 }
 
-export type KeyState = 'present' | 'missing' | 'invalid' | 'not-required'
+export type KeyState = 'present' | 'missing' | 'invalid' | 'not-required' | 'unknown'
 
 /**
  * One configured provider's key validity (story 8.2a, FR39).

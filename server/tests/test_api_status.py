@@ -21,8 +21,10 @@ Postgres is real (the per-run test database the ``client`` fixture owns).
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Literal, NoReturn
 
+import httpx
 import psycopg
 import pytest
 from fastapi import Request
@@ -32,8 +34,11 @@ import meetingminer.api.main as api_main
 from meetingminer import db
 from meetingminer.api import status as status_module
 from meetingminer.api.status import ProbeResult
-from meetingminer.config import AppConfig
+from meetingminer.config import AppConfig, ProviderEndpoint
 from meetingminer.domain import model_selection
+
+ORIGINAL_CHECK_NEO4J = status_module._check_neo4j
+ORIGINAL_CHECK_MEILISEARCH = status_module._check_meilisearch
 
 FAKE_SECRETS = {
     "anthropic_api_key": "sk-ant-FAKE-SECRET-anthropic-0000",
@@ -640,7 +645,7 @@ EXTRACTION_SNAPSHOT_DISCLAIMER = (
     "Read by the api process, which does not call `llm.roles.extraction` —"
     " the worker does, from its own `config.yaml` snapshot and its own"
     " resolution of the stored selection. This row is the api process's"
-    " snapshot, not the worker's, and the two disagree until both are"
+    " snapshot, not the worker's, and the two may disagree until both are"
     " restarted after a `config.yaml` edit."
 )
 
@@ -648,12 +653,12 @@ EXTRACTION_SNAPSHOT_DISCLAIMER = (
 # a payload: the key-material test asserts on windows, and a secret sharing a
 # window with a provider name ("anthropic") could only be checked whole.
 UNMISTAKABLE_SECRETS = {
-    "anthropic_api_key": "sk-ant-QQZZ-9x8w7v6u5t4s3r2q1p",
-    "openai_api_key": "sk-QQZZ-mnbvcxzlkjhgfdsapoiuy",
-    "openrouter_api_key": "sk-or-QQZZ-1a2b3c4d5e6f7g8h9i",
-    "postgres_password": "QQZZ-pgpw-qwertyuiopasdfghjk",
-    "neo4j_password": "QQZZ-neo-zxcvbnmasdfghjklqwe",
-    "meili_master_key": "QQZZ-meili-poiuytrewqlkjhgfd",
+    "anthropic_api_key": "sk-ant-api03-ANTQ7Z-9x8w7v6u5t4s3r2q1p",
+    "openai_api_key": "sk-proj-OPNQ8Y-mnbvcxzlkjhgfdsapoiuy",
+    "openrouter_api_key": "sk-or-v1-ORTR9X-1a2b3c4d5e6f7g8h9i",
+    "postgres_password": "PGPW6V-qwertyuiopasdfghjk",
+    "neo4j_password": "NEO5UX-zxcvbnmasdfghjklqwe",
+    "meili_master_key": "MEI4TW-poiuytrewqlkjhgfd",
 }
 
 # Every path a completion could be reached by on the four configured
@@ -791,6 +796,67 @@ def test_no_fragment_of_any_key_serializes_in_any_branch(
     assert_no_key_fragment_serializes(client.get("/status").text)
 
 
+def test_failed_dependency_details_never_echo_secret_material(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Untrusted transport/store exceptions cannot become response prose."""
+    secret = UNMISTAKABLE_SECRETS["openai_api_key"]
+
+    def fail_http(*args: object, **kwargs: object) -> NoReturn:
+        raise httpx.ConnectError(f"transport included Authorization: Bearer {secret}")
+
+    monkeypatch.setattr(status_module.httpx, "get", fail_http)
+    details = [
+        status_module._probe_provider(
+            "openai", "https://api.openai.com/v1", secret
+        ).detail,
+        ORIGINAL_CHECK_MEILISEARCH("http://localhost:7700")[1],
+    ]
+
+    class _Pool:
+        def connection(self) -> NoReturn:
+            raise RuntimeError(
+                f"connection dsn contained password={UNMISTAKABLE_SECRETS['postgres_password']}"
+            )
+
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(pool=_Pool()))
+    )
+    details.append(status_module._check_postgres(request)[1])
+
+    def fail_socket(*args: object, **kwargs: object) -> NoReturn:
+        raise OSError(
+            f"authentication failed with {UNMISTAKABLE_SECRETS['neo4j_password']}"
+        )
+
+    monkeypatch.setattr(status_module.socket, "create_connection", fail_socket)
+    details.append(ORIGINAL_CHECK_NEO4J("bolt://localhost:7687")[1])
+
+    assert_no_key_fragment_serializes(" ".join(details))
+
+
+def test_a_provider_without_a_free_probe_is_never_reported_healthy(
+    fake_secret_config: AppConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unsupported provider health is unknown, never fabricated from no I/O."""
+    config = fake_secret_config.model_copy(deep=True)
+    config.settings.providers["gemini"] = ProviderEndpoint(
+        base_url="https://generativelanguage.googleapis.com"
+    )
+
+    def refuse_network(*args: object, **kwargs: object) -> NoReturn:
+        raise AssertionError("an unsupported provider must not be probed")
+
+    monkeypatch.setattr(status_module.httpx, "get", refuse_network)
+    health = status_module._key_health(
+        "gemini", config.settings.providers["gemini"].base_url, config
+    )
+
+    assert health.key_state == "unknown"
+    assert health.state == "degraded"
+    assert "no free probe is defined" in health.detail
+
+
 def test_provider_rows_name_the_provider_and_its_remediation(
     client, fake_secret_config: AppConfig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -838,6 +904,8 @@ def test_a_missing_key_reaches_the_provider_row_without_a_probe(
     assert openai_row["keyState"] == "missing"
     assert openai_row["state"] == "degraded"
     assert "OPENAI_API_KEY is not set" in openai_row["detail"]
+    assert "this api process cannot call this provider" in openai_row["detail"]
+    assert "every call" not in openai_row["detail"]
     assert all(provider != "openai" for provider, _ in calls)
 
 
@@ -984,6 +1052,7 @@ def test_every_reading_is_attributed_to_the_process_that_answered(
     extraction = next(row for row in body["llmRoles"] if row["role"] == "extraction")
     assert extraction["servedBy"] == "worker"
     assert extraction["attribution"] == EXTRACTION_SNAPSHOT_DISCLAIMER
+    assert "may disagree until both are restarted" in extraction["attribution"]
 
     chat = next(row for row in body["llmRoles"] if row["role"] == "chat")
     assert chat["servedBy"] == "api"
