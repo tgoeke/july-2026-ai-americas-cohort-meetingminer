@@ -700,7 +700,11 @@ def run(ctx: StageContext) -> None:
             "summary_captured": summary_captured,
             "summary_stored": summary_inserted,
         }
-        if not parsed.artifacts and parsed.populated_target_sections:
+        if (
+            not parsed.artifacts
+            and not summary_captured
+            and parsed.populated_target_sections
+        ):
             zero_signals.append((document_kind, parsed.populated_target_sections))
 
     # --- the topics pass (story 10.1) ---------------------------------------

@@ -1385,6 +1385,30 @@ def test_an_empty_executive_summary_section_yields_none_not_empty_string() -> No
     assert document.summary is None
 
 
+def test_a_prose_only_executive_summary_is_a_complete_document() -> None:
+    """The meeting summary does not need a citable decision row beside it."""
+    prose = "The team aligned on the migration sequence and its owners."
+
+    document = parse_extraction_document(
+        f"# Executive Summary\n\n{prose}\n", DOC_ARCH_SUMMARY
+    )
+
+    assert document.summary == prose
+    assert document.artifacts == ()
+    assert document.layout == LAYOUT_NONE
+
+
+def test_the_summary_keeps_unicode_punctuation_verbatim() -> None:
+    """Parser normalization is for recognition, never stored provenance."""
+    prose = "The team said “ship it” — then chose option ①."
+
+    document = parse_extraction_document(
+        _summary_document("# Executive Summary", prose), DOC_ARCH_SUMMARY
+    )
+
+    assert document.summary == prose
+
+
 def test_the_summary_keeps_its_own_paragraph_breaks() -> None:
     """Stripped at the ends only. The prose is stored as the model wrote it —
     the same rule story 12.1 applied to the document as a whole."""

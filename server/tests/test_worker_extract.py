@@ -1681,6 +1681,42 @@ def test_the_executive_summary_becomes_a_meeting_scoped_artifact(
     assert sources["arch-summary"]["artifact_count"] == 3
 
 
+def test_a_summary_only_document_is_not_reported_as_zero_artifacts(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_transcript_drop: Callable[..., Any],
+    fake_llm: Callable[..., FakeLlm],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A meeting-scoped artifact is output even when no moment row is proposed."""
+    fake_llm()
+    summary_only = (
+        "# Executive Summary\n\n"
+        "- The team aligned on SFTP ownership.\n"
+        "- Key rotation remains open.\n"
+    )
+    job_id = enqueue(
+        pool,
+        make_transcript_drop(
+            "source-summary-only", summary=summary_only, actions=ACTIONS_DOC
+        ),
+        "source-summary-only",
+    )
+
+    assert runner.run_once(pool, app_config, content_root) is True
+
+    [meeting] = meetings(pool, job_id)
+    assert len(meeting_scoped_rows(pool, meeting["id"])) == 1
+    records = log_events(capsys)
+    assert not [
+        record
+        for record in records
+        if record["event"] == "stage.extract.zero_artifacts"
+        and record["document"] == "arch-summary"
+    ]
+
+
 def test_a_document_with_no_executive_summary_produces_no_summary(
     pool: ConnectionPool,
     app_config: AppConfig,

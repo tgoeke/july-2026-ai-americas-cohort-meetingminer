@@ -1100,8 +1100,14 @@ def parse_extraction_document(text: str, document_kind: str) -> ParsedDocument:
     # swallow the decisions table into the summary body.
     summary_lines: list[str] = []
     in_summary = False
+    executive_summary_seen = False
 
-    for raw_line in normalized.splitlines():
+    for source_line in text.splitlines():
+        # Recognition deliberately uses normalized punctuation, while a stored
+        # summary remains provenance: its bytes must say what the retained
+        # extraction document said. Normalizing per source line preserves that
+        # distinction without changing any of the existing parser reads below.
+        raw_line = normalize_text(source_line)
         heading = _HEADING.match(raw_line)
         if heading is not None:
             section = _clean(heading.group(2))
@@ -1109,6 +1115,7 @@ def parse_extraction_document(text: str, document_kind: str) -> ParsedDocument:
             in_summary = document_kind == DOC_ARCH_SUMMARY and (
                 _EXECUTIVE_SUMMARY_HEADING in section.casefold()
             )
+            executive_summary_seen = executive_summary_seen or in_summary
             continue
         # Collected IN ADDITION TO the per-line handling below, never instead
         # of it. `_ARCH_TARGET_HEADINGS` contains "summary", so this section is
@@ -1119,7 +1126,7 @@ def parse_extraction_document(text: str, document_kind: str) -> ParsedDocument:
         # falling through means the only observable difference this story makes
         # to a parse is a field that used to be absent.
         if in_summary:
-            summary_lines.append(raw_line)
+            summary_lines.append(source_line)
         if not raw_line.strip():
             continue
 
@@ -1263,7 +1270,7 @@ def parse_extraction_document(text: str, document_kind: str) -> ParsedDocument:
             )
         )
 
-    if not target_structure_seen:
+    if not target_structure_seen and not executive_summary_seen:
         raise ArtifactParseError(
             f"the {document_kind} document has neither a markdown table row nor a"
             " bullet list in a recognized target section — neither known layout"
