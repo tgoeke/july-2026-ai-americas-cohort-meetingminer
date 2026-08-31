@@ -133,86 +133,97 @@ the session directory. The api never mints, never converts and never ingests.
 ## Tasks & Acceptance
 
 **Execution:**
-- `server/pyproject.toml`, `server/uv.lock` -- add `python-multipart` -- the
+- [x] `server/pyproject.toml`, `server/uv.lock` -- add `python-multipart` -- the
   streaming multipart parser Starlette itself uses; needed to write parts
   straight to the evidence volume instead of spooling them through `TMPDIR`.
-- `config.yaml`, `server/meetingminer/config.py` -- add
+- [x] `config.yaml`, `server/meetingminer/config.py` -- add
   `acquisition.upload.{max_recording_bytes,max_transcript_bytes,max_duration_minutes,session_ttl_minutes}`
   as a required strict model -- a refusal boundary is configuration, not a code
   constant (AD-10), and an omitted one must fail closed.
-- `server/meetingminer/uploads.py` -- NEW. The session: `session_root()`,
+- [x] `server/meetingminer/uploads.py` -- NEW. The session: `session_root()`,
   `create_session()` (streams a multipart body through
   `python_multipart.MultipartParser` callbacks into the staging dir, enforcing
   per-part and total caps as bytes arrive), `read_session()`,
   `discard_session()`, `sweep_expired()`, `UploadRefused(rule=...)` plus its own
   `REFUSAL_RULES` / `REMEDIATIONS` / `PROBLEM_STATUS` tables -- the whole
   refusal vocabulary for uploads in one closed set.
-- `server/meetingminer/api/uploads.py` -- NEW router: `POST /uploads`,
+- [x] `server/meetingminer/api/uploads.py` -- NEW router: `POST /uploads`,
   `GET /uploads/{uploadSessionId}`, `DELETE /uploads/{uploadSessionId}` --
   auto-discovered (story 2.8), every refusal an RFC 9457 problem carrying
   `rule`/`remediation`.
-- `server/meetingminer/acquisitions.py` -- `AcquisitionRecord` gains `kind`
+- [x] `server/meetingminer/acquisitions.py` -- `AcquisitionRecord` gains `kind`
   (`youtube`|`upload`) and `upload_session_id`; `launch_upload()`;
   `child_command` and `main` take `--upload-session` as the alternative to
   `--url`; `run_upload_acquisition()` converts, mints, posts and removes the
   session dir in a `finally`; `refusal_for` dispatches on `UploadRefused` and
   `problem_status(rule)` reads both tables -- one status file, one state
   machine, two source kinds.
-- `server/meetingminer/api/acquisitions.py` -- `AcquisitionRequest` accepts
+- [x] `server/meetingminer/api/acquisitions.py` -- `AcquisitionRequest` accepts
   exactly one of `url` / `uploadSessionId`; `AcquisitionStatus` gains `kind` and
   `uploadSessionId`; `_refusal_problem` reads `problem_status()`.
-- `server/tests/test_api_uploads.py` -- NEW. The I/O matrix above, end to end
+- [x] `server/tests/test_api_uploads.py` -- NEW. The I/O matrix above, end to end
   through `TestClient`, plus the identity test: the same bytes minted through
   `mint-drop`'s own call order and through the upload runner produce one
   `sourceId`, one `startedAt`, one precision.
-- `server/tests/test_api_acquisitions.py` -- extend for the upload launch,
+- [x] `server/tests/test_api_acquisitions.py` -- extend for the upload launch,
   ambiguous/missing source refs, and the unchanged youtube rows.
-- `web/src/client/*.gen.ts` -- regenerate from a dumped `app.openapi()` schema
+- [x] `web/src/client/*.gen.ts` -- regenerate from a dumped `app.openapi()` schema
   (`pnpm --dir web run client -i <file>`) -- the epic's last clause, and 6.5a
   cannot call an endpoint the client does not know.
-- `docs/README.md`, `docs/project-record.md`, `docs/backlog.md` -- record the
+- [x] `docs/README.md`, `docs/project-record.md`, `docs/backlog.md` -- record the
   upload door beside `mint-drop`, and what it deliberately does not do.
 
 **Acceptance Criteria:**
-- Given a multipart session with a recording and a Zoom `.vtt`, when it is
+- [x] Given a multipart session with a recording and a Zoom `.vtt`, when it is
   posted and then named by `POST /acquisitions`, then `GET /acquisitions/{id}`
   reaches `posted` with a `jobId`, the drop under `MM_DROPS_ROOT` validates
   against `source-drop.schema.json`, and the session directory is gone.
-- Given the same recording bytes, when one is minted by `mint-drop`'s call
+- [x] Given the same recording bytes, when one is minted by `mint-drop`'s call
   order and the other through an upload session with the same title and
   `--started-at`, then both produce the same `sourceId` and the same
   `startedAt`/`startedAtPrecision`, and the second reports `exists`.
-- Given an acquisition that fails at mint or at intake, when the runner
+- [x] Given an acquisition that fails at mint or at intake, when the runner
   finishes, then the record is `failed` with `rule`/`detail`/`remediation` and
   the session directory is gone.
-- Given a session that is never claimed, when `session_ttl_minutes` has passed
+- [x] Given a session that is never claimed, when `session_ttl_minutes` has passed
   and any later `POST /uploads` runs, then its directory is swept.
-- Given route registration, when the app starts, then `/uploads` is registered
+- [x] Given route registration, when the app starts, then `/uploads` is registered
   through auto-discovery and `web/src/client/` names the three operations.
 
 ## Spec Change Log
+
+- **2026-08-31, review remediation.** Closed all seventeen routed findings.
+  Multipart completion and observed-byte ceilings now fail closed; metadata,
+  filename, RFC 3339 and dialect shapes are validated before publication;
+  hashing is single-pass and ffprobe is offloaded. Upload launch, delete, sweep
+  and terminal cleanup now share one claim authority, the detached child carries
+  its trusted sessions root through config failure, upload failures keep their
+  own refusal vocabulary, and `exists` reports immutable drop provenance. The
+  generated client now declares DELETE's 409 response. Identity coverage spans
+  recording, text, plain VTT, Teams VTT and converted Zoom VTT, and the exact
+  detached argv/CLI dispatch are pinned.
 
 ## Review Triage Log
 
 ### Review Findings
 
-- [ ] [Review][Patch] Reject truncated multipart bodies unless the parser reaches its terminal state. [`server/meetingminer/uploads.py:882`]
-- [ ] [Review][Patch] Enforce the observed whole-request ceiling against streamed bytes. [`server/meetingminer/uploads.py:849`]
-- [ ] [Review][Patch] Budget both transcript roles in the declared body ceiling. [`server/meetingminer/uploads.py:320`]
-- [ ] [Review][Patch] Refuse repeated immutable metadata fields. [`server/meetingminer/uploads.py:742`]
-- [ ] [Review][Patch] Use the same filename-extension rule as `mint-drop`, without compatibility normalization. [`server/meetingminer/uploads.py:786`]
-- [ ] [Review][Patch] Enforce the upload contract's RFC 3339 grammar before shared timestamp normalization. [`server/meetingminer/uploads.py:983`]
-- [ ] [Review][Patch] Refuse Zoom declarations that cannot convert before publishing the session. [`server/meetingminer/uploads.py:1005`]
-- [ ] [Review][Patch] Classify session-state and dialect failures through the upload refusal vocabulary. [`server/meetingminer/acquisitions.py:377`]
-- [ ] [Review][Patch] Remove sessions on every ordinary acquisition failure boundary, including pre-dispatch config and process-start failures. [`server/meetingminer/acquisitions.py:778`]
-- [ ] [Review][Patch] Serialize launch/delete/sweep ownership so claimed or actively streaming sessions cannot be erased. [`server/meetingminer/acquisitions.py:821`]
-- [ ] [Review][Patch] Add `rule` and `remediation` to source-selection and upload-collision refusals. [`server/meetingminer/api/acquisitions.py:223`]
-- [ ] [Review][Patch] Derive source tool from immutable drop provenance for `exists`. [`server/meetingminer/acquisitions.py:1098`]
-- [ ] [Review][Patch] Hash during streaming and move ffprobe off the API event loop. [`server/meetingminer/uploads.py:742`]
-- [ ] [Review][Patch] Translate parser-constructor failures into named multipart refusals. [`server/meetingminer/uploads.py:868`]
-- [ ] [Review][Patch] Renumber Story 6.4a's colliding backlog entries to B-55/B-56 after rebasing. [`docs/backlog.md`]
-- [ ] [Review][Patch] Pin upload-side timestamp/precision identity for every supported primary/dialect shape. [`server/tests/test_api_uploads.py:934`]
-- [ ] [Review][Patch] Pin the real detached upload argv and CLI dispatch. [`server/meetingminer/acquisitions.py:701`]
+- [x] [Review][Patch] Reject truncated multipart bodies unless the parser reaches its terminal state. [`server/meetingminer/uploads.py:882`]
+- [x] [Review][Patch] Enforce the observed whole-request ceiling against streamed bytes. [`server/meetingminer/uploads.py:849`]
+- [x] [Review][Patch] Budget both transcript roles in the declared body ceiling. [`server/meetingminer/uploads.py:320`]
+- [x] [Review][Patch] Refuse repeated immutable metadata fields. [`server/meetingminer/uploads.py:742`]
+- [x] [Review][Patch] Use the same filename-extension rule as `mint-drop`, without compatibility normalization. [`server/meetingminer/uploads.py:786`]
+- [x] [Review][Patch] Enforce the upload contract's RFC 3339 grammar before shared timestamp normalization. [`server/meetingminer/uploads.py:983`]
+- [x] [Review][Patch] Refuse Zoom declarations that cannot convert before publishing the session. [`server/meetingminer/uploads.py:1005`]
+- [x] [Review][Patch] Classify session-state and dialect failures through the upload refusal vocabulary. [`server/meetingminer/acquisitions.py:377`]
+- [x] [Review][Patch] Remove sessions on every ordinary acquisition failure boundary, including pre-dispatch config and process-start failures. [`server/meetingminer/acquisitions.py:778`]
+- [x] [Review][Patch] Serialize launch/delete/sweep ownership so claimed or actively streaming sessions cannot be erased. [`server/meetingminer/acquisitions.py:821`]
+- [x] [Review][Patch] Add `rule` and `remediation` to source-selection and upload-collision refusals. [`server/meetingminer/api/acquisitions.py:223`]
+- [x] [Review][Patch] Derive source tool from immutable drop provenance for `exists`. [`server/meetingminer/acquisitions.py:1098`]
+- [x] [Review][Patch] Hash during streaming and move ffprobe off the API event loop. [`server/meetingminer/uploads.py:742`]
+- [x] [Review][Patch] Translate parser-constructor failures into named multipart refusals. [`server/meetingminer/uploads.py:868`]
+- [x] [Review][Patch] Renumber Story 6.4a's colliding backlog entries to B-55/B-56 after rebasing. [`docs/backlog.md`]
+- [x] [Review][Patch] Pin upload-side timestamp/precision identity for every supported primary/dialect shape. [`server/tests/test_api_uploads.py:934`]
+- [x] [Review][Patch] Pin the real detached upload argv and CLI dispatch. [`server/meetingminer/acquisitions.py:701`]
 
 ## Design Notes
 
@@ -267,6 +278,26 @@ content rather than carrying a cosmetic diff into a shared artifact during a
 parallel wave.
 
 ## Verification
+
+**Review-remediation results (2026-08-31):**
+
+- `make lint` -- all checks passed.
+- `make typecheck` -- success, no issues in 13 source files.
+- `uv run --project server pytest -m "" server/tests/test_api_uploads.py
+  server/tests/test_api_acquisitions.py -q` -- 114 passed.
+- `make check-client` -- passed after schema-dump regeneration; the generated
+  DELETE operation declares its 409 collision response.
+- `make web-test` -- 59 files, 669 tests passed.
+- `make test-fast` -- lint/typecheck, puller 128, web 669, evals 655 and server
+  2,387 passed; 3 named environment/network skips, 413 slow deselections.
+- `make test` -- full server gate 2,800 passed and 3 named skips in 678.89s;
+  optional diarizer-extra 92 passed; web 669, evals 655 and puller 128 passed;
+  production web build passed.
+
+**Integration warning:** the spec-required B-55/B-56 renumber is applied, but
+`origin/main` acquired a separate B-56 after this review branch's baseline.
+The integration rebase must allocate the next free id for one of those entries
+instead of landing duplicate B-56 headings.
 
 **Results at `1db5b9b7` (2026-08-31), against this worktree's own stack:**
 
