@@ -3901,16 +3901,16 @@ response shapes", so landing 10-6 without 10-3 would ship a screen calling
 routes that do not exist. They land together, after the F2 ruling. 10-4 and 10-5
 were still under review when this pass ran.
 
-**A flake was found at integrate that no lane could have found.**
+**A test that fails intermittently was found at integrate, and no lane could have found it.**
 `SpeakerNaming.test.tsx > moves selection when the settled reread no longer
 contains the active tag` awaited `listMeetingSpeakers` having been *called*
 twice and then asserted the DOM immediately. A call landing is not a re-render
 landing. It failed about one run in three with two review lanes and the corpus
 ingest competing for the machine, and passed alone — which is why the lane's own
-three-run flake check cleared it. Fixed by moving the assertion inside
+three-run repeat check cleared it. Fixed by moving the assertion inside
 `waitFor` (`826c3f4`); six consecutive full web runs green after, against a
 reproducible failure before. **The lesson is about the check, not the test:**
-a three-run flake check on an idle machine does not exercise the contention that
+repeating a test three times on an idle machine does not exercise the contention that
 makes these races visible.
 
 **Post-merge operations.** No migration was owed — neither story touches
@@ -4051,7 +4051,7 @@ its own ordinal rather than sharing a backfilled constant; verified 286 threads,
 restarted onto merged main and `make client` regenerated (546 new lines of
 types for the four tiers).
 
-**A second web flake exists, unidentified.** One `make web-test` run failed
+**A second test in the web app's suite fails intermittently, and I did not identify which.** One `make web-test` run failed
 after the client regeneration and three consecutive re-runs passed 441/441; the
 failing test name was not captured. This is *not* the `SpeakerNaming` race fixed
 at `826c3f4` — that one is fixed and held over six runs. The machine was running
