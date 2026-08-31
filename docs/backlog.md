@@ -565,29 +565,6 @@ attribution and remove one it added, not overrule the source.
 
 ---
 
-### B-40 · A curator's typed speaker name splits one person across meetings — S
-
-Story 7.3 mints a `participant` row for a display name typed into the speakers
-screen, keyed `curated:<meetingId>:<tag>`. The key is per-meeting, so the same
-human typed into two meetings gets two rows, both listed by `GET
-/participants`.
-
-This is deliberate rather than accidental. The api may not import `pipeline`
-(`api/ingests.py`), so it cannot compute `pipeline/speakers.identity_key_for`'s
-`name:<normalized>` key without a second copy of `normalize_display_name` —
-and two spellings of an identity key silently collapse two humans onto one
-row, which is the failure that module warns about at length. A split is the
-recoverable direction: `POST /participants/{id}/merge` joins the rows, and
-story 7.3 fixed the predicate that was blocking exactly that merge.
-
-The real fix is to move `normalize_display_name` (and `identity_key_for`) out
-of `pipeline/speakers.py` into `domain/`, where both layers may use the one
-definition, and have the api mint `name:<normalized>` like the worker does.
-That is a small move, but it edits a module story 7.1 and B-36 were both
-holding when this was found.
-
----
-
 ### B-44 · The bands tier is one request per thread — S
 
 `GET /threads/{id}/timeline?level=bands` is per-thread, and the bands tier draws
@@ -614,3 +591,25 @@ thread ids and sorts it, so pin membership is part of request identity the
 moment more than one id is passed (`timeline.ts` · `cacheKey`, tested). What is
 missing is the `p` handler, the URL parameter, and drawing more than one
 full-height band at the meetings and moments tiers.
+---
+
+### B-40 · A curator's typed speaker name splits one person across meetings — S
+
+Story 7.3 mints a `participant` row for a display name typed into the speakers
+screen, keyed `curated:<meetingId>:<tag>`. The key is per-meeting, so the same
+human typed into two meetings gets two rows, both listed by `GET
+/participants`.
+
+This is deliberate rather than accidental. The api may not import `pipeline`
+(`api/ingests.py`), so it cannot compute `pipeline/speakers.identity_key_for`'s
+`name:<normalized>` key without a second copy of `normalize_display_name` —
+and two spellings of an identity key silently collapse two humans onto one
+row, which is the failure that module warns about at length. A split is the
+recoverable direction: `POST /participants/{id}/merge` joins the rows, and
+story 7.3 fixed the predicate that was blocking exactly that merge.
+
+The real fix is to move `normalize_display_name` (and `identity_key_for`) out
+of `pipeline/speakers.py` into `domain/`, where both layers may use the one
+definition, and have the api mint `name:<normalized>` like the worker does.
+That is a small move, but it edits a module story 7.1 and B-36 were both
+holding when this was found.
