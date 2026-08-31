@@ -1121,8 +1121,9 @@ def build_synthesis_prompt(
 
     ``documents_by_meeting`` (story 12.4) does the same for retained extraction
     documents, keyed by **meeting** because a document has no moment. A
-    document is appended to the blocks of the moments this retrieval already
-    found in its meeting, under a heading that names it unreviewed — so the
+    document is appended to the **first** of its meeting's retrieved moment
+    blocks — once per meeting, not once per moment — under a heading that names
+    it unreviewed — so the
     analysis is read beside the evidence it was derived from, and reaches the
     answer only through those moments (AD-6). It adds **no** candidate block
     and **no** marker of its own: a document that ranked for a meeting no
@@ -1133,6 +1134,12 @@ def build_synthesis_prompt(
     """
     artifacts = artifacts_by_moment or {}
     documents = documents_by_meeting or {}
+    # A meeting's documents are appended to the *first* of its retrieved
+    # moments and to no other. Without this, a meeting with six retrieved
+    # moments would repeat the same document text six times: bounded by the
+    # overall prompt cap, so not a correctness bug, but it would crowd out
+    # citable moments from other meetings to say one thing six times.
+    meetings_already_given_documents: set[UUID] = set()
     candidates: list[tuple[UUID, str]] = []
     cropped_moments = 0
     cropped_artifacts = 0
@@ -1166,12 +1173,17 @@ def build_synthesis_prompt(
         # Uncitable context, under a heading rule 5 names. However many
         # documents this meeting has, they share one budget, so an analysed
         # meeting cannot make its blocks several times a plain moment's size.
-        document_text = "".join(
-            f"\nUnreviewed extraction document ({document.kind},"
-            f" {document.model or 'model not recorded'}) — {document.review_label}"
-            f"\n{document.text}"
-            for document in documents.get(moment.citation.meeting_id, ())
-        )
+        meeting_id = moment.citation.meeting_id
+        document_text = ""
+        if meeting_id not in meetings_already_given_documents:
+            document_text = "".join(
+                f"\nUnreviewed extraction document ({document.kind},"
+                f" {document.model or 'model not recorded'}) — {document.review_label}"
+                f"\n{document.text}"
+                for document in documents.get(meeting_id, ())
+            )
+            if document_text:
+                meetings_already_given_documents.add(meeting_id)
         document_text, document_was_cropped = _crop(
             document_text, DOCUMENTS_PER_MOMENT_MAX_CHARS
         )
