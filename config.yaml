@@ -39,10 +39,10 @@ llm:
       # The bindings a user may choose for this role, and the one chosen when
       # nothing else says (story 8.1, FR38, AD-10). Declaration only for now:
       # `model` below is still what every call path reads, until story 8.2
-      # persists a selection. The loader refuses the file if `default` is not
-      # one of these bindings, or if an entry names a provider `providers:`
-      # does not declare — an omitted `provider` is derived from the
-      # `<provider>/` tag prefix, so only a prefix-less binding needs one
+      # persists a selection. The loader refuses the file if `default` or the
+      # still-active `model` is not one of these bindings, or if an entry names
+      # a provider `providers:` does not declare — an omitted `provider` is
+      # derived from the `<provider>/` tag prefix, so only a prefix-less binding needs one
       # written. Both entries here are local Ollama models: extraction is the
       # worker's only LLM call and stays free.
       catalog:

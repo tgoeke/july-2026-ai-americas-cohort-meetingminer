@@ -37,10 +37,10 @@ companions its frontmatter lists, plus the per-story frozen contracts in
   is empty. Check `/status` for the live binding before assuming either way.
 - Each `llm.roles.<role>` block declares a `catalog` of the bindings that role
   may be served by and a `default` among them (story 8.1, AD-10). The loader
-  refuses a `default` outside its own catalog, and refuses an authored catalog
-  entry naming a provider `providers:` does not declare; an entry derives an
-  omitted `provider` from the `<provider>/` tag prefix. Synthesized legacy
-  entries retain derived metadata but remain exempt so an old file still loads.
+  refuses a `default` or active `model` outside its own catalog, and refuses an
+  authored catalog entry naming a provider `providers:` does not declare; an
+  entry derives an omitted `provider` from the `<provider>/` tag prefix.
+  Synthesized legacy entries retain derived metadata but remain exempt so an old file still loads.
   The catalog is
   declaration only — every call path still reads the role's `model` until a
   persisted selection lands (story 8.2).

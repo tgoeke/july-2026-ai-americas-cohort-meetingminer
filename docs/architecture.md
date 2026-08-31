@@ -124,8 +124,9 @@ checkout's private-stack name and generated incarnation identity, and the host
 ports its stores publish. The name and id are infrastructure ownership metadata;
 the ports are infrastructure location, applied by the loader to the configured
 endpoints rather than written into a second config file. A default outside its
-own catalog, and a catalog entry naming a provider `providers:` does not declare,
-are both refused when the file loads. Bindings cannot scatter across env vars,
+own catalog, an active `model` outside an authored catalog, and a catalog entry
+naming a provider `providers:` does not declare are refused when the file loads.
+Bindings cannot scatter across env vars,
 code defaults, and flags, and the eval harness snapshots the resolved config into
 every run so any run is reproducible.
 

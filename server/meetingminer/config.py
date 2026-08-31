@@ -407,12 +407,14 @@ class LlmRoleBinding(_StrictModel):
 
     @model_validator(mode="after")
     def _default_is_a_catalog_binding(self) -> "LlmRoleBinding":
-        """Refuse a default no picker could offer — including an empty catalog.
+        """Refuse a default or active model no picker could offer.
 
         An authored ``catalog: []`` falls out here rather than through a rule
         of its own: ``default`` falls back to ``model``, which is required, so
         the empty catalog is refused by the message that names the binding it
-        could not hold.
+        could not hold. An authored catalog must also contain ``model`` because
+        that remains the active call-time binding until story 8.2; synthesized
+        legacy catalogs already contain their model by construction.
         """
         bindings = [entry.binding for entry in self.catalog]
         default = self.default or self.model
@@ -425,6 +427,16 @@ class LlmRoleBinding(_StrictModel):
             raise ValueError(
                 f"default binding {default!r} is not one of this role's catalog"
                 f" bindings, which are {declared}"
+            )
+        if (
+            not any(entry._synthesized for entry in self.catalog)
+            and self.model not in bindings
+        ):
+            declared = ", ".join(repr(binding) for binding in bindings)
+            raise ValueError(
+                f"active model {self.model!r} is not one of this role's catalog"
+                f" bindings, which are {declared}: `model` remains the binding"
+                " used until a persisted selection lands"
             )
         self.default = default
         return self

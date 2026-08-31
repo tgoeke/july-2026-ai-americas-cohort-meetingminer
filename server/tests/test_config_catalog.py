@@ -67,7 +67,9 @@ def test_committed_config_declares_a_catalog_for_every_role(no_env: Path) -> Non
                 f"llm.roles.{name} entry {entry.binding} names undeclared provider "
                 f"{entry.provider}"
             )
-        assert binding.default in [entry.binding for entry in binding.catalog]
+        catalog_bindings = [entry.binding for entry in binding.catalog]
+        assert binding.default in catalog_bindings
+        assert binding.model in catalog_bindings
 
 
 def test_legacy_prefixed_model_becomes_a_one_entry_catalog(
@@ -198,6 +200,30 @@ def test_default_outside_the_catalog_is_refused(tmp_path: Path, no_env: Path) ->
     message = str(excinfo.value)
     assert "chat" in message
     assert "openai/gpt-9" in message
+    assert "openai/gpt-5.2" in message
+    assert "ollama/qwen3:30b" in message
+
+
+def test_active_model_outside_an_authored_catalog_is_refused(
+    tmp_path: Path, no_env: Path
+) -> None:
+    path = write_with_chat_role(
+        tmp_path,
+        {
+            "model": "moonshot/kimi-k2",
+            "catalog": [
+                {"binding": "openai/gpt-5.2"},
+                {"binding": "ollama/qwen3:30b"},
+            ],
+            "default": "openai/gpt-5.2",
+        },
+    )
+
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(path, no_env)
+
+    message = str(excinfo.value)
+    assert "active model 'moonshot/kimi-k2'" in message
     assert "openai/gpt-5.2" in message
     assert "ollama/qwen3:30b" in message
 

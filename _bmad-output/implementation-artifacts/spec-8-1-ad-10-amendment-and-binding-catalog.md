@@ -28,22 +28,6 @@ deferred:
       config.yaml:147-154
     severity: high
   - summary: >-
-      The binding that actually runs is never required to be in the role's
-      own catalog.
-    evidence: |-
-      The enforced invariant is `default in catalog`; every call path still
-      reads `model`, and `default` falls back to `model` only when the file
-      writes no default. So `catalog: [a, b]` with `default: a` and
-      `model: z` loads clean, and the "catalog of allowed bindings" does not
-      constrain the one binding in use. Three review layers raised this
-      independently. Adding `model in catalog` is cheap and the committed
-      config.yaml already satisfies it, but it is a rule the story's AC does
-      not ask for and it changes what a half-migrated file may say - an owner
-      call, and arguably 8.2's, since 8.2 makes the selection authoritative.
-    location: >-
-      server/meetingminer/config.py - LlmRoleBinding._default_is_a_catalog_binding
-    severity: medium
-  - summary: >-
       A role's `fallback` tag is subject to neither new rule.
     evidence: |-
       `llm.roles.extraction.fallback` is a live model tag resolved at call
@@ -289,6 +273,15 @@ elsewhere. The role loop guards on `isinstance`. Two test assertions were
 tautological (the provider name is a substring of the binding) and the declared
 set was hardcoded beside `config.yaml`; both now assert distinguishing text
 derived from the file.
+
+**2026-08-30 — Codex follow-up review, finding 2.** The prior triage deferred
+`model in catalog` as an owner call. The follow-up review reversed that call:
+the frozen intent says the catalog bounds what a role may be served by and also
+says `model` remains the active call-time field until 8.2, so allowing an
+authored `model` outside the catalog makes the new boundary false immediately.
+Authored catalogs now require the active model to be one of their bindings;
+legacy roles are unchanged because their synthesized catalog already contains
+their model. A regression was observed failing before the validator was added.
 
 **2026-08-30 — AC clause 3 (the stale chat comment) is NOT already satisfied; recorded as an
 open gap rather than widened into.** The build prompt directed this story to verify that no
