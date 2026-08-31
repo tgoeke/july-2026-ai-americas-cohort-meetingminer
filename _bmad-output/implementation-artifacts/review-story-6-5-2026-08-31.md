@@ -57,6 +57,15 @@ Date: 2026-08-31
 - **Suggested direction** — Clear the previous answer synchronously when a different normalized URL schedules a probe, then enable Submit only after that generation answers. Add a regression test covering the debounce window after editing an answered URL.
 - **Disposition** — fixed red-first. The debounce-window regression observed an enabled Submit against the original effect; it passed after a new probe generation synchronously cleared the prior answer before scheduling its timer.
 
+### F6 — The handoff fixture hides the real pre-mint meeting row
+
+- **Location** — `web/src/features/acquisitions/IngestingMeetingCard.tsx:78`
+- **Severity** — high
+- **Finding** — Before the worker mints a meeting, the real `/meetings` endpoint already returns the queued job with `meetingId: null`. The card accepts that row and renders a partial meeting card, instead of the required pending sentence. The suite models this state as an empty meetings array, so it passes against a response shape the live api does not use.
+- **Evidence** — `server/meetingminer/api/meetings.py:58-63` selects from `job` and left-joins `meeting`; `MeetingListItem.meeting_id` is explicitly nullable until worker claim at lines 79–81, and every job becomes an item at lines 151–170. `IngestingMeetingCard.seed` matches only `jobId` and commits the row. The frozen matrix requires `meetingId: null` to show that the row has not been minted and forbids a half-row; `AddMeeting.test.tsx:528-536` instead returns `meetings: []`.
+- **Suggested direction** — Treat a matched item with no `meetingId` as pending, seed the test with the actual null-ID job row, and only render the finished-card structure once the served meeting identity exists.
+- **Disposition** — patchable; remediation in progress.
+
 ## Disposition
 
 Review in progress. No pass/fail verdict has been assigned.
