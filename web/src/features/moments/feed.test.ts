@@ -38,7 +38,14 @@ function item(overrides: Partial<MomentFeedItem> = {}): MomentFeedItem {
     viewType: 'slide',
     preview: 'BM25 stays first-class; hybrid only on paraphrase.',
     threads: [{ threadId: 'thread-1', name: 'retrieval split', colorOrdinal: 1 }],
-    reasons: [{ kind: 'decision', label: 'decision at 12:40', ref: 'artifact-1', at: 760_000 }],
+    reasons: [
+      {
+        kind: 'decision',
+        label: 'decision at 12:40',
+        ref: 'artifact-1',
+        at: '2026-08-14T12:40:00Z',
+      },
+    ],
     ...overrides,
   }
 }
@@ -113,8 +120,8 @@ describe('parseFeedResponse', () => {
     expect(() => parseFeedResponse(null)).toThrow(/must be an object/)
   })
 
-  it('defaults total to the page size when the api omits it', () => {
-    expect(parseFeedResponse({ items: [item()] }).total).toBe(1)
+  it('refuses an envelope that omits its required paging fields', () => {
+    expect(() => parseFeedResponse({ items: [item()] })).toThrow(/total/)
   })
 })
 

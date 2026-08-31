@@ -30,7 +30,14 @@ function item(overrides: Partial<MomentFeedItem> = {}): MomentFeedItem {
     viewType: 'slide',
     preview: 'BM25 stays first-class; hybrid only on paraphrase.',
     threads: [{ threadId: 'thread-1', name: 'retrieval split', colorOrdinal: 1 }],
-    reasons: [{ kind: 'decision', label: 'decision at 12:40', ref: 'artifact-1', at: 760_000 }],
+    reasons: [
+      {
+        kind: 'decision',
+        label: 'decision at 12:40',
+        ref: 'artifact-1',
+        at: '2026-08-14T12:40:00Z',
+      },
+    ],
     ...overrides,
   }
 }
