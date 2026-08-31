@@ -576,6 +576,47 @@ describe('the rerun a naming starts', () => {
     expect(sdk.getMeetingDrilldown).toHaveBeenCalledTimes(2)
   })
 
+  it('moves selection when the settled reread no longer contains the active tag', async () => {
+    answers()
+    sdk.assignMeetingSpeaker.mockResolvedValue({ data: assignment(), error: undefined })
+    const user = userEvent.setup()
+    await loaded()
+
+    await user.type(screen.getByRole('combobox'), 'Priya Natarajan')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByTestId('rerun-strip')
+
+    sdk.listMeetingSpeakers.mockResolvedValue({
+      data: {
+        meetingId: MEETING,
+        speakers: [tag({ speakerLabel: 'SPEAKER_03' })],
+      },
+      error: undefined,
+    })
+    sdk.getMeetingDrilldown.mockResolvedValue({
+      data: {
+        meetingId: MEETING,
+        title: 'Weekly community sync',
+        hasRecording: true,
+        corpus: 'real',
+        startedAt: '2026-08-21T09:00:00Z',
+        startedAtPrecision: 'exact',
+        sourceDeepLink: null,
+        screenshots: [],
+        segments: [segment({ speakerLabel: 'SPEAKER_03' })],
+      },
+      error: undefined,
+    })
+    sdk.getJob.mockResolvedValue({ data: job({ status: 'done' }), error: undefined })
+    emit({ event: 'job.done', jobId: 'job-1', jobStatus: 'done', viewable: true })
+
+    await waitFor(() => expect(sdk.listMeetingSpeakers).toHaveBeenCalledTimes(2))
+    expect(
+      within(screen.getByTestId('speaker-row-SPEAKER_03')).getByRole('button'),
+    ).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('region', { name: 'Name SPEAKER_03' })).toBeInTheDocument()
+  })
+
   it('shows the guarded resolved name in the transcript after the landed reread', async () => {
     answers()
     sdk.assignMeetingSpeaker.mockResolvedValue({ data: assignment(), error: undefined })
