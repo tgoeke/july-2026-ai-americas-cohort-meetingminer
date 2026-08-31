@@ -15,6 +15,7 @@ const sdk = vi.hoisted(() => ({
   getMeetingDrilldown: vi.fn(),
   listParticipants: vi.fn(),
   assignMeetingSpeaker: vi.fn(),
+  getJob: vi.fn(),
 }))
 
 vi.mock('@/client/sdk.gen', () => ({
@@ -22,6 +23,7 @@ vi.mock('@/client/sdk.gen', () => ({
   getMeetingDrilldown: sdk.getMeetingDrilldown,
   listParticipants: sdk.listParticipants,
   assignMeetingSpeaker: sdk.assignMeetingSpeaker,
+  getJob: sdk.getJob,
   streamJobEvents: vi.fn(),
 }))
 
@@ -30,12 +32,25 @@ vi.mock('@/client/sdk.gen', () => ({
  * screen's contract with it is "fold these frames", and `useJobEvents` has its
  * own tests for holding the connection. `emit` is the api pushing a frame.
  */
-const stream = vi.hoisted(() => ({ onEvent: null as ((event: JobEvent) => void) | null }))
+const stream = vi.hoisted(() => ({
+  onEvent: null as ((event: JobEvent) => void) | null,
+  onResync: null as (() => void) | null,
+  connection: { kind: 'live' as const } as
+    | { kind: 'live' }
+    | { kind: 'lost'; message: string },
+}))
 
 vi.mock('@/features/meetings/useJobEvents', () => ({
-  useJobEvents: ({ onEvent }: { onEvent: (event: JobEvent) => void }) => {
+  useJobEvents: ({
+    onEvent,
+    onResync,
+  }: {
+    onEvent: (event: JobEvent) => void
+    onResync: () => void
+  }) => {
     stream.onEvent = onEvent
-    return { kind: 'live' as const }
+    stream.onResync = onResync
+    return stream.connection
   },
 }))
 
@@ -43,6 +58,10 @@ function emit(event: Partial<JobEvent> & Pick<JobEvent, 'event' | 'jobId'>) {
   act(() => {
     stream.onEvent?.({ jobStatus: 'running', viewable: false, ...event } as JobEvent)
   })
+}
+
+function resync() {
+  act(() => stream.onResync?.())
 }
 
 const MEETING = '0190a0f0-7c1e-7000-8000-0000000000aa'
@@ -107,6 +126,31 @@ function assignment(
   }
 }
 
+function job(
+  overrides: Partial<{
+    jobId: string
+    status: string
+    error: string | null
+    stages: Array<{ name: string; status: string; error?: string | null }>
+  }> = {},
+) {
+  return {
+    jobId: 'job-1',
+    status: 'queued',
+    sourceId: 'source-1',
+    dropPath: null,
+    corpus: 'real',
+    error: null,
+    createdAt: '2026-08-21T09:00:00Z',
+    stages: [
+      { name: 'align', status: 'queued', error: null },
+      { name: 'moments', status: 'queued', error: null },
+      { name: 'extract', status: 'queued', error: null },
+    ],
+    ...overrides,
+  }
+}
+
 const NOT_VIEWABLE = {
   type: 'urn:meetingminer:problem:meeting-not-viewable',
   title: 'meeting not viewable',
@@ -162,7 +206,11 @@ beforeEach(() => {
   sdk.getMeetingDrilldown.mockReset()
   sdk.listParticipants.mockReset()
   sdk.assignMeetingSpeaker.mockReset()
+  sdk.getJob.mockReset()
+  sdk.getJob.mockResolvedValue({ data: job(), error: undefined })
   stream.onEvent = null
+  stream.onResync = null
+  stream.connection = { kind: 'live' }
   playMedia.mockClear()
 })
 
@@ -573,6 +621,70 @@ describe('the rerun a naming starts', () => {
         ' still shows tags.',
     )
     expect(screen.queryByTestId('reprocessing-note')).not.toBeInTheDocument()
+  })
+
+  it('recovers a terminal transition missed while the event stream was disconnected', async () => {
+    answers()
+    sdk.assignMeetingSpeaker.mockResolvedValue({ data: assignment(), error: undefined })
+    const user = userEvent.setup()
+    await loaded()
+
+    await user.type(screen.getByRole('combobox'), 'Priya Natarajan')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByTestId('rerun-strip')
+
+    sdk.getJob.mockResolvedValue({
+      data: job({
+        status: 'running',
+        stages: [
+          { name: 'align', status: 'done' },
+          { name: 'moments', status: 'done' },
+          { name: 'extract', status: 'queued' },
+        ],
+      }),
+      error: undefined,
+    })
+    resync()
+
+    expect(await screen.findByTestId('rerun-landed')).toBeInTheDocument()
+  })
+
+  it('rejects a delayed terminal frame when the current re-arm is still queued', async () => {
+    answers()
+    sdk.assignMeetingSpeaker
+      .mockResolvedValueOnce({ data: assignment({ displayName: 'First Name' }), error: undefined })
+      .mockResolvedValueOnce({ data: assignment({ displayName: 'Second Name' }), error: undefined })
+    const user = userEvent.setup()
+    await loaded()
+
+    const field = screen.getByRole('combobox')
+    await user.type(field, 'First Name')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(sdk.assignMeetingSpeaker).toHaveBeenCalledTimes(1))
+    await user.type(field, 'Second Name')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(sdk.assignMeetingSpeaker).toHaveBeenCalledTimes(2))
+
+    emit({ event: 'job.done', jobId: 'job-1', jobStatus: 'running', viewable: true })
+
+    await waitFor(() => expect(sdk.getJob).toHaveBeenCalled())
+    expect(screen.queryByTestId('rerun-landed')).not.toBeInTheDocument()
+    expect(screen.getByTestId('reprocessing-note')).toBeInTheDocument()
+  })
+
+  it('surfaces a lost live-progress connection beside an active rerun', async () => {
+    stream.connection = { kind: 'lost', message: 'stream closed' }
+    answers()
+    sdk.assignMeetingSpeaker.mockResolvedValue({ data: assignment(), error: undefined })
+    const user = userEvent.setup()
+    await loaded()
+
+    await user.type(screen.getByRole('combobox'), 'Priya Natarajan')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByText(/Live rerun progress is unavailable/)).toHaveTextContent(
+      'stream closed',
+    )
   })
 })
 
