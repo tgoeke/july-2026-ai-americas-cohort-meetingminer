@@ -123,3 +123,12 @@ Adversarial review of the Story 7.4 web implementation, with emphasis on unsettl
 - **Finding:** The deviation says giving every speaker row a tab stop is behaviorally equivalent to the spine's roving group. It is not: Tab traverses every row instead of entering the group once at the selected row, so a meeting with many tags adds every tag to the page's sequential focus order. Arrow-key behavior does not erase those extra tab stops.
 - **Evidence:** No row supplies `tabIndex`; therefore each native button defaults to `0`. The arrow handler moves focus and selection, but after that move all other row buttons remain tabbable. The stated reason for departing from EXPERIENCE.md's roving-group requirement is false even though the buttons themselves remain semantically sound.
 - **Suggested direction:** Amend the frozen Story 7.4 deviation, then implement actual roving tabindex (`0` for the selected row, `-1` for the others) while retaining native buttons and the existing arrow behavior. Per the handoff, this frozen-spec root cause remains open rather than being silently changed in review.
+
+### F12 — An unanswered drilldown is presented as proof that no recording exists
+
+- **Location:** `web/src/features/speakers/SpeakerNaming.tsx:103`; `web/src/features/speakers/SpeakerNaming.tsx:716`; `web/src/features/speakers/SpeakerNaming.tsx:884`
+- **Severity:** Medium
+- **Status:** Confirmed — patch required
+- **Finding:** `hasRecording` defaults to `false`, so speakers can load first while drilldown is pending or refused and the naming column immediately claims `Transcript only — no recording`. That absence is not served evidence. If drilldown alone fails, its failure text also has no Retry control, leaving the clips/transcript half of an otherwise usable screen permanently stale.
+- **Evidence:** The two reads settle independently. Only a successful drilldown sets `hasRecording`; every pending and failure path retains the false default. The speakers failure box owns the screen's only Retry button, while the independent transcript failure branch renders plain text.
+- **Suggested direction:** Model recording availability as unknown until drilldown succeeds, say that it is loading/unavailable without claiming absence, and place Retry with the independent transcript failure as well. Verify both a pending drilldown and a drilldown-only refusal.
