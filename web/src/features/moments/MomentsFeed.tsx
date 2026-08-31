@@ -379,6 +379,14 @@ function FilterSelect({
   options: Array<[string, string]>
   onChange: (value: string | null) => void
 }) {
+  // A copied filtered URL can be opened before its matching item has appeared
+  // in the current page. Native selects otherwise display that real value as
+  // blank, making the active constraint both invisible and impossible to
+  // clear deliberately.
+  const visibleOptions: Array<[string, string]> =
+    value !== null && value !== '' && !options.some(([optionValue]) => optionValue === value)
+      ? [[value, value], ...options]
+      : options
   return (
     <label
       className="inline-flex min-h-6 items-center gap-1.5 rounded-md border px-2 py-1 text-xs"
@@ -393,7 +401,7 @@ function FilterSelect({
         onChange={(event) => onChange(event.target.value === '' ? null : event.target.value)}
       >
         <option value="">any</option>
-        {options.map(([optionValue, label]) => (
+        {visibleOptions.map(([optionValue, label]) => (
           <option key={optionValue} value={optionValue}>
             {label}
           </option>
