@@ -6,7 +6,7 @@ files: those recorded how the work was dispatched, which stops mattering once it
 has landed. What survives here is what constrains the next change.
 
 Read [`architecture.md`](architecture.md) first — the decision ids referenced
-below (AD-1 … AD-17) are defined there.
+below (AD-1 … AD-18) are defined there.
 
 ---
 
