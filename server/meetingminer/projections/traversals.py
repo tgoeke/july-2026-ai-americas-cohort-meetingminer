@@ -165,8 +165,8 @@ class ThreadMention:
 
     ``moment`` is the same :class:`TraversalMoment` the other two templates
     return, so a caller that already renders traversal rows renders these.
-    ``started_at`` is the *moment's* own wall clock — the value the thread's
-    span is computed from, distinct from the meeting's start.
+    ``started_at`` is the mention anchor's wall clock: the meeting start plus
+    ``anchor_ms``. The containing moment keeps its own start/end separately.
     """
 
     topic_id: UUID
@@ -288,7 +288,7 @@ _THREAD_TIMELINE_CYPHER = (
     " collect(DISTINCT [sp.id, sp.identityKey, sp.displayName]) AS speakers"
     " RETURN th.id AS anchorId, th.name AS anchorName,"
     " tp.id AS topicId, tp.name AS topicName, tp.gist AS topicGist,"
-    " men.anchorMs AS anchorMs, mo.startedAt AS momentStartedAt,"
+    " men.anchorMs AS anchorMs,"
     " mo.id AS momentId, meeting.id AS meetingId,"
     " meeting.title AS meetingTitle, meeting.startedAt AS meetingStartedAt,"
     " mo.startMs AS startMs, mo.endMs AS endMs,"
@@ -585,36 +585,6 @@ def participant_topic_moments(
     return ParticipantTopicMomentsResult(participant=anchor, rows=rows)
 
 
-def _moment_started_at(data: Mapping[str, Any], *, moment_id: UUID) -> datetime:
-    """The moment's own wall clock, which the thread's span is measured on.
-
-    Held to the same standard ``_moment_of`` holds ``meeting.startedAt`` to:
-    ISO-8601 and offset-aware UTC, because the thread-level span compares
-    values across meetings and a naive one would compare as though it were
-    UTC. Named separately from the meeting's so a corrupt value says which
-    node it came from.
-    """
-    raw = data.get("momentStartedAt")
-    try:
-        started_at = datetime.fromisoformat(raw)
-    except (TypeError, ValueError) as exc:
-        raise ProjectionError(
-            f"the {THREAD_TIMELINE!r} traversal returned Moment {moment_id}"
-            f" with a startedAt that is not ISO-8601: {raw!r} — the projection"
-            " writes it and the thread's span depends on it. Run"
-            " 'rebuild --all' to regenerate the store from Postgres."
-        ) from exc
-    if started_at.tzinfo is None or started_at.utcoffset() != timedelta(0):
-        raise ProjectionError(
-            f"the {THREAD_TIMELINE!r} traversal returned Moment {moment_id}"
-            f" with a non-UTC startedAt: {raw!r} — the projection writes"
-            " offset-aware UTC, and the thread's span is compared across"
-            " meetings. Run 'rebuild --all' to regenerate the store from"
-            " Postgres."
-        )
-    return started_at
-
-
 def _speakers_of(data: Mapping[str, Any], *, moment_id: UUID) -> tuple[ThreadParticipant, ...]:
     """The resolved speakers of one moment, or an empty tuple.
 
@@ -714,6 +684,12 @@ def thread_timeline(driver: neo4j.Driver, *, thread_id: UUID | str) -> ThreadTim
             continue
         moment = _moment_of(record, template=THREAD_TIMELINE)
         topic_id = _uuid_of(record.get("topicId"), node="Topic", template=THREAD_TIMELINE)
+        anchor_ms = _int_of(
+            record.get("anchorMs"),
+            moment_id=moment.moment_id,
+            field="anchorMs",
+            template=THREAD_TIMELINE,
+        )
         mention = ThreadMention(
             topic_id=topic_id,
             topic_name=_string_of(
@@ -730,13 +706,8 @@ def thread_timeline(driver: neo4j.Driver, *, thread_id: UUID | str) -> ThreadTim
                 field="gist",
                 template=THREAD_TIMELINE,
             ),
-            anchor_ms=_int_of(
-                record.get("anchorMs"),
-                moment_id=moment.moment_id,
-                field="anchorMs",
-                template=THREAD_TIMELINE,
-            ),
-            started_at=_moment_started_at(record, moment_id=moment.moment_id),
+            anchor_ms=anchor_ms,
+            started_at=moment.meeting_started_at + timedelta(milliseconds=anchor_ms),
             moment=moment,
             speakers=_speakers_of(record, moment_id=moment.moment_id),
         )

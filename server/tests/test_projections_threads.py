@@ -139,7 +139,6 @@ def canned_row(**overrides: Any) -> dict[str, Any]:
         "topicName": "Vendor feed",
         "topicGist": "The supplier data pipeline.",
         "anchorMs": 2_000,
-        "momentStartedAt": STARTED_AT.isoformat(),
         "momentId": str(MOMENT_ID),
         "meetingId": str(MEETING_ID),
         "meetingTitle": "Data Hub Demo",
@@ -195,14 +194,14 @@ def test_a_thread_node_whose_id_is_not_a_uuid_is_named_corruption() -> None:
     assert "Thread" in str(excinfo.value)
 
 
-def test_a_naive_moment_timestamp_is_named_corruption() -> None:
-    """The thread's span compares moments across meetings, so a naive value
-    would be compared as though it were UTC."""
+def test_a_naive_meeting_timestamp_is_named_corruption() -> None:
+    """Mention wall clocks derive from the meeting start, so a naive value
+    would be treated as though it were UTC."""
     naive = STARTED_AT.replace(tzinfo=None).isoformat()
     with pytest.raises(ProjectionError) as excinfo:
-        thread_timeline(_CannedDriver([canned_row(momentStartedAt=naive)]), thread_id=THREAD_ID)
+        thread_timeline(_CannedDriver([canned_row(meetingStartedAt=naive)]), thread_id=THREAD_ID)
     assert "non-UTC" in str(excinfo.value)
-    assert "Moment" in str(excinfo.value)
+    assert "Meeting" in str(excinfo.value)
 
 
 def test_a_moment_with_no_resolved_speaker_reports_no_participants() -> None:
@@ -235,14 +234,12 @@ def test_the_aggregates_are_computed_per_level() -> None:
             startMs=40_000,
             endMs=44_000,
             anchorMs=40_500,
-            momentStartedAt=(STARTED_AT + timedelta(seconds=40)).isoformat(),
             speakers=[[str(other_person), "mail:e@f.g", "Whitmore, Ellis"]],
         ),
         canned_row(
             meetingId=str(later_meeting),
             momentId=str(uuid4()),
             meetingStartedAt=(STARTED_AT + timedelta(days=7)).isoformat(),
-            momentStartedAt=(STARTED_AT + timedelta(days=7, seconds=5)).isoformat(),
             startMs=5_000,
             endMs=9_000,
             anchorMs=5_000,
@@ -262,8 +259,37 @@ def test_the_aggregates_are_computed_per_level() -> None:
         "Goeke, Timothy",
         "Whitmore, Ellis",
     ]
-    assert result.first_mention_at == STARTED_AT
+    assert result.first_mention_at == STARTED_AT + timedelta(seconds=2)
     assert result.last_mention_at == STARTED_AT + timedelta(days=7, seconds=5)
+
+
+def test_mention_timestamps_use_the_anchor_inside_the_moment() -> None:
+    """A topic can be mentioned well after its containing moment starts; the
+    timeline's first/last *mention* timestamps must use that anchor, not round
+    every mention down to its moment boundary."""
+    rows = [
+        canned_row(
+            startMs=0,
+            endMs=60_000,
+            anchorMs=50_000,
+        ),
+        canned_row(
+            momentId=str(uuid4()),
+            startMs=70_000,
+            endMs=100_000,
+            anchorMs=95_000,
+        ),
+    ]
+
+    result = thread_timeline(_CannedDriver(rows), thread_id=THREAD_ID)
+
+    expected = [
+        STARTED_AT + timedelta(seconds=50),
+        STARTED_AT + timedelta(seconds=95),
+    ]
+    assert [mention.started_at for mention in result.meetings[0].mentions] == expected
+    assert result.first_mention_at == expected[0]
+    assert result.last_mention_at == expected[-1]
 
 
 def test_the_span_takes_the_widest_end_not_the_last_rows_end() -> None:
