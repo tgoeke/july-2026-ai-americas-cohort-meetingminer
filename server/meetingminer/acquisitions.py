@@ -6,6 +6,7 @@ so the api's whole part is: classify the URL offline, claim the source id,
 write a status file, and start
 
     python -m meetingminer.acquisitions --run --acquisition-id <id> --url <url>
+        --state-root <absolute path>
 
 as a **detached** host process (``start_new_session=True``) whose stdout is
 that acquisition's log. The child is this same module, and it deliberately
@@ -625,7 +626,7 @@ def claim_lock(root: Path) -> Iterator[None]:
 # --- launching the detached child --------------------------------------------
 
 
-def child_command(acquisition_id: str, url: str) -> list[str]:
+def child_command(acquisition_id: str, url: str, state_root: Path) -> list[str]:
     """The detached runner's argv. One function so a test can replace the
     whole command rather than stub the process machinery around it."""
     return [
@@ -637,6 +638,8 @@ def child_command(acquisition_id: str, url: str) -> list[str]:
         acquisition_id,
         "--url",
         url,
+        "--state-root",
+        str(state_root),
     ]
 
 
@@ -678,11 +681,11 @@ def launch(config: AppConfig, url: str) -> AcquisitionRecord:
                 f"acquisition log could not be opened: {exc}"
             ) from exc
         try:
-            # The argv is built by `child_command` from constants and two
-            # already-validated values; no part of it comes from the request
-            # body verbatim, and no shell is involved.
+            # The argv is built by `child_command` from constants, two
+            # already-validated values, and this parent-resolved state root;
+            # no shell is involved.
             process = subprocess.Popen(
-                child_command(acquisition_id, canonical),
+                child_command(acquisition_id, canonical, root),
                 stdin=subprocess.DEVNULL,
                 stdout=stream,
                 stderr=subprocess.STDOUT,
@@ -718,7 +721,11 @@ def launch(config: AppConfig, url: str) -> AcquisitionRecord:
 
 
 def run_acquisition(
-    config: AppConfig, acquisition_id: str, url: str
+    config: AppConfig,
+    acquisition_id: str,
+    url: str,
+    *,
+    state_root: Path | None = None,
 ) -> AcquisitionRecord:
     """One acquisition, start to finish, writing every transition to the file.
 
@@ -727,7 +734,7 @@ def run_acquisition(
     ``exists`` short-circuit answers from the drops root with no ``yt-dlp``
     invocation at all, and intake is reached only through ``POST /ingests``.
     """
-    root = acquisitions_root(config)
+    root = state_root if state_root is not None else acquisitions_root(config)
     # `Popen` returns only after the child has exec'd, so this process can reach
     # the status file before the parent resumes and records our pid. The parent
     # owns the claim lock through that write; waiting for it here establishes a
@@ -840,20 +847,53 @@ def _parser() -> argparse.ArgumentParser:
         metavar="URL",
         help="the canonical watch URL to acquire.",
     )
+    parser.add_argument(
+        "--state-root",
+        required=True,
+        type=Path,
+        metavar="ABSOLUTE_PATH",
+        help=(
+            "the acquisition-state directory resolved by the parent api. It is"
+            " passed explicitly so a config-load failure can still write the"
+            " structured failed record the api polls."
+        ),
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    state_root: Path = args.state_root
+    if not state_root.is_absolute():
+        print(
+            f"fatal: {PROGRAM} refused: --state-root must be an absolute path",
+            file=sys.stderr,
+            flush=True,
+        )
+        return 1
     try:
         config = _load_cli_config()
     except ConfigError as exc:
-        # No config means no status directory to record this in; stderr is the
-        # acquisition's own log, which the api serves as the tail.
         print(f"fatal: {PROGRAM} refused: {exc}", file=sys.stderr, flush=True)
+        try:
+            record = read_record(state_root, args.acquisition_id).advanced(
+                status="failed", refusal=refusal_for(exc)
+            )
+            write_record(state_root, record)
+        except AcquisitionError as state_exc:
+            print(
+                f"fatal: {PROGRAM} could not record that refusal: {state_exc}",
+                file=sys.stderr,
+                flush=True,
+            )
         return 1
     try:
-        record = run_acquisition(config, args.acquisition_id, args.url)
+        record = run_acquisition(
+            config,
+            args.acquisition_id,
+            args.url,
+            state_root=state_root,
+        )
     except AcquisitionError as exc:
         print(f"fatal: {PROGRAM} refused: {exc}", file=sys.stderr, flush=True)
         return 1

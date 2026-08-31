@@ -269,7 +269,9 @@ def sleeping_children(
         return process
 
     monkeypatch.setattr(
-        acquisitions, "child_command", lambda _id, _url: ["/bin/sleep", "30"]
+        acquisitions,
+        "child_command",
+        lambda _id, _url, _root: ["/bin/sleep", "30"],
     )
     monkeypatch.setattr(acquisitions.subprocess, "Popen", _popen)
     yield started
@@ -368,6 +370,7 @@ def test_the_child_is_detached_with_the_log_open_and_no_stdin(
     # The runner is reached as a module, never as a path a request could bend.
     assert seen["argv"][:4] == [sys.executable, "-m", "meetingminer.acquisitions", "--run"]
     assert WATCH_URL in seen["argv"]
+    assert seen["argv"][seen["argv"].index("--state-root") + 1] == str(env.root)
 
 
 def test_the_runner_waits_for_the_launch_claim_before_advancing_state(
