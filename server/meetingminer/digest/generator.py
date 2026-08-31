@@ -70,7 +70,14 @@ def read_published_artifacts(conn: Connection) -> tuple[DigestMeeting, ...]:
         "SELECT m.id, m.title, m.started_at, a.id, a.kind, a.title, a.body"
         " FROM artifact a"
         " JOIN meeting m ON m.id = a.meeting_id"
-        " WHERE a.state = 'published'"
+        # Moment-anchored rows only (story 12.2). The bucketing below is a
+        # two-way split — `adr` or everything else — so a published
+        # meeting-scoped artifact would silently be filed as an action item,
+        # which it is not. This digest renders what its own docstring says it
+        # renders; a meeting summary belongs to the meeting analysis panel
+        # (story 12.3), not to a list of decisions and commitments. The filter
+        # is on the observable scope, never on a kind name.
+        " WHERE a.state = 'published' AND a.moment_id IS NOT NULL"
         " ORDER BY m.started_at DESC, m.id, a.kind, a.created_at, a.id",
     ).fetchall()
 

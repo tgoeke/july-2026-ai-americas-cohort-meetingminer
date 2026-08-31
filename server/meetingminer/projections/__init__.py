@@ -58,6 +58,7 @@ from meetingminer.projections.publish_gate import (
     PublishGateRefused,
     assert_publishable,
     is_publishable,
+    meeting_scoped_published,
     published_artifacts,
 )
 from meetingminer.projections.stores import (
@@ -118,8 +119,11 @@ class ProjectionOutcome:
     moment_documents: int = 0
     chunk_documents: int = 0
     # Published artifacts re-projected alongside the meeting (story 4.4).
-    # Always the meeting's full published set — drafts are structurally
-    # excluded by `publish_gate.published_artifacts`'s own WHERE clause.
+    # Always the meeting's full published set of MOMENT-ANCHORED rows —
+    # drafts and meeting-scoped artifacts are both structurally excluded
+    # by `publish_gate.published_artifacts`'s own WHERE clause (story
+    # 12.2: a meeting-scoped artifact has no moment, so neither store has
+    # a record shape for it that would not be a citation).
     artifact_documents: int = 0
     # A named warning that did *not* fail the projection — today, only an
     # unreachable model host. The structural rows are written and searchable.
@@ -626,12 +630,26 @@ def project_published_artifacts(
         )
         if artifact_ids is not None:
             found = {artifact.id for artifact in artifacts}
+            # A published meeting-scoped artifact is skipped on purpose, and
+            # its reason has to say so (story 12.2, AD-18). Reporting it as
+            # "not found in state 'published'" would be untrue — it *is*
+            # published; it was deliberately not projected because it has no
+            # moment to cite — and an operator must be able to tell that from
+            # a genuinely missing or unpublished id.
+            meeting_scoped = meeting_scoped_published(
+                conn, [requested for requested in artifact_ids if requested not in found]
+            )
             for requested in artifact_ids:
                 if requested not in found:
                     emit(
                         "projection.artifact_skipped",
                         artifact_id=requested,
-                        reason="not found in state 'published'",
+                        reason=(
+                            "meeting-scoped: no moment to cite, so there is"
+                            " nothing citable to project (AD-6)"
+                            if requested in meeting_scoped
+                            else "not found in state 'published'"
+                        ),
                     )
         if not artifacts:
             return 0

@@ -3,7 +3,7 @@ title: 'Story 12.2: The Meeting Summary'
 type: 'feature'
 created: '2026-08-31'
 baseline_revision: 'd250cf89ee5eb40e401e7f2f8ded74d9fab81a33'
-status: 'ready-for-dev'
+status: 'in-progress'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
