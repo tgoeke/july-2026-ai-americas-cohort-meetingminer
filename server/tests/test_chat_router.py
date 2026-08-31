@@ -67,7 +67,8 @@ def test_a_deferred_template_degrades_to_search_only_rather_than_dispatching() -
     for name in DEFERRED_TEMPLATES:
         decision = parse_route(json.dumps({"template": name, "searchTerms": "vendor feed"}))
         assert decision.template is None, name
-        assert decision.fallback_reason in FALLBACK_REASONS
+        assert decision.fallback_reason == "deferred-template"
+        assert decision.search_terms == "vendor feed"
 
 
 def test_each_anchor_map_covers_exactly_its_templates_cypher_parameters() -> None:
@@ -216,6 +217,7 @@ def test_every_fallback_reason_the_parser_can_emit_is_declared() -> None:
             "[]",
             json.dumps({"template": None}),
             json.dumps({"template": "nope"}),
+            json.dumps({"template": "thread-timeline"}),
             json.dumps({"template": "screen-history"}),
         )
     }

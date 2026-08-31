@@ -109,6 +109,7 @@ FALLBACK_REASONS: tuple[str, ...] = (
     "not-an-object",  # valid JSON, but not an object
     "no-template",  # the model itself declined to name one
     "unregistered-template",  # a name TRAVERSAL_TEMPLATES does not hold
+    "deferred-template",  # registered, but deliberately unroutable until its named story
     "missing-anchor",  # a registered name whose anchors were absent or blank
 )
 
@@ -260,7 +261,14 @@ def parse_route(raw: str) -> RouteDecision:
     name = _text(decoded.get("template"))
     if name is None:
         return _search_only(raw, "no-template", search_terms)
-    if name not in TRAVERSAL_TEMPLATES or name not in TEMPLATE_ANCHORS:
+    if name not in TRAVERSAL_TEMPLATES:
+        return _search_only(raw, "unregistered-template", search_terms)
+    if name in DEFERRED_TEMPLATES:
+        return _search_only(raw, "deferred-template", search_terms)
+    if name not in TEMPLATE_ANCHORS:
+        # The registry/anchor coverage test prevents this for committed code;
+        # retain a fail-closed runtime guard in case a partial deployment puts
+        # the modules out of step.
         return _search_only(raw, "unregistered-template", search_terms)
 
     declared = TEMPLATE_ANCHORS[name]
