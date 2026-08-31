@@ -374,6 +374,32 @@ describe('Add-meeting, the pre-flight probe', () => {
     expect(screen.getByTestId('submit-acquisition')).toBeEnabled()
   })
 
+  it('keeps a probe timeout on the transport side of the refusal boundary', async () => {
+    let rejectProbe: ((reason: unknown) => void) | undefined
+    sdk.probeAcquisition
+      .mockReturnValueOnce(
+        new Promise((_resolve, reject) => {
+          rejectProbe = reject
+        }),
+      )
+      .mockResolvedValueOnce({ data: probeResult(), error: undefined })
+    render(<AddMeeting />)
+
+    fireEvent.change(screen.getByTestId('youtube-url'), { target: { value: VIDEO_URL } })
+    await settleProbe()
+    expect(screen.getByTestId('probe-running')).toBeInTheDocument()
+
+    await act(async () => {
+      rejectProbe?.(new DOMException('The operation timed out', 'TimeoutError'))
+    })
+    expect(screen.getByTestId('probe-transport')).toHaveTextContent('The operation timed out')
+    expect(screen.queryByTestId('probe-refusal')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    await settleProbe()
+    expect(screen.getByTestId('probe-answered')).toBeInTheDocument()
+  })
+
   it('discards a superseded probe: the answer for an edited-away URL never lands', async () => {
     const first = probeResult({ title: 'THE OLD ONE', sourceId: 'youtube:aaaaaaaaaaa' })
     let resolveFirst: ((value: unknown) => void) | undefined
@@ -482,6 +508,22 @@ describe('Add-meeting, submitting', () => {
     expect(screen.getByTestId('submit-refusal')).toHaveTextContent('Install yt-dlp and restart the api.')
     expect(screen.queryByTestId('open-running-acquisition')).not.toBeInTheDocument()
     expect(screen.queryByTestId('acquisition-stepper')).not.toBeInTheDocument()
+  })
+
+  it('renders a submit transport failure separately and leaves the form usable', async () => {
+    sdk.probeAcquisition.mockResolvedValue({ data: probeResult(), error: undefined })
+    sdk.startAcquisition.mockRejectedValue(new TypeError('Failed to fetch'))
+    render(<AddMeeting />)
+    await typeUrl(VIDEO_URL)
+
+    await user.click(screen.getByTestId('submit-acquisition'))
+
+    expect(screen.getByTestId('submit-transport')).toHaveTextContent(
+      `Cannot reach the api at ${API_BASE}: Failed to fetch`,
+    )
+    expect(screen.queryByTestId('submit-refusal')).not.toBeInTheDocument()
+    expect(screen.getByTestId('youtube-url')).not.toHaveAttribute('readonly')
+    expect(screen.getByTestId('submit-acquisition')).toBeEnabled()
   })
 })
 

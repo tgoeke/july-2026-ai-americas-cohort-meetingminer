@@ -93,6 +93,13 @@ describe('failureOf', () => {
     })
   })
 
+  it('preserves an error-like DOM timeout message as transport', () => {
+    expect(failureOf(new DOMException('The operation timed out', 'TimeoutError'))).toEqual({
+      kind: 'transport',
+      message: `Cannot reach the api at ${API_BASE}: The operation timed out`,
+    })
+  })
+
   it('never leaves a failure unexplained', () => {
     expect(failureOf(undefined)).toEqual({
       kind: 'transport',
