@@ -175,15 +175,71 @@ are available. Each is a screen, not a command.
 |---|---|---|---|
 | 0.1 | Walkthrough scope (A keep / B grow) | | |
 | 0.2 | Story splits/merges accepted | | |
-| 1.1 | YouTube URLs | | |
-| 1.2 | Recurring-series playlist URL | | |
-| 1.3 | Featured meetings | | |
+| 1.1 | YouTube URLs | see **Corpus candidates** below | 2026-08-30 |
+| 1.2 | Recurring-series playlist URL | Green Line Extension CMC series on @MetropolitanCouncilMeetings (6 sessions Jun 2025 – Jun 2026) | 2026-08-30 |
+| 1.3 | Featured meetings | not yet chosen | |
 | 2.3 | Exports handoff directory (absolute path) | | |
 | 3.1 | HF token ready (yes/no; never the value) | | |
 | 3.2 | LAN GPU host needed (yes/no) | | |
 | 6.1 | Rehearsed search query | | |
 | 6.1 | Question for the cited answer | | |
 | 6.4 | Recording path (outside git) | | |
+
+## Corpus candidates — gathered 2026-08-30, not yet ingested
+
+Two sets, serving different halves of the demo. Every entry below was probed
+with `yt-dlp` (metadata only, nothing downloaded): all are available, all carry
+English captions, and **all are under the 180-minute cap**, so no config change
+is needed.
+
+### Set A — public meetings, for threads and speakers
+
+`https://www.youtube.com/@MetropolitanCouncilMeetings` — 676 videos. A 40-video
+sample ran 1–91 minutes, median ~42.
+
+- **Recurring series present**, which is what Epic 10 threads need: the *METRO
+  Green Line Extension Corridor Management Committee* appears six times between
+  June 2025 and June 2026 — same committee, same project, a year apart, so
+  funding/construction/engagement topics genuinely recur across meetings rather
+  than producing singleton threads. A Blue Line Extension series and a large
+  "PlanIt:" webinar series also exist.
+- **Captions are auto-generated, not manual — so they carry no speaker labels.**
+  This set is therefore the case that justifies diarization: `/diarize`
+  (backlog B-36, landed) supplies `SPEAKER_NN` tags and story 7.3 names them.
+  Without it these meetings ingest as unattributed text.
+- Committee and Council meetings are multi-speaker; the "PlanIt:" items are
+  one- or two-presenter webinars. Prefer the committee meetings when the demo
+  needs participants.
+
+### Set B — recorded software demonstrations, for capture and citation
+
+Seven vendor demos and tutorials, all confirmed available with captions:
+
+| id | min | source | subject |
+|---|---:|---|---|
+| `RXfQ5xD1tFg` | 35 | Zycus | agentic AI in procurement, live demo |
+| `mH4RPo5F-Uw` | 2 | Zycus | supplier onboarding |
+| `a5oxfjdoJOg` | 44 | Brockbank Consulting | Salesforce CRM tutorial |
+| `ntZbRd-DPII` | 5 | Thrive Media | Salesforce CRM walkthrough |
+| `jHzIGGU-Ph0` | 40 | Nick Boardman | Salesforce CRM training |
+| `6JuI53YY_6E` | 4 | TechnologyAdvice | Workday demo |
+| `VRVSH2yGPE4` | 4 | Workday | navigating Workday HCM |
+
+**This set is on-thesis.** The product's stated purpose is turning *recorded
+software demonstrations* into searchable, citable evidence, and these carry
+real application UI on screen — which is what the capture → frames → OCR →
+screens → moments path was built for, and what makes "every artifact traces to
+the video moment that produced it" demonstrable. Set A is talking heads and
+slides by comparison.
+
+**Together they cover more than either alone:** Set A demonstrates threads,
+topics, speakers and cross-meeting search; Set B demonstrates screen capture,
+screenshots and moment-level citation.
+
+**One note on character, not a blocker:** Set B is commercial vendor content
+rather than public record. Nothing is redistributed — only locally derived
+transcripts and screenshots — but it is worth a moment's thought if the
+recorded walkthrough is published beyond the cohort.
 
 ## What blocks what
 
