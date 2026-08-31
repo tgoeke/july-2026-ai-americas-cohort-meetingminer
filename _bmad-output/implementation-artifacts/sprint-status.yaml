@@ -146,9 +146,11 @@ development_status:
   11-4-lint-and-type-tooling-in-the-fast-loop: done
   epic-11-retrospective: optional
 
-  # Added by a concurrent branch; re-file under its epic.
-  b36-remote-diarizer: done
+  epic-12: backlog
   12-1-retain-the-extraction-documents: backlog
   12-2-the-meeting-summary: backlog
   12-3-the-meeting-analysis-panel: backlog
   12-4-extraction-documents-are-searchable: backlog
+
+  # Added by a concurrent branch; re-file under its epic.
+  b36-remote-diarizer: done
