@@ -749,6 +749,35 @@ def test_a_split_must_name_topics_the_thread_actually_holds(
     assert "does not hold" in stranger.json()["detail"]
 
 
+def test_a_split_refuses_a_subject_key_that_identifies_multiple_topics(
+    client: TestClient, pool: ConnectionPool, app_config: AppConfig
+) -> None:
+    """A durable split key is ``(meeting_id, normalized_name)``, not a UUID.
+
+    If two topic rows in one meeting normalize to the same name, accepting
+    only one UUID would show one moved topic immediately (the SQL hint) and
+    then move both on the next derivation (the durable key).  The correction
+    must be refused instead of silently widening after the user leaves it.
+    """
+    with pool.connection() as conn:
+        first = seed_meeting(conn, "m1")
+        second = seed_meeting(conn, "m2", offset_days=1)
+        selected = add_topic(conn, first, "Vendor Feed")
+        add_topic(conn, first, "vendor  feed.", start_ms=10_000)
+        add_topic(conn, second, "Vendor Feed")
+        derive(conn, app_config)
+        conn.commit()
+        thread_id = thread_of(conn, selected)
+
+    response = client.post(
+        f"/threads/{thread_id}/split",
+        json={"topicIds": [str(selected)], "name": "Vendor feed (billing)"},
+    )
+
+    assert response.status_code == 422
+    assert "durable subject key" in response.json()["detail"]
+
+
 def test_a_split_that_moves_every_topic_is_a_rename_and_is_refused(
     client: TestClient, pool: ConnectionPool, app_config: AppConfig
 ) -> None:
