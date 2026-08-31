@@ -7,8 +7,15 @@ Date: 2026-08-31
 - Review branch: `story/6-5-review`
 - Source branch: `story/6-5`
 - Original story range: `2d68dcc6dba31007c7d6fd84f0884edbc79508d5..d6216583cf601c925ef4ecdfae594c600be98a52`
+- Rebased story range actually reviewed: `aa4f0b60f8b6844034794cdf3b80ab43bc385e26..43d0b0aa20a06d01dc1469cca6b905c8ca06d772`
 - Required scope: the 13 additions listed in the Story 6.5 review contract
 - Authority: frozen Story 6.5 intent contract, architecture decisions AD-11/AD-14/AD-18, adopted UX design, and Story 6.5 acceptance criteria
+
+## Review method
+
+- Rebased the story onto `origin/main` before review so the route was evaluated in the recomposed full-width metrics banner and ≥1400 px Search/Ask rail shell.
+- Ran the BMad adversarial, edge-case, acceptance, and verification-gap review layers, then independently verified every candidate against source, generated types, server state machines, and authority documents before filing it.
+- Filed each confirmed finding before its patch, observed a focused regression fail against the unfixed implementation, then implemented and reran it green. No finding was deferred and no frozen-intent or owner-decision finding remains open.
 
 ## Findings
 
@@ -158,8 +165,19 @@ Date: 2026-08-31
 
 ## Disposition
 
-Review in progress. No pass/fail verdict has been assigned.
+**PASS AFTER REMEDIATION.** The review confirmed 16 findings: 4 high, 11 medium, and 1 low. Every finding is fixed on `story/6-5-review`, every remediation was exercised red-first, and no high/medium/low finding remains open.
+
+The primary `/add` defect is resolved in the rebased shell, and the repaired flow now preserves the api/transport distinction through probe, submit, poll, unknown-status, and timeout paths; safely hands acquisition progress to the real null-id-before-mint `/meetings` shape and silent-baseline SSE contract; gives auto-caption users the speaker limitation and supported `Name speakers` action; and retains visible, accessible progress and stale-state labels.
 
 ## Verification
 
-Not run yet.
+- `make web-test` — **63 files, 746 tests passed**.
+- `make test` — full repository gate passed in the worktree's private stack: puller **128 passed**; web **746 passed**; eval harness **655 passed**; optional diarization/STT/worker-transcript gate **92 passed**; test-store reachability **1 passed**; full server suite **2739 passed, 3 expected skips**; final production build passed.
+- `make lint` — ruff: all checks passed.
+- `make typecheck` — mypy: no issues in 13 source files.
+- `pnpm --dir web run lint` — completed with only the repository's existing warning baseline, including the expected route/component fast-refresh warnings; no new hook warning in the story files.
+- `pnpm --dir web run build` — `tsc -b` and Vite production build passed (135 modules).
+- Rebased shell contract — `AddMeetingRoute.test.tsx` and the parameterized `shellPlacement.test.tsx` ran in the 746-test gate. They prove `/add` is a discovered child, the child is visible with Back, the corpus/banner shell remains mounted, and Search/Ask occupy their responsive `min-[1400px]` rail before the child content. A requested live visual viewport pass could not run because this session exposed no connected in-app or external browser; no substitute browser backend was used.
+- Transport seam — added and passed delayed `DOMException` timeout, submit transport, poll transport/Problem Details, real null-`meetingId` handoff, silent SSE baseline race, and populated-card stream-loss regressions. No live worker was started and no paid model was called; the owner-supplied live endpoint smoke result remains the live-api evidence.
+- `python3 _bmad/scripts/branch_conflicts.py --against story/6-5` — the relevant pairs remain clean (`story/6-5 × story/6-4a`, `story/6-5 × story/10-2a`, and `main × story/6-5-review`). The script's overall nonzero status is from its reported inherited/main conflicts plus the expected source-vs-review overlap.
+- `make check-reviews` — `check-reviews: every dispatched review has a committed report`.

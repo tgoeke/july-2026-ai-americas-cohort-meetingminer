@@ -2,9 +2,9 @@
 title: 'Story 6.5: Add-Meeting UI'
 type: 'feature'
 created: '2026-08-31'
-status: 'review'
+status: 'done'
 baseline_revision: 'a6ec4dbfc2c825281fad98e707daa7d04e69b95a'
-review_loop_iteration: 0
+review_loop_iteration: 1
 followup_review_recommended: false
 context: []
 warnings: [oversized]
@@ -165,7 +165,7 @@ story 7.4's surface), not a client change.
 
 ## Auto Run Result
 
-Status: review — handed to the Codex `bmad-code-review` lane, not marked done.
+Status: done — the Codex `bmad-code-review` lane completed its adversarial review and red-first remediation on `story/6-5-review`; the filed verdict is pass after remediation.
 
 **Implemented.** `/add` is claimed by a discovered route and the Add-meeting
 screen renders there: the four-source tab chrome with the YouTube URL tab
@@ -193,18 +193,19 @@ transport failures are kept distinct from refusals and carry Retry.
 - `web/src/features/acquisitions/AddMeeting.tsx` — the screen.
 - `web/src/features/acquisitions/AddMeeting.route.tsx` — `path: '/add'`.
 - Four test files: `youtubeUrl.test.ts`, `acquisitions.test.ts`,
-  `AddMeeting.test.tsx`, `AddMeetingRoute.test.tsx` — 50 tests.
+  `AddMeeting.test.tsx`, `AddMeetingRoute.test.tsx` — 64 tests after review
+  regressions.
 
-**Review findings breakdown.** The in-workflow reviewer subagents were not run:
-this run was dispatched with an explicit instruction to work synchronously with
-no background agents, and this harness's subagents execute detached. The
-external Codex `bmad-code-review` lane is the substitute named in the same
-dispatch, and it applies its own patch findings. Patches applied: 0. Items
-deferred: 0. Items rejected: 0. Findings are therefore this story's open
-review surface, not a completed pass.
+**Review findings breakdown.** The external Codex `bmad-code-review` lane ran
+the adversarial, edge-case, acceptance, and verification-gap layers and then
+verified candidates against source and authority before filing them. Confirmed:
+16 (4 high, 11 medium, 1 low). Patched red-first: 16. Deferred/open: 0.
+Rejected candidates were omitted from the findings report. The canonical
+evidence and dispositions are in
+`review-story-6-5-2026-08-31.md`.
 
-**Follow-up review recommendation:** false (0 patched findings this pass;
-score 0). The external review lane is still owed.
+**Follow-up review recommendation:** false. The review verdict is pass after
+remediation and the full repository gate is green.
 
 **Verification performed** (all foreground, full output read):
 
@@ -235,11 +236,21 @@ score 0). The external review lane is still owed.
 - The three file tabs render chrome and an explanatory sentence only. Story
   6.5a fills them; if its design changes the tab set, this tablist changes with
   it.
-- No `Name speakers` link on the finished card, though EXPERIENCE.md:144
-  describes one. `MeetingListItem` carries no field saying whether the meeting
-  arrived with a speaker-attributed transcript, so the condition is not
-  derivable from served data and inventing it would breach the story's own
-  "nothing is invented" rule. Recorded in Design Notes; it needs either an api
-  field or story 7.4's surface.
+- The review resolved the `Name speakers` gap without inventing meeting state:
+  for a newly created acquisition, the parent retains the probe's served
+  `captions.kind: auto` fact and the card waits for served `transcribe: done`.
+  Existing-corpus results remain conservative because prior naming state is not
+  served on this screen.
 - `RefusalBox` renders the api's strings directly. That is the point (AD-18),
   but it means refusal quality is the api's to own, not this screen's.
+
+## Review Triage Log
+
+- Review report: `review-story-6-5-2026-08-31.md`
+- Verdict: pass after remediation.
+- Findings: 16 confirmed; all 16 fixed red-first; none open or deferred.
+- Full gate: 2739 server tests passed with 3 expected skips; 746 web tests,
+  655 eval-harness tests, 128 puller tests, and 92 optional-dependency tests
+  passed; lint, typecheck, review enforcement, and production build passed.
+- Visual limitation: the rebased route/shell DOM and responsive-class contracts
+  passed, but no connected browser was available for a screenshot pass.
