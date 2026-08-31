@@ -244,6 +244,33 @@ story started and are recorded in AD-6 (spine) and in the epic.
 
 ## Spec Change Log
 
+- **2026-08-31, implementation — the summary counts in `item_count` as well as
+  `artifact_count`.** Planning said it should count in `artifact_count` only,
+  reasoning that `item_count` counts ID-keyed item rows and the summary is not
+  one. Migration 0010 refused it: `extraction_source_inserted_within_parsed`
+  CHECKs `artifact_count <= item_count`, and the run failed by name on the
+  first stage test. The constraint is right and the plan was wrong — 0010
+  defines `item_count` as *what the parser found* and `artifact_count` as
+  *what became a row*, and the executive summary is both. Counting it in one
+  column only would have reported an insert the document never yielded. The
+  two now differ by exactly one in the case the columns exist for: a summary
+  found but not stored because the meeting scope was already approved.
+
+- **2026-08-31, implementation — no meeting-scoped artifact reaches either
+  store, and the skip is named.** The spec called for this; what the code
+  showed is how close the alternative was to shipping silently.
+  `published_artifacts` built `moment_ids=(row[7],)` unconditionally, so a
+  published summary would have become `momentIds: ["None"]` in Meilisearch and
+  an expected-but-unwritable `CITES` edge in Neo4j — the first a citation that
+  cannot replay, the second a `ProjectionError` that would have failed
+  `rebuild --meeting` for the whole meeting. The filter is in the statement,
+  on `moment_id IS NOT NULL`.
+
+- **2026-08-31, implementation — `api/registry.py` needed no edit.** Routers
+  are auto-discovered by attribute and type, so the new module registers
+  itself. Its baseline order list in `test_api_registry.py` is updated instead,
+  which is where the ordering contract is actually pinned.
+
 ## Review Triage Log
 
 ## Design Notes

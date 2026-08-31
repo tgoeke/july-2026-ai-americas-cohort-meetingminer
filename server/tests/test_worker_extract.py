@@ -1579,3 +1579,322 @@ def test_an_adopted_document_changed_between_hash_and_read_is_refused(
     assert "arch-summary" in error and "exact bytes" in error
     [meeting] = meetings(pool, job_id)
     assert extraction_sources(pool, meeting["id"]) == {}
+
+
+# --- story 12.2: the meeting summary ----------------------------------------
+#
+# `SUMMARY_DOC` above carries no executive summary, which is exactly what makes
+# it the control: the summary artifact appears only for a document that has the
+# section, and the stage never manufactures one.
+
+SUMMARY_PROSE = (
+    "- Standardize on SFTP for the vendor feed [0:10]\n"
+    "- Ops owns the credentials from now on [0:45]\n"
+    "- Key rotation is still unowned [0:50]"
+)
+
+SUMMARY_DOC_WITH_EXEC = SUMMARY_DOC.replace(
+    "# Architecture summary — Data Hub Demo\n",
+    f"# 1️⃣ Executive Summary\n\n{SUMMARY_PROSE}\n",
+    1,
+)
+
+
+def meeting_scoped_rows(pool: ConnectionPool, meeting_id: UUID) -> list[dict[str, Any]]:
+    """This meeting's artifacts that name no moment.
+
+    Selected on `moment_id IS NULL` rather than on `kind = 'summary'` for the
+    same reason production does: migration 0022's CHECK is the one place the
+    kind list lives, and a test that kept its own copy would be the drift the
+    constraint exists to prevent.
+    """
+    return [row for row in artifact_rows(pool, meeting_id) if row["moment_id"] is None]
+
+
+def test_the_executive_summary_becomes_a_meeting_scoped_artifact(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_transcript_drop: Callable[..., Any],
+    fake_llm: Callable[..., FakeLlm],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The whole-meeting analysis is kept instead of thrown away.
+
+    The decisions still become `adr` rows anchored to their moments, and the
+    prose becomes one artifact scoped to the meeting: no moment, the same
+    lifecycle, and a body equal to what the document said.
+    """
+    fake_llm()
+    job_id = enqueue(
+        pool,
+        make_transcript_drop(
+            "source-summary", summary=SUMMARY_DOC_WITH_EXEC, actions=ACTIONS_DOC
+        ),
+        "source-summary",
+    )
+    assert runner.run_once(pool, app_config, content_root) is True
+
+    [meeting] = meetings(pool, job_id)
+    moments = moment_ids(pool, meeting["id"])
+    rows = artifact_rows(pool, meeting["id"])
+
+    # The decisions and the action item are exactly what they were before this
+    # story: same kinds, same titles, same moments.
+    assert [
+        (row["kind"], row["title"], row["moment_id"])
+        for row in rows
+        if row["moment_id"] is not None
+    ] == [
+        ("adr", "Standardize on SFTP", moments[0]),
+        ("adr", "Ops owns the credentials", moments[1]),
+        ("action-item", "Set up the SFTP credentials", moments[2]),
+    ]
+
+    [summary_row] = meeting_scoped_rows(pool, meeting["id"])
+    assert summary_row["kind"] == "summary"
+    assert summary_row["moment_id"] is None
+    assert summary_row["title"] == "Executive summary"
+    assert summary_row["body"] == SUMMARY_PROSE
+    # The same lifecycle as every other artifact — it starts `extracted` and a
+    # human advances it (AD-6).
+    assert summary_row["state"] == "extracted"
+    # Provenance carries the run, and deliberately no anchor: writing a
+    # placeholder `anchor_ms` would be provenance that reads like a citation.
+    assert summary_row["provenance"]["scope"] == "meeting"
+    assert summary_row["provenance"]["document_kind"] == "arch-summary"
+    assert summary_row["provenance"]["source"] == "adopted"
+    assert "anchor_ms" not in summary_row["provenance"]
+    assert "item_id" not in summary_row["provenance"]
+
+    summary = summary_event(capsys)
+    assert summary["artifacts"]["summary"] == 1
+    assert summary["documents"]["arch-summary"]["summary_captured"] is True
+    assert summary["documents"]["arch-summary"]["summary_stored"] is True
+    # Counted among the rows this document wrote, not among the ID-keyed items
+    # it carried — the document numbers no row for its executive summary.
+    # Both columns count it: `item_count` is what the parser found and
+    # `artifact_count` what became a row (migration 0010), and the executive
+    # summary is both. Two decisions plus one summary.
+    sources = extraction_sources(pool, meeting["id"])
+    assert sources["arch-summary"]["item_count"] == 3
+    assert sources["arch-summary"]["artifact_count"] == 3
+
+
+def test_a_document_with_no_executive_summary_produces_no_summary(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_transcript_drop: Callable[..., Any],
+    fake_llm: Callable[..., FakeLlm],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """No fabrication — the rule stated as an observable outcome.
+
+    This is also the generate path's behaviour in production: the configured
+    `arch_summary_prompt` emits Decisions and Risks and nothing else, so a
+    generated architecture summary carries no executive summary and yields no
+    summary artifact.
+    """
+    fake_llm()
+    job_id = enqueue(
+        pool,
+        make_transcript_drop(
+            "source-no-summary", summary=SUMMARY_DOC, actions=ACTIONS_DOC
+        ),
+        "source-no-summary",
+    )
+    assert runner.run_once(pool, app_config, content_root) is True
+
+    [meeting] = meetings(pool, job_id)
+    assert meeting_scoped_rows(pool, meeting["id"]) == []
+    summary = summary_event(capsys)
+    assert summary["artifacts"]["summary"] == 0
+    assert summary["documents"]["arch-summary"]["summary_captured"] is False
+    assert summary["documents"]["arch-summary"]["summary_stored"] is False
+
+
+def test_a_rerun_replaces_the_summary_draft(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_transcript_drop: Callable[..., Any],
+    fake_llm: Callable[..., FakeLlm],
+) -> None:
+    """The meeting scope replaces like every other scope.
+
+    A rerun that left the old summary in place would accumulate one row per
+    run — the exact failure `moment_id NOT IN (...)` would have produced, since
+    a NULL never matches an `IN` list.
+    """
+    fake_llm()
+    job_id = enqueue(
+        pool,
+        make_transcript_drop(
+            "source-summary-rerun", summary=SUMMARY_DOC_WITH_EXEC, actions=ACTIONS_DOC
+        ),
+        "source-summary-rerun",
+    )
+    assert runner.run_once(pool, app_config, content_root) is True
+    [meeting] = meetings(pool, job_id)
+    [first] = meeting_scoped_rows(pool, meeting["id"])
+
+    requeue_extract(pool, job_id)
+    assert runner.run_once(pool, app_config, content_root) is True
+
+    [second] = meeting_scoped_rows(pool, meeting["id"])
+    assert second["id"] != first["id"], "the draft was replaced, not kept"
+    assert second["body"] == SUMMARY_PROSE
+
+
+def test_an_approved_summary_survives_a_rerun_and_is_not_re_proposed(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_transcript_drop: Callable[..., Any],
+    fake_llm: Callable[..., FakeLlm],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The approved-scope rule, applied to the meeting scope.
+
+    A human has acted on this meeting's meeting-scoped set, so the stage
+    neither deletes it nor proposes a second summary beside it — the same rule
+    that protects a settled moment, and the discard is named rather than merely
+    counted.
+    """
+    fake_llm()
+    job_id = enqueue(
+        pool,
+        make_transcript_drop(
+            "source-summary-approved",
+            summary=SUMMARY_DOC_WITH_EXEC,
+            actions=ACTIONS_DOC,
+        ),
+        "source-summary-approved",
+    )
+    assert runner.run_once(pool, app_config, content_root) is True
+    [meeting] = meetings(pool, job_id)
+    [first] = meeting_scoped_rows(pool, meeting["id"])
+    with pool.connection() as conn:
+        conn.execute(
+            "UPDATE artifact SET state = 'approved' WHERE id = %s", (first["id"],)
+        )
+
+    capsys.readouterr()
+    requeue_extract(pool, job_id)
+    assert runner.run_once(pool, app_config, content_root) is True
+
+    after = meeting_scoped_rows(pool, meeting["id"])
+    assert [row["id"] for row in after] == [first["id"]]
+    assert after[0]["state"] == "approved"
+
+    records = log_events(capsys)
+    discards = [
+        record
+        for record in records
+        if record["event"] == "stage.extract.artifact_discarded"
+        and record["reason"] == "approved-meeting-scope"
+    ]
+    assert len(discards) == 1
+    assert discards[0]["kind"] == "summary"
+    assert discards[0]["moment_id"] is None
+    [stage_summary] = [
+        record for record in records if record["event"] == "stage.extract.summary"
+    ]
+    assert stage_summary["documents"]["arch-summary"]["summary_captured"] is True
+    assert stage_summary["documents"]["arch-summary"]["summary_stored"] is False
+
+
+def test_an_approved_summary_does_not_stop_moment_drafts_being_replaced(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_transcript_drop: Callable[..., Any],
+    fake_llm: Callable[..., FakeLlm],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The regression that made `moment_id NOT IN (...)` unusable.
+
+    With the old statement, an approved meeting-scoped artifact put a NULL into
+    the subquery, and `x NOT IN (a, NULL)` is NULL — never TRUE — for *every*
+    row. A single approved summary would therefore have stopped this meeting
+    from ever replacing a draft again, in any scope, while reporting
+    `drafts_replaced: 0` that reads exactly like a meeting with no drafts.
+    Nothing would have raised and nothing would have been logged.
+    """
+    fake_llm()
+    job_id = enqueue(
+        pool,
+        make_transcript_drop(
+            "source-summary-nullsafe",
+            summary=SUMMARY_DOC_WITH_EXEC,
+            actions=ACTIONS_DOC,
+        ),
+        "source-summary-nullsafe",
+    )
+    assert runner.run_once(pool, app_config, content_root) is True
+    [meeting] = meetings(pool, job_id)
+    before = artifact_rows(pool, meeting["id"])
+    [summary_before] = [row for row in before if row["moment_id"] is None]
+    anchored_before = [row for row in before if row["moment_id"] is not None]
+    assert len(anchored_before) == 3
+
+    # Approve ONLY the meeting-scoped artifact. Every moment-anchored row stays
+    # a draft, so every one of them must be replaced by the rerun.
+    with pool.connection() as conn:
+        conn.execute(
+            "UPDATE artifact SET state = 'approved' WHERE id = %s",
+            (summary_before["id"],),
+        )
+
+    capsys.readouterr()
+    requeue_extract(pool, job_id)
+    assert runner.run_once(pool, app_config, content_root) is True
+
+    after = artifact_rows(pool, meeting["id"])
+    anchored_after = [row for row in after if row["moment_id"] is not None]
+    assert len(anchored_after) == 3
+    assert {row["id"] for row in anchored_after}.isdisjoint(
+        {row["id"] for row in anchored_before}
+    ), "every moment-anchored draft was replaced, not left behind"
+
+    stage_summary = summary_event(capsys)
+    assert stage_summary["drafts_replaced"] == 3
+
+
+def test_augmentation_does_not_remap_a_meeting_scoped_artifact(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_transcript_drop: Callable[..., Any],
+    fake_llm: Callable[..., FakeLlm],
+) -> None:
+    """A summary has no anchor to move, and the remap must leave it alone.
+
+    The `moments` stage re-anchors artifacts through an INNER JOIN on
+    `a.moment_id`, so a meeting-scoped row is excluded by construction rather
+    than by a check that could be forgotten. Pinned here because "excluded by
+    construction" is only true while the join stays inner.
+    """
+    fake_llm()
+    job_id = enqueue(
+        pool,
+        make_transcript_drop(
+            "source-summary-remap", summary=SUMMARY_DOC_WITH_EXEC, actions=ACTIONS_DOC
+        ),
+        "source-summary-remap",
+    )
+    assert runner.run_once(pool, app_config, content_root) is True
+    [meeting] = meetings(pool, job_id)
+    [summary_row] = meeting_scoped_rows(pool, meeting["id"])
+
+    with pool.connection() as conn:
+        moved = conn.execute(
+            "SELECT a.id FROM artifact a JOIN moment m"
+            "   ON m.id = a.moment_id AND m.meeting_id = a.meeting_id"
+            " WHERE a.meeting_id = %s",
+            (meeting["id"],),
+        ).fetchall()
+    assert summary_row["id"] not in {row[0] for row in moved}, (
+        "the remap's own SELECT does not see a meeting-scoped artifact"
+    )

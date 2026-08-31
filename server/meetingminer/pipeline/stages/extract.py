@@ -650,12 +650,6 @@ def run(ctx: StageContext) -> None:
                     },
                 )
                 artifact_counts[core.KIND_SUMMARY] += 1
-                # Counted in `artifact_count` but not in `item_count`: the two
-                # already differ whenever a proposal is skipped, because
-                # `item_count` counts the ID-keyed rows the document carried
-                # and `artifact_count` counts the `artifact` rows this run
-                # actually wrote. The summary is one of the latter and none of
-                # the former.
                 inserted += 1
                 summary_inserted = True
 
@@ -669,7 +663,19 @@ def run(ctx: StageContext) -> None:
                 "sha256": digest,
                 "byte_size": byte_size,
                 "layout": parsed.layout,
-                "item_count": len(parsed.artifacts),
+                # The summary counts in BOTH columns, which is what keeps
+                # migration 0010's `artifact_count <= item_count` true and,
+                # more to the point, keeps both columns meaning what that
+                # migration says they mean: `item_count` is what the parser
+                # found and `artifact_count` is what actually became a row.
+                # The executive summary is something the parser found, so
+                # omitting it from `item_count` while counting the row it
+                # produced would have made the pair report an insert the
+                # document never yielded. When the meeting scope is already
+                # settled the two legitimately differ by one — found, not
+                # inserted — which is exactly the difference these columns
+                # exist to record.
+                "item_count": len(parsed.artifacts) + int(summary_captured),
                 "artifact_count": inserted,
                 "model": model,
                 "prompt_version": prompt_version,
@@ -682,7 +688,9 @@ def run(ctx: StageContext) -> None:
         documents[document_kind] = {
             "origin": origin,
             "layout": parsed.layout,
-            "items": len(parsed.artifacts),
+            # The same count `extraction_source.item_count` records, for
+            # the same reason: the summary is something the parser found.
+            "items": len(parsed.artifacts) + int(summary_captured),
             "artifacts": inserted,
             # Whether this document carried an executive summary, and whether
             # it became a row. The two differ exactly when the meeting scope
