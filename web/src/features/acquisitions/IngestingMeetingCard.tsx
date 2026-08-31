@@ -56,6 +56,7 @@ export function IngestingMeetingCard({
 }: IngestingMeetingCardProps) {
   const [row, setRow] = useState<MeetingListItem | null>(null)
   const [seedError, setSeedError] = useState<string | null>(null)
+  const [announcement, setAnnouncement] = useState('')
   const rowRef = useRef<MeetingListItem | null>(null)
   const seedStateRef = useRef({ inFlight: false, pending: false })
   const firstAliveRef = useRef(false)
@@ -110,6 +111,9 @@ export function IngestingMeetingCard({
   const onEvent = useCallback(
     (event: JobEvent) => {
       if (event.jobId !== jobId) return
+      if (event.stage != null) {
+        setAnnouncement(`${event.stage} ${event.status ?? 'unknown'}`)
+      }
       const current = rowRef.current
       if (current === null) {
         // The event is for our job but no row is held yet — the seed has not
@@ -168,6 +172,14 @@ export function IngestingMeetingCard({
         data-testid="meeting-pending"
         className="flex flex-col gap-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground"
       >
+        <p
+          className="sr-only"
+          aria-live="polite"
+          aria-atomic="true"
+          data-testid="ingestion-announcement"
+        >
+          {announcement}
+        </p>
         <p>
           Posted to <code>/ingests</code>. The meeting row appears once the worker claims the
           job — nothing to show for job {jobId.slice(0, 8)}… yet.
@@ -199,6 +211,14 @@ export function IngestingMeetingCard({
       data-viewable={row.viewable}
       className="flex gap-4 rounded-lg border p-4"
     >
+      <p
+        className="sr-only"
+        aria-live="polite"
+        aria-atomic="true"
+        data-testid="ingestion-announcement"
+      >
+        {announcement}
+      </p>
       {row.posterScreenshotPath != null ? (
         <img
           src={mediaUrl(row.posterScreenshotPath)}

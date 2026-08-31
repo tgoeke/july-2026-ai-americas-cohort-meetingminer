@@ -109,7 +109,7 @@ Date: 2026-08-31
 - **Finding** — Visible progress bars update, but neither acquisition transitions nor the handed-off job-stage transitions write to a polite live region. Screen-reader users receive the initial labels only when navigating back to them and miss the live flow.
 - **Evidence** — `AcquisitionStepper` has no live announcer; its only `aria-live` is deliberately `off` on the diagnostic log. `IngestingMeetingCard` patches `StageProgress` without an announcement. The adopted Accessibility Floor requires acquisition and ingestion progress to announce politely once per transition through one region per stepper/list (`EXPERIENCE.md:215`).
 - **Suggested direction** — Add a single atomic polite region for the acquisition stepper's current transition and one for this card's stage list, leaving the noisy log `off`; pin posted and streamed-stage announcements in tests.
-- **Disposition** — patchable; remediation in progress.
+- **Disposition** — fixed red-first. The posted-state test could not find an acquisition announcer against the original stepper; after adding the polite regions, posted announces its served job prefix and a streamed `frames done` event updates the ingestion announcement.
 
 ## Disposition
 

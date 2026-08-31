@@ -10,6 +10,15 @@ export interface AcquisitionStepperProps {
   logTail: Array<string>
 }
 
+function announcementFor(steps: Array<Step>): string {
+  const current = [...steps].reverse().find((step) => step.status !== 'queued')
+  if (current === undefined) return ''
+  if (current.label === current.status || (current.name === 'posted' && current.status === 'done')) {
+    return current.label
+  }
+  return `${current.label} ${current.status}`
+}
+
 /**
  * The acquisition's four checkpoints, then the log the tool actually wrote.
  *
@@ -31,6 +40,7 @@ export function AcquisitionStepper({ steps, logTail }: AcquisitionStepperProps) 
   // Starts true: a log region that has never been scrolled is at its bottom.
   const followRef = useRef(true)
   const [copied, setCopied] = useState(false)
+  const announcement = announcementFor(steps)
 
   const onScroll = useCallback(() => {
     const node = logRef.current
@@ -75,6 +85,14 @@ export function AcquisitionStepper({ steps, logTail }: AcquisitionStepperProps) 
           </li>
         ))}
       </ol>
+      <p
+        className="sr-only"
+        aria-live="polite"
+        aria-atomic="true"
+        data-testid="acquisition-announcement"
+      >
+        {announcement}
+      </p>
 
       {logTail.length > 0 && (
         <div className="flex flex-col gap-2">
