@@ -257,16 +257,10 @@ function Shell() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      {/* Owner request 2026-08-31: the corpus metrics sit above everything,
-          including the chrome, as one full-width row. They answer "how much
-          evidence is in here" before the reader looks at anything else, and on
-          a wide display seven figures fit on a single line. */}
-      <div
-        data-testid="corpus-stats-banner"
-        className="border-b border-border bg-background px-4 py-2 min-[1200px]:px-8"
-      >
-        <CorpusStats />
-      </div>
+      {/* The corpus metrics ride in the chrome, small, the way the prototype
+          carries them — "240 meetings · 10,173 passages · …" beside the brand.
+          They answer "how much evidence is in here" without taking a slab of
+          the screen before the reader has looked at anything. */}
       {/* Column on a normal display, two columns on a wide one: the chrome
           becomes a left rail so Search and Ask stand beside the content
           instead of above it (owner request, for a full-screen 32" demo).
@@ -310,6 +304,12 @@ function Shell() {
                 every screen and polls for the whole session. */}
             <StatusIndicator />
           </div>
+          <div
+            data-testid="corpus-stats-banner"
+            className="order-last w-full min-[1200px]:order-none min-[1200px]:w-auto"
+          >
+            <CorpusStats compact />
+          </div>
         </div>
       </header>
       {/* Owner request 2026-08-31, for a full-screen 32" demo: on a wide
@@ -318,27 +318,28 @@ function Shell() {
           nav stays where it was, in the horizontal bar above. Below the
           breakpoint this is the same one-line pair under the chrome that
           story 10.5 landed. */}
-      <div
-        className={
-          wideCanvas
-            ? 'flex flex-1 flex-col'
-            : 'flex flex-1 flex-col min-[1400px]:flex-row min-[1400px]:items-start min-[1400px]:gap-6 min-[1400px]:px-8'
-        }
-      >
+      {/* One column, always. An earlier revision made Search and Ask a 24rem
+          left rail on a wide display; the owner rejected it against the
+          working prototype, which has no left card on any view — a compact
+          header, then one full-width input, then its suggestions. A rail also
+          took a third of the screen from the timeline that needed it most. */}
+      <div className="flex flex-1 flex-col">
+        {/* Not on the Threads route. That view owns its own input — "name a
+            subject to trace" — and its own suggestions, exactly as the
+            prototype's Thread view does. Rendering the Search and Ask bar above
+            it stacked two input areas on one screen, which is what the owner
+            was seeing as a bad left-hand slab. Each view gets one input. */}
         <aside
+          hidden={wideCanvas}
           data-testid="search-ask-rail"
-          className={
-            wideCanvas
-              ? 'border-b border-border px-4 py-2'
-              : 'border-b border-border px-4 py-2 min-[1400px]:sticky min-[1400px]:top-16 min-[1400px]:w-[24rem] min-[1400px]:shrink-0 min-[1400px]:border-b-0 min-[1400px]:px-0 min-[1400px]:pt-6'
-          }
+          className="w-full border-b border-border px-4 py-3 min-[1200px]:px-8" 
         >
         <div
           data-testid="search-ask-chrome"
-          className="flex w-full items-center gap-2 min-[1400px]:flex-col min-[1400px]:items-stretch min-[1400px]:gap-3"
+          className="mx-auto flex w-full max-w-[1600px] flex-col gap-3 min-[900px]:flex-row min-[900px]:items-start min-[900px]:gap-4"
         >
           <div
-            className="relative min-w-0 flex-1 min-[1400px]:w-full min-[1400px]:flex-none"
+            className="relative min-w-0 flex-1"
             onFocusCapture={() => setExpandedChrome('search')}
             onBlurCapture={(event) => {
               if (!event.currentTarget.contains(event.relatedTarget)) setExpandedChrome(null)
@@ -351,7 +352,7 @@ function Shell() {
             />
           </div>
           <div
-            className="relative min-w-0 flex-[2] min-[1400px]:w-full min-[1400px]:flex-none"
+            className="relative min-w-0 flex-[2]"
             onFocusCapture={() => setExpandedChrome('ask')}
             onBlurCapture={(event) => {
               if (!event.currentTarget.contains(event.relatedTarget)) setExpandedChrome(null)
@@ -369,10 +370,12 @@ function Shell() {
         className={
           wideCanvas
             ? 'flex w-full min-w-0 flex-1 flex-col gap-6 px-0 pt-0 pb-0'
-            : 'mx-auto flex w-full max-w-[1600px] min-w-0 flex-1 flex-col gap-6 px-8 pt-6 pb-12 min-[1400px]:mx-0 min-[1400px]:max-w-none min-[1400px]:px-0'
+            : 'mx-auto flex w-full max-w-[1600px] min-w-0 flex-1 flex-col gap-6 px-8 pt-6 pb-12'
         }
       >
-        {childOpen && (
+        {/* Back belongs to a screen opened OUT of something. Threads is a
+            standing destination in the nav, so it has nothing to go back to. */}
+        {childOpen && !wideCanvas && (
           <div>
             <Button size="sm" variant="outline" onClick={back}>
               ← Back
