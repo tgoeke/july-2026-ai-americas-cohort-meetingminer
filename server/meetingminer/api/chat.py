@@ -71,7 +71,11 @@ from meetingminer.api.citations import (
 from meetingminer.api.problems import Problem, ProblemDetails
 from meetingminer.domain import model_selection
 from meetingminer.projections.publish_gate import PUBLISHED_STATE
-from meetingminer.projections.query import search_artifacts, search_moments
+from meetingminer.projections.query import (
+    search_artifacts,
+    search_documents,
+    search_moments,
+)
 from meetingminer.projections.stores import (
     ProjectionError,
     StoreUnavailableError,
@@ -204,6 +208,24 @@ _ARTIFACT_CONTEXT = (
     "SELECT a.id, a.moment_id, a.kind, a.title, a.body"
     " FROM artifact a"
     " WHERE a.id = ANY(%s) AND a.state = %s"
+)
+
+# The extraction-document context read (story 12.4). Re-read from Postgres for
+# the same reason the artifact read is (AD-2), and re-filtered on
+# `document_text IS NOT NULL`: a record surviving in the documents index for a
+# row whose text is gone contributes nothing to a prompt.
+#
+# Keyed by *meeting*, not by moment, because a document has no moment — that is
+# the whole of AD-6 as it applies here. What it means in the prompt is that a
+# document is folded into the blocks of the moments retrieval already found in
+# that meeting, as labelled, explicitly uncitable context. The only marker the
+# model can emit is still a moment's, so the citation grammar, `CitationModel`
+# and the gate are untouched by this leg.
+_DOCUMENT_CONTEXT = (
+    "SELECT es.id, es.meeting_id, es.kind, es.model, es.item_count,"
+    " es.document_text"
+    " FROM extraction_source es"
+    " WHERE es.id = ANY(%s) AND es.document_text IS NOT NULL"
 )
 
 _RESOLVE_PARTICIPANT_BY_ID = (
@@ -364,6 +386,30 @@ class RetrievedArtifact:
     kind: str
     title: str
     body: str
+
+
+@dataclass(frozen=True)
+class RetrievedDocument:
+    """One extraction document folded into its meeting's context blocks.
+
+    **Never a citation** (AD-6, story 12.4). It carries no moment id because it
+    has none: a document is a claim *about* evidence, and citing it would
+    establish that the model said something rather than that the meeting did.
+    It reaches an answer only through the moments its claims anchor to, which
+    the prompt makes explicit and the citation gate enforces regardless.
+
+    ``review_label`` travels with it so the prompt can say, in the block
+    itself, that this text is unreviewed machine output — the same labelling
+    requirement the indexed record and every rendering surface carry (AD-18).
+    """
+
+    document_id: UUID
+    meeting_id: UUID
+    kind: str
+    model: str | None
+    item_count: int
+    review_label: str
+    text: str
 
 
 @dataclass(frozen=True)
@@ -613,6 +659,114 @@ def _read_artifact_context(
             moment_id=row[1], kind=row[2], title=row[3], body=row[4]
         )
         grouped[artifact.moment_id] = (*grouped.get(artifact.moment_id, ()), artifact)
+    return grouped
+
+
+def _document_leg(request: Request, terms: str) -> tuple[tuple[UUID, str], ...]:
+    """Rank the extraction-documents index for ``terms`` (story 12.4).
+
+    Keyword-only, and **ungated** — AD-4's one deliberate exception: every
+    extraction document is retrievable as soon as it is stored, approved or
+    not, because the run whose text somebody needs to read is exactly the run
+    that yielded nothing worth approving.
+
+    What this leg returns is not evidence and never becomes a citation. It
+    returns (document id, review label) pairs; :func:`_read_document_context`
+    re-reads the text from Postgres, and the prompt folds it into the blocks of
+    moments retrieval already found in the same meeting, labelled as
+    unreviewed and explicitly uncitable. **This leg contributes no moment
+    ids**, so it cannot widen what an answer may cite — only what the model has
+    read while writing it.
+
+    Deliberately unscoped by meeting/corpus, matching the other two legs:
+    `/chat` accepts no `meetingId`/`corpus` on `ChatRequest` today.
+    """
+    config = request.app.state.config
+    try:
+        client = meili_client(config)
+        result = search_documents(
+            client,
+            config,
+            query=terms,
+            limit=config.settings.api.chat.retrieval_limit,
+        )
+    except StoreUnavailableError as exc:
+        raise Problem(
+            503,
+            "chat-search-store-unavailable",
+            f"the search index could not be reached: {exc}",
+            title="Service Unavailable",
+            store="meilisearch",
+        ) from exc
+    except ProjectionError as exc:
+        raise Problem(
+            503,
+            "chat-search-store-unusable",
+            f"the search index could not be queried: {exc}",
+            title="Service Unavailable",
+            store="meilisearch",
+        ) from exc
+    if result.index_missing:
+        logs.log_event("chat.documents_index_missing", terms=terms)
+    hits = tuple((hit.document_id, hit.review_label) for hit in result.hits)
+    logs.log_event(
+        "chat.document_search_completed",
+        terms=terms,
+        ranked=len(hits),
+        index_missing=result.index_missing,
+        # Stated in the log: this leg read material that passed no publish
+        # gate, and an operator reading a chat trace should see that here
+        # rather than have to know AD-4.
+        gate="bypassed (AD-4 extraction-document exception)",
+    )
+    return hits
+
+
+def _read_document_context(
+    pool: Any, hits: Sequence[tuple[UUID, str]]
+) -> dict[UUID, tuple[RetrievedDocument, ...]]:
+    """Re-read ranked extraction documents from Postgres, grouped by meeting.
+
+    Grouped by *meeting* rather than by moment because a document has no
+    moment — the point of AD-6 as it applies to documents. A ranked id whose
+    row is gone (or whose text was never retained) is dropped and logged, never
+    prompted.
+
+    The review label comes from the *hit*, not from a constant re-read here:
+    it was written into the indexed record so that it could not be lost between
+    the store and a reader, and regenerating it in every consumer would defeat
+    that (AD-18).
+    """
+    if not hits:
+        return {}
+    ids = [document_id for document_id, _label in hits]
+    labels = dict(hits)
+    with pool.connection() as conn:
+        rows = conn.execute(_DOCUMENT_CONTEXT, (ids,)).fetchall()
+    by_id = {row[0]: row for row in rows}
+    for document_id in ids:
+        if document_id not in by_id:
+            logs.log_event("chat.stale_document_hit", document_id=document_id)
+    grouped: dict[UUID, tuple[RetrievedDocument, ...]] = {}
+    # Meilisearch order, reconstructed before grouping, so the per-meeting
+    # prompt budget favours the better-ranked document.
+    for document_id in ids:
+        row = by_id.get(document_id)
+        if row is None:
+            continue
+        document = RetrievedDocument(
+            document_id=row[0],
+            meeting_id=row[1],
+            kind=row[2],
+            model=row[3],
+            item_count=row[4],
+            review_label=labels[document_id],
+            text=row[5],
+        )
+        grouped[document.meeting_id] = (
+            *grouped.get(document.meeting_id, ()),
+            document,
+        )
     return grouped
 
 
@@ -882,6 +1036,10 @@ breaks any of them is discarded whole:
    closers. There is no such thing as an uncited sentence here.
 4. Write nothing else: no headings, no preamble, no bullet markers, no mention
    of these rules.
+5. A block may include text under "Unreviewed extraction document". That text
+   is machine-written analysis nobody has reviewed, and it is not evidence:
+   use it only to understand the moment it sits under, never as the support
+   for a sentence. There is no marker for it and it can never be cited.
 
 If the moments below do not answer the question, say so in one cited sentence
 using the moment that comes closest.
@@ -920,6 +1078,14 @@ PROMPT_MOMENTS_MAX_CHARS = 32_000
 # annotated moment could dwarf every other block despite the overall prompt
 # cap below still enforcing a hard ceiling on the whole prompt.
 ARTIFACTS_PER_MOMENT_MAX_CHARS = 1_600
+# The combined budget for the extraction documents appended to one moment's
+# block (story 12.4) — shared across however many documents that meeting has,
+# for the same reason the artifact budget is shared. Smaller than the artifact
+# allowance on purpose: an artifact is human-approved knowledge that can carry
+# a sentence, while a document is unreviewed prose that can only orient the
+# model around evidence it must cite from elsewhere. It is not worth crowding
+# a citable moment out of the prompt for.
+DOCUMENTS_PER_MOMENT_MAX_CHARS = 800
 
 
 def _crop(text: str, budget: int) -> tuple[str, bool]:
@@ -934,6 +1100,7 @@ def build_synthesis_prompt(
     artifacts_by_moment: Mapping[UUID, Sequence[RetrievedArtifact]] | None = None,
     *,
     priority_moment_ids: Iterable[UUID] = (),
+    documents_by_meeting: Mapping[UUID, Sequence[RetrievedDocument]] | None = None,
 ) -> tuple[str, tuple[UUID, ...]]:
     """The synthesis prompt: the retrieved moments, each labelled by its marker.
 
@@ -951,11 +1118,25 @@ def build_synthesis_prompt(
     title/body *inside its source moment's block*, labelled as published — so
     the model reads the distilled knowledge beside the evidence that yielded
     it, and the only marker it can cite is still the moment's.
+
+    ``documents_by_meeting`` (story 12.4) does the same for retained extraction
+    documents, keyed by **meeting** because a document has no moment. A
+    document is appended to the blocks of the moments this retrieval already
+    found in its meeting, under a heading that names it unreviewed — so the
+    analysis is read beside the evidence it was derived from, and reaches the
+    answer only through those moments (AD-6). It adds **no** candidate block
+    and **no** marker of its own: a document that ranked for a meeting no
+    moment was retrieved from contributes nothing, which is correct — there
+    would be nothing for a sentence drawn from it to cite. The label travels
+    into the prompt with the text, because prose that reads like reviewed
+    output is exactly what AD-18 forbids, including when the reader is a model.
     """
     artifacts = artifacts_by_moment or {}
+    documents = documents_by_meeting or {}
     candidates: list[tuple[UUID, str]] = []
     cropped_moments = 0
     cropped_artifacts = 0
+    cropped_documents = 0
     dropped_moments = 0
     for moment in moments:
         header = f"[[moment:{moment.citation.moment_id}]]"
@@ -982,6 +1163,20 @@ def build_synthesis_prompt(
         )
         cropped_artifacts += int(artifact_was_cropped)
         body += artifact_text
+        # Uncitable context, under a heading rule 5 names. However many
+        # documents this meeting has, they share one budget, so an analysed
+        # meeting cannot make its blocks several times a plain moment's size.
+        document_text = "".join(
+            f"\nUnreviewed extraction document ({document.kind},"
+            f" {document.model or 'model not recorded'}) — {document.review_label}"
+            f"\n{document.text}"
+            for document in documents.get(moment.citation.meeting_id, ())
+        )
+        document_text, document_was_cropped = _crop(
+            document_text, DOCUMENTS_PER_MOMENT_MAX_CHARS
+        )
+        cropped_documents += int(document_was_cropped)
+        body += document_text
         block = f"{header} {title} — {when} at {_timestamp(moment.citation.start_ms)}\n{body}"
         candidates.append((moment.citation.moment_id, block))
 
@@ -1018,15 +1213,17 @@ def build_synthesis_prompt(
         for index, (moment_id, _block) in enumerate(candidates)
         if index in selected
     ]
-    if cropped_moments or cropped_artifacts or dropped_moments:
+    if cropped_moments or cropped_artifacts or cropped_documents or dropped_moments:
         logs.log_event(
             "chat.prompt_cropped",
             moments=len(blocks),
             cropped=cropped_moments,
             cropped_artifacts=cropped_artifacts,
+            cropped_documents=cropped_documents,
             dropped=dropped_moments,
             per_moment_max_chars=MOMENT_TEXT_MAX_CHARS,
             per_moment_artifacts_max_chars=ARTIFACTS_PER_MOMENT_MAX_CHARS,
+            per_moment_documents_max_chars=DOCUMENTS_PER_MOMENT_MAX_CHARS,
             prompt_max_chars=PROMPT_MOMENTS_MAX_CHARS,
         )
     return (
@@ -1214,6 +1411,17 @@ def _answer(request: Request, question: str) -> tuple[ValidatedAnswer, RouteMode
     artifact_ids = _artifact_leg(request, terms)
     artifacts_by_moment = _read_artifact_context(pool, artifact_ids)
 
+    # The extraction-documents leg (story 12.4), and it is shaped unlike the
+    # one above it on purpose. It contributes **no moment** to `ordered` and
+    # therefore nothing to what the answer may cite: a document is a claim
+    # about evidence, never evidence (AD-6). What it contributes is context —
+    # the analysis a run produced, folded into the blocks of moments the other
+    # legs already found in that meeting, labelled unreviewed. A document that
+    # ranks for a meeting no moment was retrieved from is read by nobody, which
+    # is right: there would be nothing for a sentence drawn from it to cite.
+    document_hits = _document_leg(request, terms)
+    documents_by_meeting = _read_document_context(pool, document_hits)
+
     traversal = _traversal_leg(request, decision)
 
     # Preserve route semantics in the visible sequence: traversal rows retain
@@ -1255,6 +1463,7 @@ def _answer(request: Request, question: str) -> tuple[ValidatedAnswer, RouteMode
         retrieved,
         artifacts_by_moment,
         priority_moment_ids=artifacts_by_moment,
+        documents_by_meeting=documents_by_meeting,
     )
     route = RouteModel(
         template=decision.template,

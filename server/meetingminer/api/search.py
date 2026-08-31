@@ -1,6 +1,23 @@
 """GET /search — corpus search over the moments index (story 3.1, FR12),
 plus the keyword-only published-artifacts lane (story 4.4): an artifact hit
 resolves through its source moment, so its evidence trail replays that moment.
+Story 12.4 adds a third lane, and it is shaped differently on purpose.
+
+**Extraction documents are a separate array, not a third kind of hit.** Every
+extraction document is searchable the moment it is stored, approved or not —
+AD-4's one deliberate exception to the publish gate, because the run whose text
+somebody needs to read is exactly the run that yielded nothing worth approving.
+But a document is a claim *about* evidence rather than evidence, so it is never
+a citation target (AD-6): citing it would establish that the model said
+something, not that the meeting did. `SearchHit` is the citation shape and its
+`momentId` is required; a document has no moment. Rather than widening that
+shape — which would put a null where every consumer expects a replayable
+citation, the silent degradation AD-18 forbids — documents come back in
+`documents`, a `DocumentHit` array with no moment id on it at all. A consumer
+cannot build a citation from one because there is nothing there to build from.
+Each carries its own `reviewLabel`, so a renderer labels it as unreviewed
+machine-written output by displaying what it was given rather than by
+remembering to.
 
 **Meilisearch ranks; Postgres cites.** The index decides the order and
 produces the snippet; every citation field that leaves this route —
@@ -47,8 +64,10 @@ from meetingminer.api.problems import Problem, ProblemDetails
 from meetingminer.projections.publish_gate import PUBLISHED_STATE
 from meetingminer.projections.query import (
     ArtifactHit,
+    DocumentHit,
     MomentHit,
     search_artifacts,
+    search_documents,
     search_moments,
 )
 from meetingminer.projections.stores import (
@@ -108,6 +127,19 @@ _RESOLVE_ARTIFACTS = (
     " JOIN moment m ON m.id = a.moment_id"
     " JOIN meeting mt ON mt.id = m.meeting_id"
     " WHERE a.id = ANY(%s) AND a.state = %s"
+)
+
+
+# One ranked extraction document, re-read from Postgres in the same request.
+# `document_text IS NOT NULL` repeats the projection's own filter: a record
+# surviving for a row whose text was cleared is dropped rather than returned as
+# a document with nothing to read (defense in depth, AD-2).
+_RESOLVE_DOCUMENTS = (
+    "SELECT es.id, es.meeting_id, es.kind, es.origin, es.model,"
+    " es.prompt_hash, es.layout, es.item_count, es.artifact_count,"
+    " es.byte_size, mt.title, mt.corpus, mt.has_recording"
+    " FROM extraction_source es JOIN meeting mt ON mt.id = es.meeting_id"
+    " WHERE es.id = ANY(%s) AND es.document_text IS NOT NULL"
 )
 
 
@@ -177,6 +209,59 @@ class SearchHit(BaseModel):
     )
 
 
+class DocumentHitModel(BaseModel):
+    """One ranked extraction document (story 12.4). **Not a citation.**
+
+    Deliberately missing every field `SearchHit` carries a citation in — no
+    `momentId`, no `startMs`, no `screenshotId`, no `sourceDeepLink`. That
+    absence is the mechanism, not an omission: a document is a claim *about*
+    evidence, and a consumer must not be able to assemble a citation out of one
+    (AD-6). Its content reaches an answer only through the moments its
+    individual claims anchor to — which is the published-artifact path, already
+    gated and already citable.
+
+    Reachable without approval, and labelled because of it: AD-4's exception is
+    to *reach*, never to legibility, so `reviewState`, `authorship`,
+    `reviewLabel` and `citable` come off the indexed record and every surface
+    that renders one renders them too (AD-18).
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    # The `extraction_source` row's UUID — the document's indexed identity.
+    document_id: UUID
+    # Scope and provenance, never a citation: a meeting id cannot replay at a
+    # second, which is what a citation has to do (AD-15).
+    meeting_id: UUID
+    meeting_title: str | None = None
+    corpus: str
+    # Which document this run produced: 'arch-summary', 'action-items',
+    # 'topics', 'ranking-signals'. `str`, not a Literal — migration 0010 says
+    # widening the kind CHECK is a story, not a serialization failure here.
+    kind: str
+    # 'generated' (through the `Llm` port) or 'adopted' (the drop carried it).
+    origin: str
+    # NULL for an adopted document, whose summariser this side never observed.
+    model: str | None = None
+    prompt_hash: str | None = None
+    layout: str
+    # What the parse yielded. `itemCount` 0 on a document that plainly carries
+    # content is the named zero-yield signal, and it is the case this whole
+    # exception exists for — so it is on the wire, not only in Postgres.
+    item_count: int
+    artifact_count: int
+    byte_size: int
+    # AD-18, on the wire. `citable` is always false and is sent anyway: a
+    # consumer should be able to refuse to cite a document without knowing the
+    # architecture.
+    review_state: str
+    authorship: str
+    review_label: str
+    citable: bool = False
+    snippet: list[SnippetRunModel]
+    score: float | None = None
+
+
 class SearchResponse(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
@@ -193,12 +278,27 @@ class SearchResponse(BaseModel):
     estimated_total: int
     limit: int
     offset: int
+    # Ranked extraction documents (story 12.4), in their own array because
+    # they are not citations — see `DocumentHitModel`. They do not consume
+    # `limit` against `hits` and are not counted in `estimatedTotal`: the two
+    # sequences answer different questions ("where in the corpus was this
+    # said" versus "what did the analysis say about it"), and blending them
+    # would let unreviewed prose push a citable moment off the page.
+    documents: list[DocumentHitModel] = []
+    # How many extraction documents matched in total, for the same paging
+    # reason `estimatedTotal` exists — reported separately so a caller never
+    # reads a document count as a count of citable results.
+    documents_total: int = 0
     # True when the moments index does not exist yet — nothing has ever been
     # projected. Distinct from "nothing matched", and on the wire rather than
     # only in the log, because they need different sentences: one asks the
     # operator to ingest a meeting, the other asks the user to try other words
     # (SPEC Constraints, "no silent zero").
     index_missing: bool = False
+    # True when the extraction-documents index does not exist yet — a store
+    # from before story 12.4, or one wiped and not yet rebuilt. Distinct from
+    # "no document matched": the repair is a rebuild, not other words.
+    documents_index_missing: bool = False
 
 
 def _limit_of(request: Request, requested: int | None) -> int:
@@ -354,6 +454,62 @@ def _resolve_artifacts(pool: Any, hits: tuple[ArtifactHit, ...]) -> list[SearchH
     return resolved
 
 
+def _resolve_documents(pool: Any, hits: tuple[DocumentHit, ...]) -> list[DocumentHitModel]:
+    """Re-read every ranked extraction document from Postgres, dropping what is gone.
+
+    The same discipline as :func:`_resolve` and :func:`_resolve_artifacts`: one
+    statement for the page, ranking order preserved, a hit whose row is gone
+    dropped and logged rather than returned. Postgres is the database of record
+    for a document exactly as it is for a moment (AD-2) — the index ranks, the
+    row says what is true.
+
+    ``reviewState``/``authorship``/``reviewLabel`` come off the *hit* rather
+    than being reconstructed here. They were written into the indexed record on
+    purpose (AD-4's exception is to reach, never to legibility), and a route
+    that regenerated them would make an unlabelled record render exactly like a
+    labelled one — which is the failure that labelling exists to prevent.
+    """
+    if not hits:
+        return []
+    ids = [hit.document_id for hit in hits]
+    with pool.connection() as conn:
+        rows = conn.execute(_RESOLVE_DOCUMENTS, (ids,)).fetchall()
+    by_id = {row[0]: row for row in rows}
+
+    resolved: list[DocumentHitModel] = []
+    for hit in hits:
+        row = by_id.get(hit.document_id)
+        if row is None:
+            logs.log_event("search.stale_document_hit", document_id=hit.document_id)
+            continue
+        resolved.append(
+            DocumentHitModel(
+                document_id=row[0],
+                meeting_id=row[1],
+                kind=row[2],
+                origin=row[3],
+                model=row[4],
+                prompt_hash=row[5],
+                layout=row[6],
+                item_count=row[7],
+                artifact_count=row[8],
+                byte_size=row[9],
+                meeting_title=row[10],
+                corpus=row[11],
+                review_state=hit.review_state,
+                authorship=hit.authorship,
+                review_label=hit.review_label,
+                citable=False,
+                snippet=[
+                    SnippetRunModel(text=run.text, highlighted=run.highlighted)
+                    for run in hit.snippet
+                ],
+                score=hit.score,
+            )
+        )
+    return resolved
+
+
 @router.get(
     "/search",
     operation_id="searchCorpus",
@@ -417,6 +573,19 @@ def search_corpus(
             meeting_id=meeting_id,
             corpus=corpus,
         )
+        # The extraction-document lane is independent of the combined
+        # artifact/moment sequence and takes the caller's `offset` unchanged:
+        # documents are not citations, do not compete with moments for the
+        # page, and must not shift where the citable sequence starts.
+        document_result = search_documents(
+            client,
+            config,
+            query=q,
+            limit=effective_limit,
+            offset=offset,
+            meeting_id=meeting_id,
+            corpus=corpus,
+        )
         moment_offset = max(offset - artifact_result.total, 0)
         result = search_moments(
             client,
@@ -461,7 +630,14 @@ def search_corpus(
         # not yet rebuilt) holds nothing published — logged apart from the
         # moments-index case because the repair is a targeted rebuild.
         logs.log_event("search.artifacts_index_missing", query=q)
+    if document_result.index_missing:
+        # A store from before story 12.4 (or one wiped and not yet rebuilt)
+        # holds no extraction documents. Logged apart from the two above
+        # because the repair is a targeted rebuild and because a silent zero
+        # here would read as "the analysis says nothing about this".
+        logs.log_event("search.documents_index_missing", query=q)
     artifact_hits = _resolve_artifacts(request.app.state.pool, artifact_result.hits)
+    document_hits = _resolve_documents(request.app.state.pool, document_result.hits)
 
     moment_hits = _resolve(request.app.state.pool, result.hits)
     stale_dropped = len(result.hits) - len(moment_hits)
@@ -492,6 +668,13 @@ def search_corpus(
         capacity_truncated=capacity_truncated,
         artifact_ranked=len(artifact_result.hits),
         artifact_returned=len(artifact_hits),
+        # Counted apart from the two citable lanes, never folded into them: a
+        # document reached the reader without passing the publish gate, and a
+        # log line that hid that inside one total would be the only record of
+        # the exception saying nothing about it (AD-4).
+        documents_ranked=len(document_result.hits),
+        documents_returned=len(document_hits),
+        documents_total=document_result.total,
         total_returned=len(hits),
         below_floor=result.below_floor,
         meeting_id=meeting_id,
@@ -501,8 +684,11 @@ def search_corpus(
         query=q,
         ranking=ranking,
         hits=hits,
+        documents=document_hits,
+        documents_total=document_result.total,
         estimated_total=artifact_result.total + result.estimated_total,
         limit=effective_limit,
         offset=offset,
         index_missing=result.index_missing,
+        documents_index_missing=document_result.index_missing,
     )
