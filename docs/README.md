@@ -243,7 +243,8 @@ drop and hands it to the same intake door as everything else:
     make youtube-drop URL='https://www.youtube.com/watch?v=jNQXAC9IVRw'
 
 Watch, `youtu.be`, and Shorts URLs all work; a `&list=` on a watch URL is
-ignored (the single video is acquired — playlists are not supported). The
+ignored (the single video is acquired — add `PLAYLIST=1` to take the whole
+list instead, below). The
 recording lands as a browser-playable MP4; the caption track is English manual
 captions when the video has them, otherwise the auto-generated ones, converted
 to VTT — a video with no English captions still mints a valid, recording-only
@@ -257,7 +258,8 @@ caption that fails to materialize can be discovered only after `yt-dlp` writes
 temporary bytes; those paths still refuse before finalization, remove the
 private temporary directory, and leave no source drop.
 
-- the URL is not a YouTube *video* URL (a playlist-only URL is refused);
+- the URL is not a YouTube *video* URL — a playlist link needs `PLAYLIST=1`,
+  and under `PLAYLIST=1` a URL naming no `list=` is refused in turn;
 - `yt-dlp` or `ffmpeg` is not on PATH (`brew install yt-dlp ffmpeg`) — checked
   at run time, by name; `make check-tools` knows nothing about them;
 - the video is private or removed (the refusal carries yt-dlp's own message);
@@ -274,3 +276,34 @@ recovered. `--no-post`, `--drops`, and `--api` behave exactly as `mint-drop`'s
 (pass them in `YT_ARGS='--no-post'`); the sections above on what the output
 means and what the command never does apply here unchanged. The video's
 `info.json` is read for metadata and never copied into the drop.
+
+### A whole playlist
+
+    make youtube-drop URL='https://www.youtube.com/playlist?list=PL...' PLAYLIST=1
+
+`PLAYLIST=1` passes `--playlist`. The entries are enumerated in one
+`yt-dlp -J --flat-playlist` call — no media bytes — and then each one is
+acquired **sequentially through the single-video path above**: one drop and one
+`POST /ingests` per entry, in playlist order, with the `exists` short-circuit
+applying per entry (an already-minted video is reported without a probe or a
+download, and is still POSTed). A watch URL carrying a `list=` works too; under
+`PLAYLIST=1` the list is what is taken.
+
+Each entry's refusal is printed in full as it happens, and
+**a refused entry does not stop the run** — those after it are still acquired. The run ends
+with a summary table naming every entry's outcome as `minted`, `exists`, or
+`refused:<rule>`, where the rule is a short stable token for which refusal
+fired (`duration-cap`, `probe-failed`, `entry-not-a-video`, …):
+
+    playlist PL... — 4 entries: 2 minted, 1 exists, 1 refused
+      1. aB3dEfGhIj0  minted                 Platform Sync — August — created
+      2. bB3dEfGhIj1  exists                 Retro — week 32 — already ingested
+      3. cB3dEfGhIj2  refused:duration-cap   Ops All-Hands — the video is 210.0 ...
+      4. dB3dEfGhIj3  minted                 Design Review — created
+
+The command exits 0 only when every entry ended `minted` or `exists` and every
+POST succeeded; otherwise 1, so a script sees the failure while the table
+explains it. Re-running the same playlist is how a partial run is finished:
+what was minted answers `exists`, and only the rest is downloaded. A playlist
+that cannot be listed, or that has no entries, is refused by name before any
+entry is acquired.

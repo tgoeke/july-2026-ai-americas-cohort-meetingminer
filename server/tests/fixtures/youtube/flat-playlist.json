@@ -1,0 +1,41 @@
+{
+  "_type": "playlist",
+  "id": "PLmeetingminer0sandbox01",
+  "title": "Platform Sync — 2026",
+  "channel": "MeetingMiner Sandbox",
+  "playlist_count": 4,
+  "entries": [
+    {
+      "_type": "url",
+      "ie_key": "Youtube",
+      "id": "aB3dEfGhIj0",
+      "title": "Platform Sync — August",
+      "url": "https://www.youtube.com/watch?v=aB3dEfGhIj0",
+      "duration": 1830
+    },
+    {
+      "_type": "url",
+      "ie_key": "Youtube",
+      "id": "bB3dEfGhIj1",
+      "title": "Platform Sync — September",
+      "url": "https://www.youtube.com/watch?v=bB3dEfGhIj1",
+      "duration": 2400
+    },
+    {
+      "_type": "playlist",
+      "ie_key": "YoutubeTab",
+      "id": "PLnestedsandbox02",
+      "title": "Archive (nested playlist)",
+      "url": "https://www.youtube.com/playlist?list=PLnestedsandbox02",
+      "duration": null
+    },
+    {
+      "_type": "url",
+      "ie_key": "Youtube",
+      "id": "cB3dEfGhIj2",
+      "title": "[Private video]",
+      "url": "https://www.youtube.com/watch?v=cB3dEfGhIj2",
+      "duration": null
+    }
+  ]
+}

@@ -15,6 +15,13 @@ Run it from the repository::
 
 or through ``make youtube-drop URL=<url>`` (options via ``YT_ARGS``).
 
+Story 6.2a adds ``--playlist``: the URL is then a playlist, its entries are
+enumerated with ``yt-dlp --flat-playlist``, and each one is minted and posted
+sequentially *through the single-video path above* — one drop and one
+``POST /ingests`` per entry, the ``exists`` short-circuit applying per entry.
+A refused entry is printed, recorded in the run's summary table as
+``refused:<rule>``, and does not stop the entries after it.
+
 What it guarantees, and why each one is here:
 
 * **Refuse before permanent writes.** Every refusal is a named error with a
@@ -54,6 +61,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, NoReturn, TypeGuard
@@ -115,8 +123,75 @@ MAX_DURATION_CONFIG_KEY = "acquisition.youtube.max_duration_minutes"
 PROBE_TIMEOUT_SECONDS = 300
 
 
+#: The closed vocabulary behind the playlist table's ``refused:<rule>`` column
+#: (story 6.2a). A rule is a short, stable token identifying *which* refusal
+#: fired; the message stays the operator-facing explanation. Classifying a
+#: refusal by matching its prose would mislabel a row the day the wording
+#: changes, so the token is set where the refusal is raised.
+#: ``server/tests/test_youtube_playlist.py`` pins every ``rule=`` literal in
+#: this module against this set.
+REFUSAL_RULES = frozenset(
+    {
+        # story 6.2's single-video refusals
+        "not-a-video-url",
+        "tool-missing",
+        "tool-unrunnable",
+        "tool-timeout",
+        "version-failed",
+        "version-empty",
+        "probe-failed",
+        "probe-unreadable",
+        "duration-unknown",
+        "duration-cap",
+        "no-video-stream",
+        "channel-missing",
+        "format-id-missing",
+        "identity-mismatch",
+        "started-at-unknown",
+        "download-failed",
+        "download-incomplete",
+        "captions-missing-vtt",
+        "captions-changed",
+        "tool-version-missing",
+        "drops-root-changed",
+        "existing-drop-incomplete",
+        # story 6.2a's playlist refusals
+        "not-a-playlist-url",
+        "playlist-failed",
+        "playlist-unreadable",
+        "playlist-empty",
+        "entry-not-a-video",
+        # refusals raised outside this module, and the fallback
+        "mint-refused",
+        "config",
+        "unclassified",
+    }
+)
+
+
 class YoutubeError(RuntimeError):
-    """A named refusal: the command declines and writes nothing."""
+    """A named refusal: the command declines and writes nothing.
+
+    ``rule`` is the short token the playlist summary table prints as
+    ``refused:<rule>``. It is additive — ``str(error)`` is still exactly the
+    message, which is what the single-video path prints and what story 6.2's
+    tests match on.
+    """
+
+    def __init__(self, message: str, *, rule: str = "unclassified") -> None:
+        super().__init__(message)
+        self.rule = rule
+
+
+def refusal_rule(error: BaseException) -> str:
+    """The rule token for any refusal the per-entry loop can catch."""
+    if isinstance(error, YoutubeError):
+        return error.rule
+    if isinstance(error, MintError):
+        return "mint-refused"
+    if isinstance(error, ConfigError):
+        return "config"
+    return "unclassified"
 
 
 # --- URL classification (offline) ------------------------------------------
@@ -150,9 +225,9 @@ def video_id_from_url(url: str) -> str:
     try:
         parsed = urlsplit(url)
     except ValueError as exc:
-        raise YoutubeError(refusal) from exc
+        raise YoutubeError(refusal, rule="not-a-video-url") from exc
     if parsed.scheme.lower() not in ("http", "https"):
-        raise YoutubeError(refusal)
+        raise YoutubeError(refusal, rule="not-a-video-url")
     host = (parsed.hostname or "").lower()
     segments = [segment for segment in parsed.path.split("/") if segment]
     candidate: str | None = None
@@ -167,8 +242,53 @@ def video_id_from_url(url: str) -> str:
         elif len(segments) == 2 and segments[0] == "shorts":
             candidate = segments[1]
     if candidate is None or not VIDEO_ID_PATTERN.fullmatch(candidate):
-        raise YoutubeError(refusal)
+        raise YoutubeError(refusal, rule="not-a-video-url")
     return candidate
+
+
+#: A playlist id: ``PL…``, ``UU…``, ``RD…``, the two-character ``WL``/``LL``,
+#: and album ids are all this charset at varying lengths, so the pattern bounds
+#: the shape without pretending to know the vocabulary.
+PLAYLIST_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{2,128}")
+
+
+def playlist_url(playlist_id: str) -> str:
+    """The canonical playlist URL — the one shape enumeration ever asks for."""
+    return f"https://www.youtube.com/playlist?list={playlist_id}"
+
+
+def playlist_id_from_url(url: str) -> str:
+    """The playlist id, parsed offline, or a named refusal (story 6.2a).
+
+    Accepted: ``youtube.com/playlist?list=<id>`` (any ``*.youtube.com`` host)
+    and a watch URL carrying a ``list=`` — with ``--playlist`` the list is
+    what was meant, so the ``v=`` is ignored. HTTP(S) only. Everything else,
+    a bare video URL included, is refused before any subprocess runs, the
+    same ordering rule story 6.2 applies to video URLs.
+    """
+    from urllib.parse import parse_qs, urlsplit
+
+    refusal = (
+        f"not a YouTube playlist URL: {url!r} — give a playlist link"
+        " (youtube.com/playlist?list=...) or a watch URL carrying a 'list='."
+        " Drop --playlist to acquire a single video."
+    )
+    try:
+        parsed = urlsplit(url)
+    except ValueError as exc:
+        raise YoutubeError(refusal, rule="not-a-playlist-url") from exc
+    if parsed.scheme.lower() not in ("http", "https"):
+        raise YoutubeError(refusal, rule="not-a-playlist-url")
+    host = (parsed.hostname or "").lower()
+    if host != "youtube.com" and not host.endswith(".youtube.com"):
+        raise YoutubeError(refusal, rule="not-a-playlist-url")
+    segments = [segment for segment in parsed.path.split("/") if segment]
+    if segments not in (["playlist"], ["watch"]):
+        raise YoutubeError(refusal, rule="not-a-playlist-url")
+    values = parse_qs(parsed.query).get("list", [])
+    if len(values) != 1 or not PLAYLIST_ID_PATTERN.fullmatch(values[0]):
+        raise YoutubeError(refusal, rule="not-a-playlist-url")
+    return values[0]
 
 
 # --- tools and subprocesses -------------------------------------------------
@@ -190,7 +310,8 @@ def ensure_tools() -> None:
                 f"{tool} is not on PATH — acquiring a YouTube video needs it."
                 f" Install it with 'brew install {install_name}' (checked at run time"
                 " by name; acquisition does not depend on the rest of the"
-                " stack)"
+                " stack)",
+                rule="tool-missing",
             )
 
 
@@ -202,26 +323,48 @@ def _run(
             command, capture_output=True, text=True, timeout=timeout
         )
     except OSError as exc:
-        raise YoutubeError(f"{command[0]} could not be run: {exc}") from exc
+        raise YoutubeError(
+            f"{command[0]} could not be run: {exc}", rule="tool-unrunnable"
+        ) from exc
     except subprocess.TimeoutExpired as exc:
         raise YoutubeError(
-            f"{command[0]} did not answer within {timeout} seconds"
+            f"{command[0]} did not answer within {timeout} seconds",
+            rule="tool-timeout",
         ) from exc
 
 
-def classify_probe_failure(stderr: str) -> str:
-    """yt-dlp's own message, carried into the refusal.
+def _yt_dlp_detail(stderr: str) -> str:
+    """yt-dlp's own words, reduced to the lines that explain the failure.
 
-    A private video, a removed video, and a region lock all surface here as
-    yt-dlp ``ERROR:`` lines; naming them verbatim beats paraphrasing a tool
-    that already explains itself.
+    A private video, a removed video, and a region lock all surface as yt-dlp
+    ``ERROR:`` lines; naming them verbatim beats paraphrasing a tool that
+    already explains itself. One implementation, two callers — the video
+    refusal and the playlist one say different things about the same output.
     """
     lines = [line.strip() for line in stderr.splitlines() if line.strip()]
     errors = [line for line in lines if line.startswith("ERROR:")]
-    detail = "; ".join(errors) if errors else (lines[-1] if lines else "no error output")
+    return "; ".join(errors) if errors else (lines[-1] if lines else "no error output")
+
+
+def classify_probe_failure(stderr: str) -> str:
+    """yt-dlp's own message, carried into a single-video refusal."""
     return (
-        f"the video cannot be acquired — {YT_DLP} refused: {detail}"
+        f"the video cannot be acquired — {YT_DLP} refused: {_yt_dlp_detail(stderr)}"
         " (a private or removed video cannot enter the corpus)"
+    )
+
+
+def classify_playlist_failure(stderr: str) -> str:
+    """The same message for an enumeration that failed (story 6.2a).
+
+    A playlist that cannot be listed is not "the video cannot be acquired":
+    nothing was even enumerated, and the operator needs to know that no entry
+    was attempted.
+    """
+    return (
+        f"the playlist cannot be listed — {YT_DLP} refused:"
+        f" {_yt_dlp_detail(stderr)} (a private or removed playlist has no"
+        " entries to acquire)"
     )
 
 
@@ -230,13 +373,15 @@ def yt_dlp_version() -> str:
     completed = _run([YT_DLP, "--version"], timeout=PROBE_TIMEOUT_SECONDS)
     if completed.returncode != 0:
         raise YoutubeError(
-            f"{YT_DLP} --version failed: {classify_probe_failure(completed.stderr)}"
+            f"{YT_DLP} --version failed: {classify_probe_failure(completed.stderr)}",
+            rule="version-failed",
         )
     version = completed.stdout.strip()
     if not version:
         raise YoutubeError(
             f"{YT_DLP} --version returned an empty version — reinstall or upgrade"
-            f" it with 'brew install {YT_DLP}' before acquiring evidence"
+            f" it with 'brew install {YT_DLP}' before acquiring evidence",
+            rule="version-empty",
         )
     return version
 
@@ -250,15 +395,21 @@ def probe(url: str) -> dict[str, Any]:
         [YT_DLP, "-J", "--no-playlist", url], timeout=PROBE_TIMEOUT_SECONDS
     )
     if completed.returncode != 0:
-        raise YoutubeError(classify_probe_failure(completed.stderr))
+        raise YoutubeError(
+            classify_probe_failure(completed.stderr), rule="probe-failed"
+        )
     try:
         info = json.loads(completed.stdout)
     except json.JSONDecodeError as exc:
         raise YoutubeError(
-            f"{YT_DLP} produced unreadable probe output for {url}"
+            f"{YT_DLP} produced unreadable probe output for {url}",
+            rule="probe-unreadable",
         ) from exc
     if not isinstance(info, dict):
-        raise YoutubeError(f"{YT_DLP} produced unreadable probe output for {url}")
+        raise YoutubeError(
+            f"{YT_DLP} produced unreadable probe output for {url}",
+            rule="probe-unreadable",
+        )
     return info
 
 
@@ -276,7 +427,8 @@ def _duration_seconds(info: dict[str, Any]) -> int | float:
     if not _is_finite_number(duration) or duration < 0:
         raise YoutubeError(
             "the video duration is missing or invalid — yt-dlp must report a"
-            " finite non-negative number before evidence can be downloaded"
+            " finite non-negative number before evidence can be downloaded",
+            rule="duration-unknown",
         )
     return duration
 
@@ -288,7 +440,8 @@ def _channel_from_info(info: dict[str, Any]) -> str:
             return value.strip()
     raise YoutubeError(
         "the video channel is missing or invalid — provenance requires the"
-        " source publisher before evidence can be finalized"
+        " source publisher before evidence can be finalized",
+        rule="channel-missing",
     )
 
 
@@ -297,7 +450,8 @@ def _format_id_from_info(info: dict[str, Any]) -> str:
     if not isinstance(format_id, str) or not format_id.strip():
         raise YoutubeError(
             "the downloaded format_id is missing or invalid — provenance must"
-            " identify the format whose bytes were finalized"
+            " identify the format whose bytes were finalized",
+            rule="format-id-missing",
         )
     return format_id.strip()
 
@@ -309,7 +463,8 @@ def _validate_video_identity(info: dict[str, Any], expected_video_id: str) -> No
         raise YoutubeError(
             f"yt-dlp metadata video id {shown} does not match requested video id"
             f" {expected_video_id!r} — refusing to mint bytes under the wrong"
-            " source identity"
+            " source identity",
+            rule="identity-mismatch",
         )
 
 
@@ -326,7 +481,8 @@ def refuse_unacceptable(info: dict[str, Any], *, max_duration_minutes: int) -> N
     if not has_video:
         raise YoutubeError(
             "the video carries no video stream — recording.mp4 must be a"
-            " video, and an audio-only publication is not one"
+            " video, and an audio-only publication is not one",
+            rule="no-video-stream",
         )
     duration = _duration_seconds(info)
     if duration > max_duration_minutes * 60:
@@ -334,7 +490,8 @@ def refuse_unacceptable(info: dict[str, Any], *, max_duration_minutes: int) -> N
             f"the video is {duration / 60:.1f} minutes long — over the"
             f" {max_duration_minutes}-minute cap. Raise"
             f" {MAX_DURATION_CONFIG_KEY} in config.yaml if this video really"
-            " belongs in the corpus"
+            " belongs in the corpus",
+            rule="duration-cap",
         )
 
 
@@ -386,7 +543,8 @@ def started_at_from_info(info: dict[str, Any]) -> tuple[str, str, str]:
     raise YoutubeError(
         "the video carries neither release_timestamp nor a usable upload_date"
         " — a meeting's wall clock is never guessed (not from an mtime, not"
-        " from today), and a drop is write-once"
+        " from today), and a drop is write-once",
+        rule="started-at-unknown",
     )
 
 
@@ -446,22 +604,28 @@ def download(
     command.append(url)
     completed = _run(command)
     if completed.returncode != 0:
-        raise YoutubeError(classify_probe_failure(completed.stderr))
+        raise YoutubeError(
+            classify_probe_failure(completed.stderr), rule="download-failed"
+        )
     recording = workdir / f"{video_id}.mp4"
     if not recording.is_file():
         raise YoutubeError(
             f"{YT_DLP} reported success but wrote no {recording.name} — its"
-            f" output was: {completed.stderr.strip() or '(empty)'}"
+            f" output was: {completed.stderr.strip() or '(empty)'}",
+            rule="download-incomplete",
         )
     info_path = workdir / f"{video_id}.info.json"
     try:
         info = json.loads(info_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise YoutubeError(
-            f"{YT_DLP} wrote no readable {info_path.name}: {exc}"
+            f"{YT_DLP} wrote no readable {info_path.name}: {exc}",
+            rule="download-incomplete",
         ) from exc
     if not isinstance(info, dict):
-        raise YoutubeError(f"{info_path.name} is not a JSON object")
+        raise YoutubeError(
+            f"{info_path.name} is not a JSON object", rule="download-incomplete"
+        )
     transcript: Path | None = None
     if captions is not None:
         language, kind = captions
@@ -470,7 +634,8 @@ def download(
             raise YoutubeError(
                 f"yt-dlp selected the {kind} {language!r} caption track but wrote"
                 " no VTT — retry after upgrading yt-dlp; recording-only is allowed"
-                " only when the probe reports no English captions"
+                " only when the probe reports no English captions",
+                rule="captions-missing-vtt",
             )
         transcript = expected
     return recording, transcript, info
@@ -489,7 +654,8 @@ def provenance_extra_from_info(
     if not isinstance(tool_version, str) or not tool_version.strip():
         raise YoutubeError(
             "yt-dlp version is missing or invalid — provenance must record the"
-            " extractor version that produced the evidence"
+            " extractor version that produced the evidence",
+            rule="tool-version-missing",
         )
     extra: dict[str, Any] = {
         "tool": PROGRAM,
@@ -509,7 +675,8 @@ def _refuse_legacy_drop(path: Path, detail: str) -> NoReturn:
     raise YoutubeError(
         f"existing YouTube drop {path} is incomplete: {detail} — do not POST"
         " this legacy drop; quarantine it outside MM_DROPS_ROOT for repair,"
-        " then rerun youtube-drop"
+        " then rerun youtube-drop",
+        rule="existing-drop-incomplete",
     )
 
 
@@ -741,7 +908,8 @@ def acquire(
             raise YoutubeError(
                 "caption availability changed between probe and downloaded"
                 f" metadata ({captions!r} -> {downloaded_captions!r}) — retry;"
-                " no drop was finalized"
+                " no drop was finalized",
+                rule="captions-changed",
             )
         supplied = [str(recording)]
         if transcript is not None:
@@ -752,7 +920,8 @@ def acquire(
             if prepared_root.resolve() != drops_root.resolve():
                 raise YoutubeError(
                     "drops-root resolution changed during acquisition — no drop"
-                    " was finalized; check --drops and MM_DROPS_ROOT, then retry"
+                    " was finalized; check --drops and MM_DROPS_ROOT, then retry",
+                    rule="drops-root-changed",
                 )
             drops_root = prepared_root
         return mint(
@@ -770,6 +939,220 @@ def acquire(
         )
 
 
+# --- delivery, shared by both paths -----------------------------------------
+
+
+def _deliver(result: MintResult, *, api_url: str, no_post: bool) -> tuple[int, str]:
+    """Report one minted drop and hand it to intake.
+
+    The single-video path and every playlist entry go through this one
+    function, so what story 6.2 printed is what a playlist entry prints.
+    Returns ``(exit code, a short note)``; the note is what the summary table
+    puts beside the entry.
+    """
+    canonical = [
+        entry["dropFilename"]
+        for entry in result.metadata.get("provenance", {}).get("files", [])
+        if isinstance(entry, dict) and "dropFilename" in entry
+    ]
+    _report(result, canonical)
+
+    if no_post:
+        print("           not posted (--no-post); ingest it with:")
+        print(f"           {ingest_command(api_url, result.path)}")
+        return 0, "not posted"
+
+    try:
+        status, http_status, job_id = post_ingest(api_url, result.path)
+    except IntakeError as exc:
+        print(f"           intake FAILED: {exc}", file=sys.stderr)
+        print(
+            "           the drop is finalized; re-POST this exact drop rather"
+            f" than re-running {PROGRAM}:",
+            file=sys.stderr,
+        )
+        print(f"           {ingest_command(api_url, result.path)}", file=sys.stderr)
+        return 1, "intake FAILED"
+    label = "already ingested" if status == "duplicate" else status
+    print(f"           intake {label} ({http_status}) jobId {job_id or '(none)'}")
+    return 0, label
+
+
+# --- playlists (story 6.2a) --------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PlaylistEntry:
+    """One row of a ``--flat-playlist`` listing, before anything is acquired."""
+
+    position: int
+    video_id: str | None
+    title: str | None
+
+
+@dataclass(frozen=True)
+class EntryOutcome:
+    """What one entry ended as: ``minted``, ``exists``, or ``refused:<rule>``."""
+
+    entry: PlaylistEntry
+    outcome: str
+    detail: str
+    failed: bool
+
+
+def _entry_video_id(row: object) -> str | None:
+    """The 11-character video id of a flat listing row, or ``None``.
+
+    A nested playlist row and a malformed one both answer ``None``: they are
+    refused per entry rather than ending the run, because real playlists
+    carry such rows and one of them must not cost the other nineteen.
+    """
+    if not isinstance(row, dict) or row.get("_type") == "playlist":
+        return None
+    candidate = row.get("id")
+    if isinstance(candidate, str) and VIDEO_ID_PATTERN.fullmatch(candidate):
+        return candidate
+    return None
+
+
+def enumerate_playlist(url: str) -> list[PlaylistEntry]:
+    """``yt-dlp -J --flat-playlist``: the entry list, and no media bytes.
+
+    Flat because the per-entry probe belongs to :func:`acquire`, which runs it
+    anyway — listing the playlist in full would probe every video twice and
+    download nothing extra for it.
+    """
+    completed = _run(
+        [YT_DLP, "-J", "--flat-playlist", url], timeout=PROBE_TIMEOUT_SECONDS
+    )
+    if completed.returncode != 0:
+        raise YoutubeError(
+            classify_playlist_failure(completed.stderr), rule="playlist-failed"
+        )
+    unreadable = f"{YT_DLP} produced unreadable playlist output for {url}"
+    try:
+        listing = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise YoutubeError(unreadable, rule="playlist-unreadable") from exc
+    if not isinstance(listing, dict):
+        raise YoutubeError(unreadable, rule="playlist-unreadable")
+    rows = listing.get("entries")
+    if not isinstance(rows, list):
+        raise YoutubeError(
+            f"{unreadable}: it names no playlist entries — pass a playlist URL,"
+            " or drop --playlist to acquire this as a single video",
+            rule="playlist-unreadable",
+        )
+    if not rows:
+        raise YoutubeError(
+            f"the playlist at {url} has no entries — nothing to acquire",
+            rule="playlist-empty",
+        )
+    entries = []
+    for position, row in enumerate(rows, start=1):
+        title = row.get("title") if isinstance(row, dict) else None
+        entries.append(
+            PlaylistEntry(
+                position,
+                _entry_video_id(row),
+                title if isinstance(title, str) else None,
+            )
+        )
+    return entries
+
+
+def format_outcome_table(playlist_id: str, rows: list[EntryOutcome]) -> list[str]:
+    """The summary table: every entry, named by its outcome.
+
+    Returned as lines rather than printed so the shape is testable without
+    capturing stdout, and so the caller decides where it goes.
+    """
+    minted = sum(1 for row in rows if row.outcome == "minted")
+    exists = sum(1 for row in rows if row.outcome == "exists")
+    refused = sum(1 for row in rows if row.outcome.startswith("refused:"))
+    noun = "entry" if len(rows) == 1 else "entries"
+    lines = [
+        (
+            f"playlist {playlist_id} — {len(rows)} {noun}:"
+            f" {minted} minted, {exists} exists, {refused} refused"
+        )
+    ]
+    width = max((len(row.outcome) for row in rows), default=0)
+    number_width = max((len(str(row.entry.position)) for row in rows), default=1)
+    for row in rows:
+        video_id = row.entry.video_id or "—"
+        title = row.entry.title or "(untitled)"
+        detail = f"{title} — {row.detail}" if row.detail else title
+        lines.append(
+            f"  {row.entry.position:>{number_width}}. {video_id:<11}"
+            f"  {row.outcome:<{width}}  {detail}"
+        )
+    return lines
+
+
+def run_playlist(
+    url: str,
+    *,
+    api_url: str,
+    no_post: bool,
+    acquire_kwargs: dict[str, Any],
+) -> int:
+    """Acquire every entry of a playlist, sequentially, and report each one.
+
+    One drop and one ``POST /ingests`` per entry, in listing order, each
+    through story 6.2's own :func:`acquire` and :func:`_deliver` — including
+    its ``exists`` short-circuit, which answers from the drops root with no
+    probe and no download.
+
+    **A refused entry does not stop the run.** Its refusal is printed in full,
+    recorded as ``refused:<rule>``, and the loop moves to the next entry. The
+    exit code is 0 only when every entry ended ``minted`` or ``exists`` and
+    every POST succeeded: the table is the report, the code is what ``make``
+    sees.
+    """
+    playlist_id = playlist_id_from_url(url)
+    ensure_tools()
+    entries = enumerate_playlist(playlist_url(playlist_id))
+    total = len(entries)
+    noun = "entry" if total == 1 else "entries"
+    print(f"playlist   {playlist_id} — {total} {noun}, acquiring in order")
+
+    rows: list[EntryOutcome] = []
+    for entry in entries:
+        print(
+            f"[{entry.position}/{total}] {entry.video_id or '—'}"
+            f"  {entry.title or '(untitled)'}"
+        )
+        if entry.video_id is None:
+            detail = "the listing row names no YouTube video"
+            print(f"           refused: {detail}", file=sys.stderr)
+            rows.append(
+                EntryOutcome(entry, "refused:entry-not-a-video", detail, failed=True)
+            )
+            continue
+        try:
+            result = acquire(watch_url(entry.video_id), **acquire_kwargs)
+        except (ConfigError, MintError, YoutubeError) as exc:
+            print(f"           refused: {exc}", file=sys.stderr)
+            rows.append(
+                EntryOutcome(
+                    entry,
+                    f"refused:{refusal_rule(exc)}",
+                    " ".join(str(exc).split()),
+                    failed=True,
+                )
+            )
+            continue
+        code, note = _deliver(result, api_url=api_url, no_post=no_post)
+        outcome = "minted" if result.status == "created" else result.status
+        rows.append(EntryOutcome(entry, outcome, note, failed=code != 0))
+
+    print()
+    for line in format_outcome_table(playlist_id, rows):
+        print(line)
+    return 1 if any(row.failed for row in rows) else 0
+
+
 # --- CLI --------------------------------------------------------------------
 
 
@@ -782,13 +1165,25 @@ def _parser() -> argparse.ArgumentParser:
         ),
         epilog=(
             f"example: {PROGRAM} 'https://www.youtube.com/watch?v=...'"
-            " --no-post"
+            " --no-post; a whole series:"
+            f" {PROGRAM} 'https://www.youtube.com/playlist?list=...' --playlist"
         ),
     )
     parser.add_argument(
         "url",
         metavar="URL",
-        help="a YouTube watch, shorts, or youtu.be link to one video.",
+        help=(
+            "a YouTube watch, shorts, or youtu.be link to one video — or,"
+            " with --playlist, a playlist link."
+        ),
+    )
+    parser.add_argument(
+        "--playlist",
+        action="store_true",
+        help=(
+            "treat URL as a playlist: enumerate its entries and acquire each"
+            " one as its own meeting, sequentially."
+        ),
     )
     parser.add_argument(
         "--drops",
@@ -816,7 +1211,10 @@ def main(argv: list[str] | None = None) -> int:
     # resolver: that resolver write-probes ``.staging``. A non-YouTube URL is
     # refused before any filesystem mutation, even a temporary one.
     try:
-        video_id_from_url(args.url)
+        if args.playlist:
+            playlist_id_from_url(args.url)
+        else:
+            video_id_from_url(args.url)
     except YoutubeError as exc:
         print(f"fatal: {PROGRAM} refused: {exc}", file=sys.stderr)
         return 1
@@ -832,48 +1230,32 @@ def main(argv: list[str] | None = None) -> int:
         # api url must not first cost a download and a finalized drop.
         api_url = resolve_api_url(args.api)
         drops_root = _resolve_drops_root_read_only(args.drops, config)
-        result = acquire(
-            args.url,
-            drops_root=drops_root,
+        # One kwargs dict for both paths, so a playlist entry is acquired on
+        # exactly the terms a single video is.
+        acquire_kwargs: dict[str, Any] = {
+            "drops_root": drops_root,
             # An explicit child root is a placement choice, not a separate
             # intake namespace: all of MM_DROPS_ROOT shares source identity.
-            identity_root=config.secrets.mm_drops_root,
-            config_path=config.config_path,
-            max_duration_minutes=(
+            "identity_root": config.secrets.mm_drops_root,
+            "config_path": config.config_path,
+            "max_duration_minutes": (
                 config.settings.acquisition.youtube.max_duration_minutes
             ),
-            prepare_drops_root=lambda: resolve_drops_root(args.drops, config),
-        )
+            "prepare_drops_root": lambda: resolve_drops_root(args.drops, config),
+        }
+        if args.playlist:
+            return run_playlist(
+                args.url,
+                api_url=api_url,
+                no_post=args.no_post,
+                acquire_kwargs=acquire_kwargs,
+            )
+        result = acquire(args.url, **acquire_kwargs)
     except (ConfigError, MintError, YoutubeError) as exc:
         print(f"fatal: {PROGRAM} refused: {exc}", file=sys.stderr)
         return 1
 
-    canonical = [
-        entry["dropFilename"]
-        for entry in result.metadata.get("provenance", {}).get("files", [])
-        if isinstance(entry, dict) and "dropFilename" in entry
-    ]
-    _report(result, canonical)
-
-    if args.no_post:
-        print("           not posted (--no-post); ingest it with:")
-        print(f"           {ingest_command(api_url, result.path)}")
-        return 0
-
-    try:
-        status, http_status, job_id = post_ingest(api_url, result.path)
-    except IntakeError as exc:
-        print(f"           intake FAILED: {exc}", file=sys.stderr)
-        print(
-            "           the drop is finalized; re-POST this exact drop rather"
-            f" than re-running {PROGRAM}:",
-            file=sys.stderr,
-        )
-        print(f"           {ingest_command(api_url, result.path)}", file=sys.stderr)
-        return 1
-    label = "already ingested" if status == "duplicate" else status
-    print(f"           intake {label} ({http_status}) jobId {job_id or '(none)'}")
-    return 0
+    return _deliver(result, api_url=api_url, no_post=args.no_post)[0]
 
 
 if __name__ == "__main__":

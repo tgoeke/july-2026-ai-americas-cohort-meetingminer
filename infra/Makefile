@@ -813,13 +813,15 @@ mint-drop: check-env
 # and touches no store. `yt-dlp` and `ffmpeg` are deliberately NOT added to
 # `check-tools`: the command checks for them itself at run time and refuses
 # with a named error, which is the narrower gate. `--no-post`/`--drops`/`--api`
-# pass through YT_ARGS the way MINT_ARGS does.
+# pass through YT_ARGS the way MINT_ARGS does. `PLAYLIST=1` adds `--playlist`
+# (story 6.2a), so URL stays the single place a URL is passed and the flag
+# cannot be confused for one.
 unexport URL
 youtube-drop: export MM_YOUTUBE_URL := $(value URL)
 youtube-drop: check-env
 	@[ -x "$(VENV)/bin/python" ] || { echo "error: server venv missing — run 'make bootstrap' first."; exit 1; }
-	@[ -n "$${MM_YOUTUBE_URL}" ] || { echo "error: URL is required — run 'make youtube-drop URL=https://www.youtube.com/watch?v=...' (options go in YT_ARGS='--no-post ...')."; exit 1; }
-	cd $(ROOT) && $(VENV)/bin/python -m meetingminer.youtube "$${MM_YOUTUBE_URL}" $(YT_ARGS)
+	@[ -n "$${MM_YOUTUBE_URL}" ] || { echo "error: URL is required — run 'make youtube-drop URL=https://www.youtube.com/watch?v=...' (a whole playlist: URL=<playlist url> PLAYLIST=1; other options go in YT_ARGS='--no-post ...')."; exit 1; }
+	cd $(ROOT) && $(VENV)/bin/python -m meetingminer.youtube "$${MM_YOUTUBE_URL}" $(YT_ARGS) $(if $(PLAYLIST),--playlist)
 
 
 # The puller is tested here and runs there, so "there" can silently fall behind
