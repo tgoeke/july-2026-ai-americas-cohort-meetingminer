@@ -1,13 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { recordingUrl } from '@/lib/media'
-
-const CAPTIONS_PREFERENCE_KEY = 'meetingminer.replay.captions'
-
-export interface ReplayCaptions {
-  src: string
-  label?: string
-  language?: string
-}
 
 export interface ReplayPlayerProps {
   /** The meeting whose recording plays. */
@@ -30,17 +22,6 @@ export interface ReplayPlayerProps {
   /** What assistive tech announces instead of the raw url. */
   label?: string
   className?: string
-  /** Optional client-generated WebVTT. Without it the shared player behaves
-   * exactly as it did before the caller acquired transcript segments. */
-  captions?: ReplayCaptions
-}
-
-function rememberedCaptions(): boolean {
-  try {
-    return globalThis.localStorage?.getItem(CAPTIONS_PREFERENCE_KEY) === 'showing'
-  } catch {
-    return false
-  }
 }
 
 /**
@@ -63,12 +44,9 @@ export function ReplayPlayer({
   autoPlay = false,
   label,
   className,
-  captions,
 }: ReplayPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
-  const [captionOverride, setCaptionOverride] = useState<boolean | null>(null)
   const src = recordingUrl(meetingId)
-  const captionsVisible = captions === undefined ? false : (captionOverride ?? rememberedCaptions())
 
   useEffect(() => {
     const video = videoRef.current
@@ -146,60 +124,19 @@ export function ReplayPlayer({
     // end offset is unchanged.
   }, [src, startMs, endMs])
 
-  useEffect(() => {
-    const track = videoRef.current?.textTracks?.[0]
-    if (track !== undefined) track.mode = captionsVisible ? 'showing' : 'disabled'
-  }, [captions?.src, captionsVisible])
-
-  const toggleCaptions = () => {
-    const next = !captionsVisible
-    setCaptionOverride(next)
-    try {
-      globalThis.localStorage?.setItem(
-        CAPTIONS_PREFERENCE_KEY,
-        next ? 'showing' : 'disabled',
-      )
-    } catch {
-      // Storage may be denied; the choice still applies to this mounted player.
-    }
-  }
-
   return (
-    <>
-      <video
-        ref={videoRef}
-        data-testid="replay-player"
-        src={src}
-        controls
-        // Enough of the file to know the duration, so the seek can happen
-        // without the viewer pressing play first — and no more, because these
-        // recordings are large.
-        preload="metadata"
-        playsInline
-        aria-label={label ?? 'Meeting recording'}
-        className={className}
-      >
-        {captions !== undefined && (
-          <track
-            data-testid="replay-captions-track"
-            kind="captions"
-            src={captions.src}
-            srcLang={captions.language ?? 'en'}
-            label={captions.label ?? 'Meeting transcript'}
-          />
-        )}
-      </video>
-      {captions !== undefined && (
-        <button
-          type="button"
-          aria-pressed={captionsVisible}
-          onClick={toggleCaptions}
-          className="min-h-6 self-end rounded-md border px-2 py-1 text-xs"
-          style={{ borderColor: 'var(--control-border)' }}
-        >
-          {captionsVisible ? 'Hide captions' : 'Show captions'}
-        </button>
-      )}
-    </>
+    <video
+      ref={videoRef}
+      data-testid="replay-player"
+      src={src}
+      controls
+      // Enough of the file to know the duration, so the seek can happen
+      // without the viewer pressing play first — and no more, because these
+      // recordings are large.
+      preload="metadata"
+      playsInline
+      aria-label={label ?? 'Meeting recording'}
+      className={className}
+    />
   )
 }
