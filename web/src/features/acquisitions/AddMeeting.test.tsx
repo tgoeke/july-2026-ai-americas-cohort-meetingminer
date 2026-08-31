@@ -575,11 +575,26 @@ describe('Add-meeting, progress', () => {
     // Ingestion never started, so its bar does not claim otherwise.
     expect(screen.getByTestId('step-ingesting')).toHaveAttribute('data-status', 'queued')
     expect(screen.getByTestId('youtube-url')).not.toHaveAttribute('readonly')
-    expect(
-      screen.getByText('Nothing was downloaded, nothing minted, no meeting row exists.'),
-    ).toBeInTheDocument()
     // The log stays for diagnosis but was never the source of the refusal.
     expect(screen.getByTestId('acquisition-log')).toHaveTextContent('youtube-drop: duration over cap')
+  })
+
+  it('does not claim nothing was finalized when intake fails after acquisition', async () => {
+    await launch(
+      acquisition({
+        status: 'failed',
+        refusal: {
+          rule: 'intake-failed',
+          detail: 'POST /ingests returned 503.',
+          remediation: 'The drop is finalized; re-POST this exact drop rather than re-downloading it.',
+        },
+      }),
+    )
+
+    expect(screen.getByTestId('acquisition-refusal')).toHaveTextContent('The drop is finalized')
+    expect(
+      screen.queryByText('Nothing was downloaded, nothing minted, no meeting row exists.'),
+    ).not.toBeInTheDocument()
   })
 
   it('keeps the last state when a poll fails, and resumes on Retry', async () => {
