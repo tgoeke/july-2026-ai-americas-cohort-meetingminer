@@ -68,8 +68,14 @@ afterEach(() => {
 
 describe('review F4 — a mounted feed owns its visible page', () => {
   it('does not reload or lose paging when a child route hides it', async () => {
+    const feedCalls: Array<URL> = []
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
-      const offset = Number(new URL(String(input)).searchParams.get('offset'))
+      const url = new URL(String(input))
+      if (url.pathname.endsWith('/threads')) {
+        return Promise.resolve(new Response(JSON.stringify({ threads: [] })))
+      }
+      feedCalls.push(url)
+      const offset = Number(url.searchParams.get('offset'))
       return Promise.resolve(offset === 0 ? response([item('one')], 2) : response([item('two')], 2, 1))
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -77,20 +83,26 @@ describe('review F4 — a mounted feed owns its visible page', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: 'Show 1 more' }))
     expect(await screen.findByTestId('moment-card-two')).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(feedCalls).toHaveLength(2)
 
     await userEvent.click(screen.getByRole('button', { name: 'Open child' }))
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(feedCalls).toHaveLength(2)
     expect(screen.getByTestId('moment-card-two')).toBeInTheDocument()
   })
 
   it('keeps the accumulated page and retries the failed offset', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(response([item('one')], 2))
-      .mockRejectedValueOnce(new Error('second page failed'))
-      .mockResolvedValueOnce(response([item('two')], 2, 1))
+    const feedCalls: Array<URL> = []
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = new URL(String(input))
+      if (url.pathname.endsWith('/threads')) {
+        return Promise.resolve(new Response(JSON.stringify({ threads: [] })))
+      }
+      feedCalls.push(url)
+      if (feedCalls.length === 1) return Promise.resolve(response([item('one')], 2))
+      if (feedCalls.length === 2) return Promise.reject(new Error('second page failed'))
+      return Promise.resolve(response([item('two')], 2, 1))
+    })
     vi.stubGlobal('fetch', fetchMock)
     renderFeed()
 
@@ -101,14 +113,21 @@ describe('review F4 — a mounted feed owns its visible page', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
     expect(await screen.findByTestId('moment-card-two')).toBeInTheDocument()
-    expect(new URL(String(fetchMock.mock.calls[2][0])).searchParams.get('offset')).toBe('1')
+    expect(feedCalls[2]?.searchParams.get('offset')).toBe('1')
   })
 
   it('keeps the previous cards stale when a filter refresh fails', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(response([item('one')], 1))
-      .mockRejectedValueOnce(new Error('filtered read failed'))
+    const feedCalls: Array<URL> = []
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = new URL(String(input))
+      if (url.pathname.endsWith('/threads')) {
+        return Promise.resolve(new Response(JSON.stringify({ threads: [] })))
+      }
+      feedCalls.push(url)
+      return feedCalls.length === 1
+        ? Promise.resolve(response([item('one')], 1))
+        : Promise.reject(new Error('filtered read failed'))
+    })
     vi.stubGlobal('fetch', fetchMock)
     renderFeed()
     await screen.findByTestId('moment-card-one')
@@ -118,6 +137,6 @@ describe('review F4 — a mounted feed owns its visible page', () => {
       'The cards below may be stale.',
     )
     expect(screen.getByTestId('moment-card-one')).toBeInTheDocument()
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(feedCalls).toHaveLength(2))
   })
 })
