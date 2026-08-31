@@ -334,3 +334,62 @@ def test_every_rejection_reason_is_kebab_case_and_the_set_is_closed() -> None:
         assert re.fullmatch(r"[a-z]+(?:-[a-z]+)*", reason), reason
     with pytest.raises(ValueError):
         Rejection("not-a-reason", "detail")
+
+
+# --- no citation resolves to an extraction document (story 12.4) ----------
+
+DOCUMENT = UUID("018f3f2a-0000-7000-8000-0000000000d1")
+
+
+def test_a_marker_naming_an_extraction_document_cannot_be_cited() -> None:
+    """AD-6 against story 12.4's ungated index, at the gate itself.
+
+    Extraction documents are searchable without passing the publish gate, which
+    means a model can now be shown one. It must still be impossible for one to
+    become a citation: a document is a claim *about* evidence, so citing it
+    would establish that the model said something rather than that the meeting
+    did — the circularity the publish gate exists to prevent.
+
+    The mechanism is that the gate resolves markers against *moments*, and a
+    document's id is an `extraction_source` id, which is not one. Proved here
+    rather than argued: an answer citing a document id is refused, and the
+    refusal is `unresolvable-marker` rather than a silently dropped citation.
+    """
+    resolve = resolver(A)
+    outcome = validate(
+        f"The analysis says the feed moved {marker(DOCUMENT)}.", [A, DOCUMENT], resolve
+    )
+    assert isinstance(outcome, Rejection)
+    assert outcome.reason == "unresolvable-marker"
+    assert str(DOCUMENT) in outcome.detail
+
+
+def test_a_document_id_offered_alongside_real_moments_still_resolves_to_nothing() -> None:
+    """The harder shape: a draft that cites both a moment and a document.
+
+    A gate that dropped the unresolvable half and kept the rest would let a
+    document's claim ride into an answer under a moment's citation — a sentence
+    the meeting never supports, wearing evidence that does not cover it. The
+    whole answer is discarded instead.
+    """
+    resolve = resolver(A, B)
+    outcome = validate(
+        f"The feed moved {marker(A)}. The analysis agrees {marker(DOCUMENT)}.",
+        [A, B, DOCUMENT],
+        resolve,
+    )
+    assert isinstance(outcome, Rejection)
+    assert outcome.reason == "unresolvable-marker"
+
+
+def test_an_answer_drawn_from_a_document_passes_only_by_citing_a_moment() -> None:
+    """The story's rule, stated positively.
+
+    "Content reaches an answer only through the moments its individual claims
+    anchor to." A sentence informed by a document is fine — the model read it —
+    as long as the marker it carries names a moment the resolver can resolve.
+    Unanchored prose stays readable and findable without becoming citable.
+    """
+    outcome = validate(f"The feed moved to SFTP {marker(A)}.", [A], resolver(A))
+    assert isinstance(outcome, ValidatedAnswer)
+    assert [citation.moment_id for citation in outcome.citations] == [A]
