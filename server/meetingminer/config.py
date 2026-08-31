@@ -788,7 +788,7 @@ class SearchConfig(_StrictModel):
         if forbidden:
             raise ValueError(
                 "projections.search.documents must not name "
-                + ", ".join(sorted(set(repr(a) for a in forbidden)))
+                + ", ".join(sorted({repr(a) for a in forbidden}))
                 + " — an extraction document is a claim about evidence and is"
                 " never a citation target (AD-6)"
             )

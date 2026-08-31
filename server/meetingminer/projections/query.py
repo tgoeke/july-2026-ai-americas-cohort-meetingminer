@@ -11,14 +11,25 @@ imports no store library.
 
 Three decisions this module owns.
 
-**Two lanes, two allow-lists.** :data:`SEARCHABLE_INDEXES` is the hybrid
+**Three lanes, three allow-lists.** :data:`SEARCHABLE_INDEXES` is the hybrid
 lane's complete index set and contains the moments index alone;
 :data:`ARTIFACT_SEARCHABLE_INDEXES` is the keyword-only artifact lane's
-(story 4.4) and contains ``publish_gate.ARTIFACTS_INDEX`` alone. Every
+(story 4.4) and contains ``publish_gate.ARTIFACTS_INDEX`` alone;
+:data:`DOCUMENT_SEARCHABLE_INDEXES` is the keyword-only extraction-document
+lane's (story 12.4) and contains ``documents.DOCUMENTS_INDEX`` alone. Every
 artifact query pins ``state = 'published'`` in its own filter, which keeps
 "no unpublished artifact can surface through search" (NFR7) a property of the
 query side as well as of the publish gate — belt and braces, because the two
 are written by different stories.
+
+The document lane is the mirror image, and deliberately so. It pins
+``reviewState = 'unreviewed'`` instead — not to withhold anything (AD-4's
+exception says every document is reachable) but because that is the *only*
+state a document may carry, so a hit that came back claiming otherwise is a
+store holding something this system did not write. And :class:`DocumentHit`
+carries **no moment id and no artifact id**: a document is a claim about
+evidence, never a citation target (AD-6), so there is nothing on this lane's
+hit for a citation to be built out of.
 
 **Highlights are runs, not markup.** Meilisearch marks matched terms by
 wrapping them in configurable tags. Using two Unicode private-use code points
@@ -58,6 +69,11 @@ from meilisearch.errors import (
 
 from meetingminer.adapters.embed.port import Vector
 from meetingminer.config import AppConfig
+from meetingminer.projections.documents import (
+    AUTHORSHIP,
+    DOCUMENTS_INDEX,
+    REVIEW_STATE,
+)
 from meetingminer.projections.publish_gate import ARTIFACTS_INDEX, PUBLISHED_STATE
 from meetingminer.projections.stores import (
     EMBEDDER_NAME,
@@ -78,6 +94,11 @@ SEARCHABLE_INDEXES: tuple[str, ...] = (MOMENTS_INDEX,)
 
 # The complete set of indexes the keyword-only artifact lane may read.
 ARTIFACT_SEARCHABLE_INDEXES: tuple[str, ...] = (ARTIFACTS_INDEX,)
+
+# And the extraction-document lane's (story 12.4). One entry, like the two
+# above: a lane that could read a second index could rank a document against a
+# moment, and the two do not share a scale or a citability.
+DOCUMENT_SEARCHABLE_INDEXES: tuple[str, ...] = (DOCUMENTS_INDEX,)
 
 # The highlight tags. U+E000 and U+E001 are in the Unicode private use area:
 # they have no assigned meaning, no font renders them, and no transcript or
@@ -106,6 +127,11 @@ SNIPPET_ATTRIBUTES: tuple[str, ...] = ("text", "screenText", "speakers", "title"
 # `projections.search.artifacts`), in the same order the index boosts them:
 # an artifact's title is its distilled claim, so a title match is shown first.
 ARTIFACT_SNIPPET_ATTRIBUTES: tuple[str, ...] = ("title", "text")
+
+# The extraction document's, in its own boost order (config.yaml,
+# `projections.search.documents`). `text` leads because the document *is* the
+# body — the inverse of an artifact, whose title is the distilled claim.
+DOCUMENT_SNIPPET_ATTRIBUTES: tuple[str, ...] = ("text", "title")
 
 
 @dataclass(frozen=True)
@@ -159,6 +185,56 @@ class ArtifactSearchResult:
     # True when the artifacts index does not exist yet — a store from before
     # story 4.4, or one that was wiped and not yet rebuilt. Nothing published
     # is reachable then, which the caller logs rather than silently zeroes.
+    index_missing: bool = False
+
+
+@dataclass(frozen=True)
+class DocumentHit:
+    """One ranked extraction document. **Never a citation** (AD-6, story 12.4).
+
+    Deliberately missing what every other hit in this module carries: no
+    ``moment_id``, no ``moment_ids``, no ``artifact_id``, no timestamps. A
+    document is a claim *about* evidence — citing it would establish that the
+    model said something, not that the meeting did, which is the circularity
+    the publish gate exists to prevent. The absence is the mechanism: a caller
+    cannot build a citation out of this type, because there is nothing on it to
+    build one from. Its content reaches an answer only through the moments its
+    individual claims anchor to.
+
+    ``document_id`` is the ``extraction_source`` row's UUID (the build decision
+    :mod:`meetingminer.projections.documents` states). The api re-reads the row
+    from Postgres in the same request, like every other lane here.
+
+    ``review_label`` travels with the hit rather than being looked up: the
+    exception is to reach, never to legibility, so the sentence that says this
+    is unreviewed machine-written output comes out of the store attached to the
+    thing it describes and cannot be lost between here and a renderer (AD-18).
+    """
+
+    document_id: UUID
+    meeting_id: UUID
+    kind: str
+    review_state: str
+    authorship: str
+    review_label: str
+    snippet: tuple[SnippetRun, ...]
+    score: float | None
+
+
+@dataclass(frozen=True)
+class DocumentSearchResult:
+    """What one extraction-document query returned, in ranking order."""
+
+    hits: tuple[DocumentHit, ...]
+    # Exhaustive filtered count, from the same page-pagination request the
+    # artifacts lane uses and for the same reason: ``estimatedTotalHits`` is
+    # explicitly unstable across offset/limit pages.
+    total: int = 0
+    limit: int = 0
+    offset: int = 0
+    # True when the documents index does not exist yet — a store from before
+    # story 12.4, or one wiped and not yet rebuilt. Distinct from "no document
+    # matched", because the repair is a rebuild rather than other words.
     index_missing: bool = False
 
 
@@ -821,6 +897,209 @@ def search_artifacts(
         ) from exc
     return ArtifactSearchResult(
         hits=_artifact_hits_of(response),
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+# --- the extraction-documents lane (story 12.4) ---------------------------
+
+
+def build_document_search_parameters(
+    config: AppConfig,
+    *,
+    limit: int,
+    offset: int = 0,
+    meeting_id: UUID | None = None,
+    corpus: str | None = None,
+) -> dict[str, Any]:
+    """The Meilisearch request body for one extraction-document query.
+
+    Keyword-only: the documents index declares no embedder, so asking it for
+    vector ranking would be a store error — and making documents depend on the
+    model host would let an Ollama outage withhold exactly the material AD-4's
+    exception exists to keep reachable.
+
+    ``attributesToRetrieve`` is the shape of the guarantee, not a bandwidth
+    saving. It names the id, the meeting, the kind and the two review fields —
+    and **no** moment id, because a document is never a citation target (AD-6).
+    Nothing this lane can be asked for could be turned into a citation.
+
+    The filter pins ``reviewState``. Not to withhold: every document is
+    reachable, which is the whole exception. It is there because ``unreviewed``
+    is the only state a document may carry (`documents.REVIEW_STATE`), so
+    anything else in this index was not written by this system, and a query
+    that would surface it is a query that would render unlabelled machine
+    output as if it were reviewed (AD-18).
+
+    ``matchingStrategy`` is ``frequency`` for the reason the artifacts lane
+    records: this lane reads a *question* from the chat path, and ``last``
+    would drop the terms that carry it.
+    """
+    parameters: dict[str, Any] = {
+        "limit": limit,
+        "offset": offset,
+        "attributesToRetrieve": [
+            "id",
+            "meetingId",
+            "kind",
+            "reviewState",
+            "authorship",
+            "reviewLabel",
+        ],
+        "attributesToHighlight": list(DOCUMENT_SNIPPET_ATTRIBUTES),
+        "attributesToCrop": list(DOCUMENT_SNIPPET_ATTRIBUTES),
+        "cropLength": config.settings.api.search.crop_length,
+        "highlightPreTag": HIGHLIGHT_PRE,
+        "highlightPostTag": HIGHLIGHT_POST,
+        "showRankingScore": True,
+        "matchingStrategy": "frequency",
+    }
+    clauses = [f'reviewState = "{REVIEW_STATE}"']
+    scope = build_filter(meeting_id, corpus)
+    if scope is not None:
+        clauses.append(scope)
+    parameters["filter"] = " AND ".join(clauses)
+    return parameters
+
+
+def _document_hits_of(response: Any) -> tuple[DocumentHit, ...]:
+    """Validate one documents-index response into resolvable candidate hits.
+
+    A hit missing its review label is refused rather than defaulted. The label
+    is the AD-18 half of the gate exception, and a lane that silently supplied
+    a plausible sentence for a record that did not carry one would make an
+    unlabelled document indistinguishable from a labelled one — the exact
+    substitution AD-18 forbids.
+    """
+    hits: list[DocumentHit] = []
+    for hit in _hits_of(response):
+        raw_id = hit.get("id")
+        if raw_id is None:
+            raise ProjectionError(
+                f"a {DOCUMENTS_INDEX!r} hit carried no id — every document in"
+                " this index is keyed on a Postgres extraction_source id"
+            )
+        try:
+            document_id = UUID(str(raw_id))
+        except ValueError as exc:
+            raise ProjectionError(
+                f"a {DOCUMENTS_INDEX!r} hit carried an id that is not a UUID:"
+                f" {raw_id!r} — every document in this index is keyed on a"
+                " Postgres extraction_source id"
+            ) from exc
+        raw_meeting = hit.get("meetingId")
+        try:
+            meeting_id = UUID(str(raw_meeting))
+        except (TypeError, ValueError) as exc:
+            raise ProjectionError(
+                f"a {DOCUMENTS_INDEX!r} hit carried no usable meetingId"
+                f" ({raw_meeting!r}) — a document is scoped to the meeting it"
+                " analyses, and the api re-reads it from Postgres by that id"
+            ) from exc
+        review_state = hit.get("reviewState")
+        authorship = hit.get("authorship")
+        review_label = hit.get("reviewLabel")
+        if (
+            review_state != REVIEW_STATE
+            or authorship != AUTHORSHIP
+            or not str(review_label or "").strip()
+        ):
+            raise ProjectionError(
+                f"a {DOCUMENTS_INDEX!r} hit carried reviewState"
+                f" {review_state!r}, authorship {authorship!r} and reviewLabel"
+                f" {review_label!r} — an"
+                " extraction document is indexed without passing the publish"
+                " gate, so it must carry its unreviewed, machine-written status"
+                " in the record itself; refusing to surface an unlabelled one"
+                " (AD-18). Run 'rebuild --meeting <id>' to rewrite it."
+            )
+        raw_score = hit.get("_rankingScore")
+        try:
+            score = float(raw_score) if raw_score is not None else None
+        except (TypeError, ValueError) as exc:
+            raise ProjectionError(
+                "Meilisearch returned an invalid ranking score"
+            ) from exc
+        hits.append(
+            DocumentHit(
+                document_id=document_id,
+                meeting_id=meeting_id,
+                kind=str(hit.get("kind") or ""),
+                review_state=str(review_state),
+                authorship=str(authorship),
+                review_label=str(review_label),
+                snippet=_snippet_of(
+                    hit.get("_formatted"), DOCUMENT_SNIPPET_ATTRIBUTES
+                ),
+                score=score,
+            )
+        )
+    return tuple(hits)
+
+
+def search_documents(
+    client: meilisearch.Client,
+    config: AppConfig,
+    *,
+    query: str,
+    limit: int,
+    offset: int = 0,
+    meeting_id: UUID | None = None,
+    corpus: str | None = None,
+) -> DocumentSearchResult:
+    """Rank the extraction-documents index for ``query``. Keyword-only, ungated.
+
+    :data:`DOCUMENT_SEARCHABLE_INDEXES` states in code (and the query test
+    suite pins) that this lane reads the documents index alone. A missing index
+    is reported rather than raised — a store from before story 12.4 holds no
+    documents, and the caller logs the distinction rather than reporting a
+    silent zero.
+    """
+    parameters = build_document_search_parameters(
+        config,
+        limit=limit,
+        offset=offset,
+        meeting_id=meeting_id,
+        corpus=corpus,
+    )
+    try:
+        index = client.index(DOCUMENTS_INDEX)
+        # Exhaustive `totalHits` from a page-style count query, for the same
+        # reason the artifacts lane takes one: `estimatedTotalHits` is unstable
+        # across offset/limit pages and cannot bound a lane.
+        count_parameters = dict(parameters)
+        count_parameters.pop("limit", None)
+        count_parameters.pop("offset", None)
+        count_parameters["hitsPerPage"] = 0
+        count_response = index.search(query, count_parameters)
+        total = _total_hits_of(count_response)
+        response = (
+            index.search(query, parameters)
+            if offset < total and limit > 0
+            else {"hits": ()}
+        )
+    except MeilisearchApiError as exc:
+        if _is_index_missing(exc):
+            return DocumentSearchResult(
+                hits=(), limit=limit, offset=offset, index_missing=True
+            )
+        raise ProjectionError(
+            f"Meilisearch refused the {DOCUMENTS_INDEX!r} query: {exc}"
+        ) from exc
+    except (MeilisearchCommunicationError, MeilisearchTimeoutError) as exc:
+        raise StoreUnavailableError(
+            f"Meilisearch became unreachable during the {DOCUMENTS_INDEX!r}"
+            f" query ({type(exc).__name__}: {exc})"
+        ) from exc
+    except MeilisearchError as exc:  # pragma: no cover - client-shape change
+        raise ProjectionError(
+            f"Meilisearch failed the {DOCUMENTS_INDEX!r} query"
+            f" ({type(exc).__name__}: {exc})"
+        ) from exc
+    return DocumentSearchResult(
+        hits=_document_hits_of(response),
         total=total,
         limit=limit,
         offset=offset,
