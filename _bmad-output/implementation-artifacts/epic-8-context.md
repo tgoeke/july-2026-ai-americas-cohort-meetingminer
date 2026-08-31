@@ -33,7 +33,10 @@ A user picks which model answers questions and which model extracts artifacts, c
 - **Error shape.** Every api error body is `application/problem+json`. A failing binding gets its own problem type carrying the provider, the binding, and the upstream status in the detail, so the UI can name the provider and the remediation rather than showing a generic failure.
 - **Resolution timing differs by caller.** Chat resolves the selection per request (a change takes effect on the next question); the worker resolves per job (a change takes effect on the next extraction job). Neither caches a binding across that boundary.
 - **Provider entries** in config carry base URLs per provider; a role may override the endpoint for its own binding. Roles today include extraction, chat, and judge; extraction is bound to a local model by default so no paid provider is reachable from the committed file.
-- Related known gaps, useful context but not in scope: bindings are not validated against declared providers or probed against the endpoint's model list at startup, and empty/whitespace binding strings are currently accepted.
+- Related known gaps, useful context but not in scope: synthesized legacy
+  entries and the live `fallback` remain exempt from the authored-catalog
+  provider check; bindings are not probed against an endpoint's model list at
+  startup; and the legacy `model` field still accepts empty/whitespace strings.
 
 ## UX & Interaction Patterns
 
