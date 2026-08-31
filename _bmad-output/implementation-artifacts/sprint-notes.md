@@ -4267,3 +4267,34 @@ web **380 passed**, eval harness **655 passed**, puller **128 passed**, and the
 production build completed. The browser fixture and Vite preview were ready on
 private ports, but the connected browser runtime exposed no surfaces, so this
 review does not falsely claim the required 1280×800 visual pass.
+
+## Story 8.2a landed — 2026-08-31
+
+Verdict **pass after remediation**: six findings confirmed, all six resolved on
+the review branch, no open owner decision. Gate green (2328 passed, 3 named
+skips). No migration; api restarted and `make client` regenerated because
+`api/status.py` and `api/main.py` changed.
+
+`GET /status` now serves per-provider key health — probed through free list
+endpoints only, never a completion, and cached between polls — plus the binding
+actually in force per role beside the file default, resolved through
+`domain/model_selection`.
+
+**The attribution criterion is the one that came from a real incident.** AD-10
+as amended records that the model catalog is a snapshot each process takes at
+startup while a selection is a per-request read. This morning a config edit was
+followed by a worker restart and no api restart, and `/status` advertised free
+local extraction while OpenAI was being billed. The surface now carries an
+`observedBy` block and per-row attribution, and the extraction row states in
+words that the worker makes that call from its own snapshot and that the row is
+the api's reading. When Postgres is down the row reports `source: "unknown"`
+rather than showing the file default as though it were in force.
+
+The builder also found `docs/architecture.md` missing AD-10's amendment, which
+existed in the spine only, and synced it — the second builder today to find that
+drift unprompted (story 12.1 found the same for AD-3 and AD-4).
+
+**Filed:** B-53, and a second duplicate-id pair. `docs/backlog.md` has two
+entries numbered B-42 from parallel branches on the same day; this is separate
+from the four ids reconciled earlier today (7.4's group became B-47..B-50).
+Recorded rather than renumbered, because landed specs already cite the id.
