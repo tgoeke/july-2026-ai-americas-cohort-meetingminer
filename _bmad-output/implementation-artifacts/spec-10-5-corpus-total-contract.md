@@ -2,7 +2,7 @@
 title: 'Story 10.5 landed feed and thread contracts'
 type: 'bugfix'
 created: '2026-08-31'
-status: 'in-review'
+status: 'done'
 review_loop_iteration: 0
 baseline_commit: '43c40c881327773a212a84dc37433d91e0e57272'
 context:
@@ -53,7 +53,7 @@ context:
 - [x] Replace `unfilteredTotal` identifiers and fixtures with `corpusTotal`; use generated response/item/reason/thread types and `getMomentsFeed`.
 - [x] Replace raw `/threads` transport with generated `listThreads`, retaining strict parser behavior.
 - [x] Audit Story 10.5 for timeline containment assumptions and record the result.
-- [ ] Update the review report, run gates and conflict scan, commit, and push.
+- [x] Update the review report, run gates and conflict scan, commit, and push.
 
 **Acceptance Criteria:**
 - Given the exact live envelope, when `/` loads or filters to zero matches, then it renders the correct corpus denominator without a second request.
@@ -74,5 +74,41 @@ context:
 stale reader, then passed with the generated contract. TypeScript, all 551 web
 tests, and the complete fast repository loop pass. The review report records
 the timeline audit and conflict scan. Implementation commit
-`0f98d7c9956ef29ad4e13f13242c40ad5e667bc7` is local; the parent agent owns
-the required force-with-lease push of this intentionally rebased branch.
+`0f98d7c9956ef29ad4e13f13242c40ad5e667bc7` began the generated-contract
+change; C1-C8 review commits complete it before the branch handoff.
+
+**Final review result:** C1-C8 close the generated-client mock, selected-corpus
+invariant, malformed-success, client-configuration, dead-serializer,
+abort/stale-state, historical-report, and invalid-corpus gaps. TypeScript and
+lint pass, `make web-test` passes 557 tests across 49 files, and
+`make test-fast` passes 2315 server tests with 3 named skips and 411 slow tests
+deselected, plus 128 puller and 655 eval-harness tests.
+
+## Suggested Review Order
+
+**Generated feed boundary**
+
+- Start with generated types, strict validation, and one-operation transport.
+  [`feed.ts:271`](../../web/src/features/moments/feed.ts#L271)
+
+- URL filters preserve invalid intent for a named contract failure.
+  [`MomentsFeed.tsx:30`](../../web/src/features/moments/MomentsFeed.tsx#L30)
+
+- Counted state carries selected-corpus totals through refresh and paging.
+  [`MomentsFeed.tsx:279`](../../web/src/features/moments/MomentsFeed.tsx#L279)
+
+**Generated thread boundary**
+
+- The landed thread operation retains strict catalog validation and cancellation.
+  [`threads.ts:82`](../../web/src/features/moments/threads.ts#L82)
+
+**Regression evidence**
+
+- Transport tests pin filters, malformed success, and abort propagation.
+  [`generatedTransport.review.test.ts:28`](../../web/src/features/moments/generatedTransport.review.test.ts#L28)
+
+- State tests pin distinct stale denominators and invalid-corpus refusal.
+  [`MomentsFeedCorpusState.review.test.tsx:44`](../../web/src/features/moments/MomentsFeedCorpusState.review.test.tsx#L44)
+
+- The review report preserves red proof and supersedes provisional wording.
+  [`review-story-10-5-2026-08-31.md:1`](review-story-10-5-2026-08-31.md#L1)
