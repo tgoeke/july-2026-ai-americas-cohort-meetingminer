@@ -22,6 +22,7 @@ from uuid import UUID, uuid4
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
 from meetingminer.api.moments_feed import (
     REASON_KINDS,
@@ -144,6 +145,34 @@ def test_the_migration_declares_no_lifecycle_column() -> None:
     assert "state" not in columns
     assert "'risk', 'question'" in body
     assert "ON DELETE CASCADE" in body
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ("weights", "adr"),
+        ("weights", "decision"),
+        ("weights", "action_item_stated_timing"),
+        ("weights", "due_urgency"),
+        ("weights", "risk"),
+        ("weights", "question"),
+        ("weights", "meeting_recency"),
+        ("weights", "publication_recency"),
+        ("weights", "thread_membership"),
+        ("recency_half_life_days",),
+        ("due_horizon_days",),
+    ],
+)
+def test_ranking_floats_refuse_infinity(path) -> None:
+    """F7: every number deciding the order must be finite."""
+    raw = yaml.safe_load((REPO_ROOT / "config.yaml").read_text())
+    target = raw["ranking"]
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = float("inf")
+
+    with pytest.raises(ValidationError, match=path[-1]):
+        Settings.model_validate(raw)
 
 
 # --- stated timing ----------------------------------------------------------

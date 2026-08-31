@@ -946,18 +946,18 @@ class RankingWeights(_StrictModel):
     ``reasons[]``.
     """
 
-    adr: float = Field(ge=0.0)
-    decision: float = Field(ge=0.0)
+    adr: float = Field(ge=0.0, allow_inf_nan=False)
+    decision: float = Field(ge=0.0, allow_inf_nan=False)
     # Split deliberately: "an action item exists and states its timing at all"
     # and "that timing is close" are different facts, and the AC asks for both
     # ("action items with stated timing (soonest first)").
-    action_item_stated_timing: float = Field(ge=0.0)
-    due_urgency: float = Field(ge=0.0)
-    risk: float = Field(ge=0.0)
-    question: float = Field(ge=0.0)
-    meeting_recency: float = Field(ge=0.0)
-    publication_recency: float = Field(ge=0.0)
-    thread_membership: float = Field(ge=0.0)
+    action_item_stated_timing: float = Field(ge=0.0, allow_inf_nan=False)
+    due_urgency: float = Field(ge=0.0, allow_inf_nan=False)
+    risk: float = Field(ge=0.0, allow_inf_nan=False)
+    question: float = Field(ge=0.0, allow_inf_nan=False)
+    meeting_recency: float = Field(ge=0.0, allow_inf_nan=False)
+    publication_recency: float = Field(ge=0.0, allow_inf_nan=False)
+    thread_membership: float = Field(ge=0.0, allow_inf_nan=False)
 
 
 class RankingConfig(_StrictModel):
@@ -974,10 +974,10 @@ class RankingConfig(_StrictModel):
     # Age at which a recency term is worth half its weight. Exponential decay
     # rather than a cliff: a cliff makes the feed reorder itself overnight for
     # no reason a reader can see.
-    recency_half_life_days: float = Field(gt=0.0)
+    recency_half_life_days: float = Field(gt=0.0, allow_inf_nan=False)
     # How far ahead a stated due date still earns urgency. Beyond it the
     # urgency term is zero and only the "timing is stated" term remains.
-    due_horizon_days: float = Field(gt=0.0)
+    due_horizon_days: float = Field(gt=0.0, allow_inf_nan=False)
     # How many risk/question reasons one item may carry. A moment that raised
     # nine questions is not nine times more pressing than one that raised
     # three, and an unbounded list would make the card unreadable.
