@@ -96,3 +96,59 @@ The review will also account for the required rebase onto `origin/main` before c
 - **Finding:** The session itself has no claim visible to DELETE or the TTL sweep. `launch_upload()` reads it before taking the acquisition lock and does not re-read under that lock; DELETE never takes that lock; and the sweep knows nothing about live upload acquisitions. A later request can erase bytes after the API has returned 202. A second launch can also pre-read the session, wait for the first to become terminal, and then return another 202 for bytes being removed. For no-`session.json` directories, expiry uses directory mtime, which ordinary writes to an already-created file do not refresh; a long active stream can be swept too.
 - **Evidence:** All three operations mutate/read the same session directory without one serialized ownership check. The acquisition record is the existing claim authority, but only another launch consults it. The sweep's comment says an in-flight upload must not be deleted out from under itself while its mtime rule permits exactly that once the configured TTL passes.
 - **Suggested direction:** Serialize upload launch, DELETE, and sweeping against the acquisition claim lock; re-read inside the launch critical section; expose live upload-session ids so sweep skips them; refuse DELETE for a live claim; and age incomplete uploads from current file activity. Start the completed session TTL when the 201 state is published, not before a slow body is consumed.
+
+### F-11 — New acquisition refusals omit `rule` and `remediation`
+
+- **Location:** `server/meetingminer/api/acquisitions.py:223-266`
+- **Severity:** Medium
+- **Finding:** The both-sources, neither-source, and upload-session-in-progress branches construct RFC 9457 problems without the `rule` and `remediation` extensions the frozen contract requires for every refusal.
+- **Evidence:** The tests at `server/tests/test_api_uploads.py:760-809` assert only status/type for these paths and deliberately bypass the stronger `refusal()` helper. A client can render every upload parser failure uniformly but loses that contract on the most common acquisition-request mistakes and collision.
+- **Suggested direction:** Give these upload acquisition paths stable rules and remediations in the upload vocabulary, preserve the existing problem types/IDs, and assert all three required fields in the HTTP tests.
+
+### F-12 — An `exists` result falsely claims the upload session produced the old drop
+
+- **Location:** `server/meetingminer/acquisitions.py:1098-1106`
+- **Severity:** Medium
+- **Finding:** The runner always writes `tool="upload-session"` to the acquisition status, including when `mint()` returned `exists` for a drop previously produced by `mint-drop` or another producer. In that case the status source disagrees with the immutable drop provenance it is meant to summarize.
+- **Evidence:** `run_acquisition()` derives tool/version from `result.metadata`; the new upload runner hardcodes the tool. The story's own identity test creates a hand-minted drop first and then reaches `exists`, so production would report that hand-minted drop as upload-produced.
+- **Suggested direction:** Derive status source fields from `result.metadata.provenance` for both created and existing outcomes. A newly created upload still reports `upload-session`; an existing hand mint reports `mint-drop`.
+
+### F-13 — Final hashing and ffprobe block the API event loop
+
+- **Location:** `server/meetingminer/uploads.py:742-769`, `server/meetingminer/uploads.py:897-955`, and `server/meetingminer/pipeline/media.py:34`
+- **Severity:** High
+- **Finding:** The async request handler synchronously rereads each completed file to hash it and then runs ffprobe inline. At the configured 8 GiB recording cap this blocks the API event loop for a full second disk pass; ffprobe itself permits a 600-second timeout, during which unrelated API requests cannot advance.
+- **Evidence:** `_PartSink.on_part_end()` calls `sha256_and_size()` synchronously after the stream already wrote and counted the bytes, and `_finish()` calls `_assert_video_within_cap()` synchronously from `create_session()`. The hand-driven parser avoids boot-volume spooling but still monopolizes the one async loop at finalization.
+- **Suggested direction:** Maintain the SHA-256 incrementally in `on_part_data` and use the existing byte counter at part end. Offload the blocking probe to a worker thread while keeping session publication awaited and failure cleanup unchanged.
+
+### F-14 — An overlong boundary escapes the named multipart refusal path
+
+- **Location:** `server/meetingminer/uploads.py:868-893`
+- **Severity:** Medium
+- **Finding:** `MultipartParser(...)` is constructed before the parser-error `try`. The installed dependency rejects a boundary longer than 256 bytes from its constructor, so client-controlled malformed input escapes as an unstructured internal error rather than `upload-malformed` with rule/detail/remediation.
+- **Evidence:** Runtime inspection of `python-multipart` 0.0.32 shows the constructor raises `FormParserError` when `len(boundary) > MAX_BOUNDARY_LENGTH`. Only exceptions from stream iteration, `parser.write()`, and `finalize()` are translated today; the outer block merely cleans the directory and re-raises.
+- **Suggested direction:** Put parser construction inside the same translation boundary (or validate the boundary before creating a directory) and add an HTTP regression for an overlong boundary.
+
+### F-15 — Story backlog IDs collide with the current integration branch
+
+- **Location:** `docs/backlog.md` (`B-53` and `B-54` added by Story 6.4a)
+- **Severity:** Low
+- **Finding:** `origin/main` now owns B-53 for Story 8.2a, while this branch independently added B-53 and B-54. Rebasing as required would leave duplicate identifiers and make references ambiguous.
+- **Evidence:** `git show origin/main:docs/backlog.md` contains `B-53 · Let the api report the worker's loaded binding...`; the two Story 6.4a entries are `A failed upload acquisition...` and `Nothing reaps an acquisition's status file`. The owner explicitly reserved the next free IDs above B-54 for this lane.
+- **Suggested direction:** Renumber only Story 6.4a's two entries to B-55 and B-56 during the rebase; do not alter another lane's identifiers.
+
+### F-16 — The identity test cannot detect an upload-side timestamp regression
+
+- **Location:** `server/tests/test_api_uploads.py:934-989`
+- **Severity:** Medium
+- **Finding:** The hand mint runs first, so the upload runner reaches `mint()`'s `exists` short-circuit before `started_at_argument` is evaluated. The final `startedAt` assertion therefore rechecks only the hand-created drop and would stay green if the upload path passed the wrong timestamp or omitted it. Identity coverage also exercises Zoom VTT and plain TXT only, not recording-primary or Teams/pass-through construction.
+- **Evidence:** `mint()` returns from `find_existing_drop()` at `server/meetingminer/mintdrop.py:707-715`; timestamp resolution occurs later at lines 717-723. Thus the test proves converted-byte identity/`exists`, but not the claimed upload-side timestamp/precision equivalence.
+- **Suggested direction:** Add upload-first/direct-result construction tests over every supported primary/dialect shape, and demonstrate their sensitivity with a temporary mutation of the runner's timestamp argument before retaining only the green code.
+
+### F-17 — The real detached upload argv and CLI dispatch are untested
+
+- **Location:** `server/meetingminer/acquisitions.py:701-728`, `server/meetingminer/acquisitions.py:1198-1212`, and `server/tests/test_api_uploads.py:733-749`
+- **Severity:** Medium
+- **Finding:** Upload launch tests replace `child_command()` wholesale with `/bin/sleep`, while runner tests invoke `run_upload_acquisition()` directly. No test proves production emits `--upload-session` or that `main()` routes that flag to the upload runner.
+- **Evidence:** Changing the emitted flag to `--url`, or dispatching upload mode to `run_acquisition()`, leaves the current 202 launch and direct-runner tests green.
+- **Suggested direction:** Pin the exact upload child command and drive `main()` with upload arguments while stubbing only the terminal runner call.
