@@ -38,6 +38,8 @@ export interface MeetingMomentsProps {
   meetingId: string
   /** Opening one moment is the shell's navigation to make (story 2.2). */
   onOpenMoment?: (momentId: string) => void
+  /** Opening the speaker naming screen, likewise (story 7.4). */
+  onOpenSpeakers?: () => void
 }
 
 /**
@@ -117,7 +119,11 @@ function SegmentText({ runs }: { runs: Array<SnippetRunModel> }) {
  * never-called surface, no new endpoints. Its failure degrades the rail
  * alone.
  */
-export function MeetingMoments({ meetingId, onOpenMoment }: MeetingMomentsProps) {
+export function MeetingMoments({
+  meetingId,
+  onOpenMoment,
+  onOpenSpeakers,
+}: MeetingMomentsProps) {
   // `null` is "never answered"; an answered meeting always has a header, and
   // an answered-empty one carries empty arrays.
   const [data, setData] = useState<MeetingDrilldownResponse | null>(null)
@@ -655,6 +661,23 @@ export function MeetingMoments({ meetingId, onOpenMoment }: MeetingMomentsProps)
                       </li>
                     ))}
                   </ul>
+                )}
+                {/* Story 7.4's one insertion into this view: the way to reach
+                    the naming screen. Offered unconditionally because this
+                    view cannot tell whether the meeting has speaker tags
+                    without a read it does not make — and the speakers screen
+                    states that absence itself, in one sentence, rather than
+                    this rail guessing at it. */}
+                {onOpenSpeakers !== undefined && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    data-testid="meeting-name-speakers"
+                    className="self-start"
+                    onClick={onOpenSpeakers}
+                  >
+                    Name speakers
+                  </Button>
                 )}
               </section>
 
