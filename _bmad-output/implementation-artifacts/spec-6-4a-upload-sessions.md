@@ -3,7 +3,7 @@ title: 'Story 6.4a: Upload Sessions'
 type: 'feature'
 created: '2026-08-31'
 baseline_revision: '2d68dcc6dba31007c7d6fd84f0884edbc79508d5'
-status: 'in-progress'
+status: 'review'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -246,6 +246,26 @@ content rather than carrying a cosmetic diff into a shared artifact during a
 parallel wave.
 
 ## Verification
+
+**Results at `1db5b9b7` (2026-08-31), against this worktree's own stack:**
+
+- `make lint` -- All checks passed.
+- `make typecheck` -- Success: no issues found in 13 source files.
+- `uv run --project server pytest -m "" server/tests/test_api_uploads.py -q` --
+  47 passed.
+- `uv run --project server pytest -m "" server/tests/test_api_acquisitions.py -q`
+  -- 40 passed.
+- `make web-test` -- 59 files, 669 tests passed.
+- `make test` -- **2773 passed, 3 skipped, 0 failed in 696.71s**, plus web 669,
+  evals 655, puller 92, and the web build. The 3 skips are pre-existing and
+  unchanged: the same 3 appeared in the run before this story's pins landed.
+- `python3 _bmad/scripts/branch_conflicts.py --against story/6-4a` -- this
+  branch's own overlaps are `docs/backlog.md` (appended items),
+  `web/src/client/*` (regenerated), `server/tests/test_api_registry.py` against
+  story/10-3 (both add a router to the baseline list), and
+  `config.yaml`/`config.py`/`test_config.py` against story/10-4 (both add config
+  keys). Every other file in those rows is the other branch's own overlap with
+  main.
 
 **Commands:**
 - `make lint` -- expected: ruff clean over the whole server tree.
