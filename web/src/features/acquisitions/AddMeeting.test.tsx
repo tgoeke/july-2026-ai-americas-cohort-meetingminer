@@ -7,6 +7,7 @@ import type {
   MeetingListItem,
   ProbeResult,
 } from '@/client/types.gen'
+import type { ConnectionState } from '@/features/meetings/useJobEvents'
 import { API_BASE } from '@/lib/api'
 import { AddMeeting, PROBE_DEBOUNCE_MS } from './AddMeeting'
 import { POLL_INTERVAL_MS } from './useAcquisitionStatus'
@@ -37,7 +38,7 @@ const stream = vi.hoisted(() => ({
   onAlive: null as (() => void) | null,
   onResync: null as (() => void) | null,
   subscriptions: 0,
-  connection: { kind: 'live' as const },
+  connection: { kind: 'live' } as ConnectionState,
 }))
 
 vi.mock('@/features/meetings/useJobEvents', () => ({
@@ -127,6 +128,7 @@ beforeEach(() => {
   stream.onAlive = null
   stream.onResync = null
   stream.subscriptions = 0
+  stream.connection = { kind: 'live' }
   sdk.probeAcquisition.mockReset()
   sdk.startAcquisition.mockReset()
   sdk.getAcquisition.mockReset()
@@ -627,6 +629,20 @@ describe('Add-meeting, progress', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Name speakers' }))
     expect(onNameSpeakers).toHaveBeenCalledWith(MEETING)
+  })
+
+  it('keeps the meeting card but labels its progress stale when the stream is lost', async () => {
+    stream.connection = { kind: 'lost', message: 'connection reset' }
+    sdk.listMeetings.mockResolvedValue({ data: { meetings: [meetingRow()] }, error: undefined })
+
+    await launch(
+      acquisition({ status: 'posted', result: 'created', jobId: JOB, meetingId: MEETING }),
+    )
+
+    await waitFor(() => expect(screen.getByTestId('acquired-meeting')).toBeInTheDocument())
+    expect(screen.getByTestId('acquired-meeting')).toHaveTextContent(
+      `Lost the progress stream from the api at ${API_BASE}: connection reset. Retrying.`,
+    )
   })
 
   it('re-seeds after the stream baseline races an in-flight stale seed', async () => {

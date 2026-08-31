@@ -243,6 +243,16 @@ export function IngestingMeetingCard({
       )}
 
       <div className="flex min-w-0 grow flex-col gap-2">
+        {seedError !== null && (
+          <p role="alert" className="text-sm text-destructive">
+            {seedError}
+          </p>
+        )}
+        {connection.kind === 'lost' && (
+          <p role="alert" className="text-sm text-destructive">
+            Lost the progress stream from the api at {API_BASE}: {connection.message}. Retrying.
+          </p>
+        )}
         <div className="flex min-w-0 flex-col">
           <span className="truncate font-medium">{label}</span>
           <span className="text-xs text-muted-foreground">{meta}</span>
