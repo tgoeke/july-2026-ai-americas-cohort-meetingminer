@@ -2,11 +2,11 @@
 title: 'Story 6.3: Local-Files Acquisition with Transcript Dialect Conversion'
 type: 'feature'
 created: '2026-08-30'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'd72c658'
 baseline_commit: 'b3bb1d09cdf19c72af46d10abbec1ba02bdfda63'
 review_loop_iteration: 1
-followup_review_recommended: true
+followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/build-prompt-story-6-3-2026-08-30.md'
   - '{project-root}/_bmad-output/implementation-artifacts/wave-2026-08-30-rules.md'
@@ -376,7 +376,7 @@ reproduction and trigger are recorded in `deferred-work.md`.
   [`deferred-work.md:265`](deferred-work.md#L265)
 
 - Verify both owner deferrals leave no finding open for remediation.
-  [`review-story-6-3-2026-08-30.md:168`](review-story-6-3-2026-08-30.md#L168)
+  [`review-story-6-3-2026-08-30.md:171`](review-story-6-3-2026-08-30.md#L171)
 
 - Review the ready-to-land state and explicit owner-operated integration handoff.
   [`build-prompt-story-6-3-2026-08-30.md:3`](build-prompt-story-6-3-2026-08-30.md#L3)
