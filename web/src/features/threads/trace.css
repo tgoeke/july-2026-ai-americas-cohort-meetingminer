@@ -15,8 +15,12 @@
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  padding: 1rem 1.25rem 2rem;
+  /* The shell gives this route the full width (App.tsx `wideCanvas`), so the
+     page owns its own gutter. Kept tight: a map wants the glass, not the
+     frame. */
+  padding: 1rem 1.5rem 1.5rem;
   min-width: 0;
+  flex: 1;
 }
 
 /* --- the box ------------------------------------------------------------ */
@@ -63,7 +67,18 @@
   flex-direction: column;
   gap: 0.6rem;
   padding: 1.5rem 0;
+  /* The empty state's prose reads at a column width; the timeline below it
+     does not, and must not inherit this. Kept as a max on the text only. */
   max-width: 62rem;
+}
+
+/* The traced timeline and its chrome take the whole width they are given. */
+.mm-trace-result,
+.mm-trace-view,
+.mm-trace-chrome,
+.mm-trace-minimap {
+  width: 100%;
+  max-width: none;
 }
 
 .mm-trace-empty h2 {
@@ -241,6 +256,16 @@
   touch-action: none;
   cursor: grab;
   user-select: none;
+  /* The canvas height is computed from the lane count, so at the widest
+     altitude — where every meeting is a single bar and one lane holds them
+     all — it collapses to a strip. That is the altitude whose whole job is to
+     show the SHAPE of a subject over years, and a strip cannot. Fill the
+     screen instead, and let the computed height take over only once it needs
+     more than that. */
+  min-height: min(68vh, 44rem);
+  /* Altitude changes the lane pitch, so the height changes with it. Animating
+     it keeps a zoom feeling continuous rather than snapping. */
+  transition: height 0.18s ease;
 }
 
 .mm-trace-view:active {

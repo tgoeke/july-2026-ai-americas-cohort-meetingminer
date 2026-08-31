@@ -144,6 +144,13 @@ function Shell() {
   // path — `/` and anything unknown — is the front door.
   const meetingsOpen = !childOpen && matchPath('/meetings', pathname) !== null
   const momentsOpen = !childOpen && !meetingsOpen
+  // The traced-thread timeline is a map, and a map wants the whole width.
+  // On this one route the Search/Ask rail collapses back to the horizontal
+  // strip it is below the breakpoint — still standing on every route, as
+  // story 10.5's ruling requires, but not taking 24rem from the screen the
+  // timeline needs most.
+  const wideCanvas = matchPath('/threads', pathname) !== null
+    || matchPath('/threads/*', pathname) !== null
   const [expandedChrome, setExpandedChrome] = useState<'search' | 'ask' | null>(null)
 
   // Dark is the only mode (DESIGN.md · Colors): the app's `.dark` tokens
@@ -311,10 +318,20 @@ function Shell() {
           nav stays where it was, in the horizontal bar above. Below the
           breakpoint this is the same one-line pair under the chrome that
           story 10.5 landed. */}
-      <div className="flex flex-1 flex-col min-[1400px]:flex-row min-[1400px]:items-start min-[1400px]:gap-6 min-[1400px]:px-8">
+      <div
+        className={
+          wideCanvas
+            ? 'flex flex-1 flex-col'
+            : 'flex flex-1 flex-col min-[1400px]:flex-row min-[1400px]:items-start min-[1400px]:gap-6 min-[1400px]:px-8'
+        }
+      >
         <aside
           data-testid="search-ask-rail"
-          className="border-b border-border px-4 py-2 min-[1400px]:sticky min-[1400px]:top-16 min-[1400px]:w-[24rem] min-[1400px]:shrink-0 min-[1400px]:border-b-0 min-[1400px]:px-0 min-[1400px]:pt-6"
+          className={
+            wideCanvas
+              ? 'border-b border-border px-4 py-2'
+              : 'border-b border-border px-4 py-2 min-[1400px]:sticky min-[1400px]:top-16 min-[1400px]:w-[24rem] min-[1400px]:shrink-0 min-[1400px]:border-b-0 min-[1400px]:px-0 min-[1400px]:pt-6'
+          }
         >
         <div
           data-testid="search-ask-chrome"
@@ -348,7 +365,13 @@ function Shell() {
           </div>
         </div>
         </aside>
-      <main className="mx-auto flex w-full max-w-[1600px] min-w-0 flex-1 flex-col gap-6 px-8 pt-6 pb-12 min-[1400px]:mx-0 min-[1400px]:max-w-none min-[1400px]:px-0">
+      <main
+        className={
+          wideCanvas
+            ? 'flex w-full min-w-0 flex-1 flex-col gap-6 px-0 pt-0 pb-0'
+            : 'mx-auto flex w-full max-w-[1600px] min-w-0 flex-1 flex-col gap-6 px-8 pt-6 pb-12 min-[1400px]:mx-0 min-[1400px]:max-w-none min-[1400px]:px-0'
+        }
+      >
         {childOpen && (
           <div>
             <Button size="sm" variant="outline" onClick={back}>
@@ -376,7 +399,11 @@ function Shell() {
           ref={childRef}
           data-testid="child-screen"
           hidden={!childOpen}
-          className="mx-auto w-full max-w-5xl"
+          // Child screens render at the reading width because they are columns
+          // of prose and evidence. The traced-thread timeline is neither: it is
+          // a map, and capping a map at 64rem on a 32" display is the whole
+          // reason it did not feel like one.
+          className={wideCanvas ? 'w-full min-w-0' : 'mx-auto w-full max-w-5xl'}
         >
           <Outlet />
         </div>
