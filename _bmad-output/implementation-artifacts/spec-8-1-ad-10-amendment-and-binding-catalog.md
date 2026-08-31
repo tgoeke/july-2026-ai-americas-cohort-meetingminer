@@ -2,8 +2,8 @@
 title: 'Story 8.1: AD-10 Amendment and Binding Catalog'
 type: 'feature'
 created: '2026-08-30'
-status: 'review'
-review_loop_iteration: 0
+status: 'in-progress'
+review_loop_iteration: 1
 followup_review_recommended: true
 context: ['AGENTS.md', '_bmad-output/implementation-artifacts/wave-2026-08-30-rules.md', '_bmad-output/implementation-artifacts/build-prompt-story-8-1-2026-08-30.md']
 warnings: ['oversized']
@@ -33,9 +33,13 @@ deferred:
       with no derivable provider while `/config` and `/status` report anthropic
       for the same tag. Prefixed legacy tags retain their derived provider but
       are marked internally so the new authored-catalog refusal is skipped.
+      More seriously, an authored bare `gpt-4o` entry may declare
+      `provider: ollama` and pass validation while `resolve_api_base` routes
+      that spelling to OpenAI. Resolving that mismatch requires an owner/spec
+      decision about which layer owns bare-spelling routing.
     location: >-
       server/meetingminer/config.py:141
-    severity: medium
+    severity: high
   - summary: >-
       The catalog is invisible to an operator of the running stack.
     evidence: |-
@@ -221,6 +225,26 @@ story stops at the config contract: it changes no call path.
   undeclared provider, and the declared providers.
 - Given the amendment, when it lands, then AD-10 carries the catalog wording and
   `project-context.md`'s binding policy line matches it.
+
+### Review Findings
+
+- [ ] [Review][Decision] Finding 4 — A bare binding can declare one provider
+  and route to another; owner/spec must choose catalog-owned routing, a shared
+  dependency-neutral resolver, or a narrower prefix-less-binding contract.
+- [x] [Review][Patch] Finding 1 — Preserve provider metadata on synthesized
+  prefixed entries while exempting them from authored-entry checks
+  [`server/meetingminer/config.py:314`].
+- [x] [Review][Patch] Finding 2 — Refuse an active `model` outside an authored
+  catalog [`server/meetingminer/config.py:397`].
+- [x] [Review][Patch] Finding 3 — Remove stale Anthropic-key/default claims
+  while preserving the live chat rules [`config.yaml:195`].
+- [x] [Review][Patch] Finding 5 — Complete the owner-approved AD-10 amendment
+  while preserving Story 11.2's infrastructure wording
+  [`docs/architecture.md:119`].
+- [x] [Review][Patch] Finding 6 — Correct the Epic 8 provider-validation context
+  [`_bmad-output/implementation-artifacts/epic-8-context.md:32`].
+- [x] [Review][Patch] Finding 7 — Reconcile the recorded catalog test count
+  [`_bmad-output/implementation-artifacts/sprint-notes.md:3051`].
 
 ## Spec Change Log
 
