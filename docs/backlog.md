@@ -833,7 +833,7 @@ the checked-in CSS in a browser rather than comparing `xOf` with itself. This is
 tooling work outside Story 10.6's frozen feature footprint; until it lands, the
 recorded Chrome 151 probe is the explicit one-off evidence, not a standing gate.
 
-### B-52 · Let the api report the worker's loaded binding, not only that it differs — M
+### B-53 · Let the api report the worker's loaded binding, not only that it differs — M
 
 Story 8.2a made `GET /status` attribute every binding and key reading to the
 api process, because the api and the worker hold independent `config.yaml`

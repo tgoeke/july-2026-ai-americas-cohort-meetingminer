@@ -105,7 +105,7 @@ terminal but not filed does not exist.
   `app.state` binding)
 - `server/tests/test_api_status.py` (14 tests before, 25 after)
 - `docs/architecture.md` (AD-10 amendment), `docs/backlog.md` (B-42 closed,
-  B-52 filed, the duplicate-B-42 note)
+  B-53 filed, the duplicate-B-42 note)
 - `web/src/features/status/` — `status.ts`, `StatusPage.tsx`,
   `StatusIndicator.tsx`, `status.test.tsx`
 - `web/src/features/settings/models.ts` and `models.test.ts`
@@ -125,7 +125,7 @@ terminal but not filed does not exist.
   written: `main × story/10-5`, `× story/10-6` and `× story/7-4` already
   conflict on that one file, and adding a third region would have turned a
   two-way conflict into a three-way one for the integrator. Say if you disagree.
-- Everything in the spec's `deferred:` frontmatter (B-52, the duplicate B-42).
+- Everything in the spec's `deferred:` frontmatter (B-53, the duplicate B-42).
 - `domain/model_selection.py`, `api/settings.py` and `config.py` — stories 8.1
   and 8.2 own them; this story consumes them and adds nothing to them.
 
@@ -178,7 +178,7 @@ rediscovered.
 8. **`CONFIG_LOADED_AT` is taken in `api/main.py` at module level, next to
    `CONFIG`.** It is the closest honest instant available. Attack whether
    `load_config` should stamp it instead, so the worker gets it for free when
-   B-52 is built.
+   B-53 is built.
 9. **The banned-wording test is a phrase list.** `test_no_wording_anywhere_speaks_for_the_whole_system`
    bans eight phrases across every role and provider sentence. A list cannot
    reject an unlisted way of speaking for both processes. The verbatim
@@ -196,10 +196,10 @@ rediscovered.
   item and 10.3/10.4's media-route item, filed the same day in parallel
   branches. Recorded in the file, not renumbered, because landed specs already
   reference the id.
-- **`B-52` was allocated against main's highest id at cut time (`B-51`).**
+- **`B-53` was renumbered during review after current main claimed B-52.**
   `story/10-6` is in flight carrying entries numbered `B-44` and `B-45`, which
   already collide with main's existing B-44/B-45; whoever lands 10-6 has to
-  renumber and should check that the renumbering does not land on B-52.
+  renumber and should check the current counter before landing.
 - **Three skips appear in every run and are not this story's**, all opt-in:
   `test_youtube.py:1353` (`MM_YOUTUBE_NETWORK_TEST`),
   `test_diarize_pyannote.py:266` (no `pyannote` in the venv), and
@@ -223,7 +223,7 @@ Run these; a skip or failure that is not listed here is a finding, not noise.
   `f194eeec` (this branch's tip) — 4 clean pairs, 17 conflicting. Against the
   in-flight web stories the only conflicts are `sprint-notes.md` (10-5, 10-6 —
   a file this story did not touch, inherited from `main`) and `docs/backlog.md`
-  (10-6, 10-6-review — B-52's append meets their own entries); **no source file
+  (10-6, 10-6-review — the deferred item's append meets their own entries); **no source file
   this story touched conflicts with `story/10-5`, `story/10-5-review`,
   `story/10-6` or `story/10-6-review`.** Two genuinely new conflicts:
   `story/12-1` and `story/12-1-review` on `web/src/client/index.ts`, where both

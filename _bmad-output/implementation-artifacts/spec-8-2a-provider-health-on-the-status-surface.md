@@ -20,7 +20,7 @@ deferred:
       recording its loaded binding and config-load timestamp on a row the api
       can read (a heartbeat or an `app_setting`-adjacent table), which is a
       worker change and a migration, outside this story's server footprint.
-      Until then the honest surface is the attributed one. Filed as B-52.
+      Until then the honest surface is the attributed one. Filed as B-53.
     location: >-
       server/meetingminer/api/status.py - _role_attribution; server/meetingminer/worker
     severity: medium
@@ -175,7 +175,7 @@ processes.
   touched conflicts with `story/10-5`, `story/10-5-review`, `story/10-6` or
   `story/10-6-review`**: the only pairs against them are
   `sprint-notes.md` (10-5, 10-6 — untouched here, inherited from `main`) and
-  `docs/backlog.md` (10-6 and 10-6-review, where B-52's append meets their own
+  `docs/backlog.md` (10-6 and 10-6-review, where the deferred item's append meets their own
   entries). Two genuinely new conflicts: `story/12-1` and `story/12-1-review`
   on `web/src/client/index.ts`, where both branches regenerated the client —
   the resolution on landing is to regenerate, not to merge the generated line.
