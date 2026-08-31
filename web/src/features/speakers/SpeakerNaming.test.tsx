@@ -218,6 +218,23 @@ describe('the speakers rail', () => {
   })
 })
 
+describe('meeting ownership', () => {
+  it('drops the old meeting before reads for a changed route parameter settle', async () => {
+    answers({ speakers: [tag()] })
+    const { rerender } = render(<SpeakerNaming meetingId={MEETING} />)
+    await screen.findByTestId('speaker-row-SPEAKER_00')
+
+    sdk.listMeetingSpeakers.mockReturnValue(new Promise<never>(() => {}))
+    sdk.getMeetingDrilldown.mockReturnValue(new Promise<never>(() => {}))
+    sdk.listParticipants.mockReturnValue(new Promise<never>(() => {}))
+
+    rerender(<SpeakerNaming meetingId="meeting-2" />)
+
+    expect(screen.queryByTestId('speaker-row-SPEAKER_00')).not.toBeInTheDocument()
+    expect(screen.getByText('meeting-2')).toBeInTheDocument()
+  })
+})
+
 describe('the three assignment paths', () => {
   it('assigns an existing participant by id, never by the typed text', async () => {
     answers()
