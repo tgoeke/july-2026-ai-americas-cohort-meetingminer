@@ -72,6 +72,10 @@ No builder action is requested for these findings:
   `speakerLabels`.
 - `df5b7d9` — F7, F12: provenance hashes the converted byte snapshot and
   workspace write failures are named.
+- `da69b58` — F6: records the deferral and emits the owner-authorized named
+  zero-duration warning without changing timing behavior.
+- `be7ba80` — F13: extends that warning to descending-start fallbacks, also
+  warning-only and red-first.
 
 Every regression was observed failing against the unfixed code before its fix.
 The final dialect suite has 46 tests.
@@ -92,7 +96,8 @@ The current review branch passed the post-F6 gates: the combined transcript
 surface passed 78 tests, `make test-fast` passed 1449 server tests with 326 slow
 tests deselected, and the full server gate passed 1775 tests plus the web
 production build. F1 changes documentation only, so no code or test rerun is
-required; `make check-reviews` closes the committed report.
+required; `make check-reviews` closes the committed report. The owner's
+`integrate` run owns rebase/conflict resolution and its post-resolution gates.
 
 ## Explicitly out of scope
 

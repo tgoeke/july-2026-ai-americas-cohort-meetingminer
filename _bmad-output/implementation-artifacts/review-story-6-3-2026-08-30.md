@@ -3,7 +3,8 @@
 Date: 2026-08-30
 Review branch: `story/6-3-review`
 Source branch: `story/6-3`
-Review range: `d72c658..4877cf2`
+Original source review range: `d72c658..4877cf2`
+Review/remediation branch: `story/6-3-review` (final SHA stated at closeout)
 
 ## Scope
 
@@ -135,8 +136,10 @@ Story 6.3 footprint and treats the verbatim Story 6.2 override hunk as context.
 
 - Triage: 0 decision-needed, 11 patch, 2 deferred, 11 dismissed as noise,
   by-design behavior, known deferred work, or out-of-scope Story 6.2 mechanics.
-- Pipeline footprint: `git diff d72c658..story/6-3 --
-  server/meetingminer/pipeline/` was empty.
+- Original source-branch pipeline footprint: `git diff
+  d72c658..story/6-3 -- server/meetingminer/pipeline/` was empty. The review
+  branch later changed `pipeline/stages/align.py` only for the owner-authorized
+  F6 warning, with timing behavior unchanged and regressions pinned.
 - Story 6.2 coupling: the `f145c1e` override diff is byte-for-byte identical to
   commit `7625b79`. Merging `story/6-2-review` produced only the documented
   `normalized_extra` conflict; taking that hardened block preserved
