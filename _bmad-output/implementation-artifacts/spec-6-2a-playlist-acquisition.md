@@ -2,8 +2,8 @@
 title: 'Story 6.2a: Playlist Acquisition'
 type: 'feature'
 created: '2026-08-30'
-status: 'ready-for-dev'
-baseline_revision: '4a111b8'
+status: 'review'
+baseline_revision: '8f00de6f2a825bd0fc99fac4da5bda620bff5161'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -104,6 +104,29 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-08-30 — Builder self-review pass
+
+No in-session reviewer subagents were run. Two reasons, both recorded rather
+than assumed: this wave's contract routes adversarial review to an external
+lane carried by `review-prompt-story-6-2a-2026-08-30.md` (story 6.2 recorded
+the same decision), and this run's dispatch requires strictly synchronous work
+while this harness's subagents execute detached. The diff was instead read
+end to end by the builder.
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 1: (high 0, medium 0, low 1)
+- defer: 0
+- reject: 0
+- addressed_findings:
+  - `[low]` `[patch]` `infra/Makefile` used `$(if $(PLAYLIST),--playlist)`,
+    which Make evaluates on emptiness, so `PLAYLIST=0` would have silently
+    enabled the flag. Documented in the recipe comment and in
+    `docs/README.md` that any non-empty value enables it and that the variable
+    is omitted to acquire a single video — chosen over a `filter-out` guard,
+    which would have invented a truthiness convention this Makefile has
+    nowhere else.
+
 ## Design Notes
 
 - **`--playlist` is a flag, not an option taking a URL.** `test_youtube.py:1286` pins the Makefile recipe to the contiguous string `"$${MM_YOUTUBE_URL}" $(YT_ARGS)` and to a `URL is required` guard, and that file is read-only for this story. A `PLAYLIST=<url>` variable would need a second URL-carrying env export and would leave the positional `url` empty; a flag keeps one URL entry point (`URL=`), keeps every existing pin true, and reads the same on the command line: `youtube-drop '<playlist url>' --playlist`. The assumption a reviewer should attack: that the AC's "`--playlist` with a playlist URL" is satisfied by flag-plus-URL rather than requiring `--playlist <url>`.
@@ -121,3 +144,73 @@ deferred: []
 - `make test-fast` -- expected: green.
 - `make test` -- expected: green once before the status flips to review (needs the worktree's own stack up).
 - `python3 _bmad/scripts/branch_conflicts.py --against story/6-2a` -- expected: `clean`.
+
+## Auto Run Result
+
+Status: review. Per the wave contract this run never marks the story done:
+adversarial review is external and is carried by
+`review-prompt-story-6-2a-2026-08-30.md`, whose lane fixes what it finds.
+
+**Summary.** `youtube-drop --playlist` (`make youtube-drop URL=<playlist url>
+PLAYLIST=1`) enumerates a playlist with one `yt-dlp -J --flat-playlist` call
+and then mints and posts each entry sequentially through story 6.2's own
+`acquire()` — one drop and one `POST /ingests` per entry, in listing order,
+with the `exists` short-circuit answering per entry before any probe or
+download. Each refusal is printed in full and recorded as `refused:<rule>`; the
+run continues, ends with a summary table naming every entry
+`minted | exists | refused:<rule>`, and exits non-zero if anything failed.
+
+**Files changed.**
+- `server/meetingminer/youtube.py` — `rule=` on all 27 `YoutubeError` raise
+  sites plus the closed `REFUSAL_RULES` vocabulary and `refusal_rule()`;
+  `_yt_dlp_detail()` split out of `classify_probe_failure()` with
+  `classify_playlist_failure()` beside it; `playlist_id_from_url()`,
+  `playlist_url()`, `PlaylistEntry`, `enumerate_playlist()`, `EntryOutcome`,
+  `format_outcome_table()`, `run_playlist()`; `main()`'s post-acquire tail
+  extracted verbatim into `_deliver()` and shared by both paths; `--playlist`
+  on the parser and the routing in `main()`.
+- `infra/Makefile` — the `youtube-drop` recipe only: `$(if $(PLAYLIST),--playlist)`
+  after `$(YT_ARGS)`, and the URL guard now names `PLAYLIST=1`.
+- `docs/README.md` — "Ingesting a YouTube video" extended with an "A whole
+  playlist" subsection; the two statements saying playlists are unsupported
+  corrected.
+- `server/tests/test_youtube_playlist.py` + `server/tests/fixtures/youtube/flat-playlist.json`
+  (both new) — 45 offline tests over a recorded flat listing.
+- Sprint artifacts: `sprint-status.yaml` (`6-2a-playlist-acquisition: review`),
+  `sprint-notes.md`, this spec.
+
+**Review findings breakdown.** Builder self-review only (see the triage log):
+patched 1 (low), deferred 0, rejected 0. Follow-up review recommendation:
+false — patched counts high 0, medium 0, low 1, score `3x0 + 1x1 = 1`, under 5.
+
+**Verification performed** (every command run in this worktree, against its own
+`meetingminer-6-2a` stack):
+- `uv run --project server pytest server/tests/test_youtube_playlist.py server/tests/test_youtube.py -q`
+  — 155 passed, 1 skipped (story 6.2's env-flagged network test).
+- `uv run --project server pytest server/tests/test_youtube.py -q` — 110 passed,
+  1 skipped, unchanged from `main`: the single-video path did not move.
+- The same new module against unfixed code first — 45 failed — so every test
+  here was observed red before it was claimed as coverage.
+- `make lint` — All checks passed (the new test module carries no per-file
+  ignore, so it satisfies every live rule; three real findings, two ISC004 and
+  one FURB105, were fixed rather than baselined).
+- `make typecheck` — Success: no issues found in 13 source files.
+- `make test-fast` — 1877 passed, 2 skipped (pyannote absent; the network test).
+- `make test` — 2255 passed, 2 skipped, web build green, exit 0.
+- Real CLI smoke, no network: `--help` shows `--playlist`, and
+  `youtube.py '<watch url>' --playlist` refuses by name with exit 1.
+- `python3 _bmad/scripts/branch_conflicts.py --against story/6-2a` — run before
+  the final push; result reported with the run.
+
+**Residual risks.**
+- No live playlist was acquired end to end. Enumeration argv, entry mapping and
+  the whole outcome table are covered offline from a recorded listing, but a
+  real `--flat-playlist` payload shape change would be caught only by story
+  6.2's single-video network test, which does not enumerate.
+- `run_playlist` catches `ConfigError`, `MintError` and `YoutubeError` per
+  entry. Anything else — an `OSError` from the filesystem, say — still ends the
+  run. That is deliberate (an unexpected failure is not a refusal), but it
+  means "a refused entry does not stop the run" is scoped to named refusals.
+- The rule vocabulary is pinned by a test that greps this module's source for
+  `rule="..."`. A rule raised from a *different* module would not be caught by
+  that pin; today none is.

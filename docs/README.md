@@ -281,7 +281,9 @@ means and what the command never does apply here unchanged. The video's
 
     make youtube-drop URL='https://www.youtube.com/playlist?list=PL...' PLAYLIST=1
 
-`PLAYLIST=1` passes `--playlist`. The entries are enumerated in one
+`PLAYLIST=1` passes `--playlist` (any non-empty value does, `PLAYLIST=0`
+included — omit the variable to acquire a single video). The entries are
+enumerated in one
 `yt-dlp -J --flat-playlist` call — no media bytes — and then each one is
 acquired **sequentially through the single-video path above**: one drop and one
 `POST /ingests` per entry, in playlist order, with the `exists` short-circuit

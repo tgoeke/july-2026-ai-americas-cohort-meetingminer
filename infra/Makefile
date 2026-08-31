@@ -815,7 +815,9 @@ mint-drop: check-env
 # with a named error, which is the narrower gate. `--no-post`/`--drops`/`--api`
 # pass through YT_ARGS the way MINT_ARGS does. `PLAYLIST=1` adds `--playlist`
 # (story 6.2a), so URL stays the single place a URL is passed and the flag
-# cannot be confused for one.
+# cannot be confused for one. Make's `if` tests emptiness, not truth: ANY
+# non-empty PLAYLIST value enables it, `PLAYLIST=0` included. Omit the variable
+# to acquire a single video.
 unexport URL
 youtube-drop: export MM_YOUTUBE_URL := $(value URL)
 youtube-drop: check-env

@@ -3086,3 +3086,33 @@ extend one signature.**
 running against the main checkout's stack — the guard working as designed.
 `make worktree-provision` wrote `.env.worktree`, started
 `meetingminer-6-3-review`, and the gate then passed: 1,880 tests, 2 named skips.
+## Story 6.2a — Playlist Acquisition (2026-08-30)
+
+`youtube-drop --playlist` enumerates a playlist with one
+`yt-dlp -J --flat-playlist` call, then mints and posts every entry
+**sequentially through story 6.2's own code**: `acquire()` unchanged, plus a new
+`_deliver()` holding what was `main()`'s post-acquire tail, so an entry and a
+single video print the same thing. Without the flag, 6.2's path is unchanged —
+its 110 tests are untouched and green.
+
+Two calls for the reviewer to attack. **`--playlist` is a flag, not an option
+carrying the URL** (`make youtube-drop URL=<playlist url> PLAYLIST=1`):
+`test_youtube.py` is read-only here and pins the recipe to a `URL is required`
+guard and to the contiguous `"$${MM_YOUTUBE_URL}" $(YT_ARGS)`, so the flag is
+appended after it via `$(if $(PLAYLIST),--playlist)` — Make tests emptiness, so
+any non-empty value enables it, documented rather than left as a trap. And
+**`refused:<rule>` needed a stable token**, so `YoutubeError` gained an optional
+`rule=` set at all 27 raise sites: additive, every message byte-identical,
+vocabulary closed in `REFUSAL_RULES` and pinned by a test reading the module's
+own source. Classifying a refusal by matching its prose would have mislabelled
+a row the day someone reworded a message.
+
+A refused entry never stops the run — asserted from three directions (a refusal
+from `acquire`, a listing row that is not a video, an intake failure after a
+successful mint). Exit is 0 only when every entry ended `minted` or `exists`
+and every POST succeeded; the table prints either way.
+
+No live playlist run: the suite is offline by construction and a real
+multi-video acquisition is minutes of downloads. Gates in this worktree's own
+stack — `make test-fast` 1877 passed, `make test` 2255 passed / 2 skipped with
+the web build, lint and typecheck clean.
