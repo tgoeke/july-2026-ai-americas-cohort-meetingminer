@@ -1354,6 +1354,16 @@ def _sse_events(
             " never opens. `invalid-request` — the question was blank or past"
             " the length bound and was refused at the door.",
         },
+        502: {
+            "content": {
+                "application/problem+json": {
+                    "schema": {"$ref": "#/components/schemas/ProblemDetails"}
+                }
+            },
+            "description": "`binding-failed` — the selected model binding is"
+            " not served by the provider endpoint. Retrying cannot repair the"
+            " binding; select a served model or change the endpoint.",
+        },
         503: {
             "model": ProblemDetails,
             "content": {"application/problem+json": {}},

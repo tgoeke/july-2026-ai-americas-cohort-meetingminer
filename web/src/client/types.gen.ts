@@ -2335,10 +2335,16 @@ export type AskCorpusErrors = {
      */
     422: unknown;
     /**
+     * `binding-failed` — the selected model binding is not served by the provider endpoint. Retrying cannot repair the binding; select a served model or change the endpoint.
+     */
+    502: ProblemDetails;
+    /**
      * The slug names what to restart. `chat-search-store-unavailable` / `chat-search-store-unusable` — Meilisearch. `chat-graph-store-unavailable` / `chat-graph-store-unusable` — Neo4j. `chat-model-unavailable` / `chat-model-unusable` — the configured `llm.roles.chat` binding and its fallback. `embedder-unusable` — the configured embedding model answered wrongly, which is a config error rather than an outage.
      */
     503: unknown;
 };
+
+export type AskCorpusError = AskCorpusErrors[keyof AskCorpusErrors];
 
 export type AskCorpusResponses = {
     /**

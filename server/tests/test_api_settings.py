@@ -340,6 +340,7 @@ def test_a_binding_the_provider_does_not_serve_surfaces_as_binding_failed(
 
     response = client.post("/chat", json={"question": "what happened?"})
 
+    assert response.status_code == 502
     assert response.headers["content-type"].startswith(PROBLEM_JSON)
     body = response.json()
     assert body["type"] == "urn:meetingminer:problem:binding-failed"
@@ -366,3 +367,13 @@ def test_nothing_else_answers_when_the_selected_binding_fails(
     # One completer was built, and it was the one that refused: nothing tried
     # a second binding after it.
     assert len(capture_chat_binding) == 1
+
+
+def test_binding_failed_502_is_declared_in_the_chat_openapi(
+    client: TestClient,
+) -> None:
+    response = client.app.openapi()["paths"]["/chat"]["post"]["responses"]["502"]
+
+    assert response["content"][PROBLEM_JSON]["schema"] == {
+        "$ref": "#/components/schemas/ProblemDetails"
+    }
