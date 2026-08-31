@@ -895,3 +895,40 @@ attributed to the worker, and marks the surface degraded when the two differ.
 revisions, `GET /status` names both bindings, attributes each to the process
 that loaded it, and reads degraded — and with both restarted from one revision
 it reads healthy without either process asserting the other's state.
+
+---
+
+### B-53 · A curated thread name may duplicate another thread's name — S
+
+`EXPERIENCE.md · Flow 8` names a failure this build does not produce: a rename
+whose name collides with an existing thread refused as `threads: name in use`.
+Story 10.2a does not enforce it. `thread.identity_key` is UNIQUE, but the
+display name — derived or curated — is not, and two threads have always been
+able to share one. The deviation is deliberate rather than an omission: a
+uniqueness rule over a *display* name would refuse a legitimate correction
+("both of these really are called deployment", says the curator, about to merge
+them), and the honest cure for two threads that are one subject is Merge, not
+a name refusal.
+
+What is missing is the softer half of that flow: the rename panel should say
+when the name is already in use and offer `Merge into it instead` beside Save,
+without refusing the write. Decide whether to add the advisory, and if so serve
+the collision check from `GET /threads` the client already has rather than a
+new endpoint.
+
+---
+
+### B-54 · A merge cannot be undone from the UI — S
+
+Story 10.2a records a merge as one `thread_alias` row and nothing else — the
+absorbed `thread` row, its `identity_key` and its `color_ordinal` all survive
+untouched, precisely so the merge is reversible. Deleting that one row would
+restore both threads with their original colours at the next read. No endpoint
+or control exposes it, so a curator who merges the wrong pair has no way back
+except SQL.
+
+The acceptance criteria name merge, split and rename and not their inverses, so
+this is scope rather than a defect, and the record was deliberately built to
+make the inverse cheap. Add `DELETE /threads/{threadId}/merge` (and the split's
+equivalent, deleting the pins), with the reversal covered by a test that
+re-derives afterwards and asserts the original grouping returns.
