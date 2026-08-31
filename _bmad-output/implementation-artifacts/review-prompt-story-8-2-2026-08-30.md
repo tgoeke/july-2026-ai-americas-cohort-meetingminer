@@ -61,9 +61,12 @@ Commits, oldest first:
 | `b312e27` | feat(8-2): record the effective binding in the eval run snapshot |
 | `837c646` | docs(8-2): close B-38, and regenerate the typed client |
 | `6026045` | fix(8-2): keep the litellm stub in sync, and stop the SDK leaking .env |
+| `5e39c3c` | docs(8-2): spec to review, sprint keys, reviewer handoff |
+| `bd57483` | docs(8-2): shorten the sprint note, correct the conflict record |
+| `6697d1c` | test(8-2): close the two matrix rows the audit found uncovered |
 
-(Plus the closing documentation commit that carries this file, the spec's final
-state, and the sprint keys.)
+`git log --oneline ea0c113..story/8-2` is the authority; if it shows more than
+these, the extra commits carry only this file's own corrections.
 
 ## The spec, and which half is frozen
 
@@ -203,7 +206,11 @@ Run these; a skip or failure that is not listed here is a finding, not noise.
   the pre-existing named ones above.
 - `make test` — the full gate. Run 2026-08-30 on `6026045`: **2366 passed,
   2 skipped** in 625.67s, followed by the web production build; exit code 0.
-  Re-run it yourself before you close.
+  Two commits landed after that run: `6697d1c` added two tests (no production
+  code — the temporary reverts used to observe them failing were restored
+  byte-identical, verified with `git diff`), and the rest is documentation.
+  `make test-fast` at `6697d1c` is **1990 passed, 2 skipped, 378 deselected**.
+  Re-run the full gate yourself before you close.
 - `python3 _bmad/scripts/branch_conflicts.py --against story/8-2` — **no code
   file conflicts with `main`.** Two conflict classes remain, both characterised
   in the spec's change log and both for `integrate`: `web/src/client/*` against
