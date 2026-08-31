@@ -2,12 +2,55 @@
 title: 'Story 8.2: Persisted Selection'
 type: 'feature'
 created: '2026-08-30'
-status: 'ready-for-dev'
+status: 'review'
 review_loop_iteration: 0
 followup_review_recommended: false
 context: ['AGENTS.md', '_bmad-output/implementation-artifacts/wave-2026-08-30-rules.md', '_bmad-output/implementation-artifacts/build-prompt-story-8-2-2026-08-30.md']
 warnings: ['oversized', 'multiple-goals']
-deferred: []
+deferred:
+  - summary: >-
+      Importing `litellm` injects the repository's real `.env` into
+      `os.environ` for the rest of the process.
+    evidence: |-
+      `import litellm` (1.97.0) calls `load_dotenv()` at import time. Measured
+      here: with `POSTGRES_PASSWORD` absent from the process environment, it is
+      present immediately after the import, and that was enough to make
+      `test_config.py::test_merged_env_precedence_is_env_then_worktree_then_process`
+      and `..._worktree_env_file_is_found_beside_the_env_path_not_its_target`
+      read the developer's real password instead of their fixture's. This story
+      contained it inside its own module-scoped fixture, which restores the
+      environment it found. Nothing stops the next module that imports the SDK
+      from reintroducing it, and no guard names the hazard. A session-scoped
+      autouse guard in `server/tests/conftest.py` would close it, which is a
+      file this wave forbids editing.
+    location: >-
+      server/tests/test_settings_resolution.py - litellm_sdk fixture
+    severity: medium
+  - summary: >-
+      `domain/model_selection.py` is outside the mypy scope.
+    evidence: |-
+      `[tool.mypy] files` in `server/pyproject.toml` lists the decision-core
+      modules and is pinned by `tests/test_lint_contract.py`; story 11.4 owns
+      both. `domain/model_providers.py` was left out for the same reason in
+      story 8.1, so the two halves of the model-binding rule are consistently
+      unchecked. Widening the list is a one-line edit in a file another lane
+      owns this wave.
+    location: >-
+      server/pyproject.toml - [tool.mypy] files
+    severity: low
+  - summary: >-
+      A role's `fallback` tag is still not bounded by the catalog.
+    evidence: |-
+      Inherited from story 8.1's deferred list and unchanged here. A selection
+      is now bounded by the catalog on write and on read, but
+      `llm.roles.<role>.fallback` remains a live model tag that need not be a
+      catalog binding and whose provider is never checked against `providers:`.
+      An outage therefore still substitutes a model no picker ever offered —
+      deliberate for outages, but the *choice* of substitute is unbounded.
+    location: >-
+      server/meetingminer/config.py - LlmRoleBinding.fallback
+    severity: medium
+baseline_revision: 'a85fddd186953bf89eca2a65b2afe8a5de70a4eb'
 ---
 
 <intent-contract>
@@ -213,6 +256,63 @@ planning artifact committed since `epic-8-context.md` was last written (2026-08-
 and that file carries two corrections made by story 8.1's review (`5a00b60`, `f9d9e71`).
 Recompiling would have discarded verified corrections to satisfy a timestamp artifact.
 
+**2026-08-30 — Two measured conflicts, neither narrowable, both for `integrate`.**
+`python3 _bmad/scripts/branch_conflicts.py --against story/8-2` reports
+`main x story/8-2` **clean** and six clean pairs. The two that are not:
+
+* `story/8-2 x story/7-3` — `web/src/client/{index,sdk.gen,types.gen}.ts`. Both
+  stories add an api operation (`assignMeetingSpeaker` there, `getModelSettings`
+  and `selectRoleBinding` here) and both regenerate the committed client, which
+  appends to the same three generated files. Narrowing is not available: leaving
+  the client unregenerated would commit a client that no longer matches the
+  schema, which is the drift `check-client` and the tracked-client rule exist to
+  prevent. It is a generated artifact, so the resolution is one `make client` (or
+  the in-process equivalent) after the merge — not a hand-merge of either diff.
+* `story/8-2 x story/10-2` — `sprint-notes.md`, which the wave rules already
+  name as having no merge driver and expect `integrate` to union.
+  `main x story/10-2` conflicts on the same file independently of this branch.
+
+**2026-08-30 — Three edits outside the build prompt's footprint.** Each is a
+"both places" contract this story could not satisfy from inside its footprint,
+and none adds coverage to a shared module:
+
+* `server/tests/test_api_registry.py` — `BASELINE_ROUTER_ORDER` pins the
+  registration order of every discovered router. Adding `api/settings.py`
+  without adding the name fails
+  `test_existing_routers_keep_the_baseline_registration_order`. Added between
+  `participants` and `speakers` (default order, name tie-break) with the
+  same style of comment every previous story left.
+* `server/tests/test_extraction_core.py` — its `stub_litellm` fixture builds a
+  fake `litellm` module carrying only the exception names the adapter
+  referenced. The adapter now also references `NotFoundError`, so the lazy
+  `import litellm` inside `complete` resolved to a stub without it and eight
+  mapped-exception tests raised `AttributeError` instead of asserting. One name
+  added to the fixture's tuple, plus the docstring sentence saying why every
+  referenced name must appear. No test appended.
+* `evals/tests/test_harness_boundary.py` — the guard pinning which harness
+  modules may import `httpx`. `harness/run.py` joins it, exactly as
+  `retrieval.py` did in story 5.3 and `judge.py` in 5.4, with the reason stated
+  in the guard's own docstring: the effective binding is read from the public
+  `GET /settings/models`, and the alternative (re-deriving the selection from
+  Postgres in the harness) would be both a second copy of a one-copy rule and
+  the housemate coupling AD-16 forbids.
+
+**2026-08-30 — The eval snapshot records the problem but does not fail the run.**
+The first implementation called `run.note(...)` when the effective binding could
+not be read, which fails the run. It broke five existing `evals/tests` cases and,
+more importantly, changed what a verdict means: whether an unreadable binding
+should invalidate a run is a question about the verdict, which this story does
+not answer. The problem is recorded in `config-snapshot.yaml` — which is what the
+acceptance clause asks for — and the checks decide whether the run passed.
+
+**2026-08-30 — Implementation run without the step-03 subagent, deliberately.**
+Step-03 directs the implementation to a synchronous subagent. This run's dispatch
+forbids background agents outright and this harness's Agent tool is
+background-only, so the work was done directly, red-first, at the same rigor: every
+behaviour was observed failing against unfixed code before the fix landed, and the
+reds are named in the commits. Recorded here rather than left as an unexplained
+deviation.
+
 ## Design Notes
 
 **Why `binding` means the model tag in the problem body.** Chat's existing problems use
@@ -260,6 +360,9 @@ the selection or the file. 502 separates it from the outage path that keeps 503.
   pass plus the new snapshot coverage; no run folder created, no api contacted.
 - `make lint` and `make typecheck` — expected: clean, with no baseline widened.
 - `make test-fast` — expected: green, every skip printed with a named reason.
-- `make test` — expected: green, once, before the spec moves to review.
+- `make test` — the full gate. Run 2026-08-30: **2366 passed, 2 skipped**
+  in 625.67s, then the web production build, exit code 0. Both skips are the
+  pre-existing named ones (no `pyannote` in the venv; the opt-in YouTube
+  network case).
 - `python3 _bmad/scripts/branch_conflicts.py --against story/8-2` — expected: `clean` against
   `main` and every other `story/*` branch.

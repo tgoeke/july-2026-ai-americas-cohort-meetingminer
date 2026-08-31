@@ -3564,3 +3564,56 @@ ingest should treat `make rebuild` as part of it.
 in production yet — the worker settle point is 10.1's file) and B-40
 (`thread.color_ordinal` scoping, a 10.3/10.6 decision) are in
 `docs/backlog.md`, not merely named in a spec. Highest in use is now B-40.
+## Story 8.2 — Persisted Selection (2026-08-30)
+
+**The selector is real now.** `app_setting` (migration 0016, api-owned and
+user-declared) holds one row per role; `GET /settings/models` serves each role's
+catalog beside the binding in force, and `PUT /settings/roles/{role}` persists a
+choice bounded by that catalog. Chat resolves it inside the request that uses it
+— on the connection its no-evidence guard already holds — and the extract stage
+inside the job's own transaction, so a change takes effect on the next question
+or the next job with no restart.
+
+**One rule, reached from three sides.** `domain/model_selection.py` decides
+catalog membership on write and again on read, and derives provider identity
+from story 8.1's `provider_for_model` rather than a second spelling table. The
+api, the worker and the eval snapshot all go through it.
+
+**A withdrawn selection is discarded loudly, not applied.** `config.yaml` is
+edited independently of the store, so a stored pick can leave the catalog. It is
+never used; the role falls back to the file's `default`, and the discarded
+binding and its reason travel on the api payload (`staleSelection`) and a
+`llm.selection_stale` log event. That is a different thing from the rejected
+silent fallback, which is answering from another model *after the selected one
+failed at call time* — and that is now impossible.
+
+**B-38 closed (`ca9689a`).** `litellm.exceptions.NotFoundError` maps to
+`LlmModelNotServedError`, naming the provider (from the shared rule, not the
+SDK's own guess), the endpoint, the model and the upstream status;
+`FallbackLlm` re-raises it ahead of the clause that engages the substitute; chat
+surfaces it as `urn:meetingminer:problem:binding-failed` (502 — the call will
+answer identically forever, so 503's "try later" would be a lie). Genuine
+`LlmUnavailableError` outages keep today's fallback, unchanged and pinned by a
+test beside the new one.
+
+**Two findings the full fast set produced and a module run alone could not.**
+Importing `litellm` calls `load_dotenv()`, injecting the repository's real
+`.env` into `os.environ` for the rest of the session — enough to make
+`test_config.py`'s env-precedence tests read the developer's real
+`POSTGRES_PASSWORD` instead of their fixture's. Any test module that imports the
+real SDK must contain that; this one does it in a module-scoped fixture that
+restores the environment. Separately, `test_extraction_core.py`'s `litellm` stub
+had to gain `NotFoundError`, or the adapter's new `except` clause resolved
+against a stub lacking it and raised `AttributeError`.
+
+**Three edits outside the build prompt's footprint**, each recorded in the
+spec's change log with its reason: `test_api_registry.py`'s
+`BASELINE_ROUTER_ORDER` (adding a router is an edit of both places),
+`test_extraction_core.py`'s stub (keeping an existing fake faithful, not adding
+coverage), and `evals/tests/test_harness_boundary.py`'s httpx allowlist (which
+grew the same way for stories 5.3 and 5.4, with the reason stated in its
+docstring). No new coverage was appended to any shared module.
+
+**The eval snapshot reads the effective binding over the api**, not from
+Postgres: AD-16 makes the harness a client, the api already computes it with the
+one rule, and reading it that way left the AD-16 import allowlist untouched.
