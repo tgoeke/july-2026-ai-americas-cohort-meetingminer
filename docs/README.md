@@ -19,7 +19,9 @@ as a *drop*: one directory holding a required `metadata.json` and at least one
 of `recording.mp4`, `transcript.vtt`, `transcript.txt`. A drop is write-once —
 once it is finalized nothing renames, rewrites, or deletes it — and it is the
 only thing the system consumes. The Teams puller emits drops; so does the
-command below; nothing else can feed the pipeline.
+command below, and so does the upload session behind the web app's Add-meeting
+screen — which mints through this same command's code rather than a second
+implementation of it. Nothing else can feed the pipeline.
 
 **A drops root.** `MM_DROPS_ROOT` in `.env` is the directory those drops live
 in. It is permanent, backed-up storage, not a landing zone: replay serves the
@@ -234,6 +236,42 @@ precision pair, the embedded provenance, and the atomic finalize right, and a
 drop that gets any of them wrong is write-once and unusable. Use the command; it
 validates what it produces against `source-drop.schema.json` before the drop
 becomes visible.
+
+### Uploading through the web app
+
+The Add-meeting screen sends the same two files this command takes — a
+recording, a transcript, or both — to `POST /uploads`, and then names that
+session in `POST /acquisitions`. What happens next is this command: the api
+mints through `mint()` and hands the drop to `POST /ingests`, so an uploaded
+meeting and one minted at the terminal are the *same* meeting. Identity is the
+digest of the bytes that enter the drop, so re-uploading a file already minted
+reports `exists` and writes nothing, exactly as re-running `mint-drop` does.
+
+Two differences from the command, both deliberate:
+
+- **The timestamp is required, and must name a time of day.** `mint-drop` will
+  take `2026-08-05` and record day precision. An upload will not: the screen
+  collects a real timestamp with its offset, because the file it came from is
+  not evidence of when the meeting started.
+- **`corpus` is always `real`.** A scripted meeting is an eval subject, and an
+  eval subject that arrived through a browser cannot be reproduced from the
+  repository. Mint those here, with `--corpus scripted`.
+
+The uploaded bytes stream into `<MM_DROPS_ROOT>/.staging/uploads/<sessionId>/`
+until the drop is minted. That directory is on the same volume as the drop, so
+finalizing is still one rename; it holds no `metadata.json`, so intake cannot
+read it as a drop however it is named; and it is removed once the drop is
+finalized, once the acquisition fails, when the session is deleted, or when its
+TTL passes. An abandoned upload therefore leaves nothing a later ingest could
+pick up.
+
+It refuses before staging anything, by name and with an RFC 9457 `rule` the UI
+renders: missing `title`, `startedAt` or `corpus`; a `startedAt` that is a date
+or carries no offset; a `.vtt` with no declared dialect; a file that is not
+`.mp4`/`.vtt`/`.txt`; two files for one role; an empty file; a file over
+`acquisition.upload.max_recording_bytes` or `max_transcript_bytes` (checked as
+the bytes arrive, not only from `Content-Length`); a recording ffprobe does not
+read as a video; and one longer than `acquisition.upload.max_duration_minutes`.
 
 ## Ingesting a YouTube video
 

@@ -218,6 +218,27 @@ are a second closed vocabulary with the same three-field shape, joined only at
 transient producer-side state with a filesystem lifetime, exactly like story
 6.4's acquisition status file, and it is deleted the moment the drop exists.
 
+**Built here, not delegated.** The workflow's step-03 hands implementation to a
+context-free subagent. This run implemented it directly instead, on the
+operator's explicit "work synchronously, no background agents" instruction and
+because the load-bearing part — the identity equality between an upload and a
+hand mint — is a judgement about `mintdrop`'s call order that does not survive
+being restated to a fresh agent. Recorded here so the reviewer knows which
+process produced the diff.
+
+**The client was regenerated without a live api.** `make client` health-checks
+:8000 and this wave may not start one. The schema was dumped from
+`app.openapi()` and openapi-ts pointed at the file, with `servers` injected
+because generating from a URL is where the client's `baseUrl` otherwise comes
+from — `client.gen.ts` is unchanged, which is where that difference would show.
+
+**A failed acquisition loses the upload.** The acceptance criteria say the
+staging directory is removed "once the drop is finalized or the acquisition
+fails", so it is — which means an ffprobe hiccup costs a multi-gigabyte
+re-upload. Implemented as written rather than softened; whether a failed
+acquisition should keep its session for a retry is an owner's call, not a
+builder's.
+
 **Recompiled epic context, reverted.** `epic-6-context.md` was recompiled as the
 workflow requires; the result was materially identical to the committed file
 (only the generator comment differed), so the file was left at its committed

@@ -918,3 +918,38 @@ attributed to the worker, and marks the surface degraded when the two differ.
 revisions, `GET /status` names both bindings, attributes each to the process
 that loaded it, and reads degraded — and with both restarted from one revision
 it reads healthy without either process asserting the other's state.
+
+---
+
+### B-57 · A failed upload acquisition costs the whole upload again — S
+
+Story 6.4a's acceptance criteria say the staging directory is removed "once the
+drop is finalized or the acquisition fails", and it is
+(`acquisitions.run_upload_acquisition`, the `finally` that calls
+`uploads.discard_session`). The consequence is that a failure with nothing to do
+with the bytes — ffprobe unavailable on the api host, an unwritable drops root,
+a mint refusal — throws away a recording that may have taken twenty minutes to
+send, and the person has to upload it again.
+
+The alternative is keeping the session on a failure that the evidence itself did
+not cause, so a retry re-mints from bytes already on the server, and letting the
+TTL sweep collect it. That is a change to the frozen criteria, so it needs the
+owner's agreement rather than a builder's judgement. Until then the behaviour is
+as specified, and `POST /acquisitions` can safely be retried only by uploading
+again.
+
+---
+
+### B-58 · Nothing reaps an acquisition's status file — S
+
+Carried forward from story 6.4's deferred list, and still true: `.logs/
+acquisitions/` grows by two files per acquisition forever, and every launch
+scans that directory under the claim lock, so the scan cost grows with the
+corpus. Story 6.4a swept the staging area it introduced
+(`uploads.sweep_expired`, run at the start of every `POST /uploads`) but
+deliberately left the acquisition records alone: they are the only history of
+what was acquired and when, and deciding how long that history is worth keeping
+is not a builder's call.
+
+A cap, or a sweep of terminal records older than N days with the interval in
+`config.yaml` beside the other acquisition boundaries, closes it.
