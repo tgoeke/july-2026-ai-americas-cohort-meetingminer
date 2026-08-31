@@ -496,6 +496,13 @@ EVIDENCE_TABLES = (
     # `topic` and `moment`, but TRUNCATE must name every table referencing
     # `meeting`/`moment` or the statement is refused.
     "topic", "topic_mention",
+    # story 10.2. `topic_thread` references `topic`, so TRUNCATE must name it
+    # or the `topic` truncation above is refused outright — and `thread` must
+    # be named with it, because the statement trigger that empties `thread`
+    # when memberships are truncated would otherwise be the only thing
+    # clearing it. Both are worker-owned, machine-derived navigation metadata,
+    # never artifacts.
+    "thread", "topic_thread",
 )
 
 

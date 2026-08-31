@@ -118,6 +118,9 @@ stores:
 acquisition:
   youtube:
     max_duration_minutes: 37
+threads:
+  link_rule: normalized-name-or-embedding-similarity
+  embedding_similarity_threshold: 0.82
 """
 
 

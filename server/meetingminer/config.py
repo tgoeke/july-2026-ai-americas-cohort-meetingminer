@@ -934,6 +934,30 @@ class AcquisitionConfig(_StrictModel):
     youtube: YoutubeAcquisitionConfig
 
 
+class ThreadsConfig(_StrictModel):
+    """How topics are linked into threads (story 10.2, FR42, AD-10).
+
+    The linking rule and its threshold are configuration with recorded
+    rationale because the acceptance criteria say so, and for the same reason
+    every other retrieval knob is: a threshold that exists only as a Python
+    constant is not one anybody can turn, and a re-derivation has to be
+    reproducible from Postgres plus this file alone. The rationale for the
+    shipped value lives beside it in ``config.yaml``.
+    """
+
+    # Which rule `domain/threads.py` applies. A declared literal rather than a
+    # free string: the value is written onto every `thread` row, so a typo
+    # would label the whole corpus with a rule that does not exist.
+    link_rule: Literal["normalized-name-or-embedding-similarity"]
+    # Cosine similarity at or above which two topic names are one subject.
+    # Floored at 0.5 rather than 0.0: this threshold is the only thing keeping
+    # the embedding leg from unioning the corpus into a single thread, so a
+    # mistyped 0.05 must fail at load rather than quietly produce one thread
+    # named after the oldest topic in the corpus. A silent everything is as
+    # wrong as a silent zero.
+    embedding_similarity_threshold: float = Field(ge=0.5, le=1.0)
+
+
 class Settings(_StrictModel):
     """The validated shape of config.yaml."""
 
@@ -992,6 +1016,7 @@ class Settings(_StrictModel):
     projections: ProjectionsConfig
     api: ApiConfig
     acquisition: AcquisitionConfig
+    threads: ThreadsConfig
 
 
 class Secrets(BaseModel):

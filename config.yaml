@@ -601,3 +601,36 @@ stores:
 acquisition:
   youtube:
     max_duration_minutes: 180
+
+# Thread derivation (story 10.2, FR42). A thread is one subject followed
+# across meetings: `domain/threads.py` reads every stored `topic` row and
+# unions two topics when their normalized names are equal, or when the cosine
+# similarity of their name embeddings reaches the threshold below. Both the
+# rule and the threshold live here rather than in code because a threshold
+# that exists only as a Python constant is not one anybody can turn (AD-10),
+# and because re-deriving the corpus must be reproducible from Postgres plus
+# this file alone.
+threads:
+  # The only rule implemented. Written verbatim onto every `thread` row, so a
+  # config change is legible in the data and not only in this file.
+  link_rule: normalized-name-or-embedding-similarity
+  # Cosine similarity at or above which two topic *names* are one subject.
+  #
+  # Rationale. These are short strings — three or four words — and embedders
+  # score short strings high against one another, so the usable band sits well
+  # above the 0.7-ish figure that would be unremarkable for whole passages.
+  # 0.82 is set above that band deliberately.
+  #
+  # It is conservative on purpose, because the two failure modes are not
+  # symmetric. A missed link surfaces as two threads a human merges in story
+  # 10.2a — visible, cheap, reversible. A false link silently fuses two
+  # subjects into one thread whose timeline then interleaves unrelated
+  # meetings, which reads as a bug rather than as a setting. Prefer the
+  # recoverable failure.
+  #
+  # This is a starting value, not a measured one: the retrieval eval does not
+  # yet cover thread quality, so nothing here has been scored against ground
+  # truth, and that is stated rather than implied. Raising it splits threads,
+  # lowering it fuses them; the loader refuses anything below 0.5, the point
+  # at which this leg would begin unioning the whole corpus into one thread.
+  embedding_similarity_threshold: 0.82
