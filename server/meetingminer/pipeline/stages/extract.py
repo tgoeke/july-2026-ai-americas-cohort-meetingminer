@@ -43,6 +43,19 @@ artifacts reach the stores only through the publish gate, in Story 4.4).
 AD-17 is why `extraction_source` exists at all: an adopted document is *arrived*
 material, so it gets a row naming its drops-root-relative path, ``sha256`` and
 ``byte_size`` like every other evidence file the pipeline reads.
+
+**The document itself is kept** (story 12.1, migration 0019). Every
+``extraction_source`` row carries ``document_text``: the exact bytes that were
+parsed, for a generated document and an adopted one alike, verified against the
+``sha256`` the same row records (:func:`_retained_text`). Before this, the model
+output was parsed into artifacts and discarded, which left the one run somebody
+most needs to read — the run that yielded nothing worth approving — with no
+readable trace at all. Both origins store it because of AD-4, not economy:
+``projections/`` never opens an evidence file, so text living only in a drop
+could not be indexed and would fall out of search on every rebuild (AD-3 as
+amended 2026-08-31). The text is written by the same upsert that writes the
+counts, so a rerun replaces the document wholesale alongside the artifacts
+derived from it and a stored document is never a stale record of a changed run.
 """
 
 from __future__ import annotations
@@ -148,11 +161,12 @@ VALUES (%(moment_id)s, %(meeting_id)s, %(kind)s, %(title)s, %(body)s, %(provenan
 _UPSERT_EXTRACTION_SOURCE = """
 INSERT INTO extraction_source (
     meeting_id, kind, origin, drop_relative_path, sha256, byte_size,
-    layout, item_count, artifact_count, model, prompt_version, prompt_hash
+    layout, item_count, artifact_count, model, prompt_version, prompt_hash,
+    document_text
 ) VALUES (
     %(meeting_id)s, %(kind)s, %(origin)s, %(drop_relative_path)s, %(sha256)s,
     %(byte_size)s, %(layout)s, %(item_count)s, %(artifact_count)s, %(model)s,
-    %(prompt_version)s, %(prompt_hash)s
+    %(prompt_version)s, %(prompt_hash)s, %(document_text)s
 )
 ON CONFLICT (meeting_id, kind) DO UPDATE SET
     origin = EXCLUDED.origin,
@@ -164,7 +178,13 @@ ON CONFLICT (meeting_id, kind) DO UPDATE SET
     artifact_count = EXCLUDED.artifact_count,
     model = EXCLUDED.model,
     prompt_version = EXCLUDED.prompt_version,
-    prompt_hash = EXCLUDED.prompt_hash
+    prompt_hash = EXCLUDED.prompt_hash,
+    -- Story 12.1: the document is replaced with the row that describes it and
+    -- with the artifacts derived from it, in the same statement and the same
+    -- transaction. A stored document is therefore never a stale record of a
+    -- run whose artifacts have since changed: there is no branch on which the
+    -- counts move and the text does not.
+    document_text = EXCLUDED.document_text
 """
 
 # A meeting that used to have extraction documents and now has nothing to read
@@ -413,7 +433,14 @@ def run(ctx: StageContext) -> None:
         # answered by the substitute must not both claim the substitute.
         document_fallback = False
         if drop_path is not None:
-            parsed, digest, byte_size, _text = _adopt(drop_path, document_kind)
+            # Story 12.1: the text a drop carried is retained exactly as a
+            # generated one is. The reason is AD-4, not economy — every
+            # extraction document must be searchable, and `projections/` never
+            # opens an evidence file, so text living only in the drop could not
+            # be indexed and would fall out of search on every rebuild.
+            parsed, digest, byte_size, document_text = _adopt(
+                drop_path, document_kind
+            )
             origin = ORIGIN_ADOPTED
             relative_path: str | None = ctx.drop_relative_path(drop_path)
         else:
@@ -439,6 +466,10 @@ def run(ctx: StageContext) -> None:
             document_fallback = reply.fallback_engaged
             fallback_engaged = fallback_engaged or reply.fallback_engaged
             digest, byte_size = _digest_of(reply.text)
+            # The model's reply verbatim — not the parse of it. A reader of
+            # this document must see what the model emitted, including
+            # anything the parser ignored.
+            document_text = reply.text
 
         inserted = 0
         for proposal in parsed.artifacts:
@@ -510,6 +541,9 @@ def run(ctx: StageContext) -> None:
                 "model": model,
                 "prompt_version": prompt_version,
                 "prompt_hash": prompt_hash,
+                "document_text": _retained_text(
+                    document_kind, document_text, digest, byte_size
+                ),
             },
         )
         documents[document_kind] = {
@@ -642,6 +676,9 @@ def run(ctx: StageContext) -> None:
             "model": topics_reply.model,
             "prompt_version": core.PROMPT_VERSION,
             "prompt_hash": topics_prompt_hash,
+            "document_text": _retained_text(
+                core.DOC_TOPICS, topics_reply.text, topics_digest, topics_byte_size
+            ),
         },
     )
     documents[core.DOC_TOPICS] = {
@@ -753,6 +790,12 @@ def run(ctx: StageContext) -> None:
             "model": signals_reply.model,
             "prompt_version": core.PROMPT_VERSION,
             "prompt_hash": signals_prompt_hash,
+            "document_text": _retained_text(
+                core.DOC_RANKING_SIGNALS,
+                signals_reply.text,
+                signals_digest,
+                signals_byte_size,
+            ),
         },
     )
     documents[core.DOC_RANKING_SIGNALS] = {
@@ -841,6 +884,48 @@ def _log_discard(
         anchor_ms=proposal.anchor_ms,
         reason=reason,
     )
+
+
+def _retained_text(
+    document_kind: str, text: str, digest: str, byte_size: int
+) -> str:
+    """The document as it will be stored, checked to be the bytes that parsed.
+
+    Story 12.1's requirement is not "keep something readable" but "keep the
+    exact bytes the parser read", so that the ``sha256`` this row already
+    records verifies against the stored text and a reader can prove the
+    document in the database is the document the artifacts came from. That is
+    checked here rather than assumed, because on the adopt path the digest and
+    the text come from **two separate reads** of the same file
+    (:func:`_read_drop_document`), and on the generate path a future caller
+    could pass a cleaned-up string beside a digest of the raw reply. Either
+    would produce a row whose checksum described bytes nobody has, and it
+    would be invisible afterwards — the AD-18 shape. Migration 0019 CHECKs the
+    length half of this in the database; the digest half needs the hash and so
+    lives here.
+
+    A ``NUL`` is refused by name for a different reason: it is valid UTF-8 and
+    valid in a Python string, and Postgres ``text`` cannot hold one. Without
+    this the whole meeting's extraction would fail on an unattributed
+    ``psycopg`` encoding error naming no document.
+    """
+    if "\x00" in text:
+        raise StageError(
+            f"the {document_kind} document contains a NUL character, which"
+            " Postgres text cannot store — the document is retained verbatim"
+            " or not at all, so it is refused here rather than stored with the"
+            " NUL silently removed and a sha256 that no longer describes it"
+        )
+    raw = text.encode("utf-8")
+    if len(raw) != byte_size or hashlib.sha256(raw).hexdigest() != digest:
+        raise StageError(
+            f"the {document_kind} document's text does not reproduce the"
+            f" checksum recorded for it ({len(raw)} bytes hashing to"
+            f" {hashlib.sha256(raw).hexdigest()}, recorded as {byte_size} bytes"
+            f" hashing to {digest}) — the retained document must be the exact"
+            " bytes that were parsed"
+        )
+    return text
 
 
 def _digest_of(text: str) -> tuple[str, int]:
