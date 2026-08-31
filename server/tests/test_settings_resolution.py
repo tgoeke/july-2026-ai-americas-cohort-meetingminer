@@ -341,3 +341,106 @@ def test_the_effective_binding_replaces_only_the_model_on_the_role() -> None:
     # The configured object is never mutated: two requests in one process must
     # not see each other's selection.
     assert binding.model == "ollama/gpt-oss:120b"
+
+
+# --- the worker resolves the selection per job ------------------------------
+
+
+def _run_extract(
+    pool: Any,
+    app_config: Any,
+    content_root: Any,
+    drop_path: Any,
+    job_id: Any,
+    meeting_id: Any,
+) -> None:
+    """Run the `extract` stage once over an already-seeded meeting.
+
+    The same shape `test_worker_extract.py` uses to put the stage in front of a
+    prepared meeting without running the stages before it.
+    """
+    from meetingminer import logs
+    from meetingminer.domain.drops import read_drop
+    from meetingminer.pipeline.stage import StageContext
+    from meetingminer.pipeline.stages import extract as extract_stage
+
+    from conftest import DROPS_ROOT
+
+    drop = read_drop(drop_path, config_path=app_config.config_path)
+    with pool.connection() as conn:
+        extract_stage.run(
+            StageContext(
+                conn=conn,
+                config=app_config,
+                job_id=job_id,
+                meeting_id=meeting_id,
+                drop=drop,
+                content_root=content_root,
+                drops_root=DROPS_ROOT,
+                log=logs.bind(job_id=job_id, stage="extract"),
+            )
+        )
+        conn.commit()
+
+
+def test_the_worker_resolves_the_selection_on_every_job(
+    test_pool: Any,
+    app_config: Any,
+    content_root: Any,
+    make_drop: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A selection change takes effect on the next job, with no worker restart.
+
+    The worker reads `app_setting` inside the job's own transaction, so a
+    choice made while a job is queued is the choice that job runs on. A binding
+    captured at worker start would pass the first run and fail the second.
+    """
+    from meetingminer.pipeline.stages import extract as extract_stage
+
+    from conftest import FakeLlm, truncate_evidence
+    from projection_seed import seed_meeting
+
+    seen: list[str] = []
+
+    def _build(role_binding: Any, *_a: Any, **_kw: Any) -> Any:
+        seen.append(role_binding.model)
+        return FakeLlm()
+
+    monkeypatch.setattr(extract_stage, "build_llm", _build)
+
+    truncate_evidence(test_pool)
+    configured = app_config.settings.llm.roles.extraction
+    alternatives = [
+        entry.binding
+        for entry in configured.catalog
+        if entry.binding != configured.default
+    ]
+    if not alternatives:
+        pytest.skip("`llm.roles.extraction` declares a one-entry catalog")
+    chosen = alternatives[0]
+
+    with test_pool.connection() as conn:
+        conn.execute("DELETE FROM app_setting")
+        first = seed_meeting(conn, source_id="settings-selection-worker-1")
+        second = seed_meeting(conn, source_id="settings-selection-worker-2")
+        conn.commit()
+
+    drop = make_drop()
+    _run_extract(
+        test_pool, app_config, content_root, drop, first.job_id, first.meeting_id
+    )
+
+    with test_pool.connection() as conn:
+        model_selection.write_selection(conn, "extraction", chosen)
+        conn.commit()
+
+    _run_extract(
+        test_pool, app_config, content_root, drop, second.job_id, second.meeting_id
+    )
+
+    assert seen == [configured.default, chosen]
+
+    with test_pool.connection() as conn:
+        conn.execute("DELETE FROM app_setting")
+        conn.commit()

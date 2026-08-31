@@ -230,3 +230,139 @@ def test_a_stored_selection_the_catalog_dropped_is_reported_not_applied(
     assert view["selected"] == "openai/withdrawn-model"
     assert view["staleSelection"] == "openai/withdrawn-model"
     assert "openai/withdrawn-model" in view["staleReason"]
+
+
+# --- chat resolves the selection per request --------------------------------
+
+
+@pytest.fixture()
+def capture_chat_binding(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+    """Record the role binding `POST /chat` hands to `build_llm`, per request.
+
+    Applied after conftest's autouse `_no_real_llm`, so it wins; the completer
+    it returns refuses on the classification call, which is the first model
+    call the route makes. The request therefore ends before retrieval — no
+    projection store is needed to observe which binding was resolved.
+    """
+    import meetingminer.api.chat as chat_module
+
+    seen: list[Any] = []
+
+    def _build(role_binding: Any, *_a: Any, **_kw: Any) -> Any:
+        seen.append(role_binding)
+        return _RefusingLlm()
+
+    monkeypatch.setattr(chat_module, "build_llm", _build)
+    return seen
+
+
+class _RefusingLlm:
+    """A completer whose provider does not have the model the binding names."""
+
+    def complete(self, prompt: str, options: Any = None) -> Any:
+        from meetingminer.adapters.llm import LlmModelNotServedError
+
+        raise LlmModelNotServedError(
+            "provider 'openai' at 'https://api.openai.com/v1' does not serve"
+            " model 'openai/withdrawn' — the host answered HTTP 404",
+            provider="openai",
+            model="openai/withdrawn",
+            api_base="https://api.openai.com/v1",
+            upstream_status=404,
+        )
+
+
+@pytest.fixture()
+def one_moment(test_pool: ConnectionPool) -> None:
+    """One citable moment, so chat gets past its no-evidence guard to the model.
+
+    `POST /chat` refuses an empty corpus before contacting any provider, which
+    is deliberate; these tests are about what happens *after* that guard.
+    """
+    from projection_seed import seed_meeting
+
+    with test_pool.connection() as conn:
+        seed_meeting(conn, source_id="settings-selection-chat")
+        conn.commit()
+
+
+def test_chat_resolves_the_selection_on_every_request(
+    client: TestClient,
+    app_config: AppConfig,
+    one_moment: None,
+    capture_chat_binding: list[Any],
+) -> None:
+    """A change takes effect on the next question, with no api restart.
+
+    Two requests either side of one `PUT`: the second must be built on the
+    newly selected binding. A binding read once at import or cached on the app
+    would pass the first assertion and fail the second.
+    """
+    chosen = _alternative(app_config, "chat")
+    default = _roles(app_config).chat.default
+
+    client.post("/chat", json={"question": "what happened?"})
+    client.put("/settings/roles/chat", json={"binding": chosen})
+    client.post("/chat", json={"question": "what happened?"})
+
+    assert [binding.model for binding in capture_chat_binding] == [default, chosen]
+
+
+def test_a_selection_never_mutates_the_configured_role(
+    client: TestClient,
+    app_config: AppConfig,
+    one_moment: None,
+    capture_chat_binding: list[Any],
+) -> None:
+    """The loaded config is process-wide; one request's choice is not another's."""
+    client.put(
+        "/settings/roles/chat", json={"binding": _alternative(app_config, "chat")}
+    )
+    client.post("/chat", json={"question": "what happened?"})
+
+    assert _roles(app_config).chat.model == _roles(app_config).chat.model
+    assert capture_chat_binding[0] is not _roles(app_config).chat
+
+
+# --- the selected binding failing at call time ------------------------------
+
+
+def test_a_binding_the_provider_does_not_serve_surfaces_as_binding_failed(
+    client: TestClient,
+    app_config: AppConfig,
+    one_moment: None,
+    capture_chat_binding: list[Any],
+) -> None:
+    """The story's third acceptance clause, on the wire."""
+    client.put(
+        "/settings/roles/chat", json={"binding": _alternative(app_config, "chat")}
+    )
+
+    response = client.post("/chat", json={"question": "what happened?"})
+
+    assert response.headers["content-type"].startswith(PROBLEM_JSON)
+    body = response.json()
+    assert body["type"] == "urn:meetingminer:problem:binding-failed"
+    assert body["provider"] == "openai"
+    assert body["binding"] == "openai/withdrawn"
+    assert body["role"] == "chat"
+    # The upstream status is represented in `detail`, not only as an extension.
+    assert "404" in body["detail"]
+
+
+def test_nothing_else_answers_when_the_selected_binding_fails(
+    client: TestClient,
+    app_config: AppConfig,
+    one_moment: None,
+    capture_chat_binding: list[Any],
+) -> None:
+    """No substituted model, and no partial answer leaking past the refusal."""
+    response = client.post("/chat", json={"question": "what happened?"})
+
+    body = response.json()
+    assert response.status_code >= 400
+    assert "answer" not in body
+    assert "citations" not in body
+    # One completer was built, and it was the one that refused: nothing tried
+    # a second binding after it.
+    assert len(capture_chat_binding) == 1

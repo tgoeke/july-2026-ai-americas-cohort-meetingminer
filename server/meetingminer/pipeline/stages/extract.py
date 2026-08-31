@@ -60,6 +60,7 @@ from meetingminer.domain.drops import (
     sha256_and_size,
 )
 from meetingminer.pipeline import extraction as core
+from meetingminer.domain import model_selection
 from meetingminer.pipeline.stage import StageContext, StageError
 from meetingminer.projections import evidence
 
@@ -301,7 +302,21 @@ def _meeting_date(bundle: evidence.MeetingEvidence) -> str:
 
 
 def run(ctx: StageContext) -> None:
-    binding = ctx.config.settings.llm.roles.extraction
+    # Resolved **per job** (story 8.2, FR38), inside this job's own
+    # transaction: a selection made while this job sat queued is the selection
+    # this job runs on, and a long-lived worker never has to be restarted for a
+    # choice to take effect. `ctx.conn` is the runner's connection, and this is
+    # a read — `app_setting` is api-owned and the worker never writes it (AD-5).
+    binding, effective = model_selection.resolve_role(
+        ctx.conn, "extraction", ctx.config.settings.llm.roles.extraction, log=ctx.log
+    )
+    ctx.log(
+        "extract.binding_resolved",
+        binding=effective.binding,
+        provider=effective.provider,
+        source=effective.source,
+        file_default=effective.default_binding,
+    )
     llm = build_llm(binding, ctx.config.settings.providers, log=ctx.log)
     options = LlmOptions(
         num_ctx=binding.num_ctx, timeout_seconds=binding.timeout_seconds

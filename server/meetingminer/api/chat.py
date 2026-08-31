@@ -50,7 +50,12 @@ from pydantic.alias_generators import to_camel
 
 from meetingminer import logs
 from meetingminer.adapters.embed import EmbedderError, EmbedderUnavailableError
-from meetingminer.adapters.llm import LlmError, LlmUnavailableError, build_llm
+from meetingminer.adapters.llm import (
+    LlmError,
+    LlmModelNotServedError,
+    LlmUnavailableError,
+    build_llm,
+)
 from meetingminer.api.chat_router import (
     TEMPLATE_ANCHORS,
     RouteDecision,
@@ -64,6 +69,7 @@ from meetingminer.api.citations import (
     validate,
 )
 from meetingminer.api.problems import Problem, ProblemDetails
+from meetingminer.domain import model_selection
 from meetingminer.projections.publish_gate import PUBLISHED_STATE
 from meetingminer.projections.query import search_artifacts, search_moments
 from meetingminer.projections.stores import (
@@ -1056,6 +1062,27 @@ def _complete(llm: Any, prompt: str, *, purpose: str, binding: Any = None) -> st
     """
     try:
         return llm.complete(prompt).text
+    except LlmModelNotServedError as exc:
+        # The selected binding is wrong, not the host down: the provider
+        # answered and does not have this model. 502 rather than the 503 the
+        # two branches below use, because 503 promises that retrying may work
+        # and this will answer identically forever — the operator has to change
+        # the selection or the file. No other model was substituted (story 8.2
+        # AC3, backlog B-38): `FallbackLlm` re-raised this instead of engaging
+        # the fallback, and this is where that refusal reaches the wire.
+        raise Problem(
+            502,
+            "binding-failed",
+            f"the binding selected for the `chat` role, {exc.model!r},"
+            f" failed {purpose}: {exc}",
+            title="Bad Gateway",
+            purpose=purpose,
+            role="chat",
+            provider=exc.provider,
+            binding=exc.model,
+            config_path="llm.roles.chat",
+            upstream_status=exc.upstream_status,
+        ) from exc
     except LlmUnavailableError as exc:
         raise Problem(
             503,
@@ -1131,10 +1158,24 @@ def _answer(request: Request, question: str) -> tuple[ValidatedAnswer, RouteMode
                 "the corpus holds no moments, so no answer could be cited",
                 RouteModel(search_hits=0, traversal_rows=0, retrieved=0),
             )
+        # Read **inside this request** (story 8.2, FR38): a selection made a
+        # moment ago must answer the next question, so nothing here is cached
+        # on the app or resolved at import. The same connection the guard above
+        # already holds, because it is one more indexed lookup, not a reason to
+        # take a second connection out of the pool.
+        binding, effective = model_selection.resolve_role(
+            conn, "chat", config.settings.llm.roles.chat, log=logs.log_event
+        )
+    logs.log_event(
+        "chat.binding_resolved",
+        binding=effective.binding,
+        provider=effective.provider,
+        source=effective.source,
+        file_default=effective.default_binding,
+    )
 
     # The model's first and only structural job (AD-7): name a template, and
     # name the words worth putting to the index.
-    binding = config.settings.llm.roles.chat
     llm = build_llm(binding, config.settings.providers, log=logs.log_event)
     decision = parse_route(
         _complete(
