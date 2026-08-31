@@ -280,7 +280,7 @@ Final verification on the rebased branch:
   diarizer-extra 92, puller 128, web 746, evals 655, test-store health, and the
   production TypeScript/Vite build all passed.
 
-The branch is rebased onto `origin/main` at `37cc543e`; it is intentionally not
+The branch is rebased onto `origin/main` at `e4c40750`; it is intentionally not
 merged to `main`, because the owner reserved integration to the `integrate`
 step.
 
