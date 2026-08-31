@@ -74,3 +74,12 @@ Adversarial review of the Story 7.4 web implementation, with emphasis on unsettl
 - **Evidence:** The player has controls but no `autoPlay` behavior; its seek effect depends only on `src` and `startMs`, and its latch effect depends on the same offsets. The existing caller test asserts only that the element appears, not that the user gesture starts or restarts media.
 - **Suggested direction:** Add opt-in autoplay behavior to the shared player so existing open-ended callers remain unchanged, and give each speaker clip activation a fresh playback identity that remounts/reseeks/re-arms even for the same offset.
 - **Red/green evidence:** The caller regression first observed zero `play()` calls after activation. Speaker clips now opt into playback and each press gets a fresh player identity; the same clip calls `play()` twice across two presses and remounts, while other callers retain the default non-autoplay behavior.
+
+### F7 — Rerun terminal events have no resync or assignment ownership
+
+- **Location:** `web/src/features/speakers/SpeakerNaming.tsx:197`; `web/src/features/meetings/useJobEvents.ts:48`; `server/meetingminer/api/events.py:322`
+- **Severity:** High
+- **Status:** Confirmed — patch required
+- **Finding:** The screen passes a no-op `onResync`, although the stream's silent baseline means completion or failure during a disconnect is never replayed. It also folds `job.done`/`job.error` by `jobId` alone even though consecutive assignments reuse the meeting's job ID. A delayed terminal frame from the first assignment can therefore land a newly installed queued rerun for the second.
+- **Evidence:** `useJobEvents` documents that missed frames are gone and calls `onResync` only so the consumer can reseed. The speakers screen neither reseeds nor checks current job state. `applyJobEvent` has no generation or stage-snapshot input beyond the reused ID, and the assignment response supplies no distinct rerun ID.
+- **Suggested direction:** Reconcile terminal frames, the immediate post-PUT state, and reconnects through the existing authoritative `GET /jobs/{jobId}` response. Apply the snapshot only if the same rerun object still owns the screen; this rejects delayed frames for a newer re-arm and recovers missed terminal transitions. Surface a lost connection while reconciliation is unavailable.
