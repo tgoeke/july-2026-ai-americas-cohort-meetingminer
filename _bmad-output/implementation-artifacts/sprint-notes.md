@@ -3523,3 +3523,44 @@ can be claimed once per derivation. Final gates: focused threads 63 passed;
 `test-fast` server 2071 passed / 3 named skips / 405 deselected; full server
 2476 passed / 3 named skips plus puller, web, eval harness, diarization,
 store reachability, and the production build. Review verdict: **Pass**.
+
+## 10-2 landed, 2026-08-30 ~22:30 — threads, and a durable identity for them
+
+`main` at `063e331`; migration `0015_threads.sql` applied. Topics link into
+threads by normalized name and embedding similarity above a configured
+threshold; `projections` writes `Topic` and `Thread` nodes with `MENTIONS`
+edges and stays the sole store writer (AD-4); the thread traversal is
+registered like the existing templates.
+
+**Owner ruling, 2026-08-30 — fix identity in this story rather than in 10.2a.**
+Review found thread ids were not durable, and reproduced it against a real
+database: story 10.1 replaces every `topic` row for a meeting on rerun, so a
+thread whose only member was an *unchanged* topic lost its last link, a trigger
+deleted it, and derivation reminted it with a new UUID. Changing an unrelated
+topic in the same meeting silently changed another thread's id. A second path
+did the same when a backfilled earlier meeting became the cluster's
+chronological seed.
+
+The diagnosis in one sentence, and the reason the fix is small: **two mutable
+facts were being used as identity** — which topic happens to be chronologically
+first, and whether the thread currently has any members. Neither is stable.
+Identity is now derived from the cluster's content, and a thread survives
+temporarily having no members so its id is reclaimed rather than reminted. The
+owner's reasoning for fixing it here: 10.2a is thread curation, it is the next
+story, and it attaches human work to these ids — building curation on an
+identity already known to be unstable means building it twice.
+
+A third defect surfaced while fixing those: split clusters were collapsing onto
+one retained row instead of receiving thread rows one-to-one. Also fixed.
+
+**`make rebuild` is owed but deliberately not run.** `projections/graph.py`,
+`evidence.py`, `stores.py` and `traversals.py` all changed, so meetings
+projected before this landing carry no `Topic`/`Thread` nodes. The corpus is
+about to be replaced wholesale anyway — a large YouTube ingest is downloading
+now — so the rebuild belongs after that ingest, not before it. Whoever runs the
+ingest should treat `make rebuild` as part of it.
+
+**Backlog ids, filed properly this time.** B-39 (nothing calls `derive_threads`
+in production yet — the worker settle point is 10.1's file) and B-40
+(`thread.color_ordinal` scoping, a 10.3/10.6 decision) are in
+`docs/backlog.md`, not merely named in a spec. Highest in use is now B-40.
