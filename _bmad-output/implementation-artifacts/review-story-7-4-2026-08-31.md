@@ -64,3 +64,12 @@ Adversarial review of the Story 7.4 web implementation, with emphasis on unsettl
 - **Evidence:** Row rendering is exclusively from the pre-PUT `speakers` array until a later read; the success response's participant/name fields are ignored. The landed effect rereads both sources, but the transcript header/body never calls `resolvedName()`. This violates the matrix requirements that the row show the choice immediately and the change be visible in the transcript when the rerun lands.
 - **Suggested direction:** Store the response-confirmed pending choice per tag and label it as awaiting rerun without claiming resolution; derive rerun copy from the response. On a successful settled reread, clear pending choices and render only `resolvedName(selected)` in the transcript heading, preserving AD-13.
 - **Red/green evidence:** The row test first stayed a nameless placeholder after a response carrying a renamed participant, and the landed transcript remained tag-only. The row now shows the response-confirmed choice as `rerun · queued`; after the settled reread, pending state clears and the transcript displays only the name accepted by `resolvedName()`. Both targeted tests pass.
+
+### F6 — Clip controls do not play or restart the sample
+
+- **Location:** `web/src/features/speakers/SpeakerNaming.tsx:315`; `web/src/features/replay/ReplayPlayer.tsx:48`
+- **Severity:** High
+- **Status:** Confirmed — patch required
+- **Finding:** Pressing a clip control only mounts `ReplayPlayer` and seeks it; neither the control nor player calls `play()`. Pressing the already-selected clip again creates a new state object with identical `startMs`/`endMs`, so the player effects do not rerun and the stopped sample cannot restart from its beginning.
+- **Evidence:** The player has controls but no `autoPlay` behavior; its seek effect depends only on `src` and `startMs`, and its latch effect depends on the same offsets. The existing caller test asserts only that the element appears, not that the user gesture starts or restarts media.
+- **Suggested direction:** Add opt-in autoplay behavior to the shared player so existing open-ended callers remain unchanged, and give each speaker clip activation a fresh playback identity that remounts/reseeks/re-arms even for the same offset.
