@@ -1,0 +1,141 @@
+/*
+ * The Threads timeline's geometry.
+ *
+ * Pan and zoom are two custom properties on one element. The track carries
+ * `--mm-from` (the window's left edge) and `--mm-scale` (milliseconds per
+ * pixel); every drawn item carries its own `--t` — and a span its `--t2` — and
+ * positions itself with the same arithmetic `timeline.ts` states in `xOf`:
+ *
+ *     x = (t − from) / scale
+ *
+ * So panning and zooming write two numbers and the browser lays the whole tier
+ * out natively. No React render, no per-item style write, nothing to drop a
+ * frame on. It is also why an item's x is unchanged across a tier change: the
+ * tier is a function of `--mm-scale`, and the formula does not know which tier
+ * is drawn.
+ *
+ * `--t` values are milliseconds relative to the drawn layer's epoch (the tier's
+ * own anchor), not epoch milliseconds, so the numbers stay small enough that a
+ * single-precision calc cannot lose a visible fraction of a pixel.
+ *
+ * Colours are the semantic tokens from `web/src/index.css`, which story 10.5's
+ * theme replaces in place; the thread hues are inline from `palette.ts`.
+ */
+
+.mm-track {
+  position: relative;
+}
+
+/* An instant: a tick, a moment, an axis gridline. */
+.mm-at {
+  position: absolute;
+  left: calc((var(--t) - var(--mm-from)) / var(--mm-scale) * 1px);
+}
+
+/* A span: a bucket, a meeting mark, a meeting bracket. */
+.mm-span {
+  position: absolute;
+  left: calc((var(--t) - var(--mm-from)) / var(--mm-scale) * 1px);
+  width: max(2px, calc((var(--t2) - var(--t)) / var(--mm-scale) * 1px));
+}
+
+/* The ≥ 24 × 24 CSS px hit area every interactive item is given, centred on
+   its drawn geometry — the drawn bucket may be 3px wide; the target is not. */
+.mm-hit {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  min-width: 24px;
+  min-height: 24px;
+  width: 100%;
+  height: 100%;
+  transform: translate(-50%, -50%);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* A tier fades in at the x positions the outgoing tier left behind. */
+.mm-layer {
+  animation: mm-fade-in 160ms ease-out;
+}
+
+@keyframes mm-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* The tier-fetch progress line: a thin running bar at the canvas top. */
+.mm-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  overflow: hidden;
+  background: color-mix(in oklab, #fe9a00 25%, transparent);
+}
+
+.mm-progress::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 30%;
+  background: #fe9a00;
+  animation: mm-progress-slide 1.1s linear infinite;
+}
+
+@keyframes mm-progress-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(400%);
+  }
+}
+
+/* The cursor line under the pointer, and the axis gridlines. */
+.mm-gridline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+  pointer-events: none;
+}
+
+.mm-cursor-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: color-mix(in oklab, var(--foreground) 40%, transparent);
+  pointer-events: none;
+}
+
+/* The two-tone focus ring: 2px ring outside a 1px background gap, so the
+   boundary that matters is background/ring on any fill, band included. */
+.mm-focusable:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 1px var(--background),
+    0 0 0 3px var(--ring);
+}
+
+/* Reduced motion: the tier swap and the progress line stop animating. Nothing
+   becomes unreachable; only the easing is removed. */
+@media (prefers-reduced-motion: reduce) {
+  .mm-layer {
+    animation: none;
+  }
+
+  .mm-progress::after {
+    animation: none;
+    width: 100%;
+  }
+}
