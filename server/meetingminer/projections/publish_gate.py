@@ -16,8 +16,8 @@ plus *published* artifacts only. An unpublished artifact is visible solely in
 the moment view's right rail, through API reads of Postgres — never through a
 projected store.
 
-**One deliberate exception, and this docstring names it so the gate's account
-of itself stays true.** Extraction documents are projected *without* passing
+**The exception, and this docstring names it so the gate's account of itself
+stays true.** Extraction documents are projected *without* passing
 this gate — every one of them, as soon as it is stored, approved or not (owner
 ruling 2026-08-31, recorded in AD-4). The reasoning is story 12.1's motivation
 turned around: the run whose text somebody needs to read is exactly the run
@@ -35,8 +35,16 @@ two ways that this module's rule keeps intact, and both are enforced in
   reaches an answer only through the moments its individual claims anchor to,
   which is the published-artifact path above, gated exactly as before (AD-6).
 
+The permission itself is data, not prose:
+:data:`UNGATED_INDEXED_ROW_TYPES` below names every row type indexed without
+this gate and why. A row type joining is an entry there — one place, reviewable
+as a decision — rather than a second bypass carved through this module, and the
+writer of such a row reads its permission back out through
+:func:`require_ungated` so deleting an entry breaks that path by name.
+
 So the sentence this gate can still stand behind is: nothing uncitable becomes
-citable, and no unpublished *artifact* is ever projected. What changed is that
+citable, no *artifact* reaches a store as ``published`` unless it is, and
+nothing skips this gate that is not declared below. What changed is that
 "projected" no longer implies "published" for every kind of thing in the
 stores.
 """
@@ -44,7 +52,8 @@ stores.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Sequence
+from types import MappingProxyType
+from typing import Any, Mapping, Sequence
 from uuid import UUID
 
 from psycopg import Connection
@@ -57,6 +66,60 @@ PUBLISHED_STATE = "published"
 # The Meilisearch index published artifacts will land in (Epic 4). Named here
 # so the gate and the index it guards are declared together.
 ARTIFACTS_INDEX = "artifacts"
+
+
+# --- the exception, declared here rather than carved through here ----------
+
+# Row types that are projected **without** passing this gate, each with the
+# reason it was granted.
+#
+# A declaration, not a bypass. The difference matters: a second row type
+# joining this exception is an entry in this mapping — visible in one place,
+# reviewable as a decision, and refusable — whereas a second `if` somewhere in
+# the projection module would be a second hole nobody can enumerate. Anything
+# indexed ungated calls :func:`require_ungated` and gets its reason from here,
+# so removing an entry breaks that row's path by name instead of silently
+# leaving a bypass standing.
+#
+# What is *not* being said: nothing here makes a row citable. Citability is
+# AD-6's question and is decided per row type (`projections/review.py` carries
+# it in the record). An extraction document is indexed ungated and is never a
+# citation target; those are two separate facts about it.
+UNGATED_INDEXED_ROW_TYPES: Mapping[str, str] = MappingProxyType(
+    {
+        "extraction-document": (
+            "story 12.4, owner ruling 2026-08-31 recorded in AD-4: every"
+            " extraction document is indexed as soon as it is stored, approved"
+            " or not, because the run whose text somebody needs to read is"
+            " exactly the run that yielded nothing worth approving. It is never"
+            " a citation target, so this widens reach and not citability"
+        ),
+    }
+)
+
+
+def ungated_reason(row_type: str) -> str | None:
+    """Why this row type is indexed without the gate, or ``None`` if it is not."""
+    return UNGATED_INDEXED_ROW_TYPES.get(row_type)
+
+
+def require_ungated(row_type: str) -> str:
+    """The reason this row type may skip the gate; refuse if it may not.
+
+    Called by the module that writes such a row, so the permission is read from
+    the gate rather than assumed by the writer. A row type that is not declared
+    here has no exception, and asking for one is a named refusal.
+    """
+    reason = ungated_reason(row_type)
+    if reason is None:
+        raise PublishGateRefused(
+            f"row type {row_type!r} is not declared in"
+            " UNGATED_INDEXED_ROW_TYPES, so it has no exception to the publish"
+            " gate — projecting it ungated would be a bypass rather than a"
+            " decision (AD-4). Declare it there, with its reason, or project it"
+            " through the gate."
+        )
+    return reason
 
 
 class PublishGateRefused(RuntimeError):

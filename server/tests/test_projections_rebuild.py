@@ -269,7 +269,15 @@ def test_a_dry_run_reports_and_writes_nothing(
     assert len(report.outcomes) == 1
     assert report.outcomes[0].skipped_reason == "dry run"
     assert graph.counts(driver) == {}
-    assert search.counts(client) == {"moments": 0, "chunks": 0, "artifacts": 0}
+    assert search.counts(client) == {
+        "moments": 0,
+        "chunks": 0,
+        "artifacts": 0,
+        # Story 12.4's fourth index. Counted here for the same reason the
+        # other three are: a stale document surviving a wipe is exactly
+        # what an equivalence check over a partial index set would miss.
+        "documents": 0,
+    }
 
 
 def test_a_failure_on_one_meeting_does_not_stop_the_pass(

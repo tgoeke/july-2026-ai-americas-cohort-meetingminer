@@ -1006,6 +1006,14 @@ def test_the_response_is_camel_case_at_the_boundary(
         "limit",
         "offset",
         "indexMissing",
+        # Story 12.4: extraction documents come back in their own array, never
+        # as a third kind of `hits` entry. `hits` is the citation shape and its
+        # `momentId` is required; a document has no moment, and widening that
+        # shape with a null would put an unreplayable citation where every
+        # consumer expects a replayable one (AD-6, AD-18).
+        "documents",
+        "documentsTotal",
+        "documentsIndexMissing",
     }
     assert body["hits"], body
     assert set(body["hits"][0]) == {

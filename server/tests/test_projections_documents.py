@@ -47,10 +47,24 @@ from meetingminer.projections.documents import (
     document_record,
 )
 from meetingminer.projections.evidence import ExtractionDocumentRow
+from meetingminer.projections.publish_gate import (
+    UNGATED_INDEXED_ROW_TYPES,
+    PublishGateRefused,
+    require_ungated,
+)
 from meetingminer.projections.query import (
     DOCUMENT_SEARCHABLE_INDEXES,
     DocumentHit,
     build_document_search_parameters,
+)
+from meetingminer.projections.review import (
+    MACHINE,
+    NO_LIFECYCLE,
+    REVIEW_KEYS,
+    ReviewMarkingRefused,
+    apply_marking,
+    assert_carries_marking,
+    marking,
 )
 
 from repo_paths import REPO_ROOT
@@ -406,3 +420,140 @@ def test_the_documents_module_is_store_free() -> None:
     assert "import meilisearch" not in source
     assert "import neo4j" not in source
     assert "import psycopg" not in source
+
+
+# --- the mechanism, generic (so story 12.5 reuses it rather than copying) ---
+#
+# The owner ruled 2026-08-31 that artifacts must also be indexed before they
+# are published — the same principle as this story, applied to a row type that
+# *is* genuinely citable and *does* have a lifecycle. These tests pin the parts
+# both stories share, so the second is a declaration plus a marking rather than
+# a parallel path. They belong here because this story built them; story 12.5
+# will add its own rules on top.
+
+
+def test_the_gate_exception_is_a_declaration_rather_than_a_bypass() -> None:
+    """A row type indexed ungated is an entry in one mapping, not an `if`.
+
+    The difference is enumerability. A declaration can be listed, reviewed and
+    refused; a second branch inside the projection module cannot be found by
+    anybody who does not already know it is there.
+    """
+    assert require_ungated("extraction-document") in UNGATED_INDEXED_ROW_TYPES.values()
+    assert "AD-4" in UNGATED_INDEXED_ROW_TYPES["extraction-document"]
+
+
+def test_an_undeclared_row_type_has_no_exception() -> None:
+    """Asking for a permission nobody granted is a named refusal.
+
+    This is what keeps the mapping load-bearing: a future row type cannot skip
+    the gate by omission, only by a decision somebody wrote down.
+    """
+    with pytest.raises(PublishGateRefused, match="not declared"):
+        require_ungated("some-future-row-type")
+
+
+def test_this_module_reads_its_permission_from_the_gate() -> None:
+    """Deleting the declaration breaks this path by name, at import.
+
+    A bypass that keeps working after its justification is removed is the
+    failure a declaration exists to prevent.
+    """
+    assert document_module.ROW_TYPE == "extraction-document"
+    assert document_module.GATE_EXCEPTION_REASON == require_ungated(
+        document_module.ROW_TYPE
+    )
+
+
+def test_the_marking_reports_which_state_a_row_is_in_not_merely_unreviewed() -> None:
+    """The field a second row type needs, pinned by the first that used it.
+
+    An extraction document has no lifecycle and reports `NO_LIFECYCLE`. An
+    artifact indexed before publish has a real one and reports whichever state
+    it is actually in — so the marking carries a *state*, and the mechanism
+    does not have to change for the second case.
+    """
+    for state in ("extracted", "approved", "published"):
+        built = marking(
+            review_state=state, authorship=MACHINE, citable=True, subject="action item"
+        )
+        assert built.review_state == state
+        assert built.review_label
+    assert not marking(
+        review_state="extracted", authorship=MACHINE, citable=True, subject="x"
+    ).reviewed
+    assert marking(
+        review_state="published", authorship=MACHINE, citable=True, subject="x"
+    ).reviewed
+
+
+def test_citability_is_carried_rather_than_derived_from_the_state() -> None:
+    """The two facts are independent, and conflating them would be the bug.
+
+    A published artifact is citable because it anchors to a moment; an
+    extraction document is not citable in any state, because it is a claim
+    about evidence. Deriving one from the other would make story 12.5's
+    artifacts uncitable or this story's documents citable.
+    """
+    citable = marking(
+        review_state=NO_LIFECYCLE, authorship=MACHINE, citable=True, subject="x"
+    )
+    uncitable = marking(
+        review_state=NO_LIFECYCLE, authorship=MACHINE, citable=False, subject="x"
+    )
+    assert citable.citable is True and uncitable.citable is False
+    assert "not citable evidence" in uncitable.review_label
+    assert "not citable evidence" not in citable.review_label
+
+
+def test_a_state_the_system_cannot_explain_is_refused() -> None:
+    """No row reaches a reader wearing a status nothing can put into words."""
+    with pytest.raises(ReviewMarkingRefused, match="no review sentence"):
+        marking(
+            review_state="probably-fine",
+            authorship=MACHINE,
+            citable=False,
+            subject="x",
+        )
+
+
+def test_the_generic_guard_accepts_any_explicable_state() -> None:
+    """The split the two rules need.
+
+    `review.assert_carries_marking` asks "can this row say something explicable
+    about its review status"; `documents.assert_carries_review_label` asks "does
+    this document say the only thing a document may say". An artifact record
+    passes the first and rightly fails the second, which is why they are two
+    functions.
+    """
+    artifact_record = apply_marking(
+        {"id": "x"},
+        marking(
+            review_state="approved",
+            authorship=MACHINE,
+            citable=True,
+            subject="action item",
+        ),
+    )
+    assert_carries_marking(artifact_record)
+    with pytest.raises(DocumentRecordRefused):
+        assert_carries_review_label(artifact_record)
+
+
+def test_the_documents_module_reuses_the_generic_review_keys() -> None:
+    """One list of keys, so two row types cannot write two shapes."""
+    assert REVIEW_KEYS == ("reviewState", "authorship", "reviewLabel", "citable")
+    assert set(REVIEW_KEYS) <= set(record())
+
+
+def test_the_documents_label_is_composed_rather_than_hand_written() -> None:
+    """The constant consumers import is the generic composer's output.
+
+    Kept as a constant because that is what the api and the tests read; derived
+    because a hand-written sentence beside a composed one is two sentences that
+    drift.
+    """
+    assert REVIEW_LABEL == document_module.MARKING.review_label
+    assert document_module.MARKING.review_state == NO_LIFECYCLE
+    assert document_module.MARKING.authorship == MACHINE
+    assert document_module.MARKING.citable is False
