@@ -134,3 +134,30 @@ the review handoff. Frozen intent defects will be reported but not patched.
   Add rule-specific remediation assertions or a compact checked snapshot for
   entries whose action differs materially; do not compare responses back to
   the same production dict, which is tautological.
+
+### F6 — Server/tool failures are mislabeled as client-content refusals
+
+- **Location:** `server/meetingminer/acquisitions.py:276-310`
+- **Severity:** Medium
+- **Finding:** The table rationale says 503 is for conditions where this host
+  cannot answer and the URL may be fine, but several rules with exactly that
+  meaning are assigned 422. Most importantly, `probe-unreadable` is reachable
+  directly through the probe API when this host's yt-dlp returns output the
+  server cannot parse. `identity-mismatch`, `format-id-missing`,
+  `download-incomplete`, `tool-version-missing`, `drops-root-changed`, and an
+  incomplete existing local drop likewise direct the operator to upgrade or
+  repair the host, not change the submitted video. A UI can therefore present
+  a server/tool outage as invalid user content and suppress appropriate retry
+  behavior.
+- **Evidence:** `_refusal_problem()` maps these table values straight to the
+  response. Direct classification showed `probe-unreadable`,
+  `identity-mismatch`, `drops-root-changed`, and `existing-drop-incomplete` all
+  become 422, while their literal remediations respectively say to upgrade
+  yt-dlp, restart/check the host configuration, or quarantine corrupt host
+  state. This also explains why the F5 mutation survives: the suite pins only
+  the six originally selected host rules.
+- **Suggested direction:** Reclassify the unambiguous tool-output and local-
+  host-state rules as 503, keeping source/video conditions such as private
+  video, duration cap, no video stream, and missing publication metadata at
+  422. Encode the full reviewed partition in the F5 regression so future
+  category changes cannot pass as key-complete edits.
