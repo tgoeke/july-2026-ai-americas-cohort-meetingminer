@@ -128,6 +128,13 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   const [announcement, setAnnouncement] = useState('')
   const lastTierRef = useRef<Tier>(tier)
   const focusTimeRef = useRef<number | null>(null)
+  // Whether the reader has ever put keyboard focus on a cell. Once they have,
+  // a cell that stops existing — a tier change, or two moments clustering as
+  // the view zooms out — must hand focus on rather than drop it to the page.
+  const hadCellFocusRef = useRef(false)
+  // Set while focus is being handed on after a cell stopped existing, so the
+  // hand-off does not re-anchor the zoom onto the replacement cell.
+  const restoringRef = useRef(false)
 
   const focusedThread = threads.find((t) => t.threadId === focusedThreadId) ?? null
 
@@ -156,6 +163,15 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         Math.abs(midOf(c.span) - anchor) < Math.abs(midOf(best.span) - anchor) ? c : best,
       )
     setFocusedCellId(nearest.id)
+    // The cell that had focus is gone. If the reader was on it, put them on the
+    // cell that replaced it — otherwise the next arrow key goes to the page and
+    // the keyboard falls out of the timeline mid-zoom.
+    const active = typeof document === 'undefined' ? null : document.activeElement
+    if (hadCellFocusRef.current && (active === null || active === document.body)) {
+      restoringRef.current = true
+      cellRefs.current.get(nearest.id)?.focus()
+      restoringRef.current = false
+    }
   }, [cells, focusedCellId, view, width])
 
   // The tier change announces itself once, politely. Continuous zoom does not.
@@ -168,6 +184,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   const moveFocus = useCallback(
     (cell: Cell | null) => {
       if (cell === null) return
+      hadCellFocusRef.current = true
       focusTimeRef.current = midOf(cell.span)
       setFocusedCellId(cell.id)
       cellRefs.current.get(cell.id)?.focus()
@@ -175,9 +192,13 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     [],
   )
 
+  // The point a zoom step turns about: the instant the reader put focus on,
+  // held across every step. Anchoring on the *cell* instead would drift, because
+  // the cell is recomputed as the view moves — two moments cluster into one and
+  // the cluster's midpoint is not where the reader was looking.
   const focusPointX = useCallback((): number => {
-    if (focusedCell !== null) return xOf(midOf(focusedCell.span), view)
-    return width / 2
+    const anchor = focusTimeRef.current ?? (focusedCell === null ? null : midOf(focusedCell.span))
+    return anchor === null ? width / 2 : xOf(anchor, view)
   }, [focusedCell, view, width])
 
   const handleKeyDown = useCallback(
@@ -297,7 +318,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     'data-t': String(midOf(cell.span)),
     ref: registerCell(cell.id),
     onFocus: () => {
-      focusTimeRef.current = midOf(cell.span)
+      hadCellFocusRef.current = true
+      if (!restoringRef.current) focusTimeRef.current = midOf(cell.span)
       setFocusedCellId(cell.id)
     },
   })
