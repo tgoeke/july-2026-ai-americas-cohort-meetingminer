@@ -207,8 +207,25 @@ before the story started and recorded in AD-3.
 
 ## Review Triage Log
 
-_(empty — the review lane has not run. It fixes what it finds; see the review
-prompt.)_
+### Review Findings — 2026-08-31
+
+- [ ] [Review][Decision] F5 — A rerun can orphan surviving approved artifacts
+  from their retained source document. Story 4.1 preserves an approved
+  moment's complete artifact set, while Story 12.1 overwrites the only source
+  row with the new reply. Correct remediation requires an owner choice among
+  versioned sources and links, freezing reruns, or a lifecycle change; the
+  review lane does not silently choose one.
+- [ ] [Review][Patch] F1 — Make `documentText` required-but-nullable in OpenAPI
+  and the generated client. [`server/meetingminer/api/extraction.py:135`]
+- [ ] [Review][Patch] F2 — Type 404 and 409 `application/problem+json` bodies as
+  `ProblemDetails`. [`server/meetingminer/api/extraction.py:95`]
+- [ ] [Review][Patch] F3 — Turn lone-surrogate encoding failures into a named
+  document-specific `StageError`. [`server/meetingminer/pipeline/stages/extract.py:468`]
+- [ ] [Review][Patch] F4 — Align the route's public description with AD-4's
+  claim-about-evidence boundary. [`server/meetingminer/api/extraction.py:174`]
+- [ ] [Review][Patch] F6 — Add negative verification for digest disagreement,
+  adopted two-read disagreement, and the database length CHECK.
+  [`server/meetingminer/pipeline/stages/extract.py:919`]
 
 ## Design Notes
 
