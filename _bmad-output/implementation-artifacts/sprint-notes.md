@@ -3803,3 +3803,36 @@ against failing code first.
 deliberately (web/ outside its footprint), and it blocked story 6.5. The
 client now carries all three `/acquisitions` routes; `web-test` 294 passed and
 the production build is clean. **6.5 is unblocked.**
+
+## Story 7.4 — Speaker Naming UI — 2026-08-31
+
+The whole speaker chain — 7.1's diarization, 7.2's read, 7.3's write — became
+reachable. Three columns at `/meetings/:meetingId/speakers`, one control in
+the meeting view's rail to get there, and an optional `endMs` on the shared
+`ReplayPlayer` so a sample clip stops after eight seconds while every existing
+caller keeps open-ended playback.
+
+**One clause decided the architecture of the screen.** Story 7.3 deliberately
+admits its `PUT` while a meeting's evidence is unsettled, so a curator can
+correct the naming that made a rerun fail. Its sibling `GET …/speakers` and
+`GET …/drilldown` both still refuse that meeting with 409
+`meeting-not-viewable`. So a *successful* naming makes this screen's own two
+reads start refusing seconds later — every time, by design. The screen
+therefore never clears on a refused re-read: the last-known rows and lines
+stay, labelled as the pre-rerun reading, and every naming control stays live.
+The test for that clause was mutation-checked — a blanking implementation
+fails three tests, including the one that presses Unresolved a second time
+through the refusal window.
+
+**Two things the wire cannot say, filed rather than invented.** **B-41**: a
+*cold* load into an already-unsettled meeting has no cached rows, so the
+recovery write has no tag to name — the fix is extending 7.3's route-local
+exception to the read, which its own comment warns against generalizing, so it
+is an owner call. **B-42**: the speakers row carries no provenance for a
+resolution, so EXPERIENCE.md's `from transcript` copy would be a claim no
+served field backs on a row a curator named minutes earlier; the screen prints
+the api's own resolution word instead.
+
+Gates: `make test-fast` 2173 passed, 3 skipped (pre-existing, named); lint,
+typecheck and check-client clean; web suite 365 across 20 files with story
+2.2's own tests untouched.

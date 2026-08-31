@@ -2,13 +2,13 @@
 title: 'Story 7.4: Speaker Naming UI'
 type: 'feature'
 created: '2026-08-31'
-status: 'draft'
+status: 'review'
 baseline_commit: '3211a7f96b86d7df496cefa451b2cbd431e6d8b4'
 review_loop_iteration: 0
 followup_review_recommended: false
 context: []
 warnings: []
-deferred: []
+deferred: ['B-41', 'B-42']
 ---
 
 <intent-contract>
@@ -96,6 +96,49 @@ module. No behaviour change for a `ReplayPlayer` caller that passes no `endMs`.
 
 </intent-contract>
 
+## Deviations from the design spines
+
+Both spines say a builder may deviate with a reason recorded here.
+
+1. **A resolved row prints the api's resolution word, not `from transcript`.**
+   EXPERIENCE.md · State Patterns · *Resolved by source* asks for
+   `from transcript`. The wire cannot distinguish a source-supplied
+   attribution from a curator's assignment — `align` re-derives both and
+   writes the same three columns — so on a row a curator named minutes
+   earlier, `from transcript` is a claim no served field backs. The screen
+   prints `resolved`. Filed as **B-42** with the response-shape change that
+   would restore the designed copy.
+
+2. **The single-key shortcuts (`1` `2` `3`, `u`) are scoped to the naming
+   panel, not the window.** EXPERIENCE.md puts them behind story 10.5's
+   *Single-key shortcuts* toggle, which does not exist yet. A window-level
+   handler with no way to turn it off is precisely the WCAG 2.1.4 failure the
+   toggle exists to prevent, so the keys act only while focus is inside the
+   panel and never inside its text field. When 10.5 lands its toggle, widening
+   the scope is a one-line change at the handler.
+
+3. **`↑` `↓` on the speaker rows move focus and selection together.**
+   EXPERIENCE.md calls the list a roving group; this implementation gives each
+   row a real tab stop and moves focus with the arrows rather than managing
+   `tabindex`. Behaviourally equivalent for keyboard and screen reader, and it
+   keeps the rows real buttons.
+
+## What this story did not build
+
+- The rerun strip reads `/jobs/events` through the existing `useJobEvents`
+  hook and draws only the stages the `PUT` reported re-arming. It does not
+  seed from `GET /jobs/{id}`, so a reader who opens this screen while someone
+  else's rerun is already running sees no strip until they name a tag
+  themselves. Out of scope; not filed, because the single-operator premise
+  (EXPERIENCE.md · Foundation) makes it unreachable today.
+- The narrow presentation stacks the three columns at the `lg` breakpoint
+  (1024px) rather than DESIGN.md's 900px, because that is the breakpoint the
+  existing screens already stack at and story 10.5 owns the shell's widths.
+
 ## Change log
 
 - 2026-08-31 — spec written against `3211a7f`.
+- 2026-08-31 — built; status `review`. B-41 and B-42 filed. Verification:
+  `make test-fast` — 2173 passed, 3 skipped (pre-existing, named reasons);
+  `make lint`, `make typecheck`, `make check-client` clean; the full web
+  suite 365 passed across 20 files, including story 2.2's own tests unchanged.

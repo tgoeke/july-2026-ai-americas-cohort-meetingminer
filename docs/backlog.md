@@ -585,3 +585,51 @@ of `pipeline/speakers.py` into `domain/`, where both layers may use the one
 definition, and have the api mint `name:<normalized>` like the worker does.
 That is a small move, but it edits a module story 7.1 and B-36 were both
 holding when this was found.
+
+---
+
+### B-41 · A cold load into an unsettled meeting cannot list its speaker tags — M
+
+Story 7.3's `PUT /meetings/{id}/speakers/{tag}` is deliberately admitted while
+a meeting's evidence is unsettled, so a curator can correct the naming that
+made a rerun fail. Its sibling read, `GET /meetings/{id}/speakers`, still
+refuses that meeting with 409 `meeting-not-viewable`, as does
+`GET /meetings/{id}/drilldown`.
+
+Within one session the speakers screen (story 7.4) covers the gap: the rows it
+read before the naming stay on screen through the rerun, so the recovery
+gesture has a tag to act on. A *cold* load into an already-unsettled meeting
+has no such rows — the reader arrives, both reads refuse, and the write that
+would fix the meeting has no tag to name. The screen states the api's sentence
+and offers Retry, which is honest and useless: retrying cannot succeed until
+the rerun the curator is trying to fix has settled on its own.
+
+The fix is on the api, not the client: extend story 7.3's route-local
+recovery exception to the speakers read, so the one meeting state that admits
+the write also admits the read that makes the write usable. That is a policy
+decision about `_require_viewable`, which story 7.3's own comment explicitly
+warns against generalizing, so it needs the owner rather than a builder. A
+narrower version — the 409 body carrying the tag list — leaks aggregate data
+into a refusal and is probably worse.
+
+---
+
+### B-42 · The speakers wire carries no provenance for a resolution — S
+
+`GET /meetings/{id}/speakers` returns `speakerResolution` and, when resolved,
+a `participantId` and `displayName`. It carries nothing saying *who* resolved
+the row: a label the source supplied (a Teams export's `Goeke, Timothy`) and a
+label a curator assigned through story 7.3 are byte-identical on the wire,
+because `align` re-derives both and writes the same three columns.
+
+EXPERIENCE.md's Speaker naming state table asks a resolved row to read
+`from transcript`. Story 7.4 does not print that: on a row a curator named
+five minutes earlier it would be a claim no served field backs, and this
+product's first contract is that nothing on screen is invented. The screen
+prints the api's own resolution word instead.
+
+Restoring the designed copy needs a served field — a `resolvedBy`
+(`source | curator`) on the speakers row, derivable from whether a
+`speaker:<meetingId>:<tag>` alias exists. That is a story 7.2 response-shape
+change, which 7.2's one-shape criterion pins, so it is a spec decision rather
+than an edit.
