@@ -3803,3 +3803,37 @@ against failing code first.
 deliberately (web/ outside its footprint), and it blocked story 6.5. The
 client now carries all three `/acquisitions` routes; `web-test` 294 passed and
 the production build is clean. **6.5 is unblocked.**
+
+## Story 10.4 — Moments Feed Ranking — 2026-08-31
+
+`GET /moments/feed` is in review. Two halves: migration 0018's `ranking_signal`
+table plus a fourth whole-transcript extraction pass that fills it with
+moment-anchored risks and open questions, and the api route that scores stored
+rows with a pure function and serves the page.
+
+**Three things worth knowing at integrate.**
+
+- **`thread.colorOrdinal` is served as `null` on this branch, by design.** The
+  AC requires the field and the column arrives with story 10.3's migration
+  0017, in parallel. The query reads it as `to_jsonb(t) ->> 'color_ordinal'`,
+  which yields no key when the column is absent — so the real ordinal appears
+  the moment 0017 is applied, with no edit to 10.4's code. Naming the column
+  directly would have made the query a syntax error here; adding the column
+  would have put two definitions of one per-corpus sequence in the tree.
+- **Three edits outside the footprint, all recorded in the spec's change log.**
+  `config.py` (a `_StrictModel` refuses a config block no field declares, so
+  the AC's "every weight in config.yaml" is undeliverable without it),
+  `conftest.py`'s `EVIDENCE_TABLES` (TRUNCATE refuses to empty a table another
+  references however that reference cascades — omitting the name takes every
+  store-backed suite down), and three shared test modules whose asserted facts
+  a fourth generated document changes.
+- **The ranking-signals prompt sits at `ranking.signals_prompt`, not beside the
+  other three under `llm.roles.extraction`.** The footprint gave 10.4 the end
+  of `config.yaml` and gave the `llm:` block to no lane. Filed as **B-42** —
+  note that the wave prompts said "highest in use is B-40" but B-41 was
+  already taken by an eval-harness item, so other lanes in this wave may have
+  claimed B-42 too; renumber at integrate if so.
+
+Verification is in the spec's Auto Run Result: the full `make test` gate, the
+fast loop with lint and typecheck, and a red-first demonstration that a build
+counting `total` from the candidate scan fails four tests.

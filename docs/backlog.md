@@ -239,6 +239,29 @@ without editing `config.yaml`, the report and snapshot record that exact
 binding, and paired tests fail if either the settings surface or judge harness
 can drift from the other.
 
+### B-42 · Move the ranking-signals prompt beside the other extraction prompts — S
+
+Story 10.4 added a fourth whole-transcript extraction pass, but its prompt text
+lives at `ranking.signals_prompt` while the other three are fields on
+`ExtractionRoleBinding` (`llm.roles.extraction.arch_summary_prompt`,
+`action_items_prompt`, `topics_prompt`). Both are versioned configuration with
+recorded rationale and both reach the same `Llm(extraction)` port, so nothing
+is functionally wrong — but a reader looking for "the extraction prompts" finds
+three in one place and one somewhere else, and a future prompt author has two
+plausible homes to choose between. The split exists only because that wave's
+frozen footprint gave story 10.4 the end of `config.yaml` and gave the `llm:`
+block to no lane.
+
+**Do:** add `ranking_signals_prompt: NonEmptyText` to `ExtractionRoleBinding`,
+move the text into `llm.roles.extraction`, point the ranking-signals pass in
+`pipeline/stages/extract.py` at the binding field through `_PROMPT_FIELD`, and
+delete the key from the `ranking:` block. The weights stay where they are —
+they are ranking configuration, not prompts.
+
+**Done when:** all four extraction prompts are fields of one config class, the
+stage reads every one of them the same way, and a config omitting the new field
+fails at load with a named error rather than falling back.
+
 ## Robustness and hygiene
 
 ### B-15 · Stop embed-only projection from opening Neo4j — S
