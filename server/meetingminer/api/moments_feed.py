@@ -147,17 +147,23 @@ class FeedItem(BaseModel):
 
 
 class MomentsFeedResponse(BaseModel):
-    """The page, and the size of the set it was cut from.
+    """The page, its filtered size, and its selected-corpus denominator.
 
     ``total`` counts the rows that survived reason validation — never the raw
-    candidate scan — so `offset + len(items) <= total` always holds and a
-    client paging to the end is never handed a short page it cannot explain.
+    candidate scan — and all item filters. ``corpus_total`` counts the same
+    validated selected corpus before the meeting, thread, and kind filters, so
+    the client never derives that denominator or makes another HTTP request.
+
+    Every request is a live ranking, not a snapshot shared with another page.
+    The route clamps an offset beyond the filtered set to its end, so the
+    in-response invariant `offset + len(items) <= total` always holds.
     """
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     items: list[FeedItem]
     total: int
+    corpus_total: int
     limit: int
     offset: int
 
@@ -816,12 +822,6 @@ LEFT JOIN LATERAL (
 ) thr ON true
 WHERE COALESCE(m.provenance->>'superseded', '') <> 'true'
   AND (%(corpus)s::text IS NULL OR mt.corpus = %(corpus)s::text)
-  AND (%(meeting_id)s::uuid IS NULL OR m.meeting_id = %(meeting_id)s::uuid)
-  AND (%(thread_id)s::uuid IS NULL OR EXISTS (
-        SELECT 1 FROM topic_mention tm2
-        JOIN topic_thread tt2 ON tt2.topic_id = tm2.topic_id
-        WHERE tm2.moment_id = m.id AND tt2.thread_id = %(thread_id)s::uuid
-  ))
   AND (
         EXISTS (SELECT 1 FROM artifact a2 WHERE a2.moment_id = m.id)
      OR EXISTS (SELECT 1 FROM ranking_signal rs2 WHERE rs2.moment_id = m.id)
@@ -943,7 +943,13 @@ def moments_feed(
     limit: Annotated[int | None, Query(ge=1)] = None,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> MomentsFeedResponse:
-    """Rank stored signals, validate reasons, then page — in that order."""
+    """Rank stored signals, validate reasons, then page — in that order.
+
+    Pages are ranked at request time against the corpus as it exists then.
+    Ordering is not stable across requests: as ranking moves, a candidate may
+    repeat or be skipped across an offset boundary. This is a live feed, not a
+    stable paging snapshot shared by separate requests.
+    """
     ranking: RankingConfig = request.app.state.config.settings.ranking
     # One `now` for the whole request: two calls would let a candidate scored
     # at the top of the loop be compared against a different present than one
@@ -961,13 +967,15 @@ def moments_feed(
             conn,
             {
                 "corpus": corpus,
-                "meeting_id": meeting,
-                "thread_id": thread,
                 "recency_floor": recency_floor,
             },
         )
 
-    kept, dropped = rank_and_validate(candidates, ranking, now)
+    # Validate the selected corpus once, before every item filter. The same
+    # survivor set supplies both counts, so corpusTotal and total cannot see
+    # different database snapshots inside one request.
+    corpus_kept, dropped = rank_and_validate(candidates, ranking, now)
+    corpus_total = len(corpus_kept)
     for drop in dropped:
         # Named, never merely counted: a moment silently missing from the
         # front door is the failure this log line exists to make visible.
@@ -977,6 +985,18 @@ def moments_feed(
             reason=drop.reason,
             detail=drop.detail,
         )
+    kept = [
+        scored
+        for scored in corpus_kept
+        if (meeting is None or scored.candidate.meeting_id == meeting)
+        and (
+            thread is None
+            or any(
+                membership.thread_id == thread
+                for membership in scored.candidate.threads
+            )
+        )
+    ]
     if kind is not None:
         # Applied here — after validation, before the slice — so a filtered
         # `total` counts exactly the rows a caller can page through.
@@ -987,20 +1007,23 @@ def moments_feed(
         ]
 
     total = len(kept)
-    page = kept[offset : offset + page_size]
+    effective_offset = min(offset, total)
+    page = kept[effective_offset : effective_offset + page_size]
     logs.log_event(
         "moments.feed.served",
         total=total,
+        corpus_total=corpus_total,
         returned=len(page),
         dropped=len(dropped),
         limit=page_size,
-        offset=offset,
+        offset=effective_offset,
         corpus=corpus,
         kind=kind,
     )
     return MomentsFeedResponse(
         items=[to_item(scored, ranking.max_thread_reasons) for scored in page],
         total=total,
+        corpus_total=corpus_total,
         limit=page_size,
-        offset=offset,
+        offset=effective_offset,
     )

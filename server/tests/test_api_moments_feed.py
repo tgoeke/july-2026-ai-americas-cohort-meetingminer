@@ -343,13 +343,16 @@ def test_total_and_offsets_count_only_serializable_rows(client, test_pool) -> No
     first = client.get("/moments/feed?limit=2&offset=0").json()
     second = client.get("/moments/feed?limit=2&offset=2").json()
     past_the_end = client.get("/moments/feed?limit=2&offset=4").json()
+    well_past_the_end = client.get("/moments/feed?limit=2&offset=99").json()
 
     assert first["total"] == second["total"] == past_the_end["total"] == 4
     assert len(first["items"]) == 2
     assert len(second["items"]) == 2
     assert past_the_end["items"] == []
+    assert well_past_the_end["items"] == []
     assert first["offset"] == 0 and second["offset"] == 2
-    for response in (first, second, past_the_end):
+    assert well_past_the_end["offset"] == 4
+    for response in (first, second, past_the_end, well_past_the_end):
         assert response["offset"] + len(response["items"]) <= response["total"]
     # This unchanged, score-tied fixture remains stable; the endpoint contract
     # deliberately makes no such promise once ranking moves between requests.
