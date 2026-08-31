@@ -32,6 +32,21 @@ convention the next maintainer might not notice:
 4. Every UPSERT carries a ``WHERE`` that fires only on an actual change, so an
    unchanged rerun writes nothing at all — not even ``updated_at``.
 
+**Human curation is an input, not a casualty** (story 10.2a). Those four
+properties make a rerun reproduce the *machine's* answer, which is exactly why
+a human correction cannot be stored as an edit of this module's output: the
+next pass would rewrite ``thread.name`` from the seed topic and move the
+membership back, and the user would watch their own correction disappear.
+``domain/thread_curation.py`` holds the three API-owned tables that record
+merges, splits and renames (migration 0021), and :func:`derive_threads` reads
+them *before* it writes. A pinned topic is resolved to its pinned thread, and a
+thread merged away to its survivor, **before** the membership UPSERT — so each
+topic is still written by exactly one statement and property 4 above is
+untouched. A rename is not resolved here at all: it lives in a column this
+module never writes, so the two cannot collide by construction. A pin this
+corpus cannot match is reported rather than dropped (AD-18), and nothing here
+ever deletes a curation row.
+
 **No silent fallback.** An :class:`Embedder` is required. When the model host
 is unreachable the derivation raises before it writes anything, rather than
 half-running on the name leg and reporting success — a corpus threaded by name
@@ -59,6 +74,10 @@ from psycopg.types.json import Jsonb
 
 from meetingminer.adapters.embed.port import Embedder, Vector
 from meetingminer.config import AppConfig
+from meetingminer.domain.thread_curation import (
+    CURATED_SPLIT_PREFIX,
+    read_thread_curation,
+)
 
 # The three `topic_thread.linked_by` legs migration 0015's CHECK declares.
 SEED = "seed"
@@ -118,12 +137,28 @@ class ThreadCluster:
 
 @dataclass(frozen=True)
 class ThreadDerivation:
-    """What one derivation pass produced, for a caller to report."""
+    """What one derivation pass produced, for a caller to report.
+
+    The last three counts are the curation half, and they exist so a pass can
+    be *read* rather than inferred: how many memberships a human decision
+    placed, how many clusters were redirected onto a merge survivor, and — the
+    one that matters most — how many recorded corrections this corpus could
+    not match. A silently unapplied split and a corpus with no splits are
+    otherwise the same observation (AD-18).
+    """
 
     thread_count: int
     topic_count: int
     name_links: int
     embedding_links: int
+    # Memberships a `thread_topic_pin` placed, overriding the partition.
+    curated_links: int = 0
+    # Clusters whose thread was merged away, so their memberships were written
+    # to the survivor instead.
+    merged_clusters: int = 0
+    # Pins whose (meeting, normalized name) matched no topic in this pass. The
+    # rows are kept; the subject may return with the next re-extraction.
+    unmatched_pins: tuple[tuple[UUID, str], ...] = ()
 
 
 # --- the pure core ---------------------------------------------------------
@@ -496,16 +531,33 @@ def derive_threads(
     membership cannot be the condition for identity lifetime; the next pass
     reuses a matching content key, and a future explicit sweep may remove rows
     proven genuinely dead.
+
+    Human curation (story 10.2a) is read here and applied as the membership is
+    written, never afterwards — see the module docstring. This function still
+    writes only `thread` and `topic_thread`; it never writes, deletes or
+    repairs a curation row, which is what keeps AD-5's ownership split real
+    rather than nominal.
     """
     emit = log or _noop
     settings = config.settings.threads
     topics = read_topics_for_threading(conn)
+    curation = read_thread_curation(conn)
     if not topics:
         # No model call at all: an empty corpus has nothing to embed, and
         # asking an unreachable host to embed nothing would turn "there are no
-        # topics yet" into an outage.
-        emit("threads.derived", threads=0, topics=0)
-        return ThreadDerivation(thread_count=0, topic_count=0, name_links=0, embedding_links=0)
+        # topics yet" into an outage. Curation is still reported: every pin on
+        # record is unmatched when there are no topics, and saying so is the
+        # difference between "nothing to do" and "your corrections did not
+        # apply" (AD-18).
+        unmatched = curation.unmatched_pins(())
+        emit("threads.derived", threads=0, topics=0, unmatched_pins=len(unmatched))
+        return ThreadDerivation(
+            thread_count=0,
+            topic_count=0,
+            name_links=0,
+            embedding_links=0,
+            unmatched_pins=unmatched,
+        )
 
     vectors = embed_topic_names(embedder, topics)
     clusters = cluster_topics(
@@ -522,6 +574,9 @@ def derive_threads(
 
     name_links = 0
     embedding_links = 0
+    curated_links = 0
+    merged_clusters = 0
+    topic_by_id = {topic.id: topic for topic in topics}
     reserved_by_key = _threads_by_identity_key(conn, clusters)
     claimed_thread_ids = set(reserved_by_key.values())
     for cluster in clusters:
@@ -538,12 +593,36 @@ def derive_threads(
             existing_thread_id=existing,
         )
         claimed_thread_ids.add(thread_id)
+        # The cluster's own row keeps its identity, its name and its colour
+        # even when it has been merged away: a merge moves *memberships*, so
+        # the absorbed row stays as the durable identity a later unmerge or a
+        # later rerun can still find, and `color_ordinal` is never touched by
+        # either side (migration 0017's immutability trigger would refuse it).
+        if curation.follow_alias(thread_id) != thread_id:
+            merged_clusters += 1
         for member in cluster.members:
-            _upsert_membership(conn, member, thread_id=thread_id)
-            if member.linked_by == NAME_LINK:
+            topic = topic_by_id[member.topic_id]
+            target, pinned = curation.thread_for(
+                meeting_id=topic.meeting_id,
+                normalized_name=topic.normalized_name,
+                derived_thread_id=thread_id,
+            )
+            _upsert_membership(conn, member, thread_id=target)
+            if pinned:
+                curated_links += 1
+            elif member.linked_by == NAME_LINK:
                 name_links += 1
             elif member.linked_by == EMBEDDING_LINK:
                 embedding_links += 1
+
+    # Every subject this pass could see, in the pin's own key space, so an
+    # unmatched pin is decided against the corpus rather than against whichever
+    # clusters happened to form.
+    present = {(topic.meeting_id, topic.normalized_name) for topic in topics}
+    unmatched = curation.unmatched_pins(present)
+    stale_hints = curation.stale_hints(
+        {(topic.meeting_id, topic.normalized_name): topic.id for topic in topics}
+    )
 
     emit(
         "threads.derived",
@@ -551,12 +630,30 @@ def derive_threads(
         topics=len(topics),
         name_links=name_links,
         embedding_links=embedding_links,
+        curated_links=curated_links,
+        merged_clusters=merged_clusters,
+        unmatched_pins=len(unmatched),
+        stale_pin_hints=stale_hints,
     )
+    if unmatched:
+        # A separate event, not a field on the one above, because this is the
+        # sentence an operator has to be able to find: a human correction is on
+        # record and did not apply to this corpus. Each key is named — a count
+        # alone would not say *which* split is waiting for its subject to come
+        # back (AD-18).
+        emit(
+            "threads.curation_unmatched",
+            pins=len(unmatched),
+            keys=[f"{meeting_id}:{name}" for meeting_id, name in unmatched],
+        )
     return ThreadDerivation(
         thread_count=len(clusters),
         topic_count=len(topics),
         name_links=name_links,
         embedding_links=embedding_links,
+        curated_links=curated_links,
+        merged_clusters=merged_clusters,
+        unmatched_pins=unmatched,
     )
 
 
@@ -649,14 +746,34 @@ def _attached_thread_to_reuse(
     Exact content-key rows have already been reserved for their own clusters.
     The remaining ordered choice preserves identity across a backfill without
     allowing two products of a split to collapse back onto the same row.
+
+    **A thread minted by a split is never a reuse target** (story 10.2a). This
+    is the subtle way a rerun could undo a curation, and it is subtle precisely
+    because attachment is the mechanism that normally *preserves* identity: a
+    curated thread is attached to the very topics that were split onto it, so
+    without this filter the cluster the split was correcting would claim the
+    curated row here, and `_upsert_thread` would then overwrite its
+    `identity_key` and its name with the machine's — quietly reversing the
+    correction while reporting a successful pass. The key space makes the test
+    exact rather than heuristic (`domain/thread_curation.py`): a derived key is
+    a normalized name, which `normalized_topic_name` reduces to alphanumerics
+    and single spaces, or the literal prefix `topic-name-sha256:`. Neither can
+    begin with the curated prefix.
+
+    A cluster whose every member is pinned away therefore mints a fresh row on
+    the pass after a split and reuses it by content key on every pass after
+    that. The row is left with no memberships, which is the state migration
+    0015 already retains deliberately, and it is invisible to `GET /threads`
+    because that route joins membership.
     """
     members = [member.topic_id for member in cluster.members]
     attached = conn.execute(
         "SELECT DISTINCT th.id, th.identity_key"
         " FROM topic_thread tt JOIN thread th ON th.id = tt.thread_id"
         " WHERE tt.topic_id = ANY(%s)"
+        " AND NOT starts_with(th.identity_key, %s)"
         " ORDER BY th.identity_key, th.id",
-        (members,),
+        (members, CURATED_SPLIT_PREFIX),
     ).fetchall()
     return next((row[0] for row in attached if row[0] not in unavailable), None)
 

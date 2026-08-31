@@ -503,6 +503,13 @@ EVIDENCE_TABLES = (
     # clearing it. Both are worker-owned, machine-derived navigation metadata,
     # never artifacts.
     "thread", "topic_thread",
+    # story 10.2a. The API-owned curation tables (migration 0021), named for
+    # the same reason `participant_alias` is: they reference `thread` and
+    # `meeting`, so omitting them refuses both truncations above and takes
+    # every store-backed suite with it. They are also exactly the rows a test
+    # must not leak into the next one — a stray pin silently re-routes another
+    # test's derivation, which is the failure this whole story is about.
+    "thread_curation", "thread_alias", "thread_topic_pin",
     # story 10.4. `ranking_signal` references `moment` (composite, cascading),
     # and TRUNCATE refuses to empty a table another one references however
     # that reference cascades on DELETE — so omitting this name would refuse
