@@ -3874,7 +3874,13 @@ deselected, with ruff and mypy clean. Full `make test` at `f0d24c7`: server
 harness 655, diarization 92 and the puller's 118 subtests. The three skips are
 the pre-existing named ones — `pyannote.audio` is not installed, and the two
 real-network tests need their env flags. `branch_conflicts.py --against
-story/10-3`: 15 clean pairs, 0 conflicting.
+story/10-3`: `main × story/10-3` **clean**, and clean against every sibling
+branch for every code, test, migration, config and doc file — including
+`docs/backlog.md` and `test_api_registry.py`, the two shared files this story
+touched. The only reported conflicts are `sprint-notes.md` against each
+sibling, which is the union the wave rules expect from a file with no merge
+driver (an earlier run at `f0d24c7` was clean on all 15 pairs; the siblings
+have appended their own entries since).
 
 **`make client` is owed at integration.** The generated TS client does not
 carry `/threads` or `/threads/{threadId}/timeline`: regenerating it needs a
