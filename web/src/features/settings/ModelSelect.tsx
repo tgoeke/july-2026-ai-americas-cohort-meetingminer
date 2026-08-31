@@ -46,6 +46,7 @@ export function ModelSelect({ role: roleName = ASK_BOX_ROLE }: ModelSelectProps 
   const [activeIndex, setActiveIndex] = useState(0)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const listRef = useRef<HTMLDivElement | null>(null)
+  const containerRef = useRef<HTMLSpanElement | null>(null)
 
   const close = useCallback(() => {
     setOpen(false)
@@ -57,6 +58,20 @@ export function ModelSelect({ role: roleName = ASK_BOX_ROLE }: ModelSelectProps 
   // popovers trap nothing).
   useEffect(() => {
     if (open) listRef.current?.focus()
+  }, [open])
+
+  // A pointer down anywhere else dismisses it, the way every popover in the
+  // product does. Focus is not forced back to the trigger here: the reader
+  // aimed at something else, and stealing focus would fight that.
+  useEffect(() => {
+    if (!open) return
+    const dismiss = (event: MouseEvent) => {
+      const target = event.target
+      if (target instanceof Node && containerRef.current?.contains(target)) return
+      setOpen(false)
+    }
+    document.addEventListener('mousedown', dismiss)
+    return () => document.removeEventListener('mousedown', dismiss)
   }, [open])
 
   if (load.kind === 'loading') {
@@ -127,7 +142,7 @@ export function ModelSelect({ role: roleName = ASK_BOX_ROLE }: ModelSelectProps 
   }
 
   return (
-    <span className="relative flex flex-col gap-1">
+    <span ref={containerRef} className="relative flex flex-col gap-1">
       <button
         ref={triggerRef}
         type="button"

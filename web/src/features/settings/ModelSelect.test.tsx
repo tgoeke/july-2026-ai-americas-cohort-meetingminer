@@ -311,6 +311,20 @@ describe('ModelSelect', () => {
     expect(screen.getByTestId('model-select-trigger')).toHaveFocus()
   })
 
+  it('dismisses on a pointer down outside it', async () => {
+    stubApi()
+    render(
+      <div>
+        <ModelSelect />
+        <button type="button">elsewhere</button>
+      </div>,
+    )
+    const user = await openPicker()
+
+    await user.click(screen.getByRole('button', { name: 'elsewhere' }))
+    await waitFor(() => expect(screen.queryByTestId('model-select-listbox')).toBeNull())
+  })
+
   it('reports unknown health rather than a green dot when status cannot be read', async () => {
     stubApi({ status: () => Promise.reject(new TypeError('Failed to fetch')) })
     render(<ModelSelect />)
