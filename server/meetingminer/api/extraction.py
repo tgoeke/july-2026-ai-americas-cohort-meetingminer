@@ -31,6 +31,7 @@ from pydantic.alias_generators import to_camel
 from meetingminer import logs
 from meetingminer.api.moments import _require_viewable
 from meetingminer.api.problems import Problem
+from meetingminer.projections.documents import AUTHORSHIP, REVIEW_LABEL, REVIEW_STATE
 
 router = APIRouter()
 
@@ -155,6 +156,19 @@ class ExtractionDocument(BaseModel):
     # the silent degradation AD-18 forbids, so they are distinct on the wire
     # and every renderer must keep them distinct.
     document_text: str | None
+    # AD-18, on every surface that renders a document (story 12.4). The same
+    # three fields the indexed record carries, from the same constants, so the
+    # search result and this panel cannot say different things about the same
+    # document. `citable` is always false and is sent anyway: a consumer should
+    # be able to refuse to cite a document without knowing the architecture.
+    #
+    # This endpoint predates the search projection and serves documents
+    # regardless of approval — which is the same ungated reach AD-4's exception
+    # grants search, so it carries the same label for the same reason.
+    review_state: str = REVIEW_STATE
+    authorship: str = AUTHORSHIP
+    review_label: str = REVIEW_LABEL
+    citable: bool = False
     created_at: datetime
     updated_at: datetime
 

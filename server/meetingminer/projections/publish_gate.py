@@ -1,4 +1,4 @@
-"""The publish gate: nothing outside `published` state is ever projected (AD-4).
+"""The publish gate: no *artifact* outside `published` state is projected (AD-4).
 
 AD-4 puts this gate *inside* the projection module rather than in the API. The
 `artifact` table exists (story 4.1) and story 4.4 wired the production callers:
@@ -15,6 +15,30 @@ The consequence AD-4 draws from this: search and chat operate over evidence
 plus *published* artifacts only. An unpublished artifact is visible solely in
 the moment view's right rail, through API reads of Postgres — never through a
 projected store.
+
+**One deliberate exception, and this docstring names it so the gate's account
+of itself stays true.** Extraction documents are projected *without* passing
+this gate — every one of them, as soon as it is stored, approved or not (owner
+ruling 2026-08-31, recorded in AD-4). The reasoning is story 12.1's motivation
+turned around: the run whose text somebody needs to read is exactly the run
+that yielded nothing worth approving, so gating documents behind approval would
+withhold them in precisely the case they exist for. The exception is narrow in
+two ways that this module's rule keeps intact, and both are enforced in
+:mod:`meetingminer.projections.documents` rather than asserted here:
+
+* It is an exception to **reach**, never to legibility. A document carries its
+  unreviewed, machine-written status in the indexed record itself, and every
+  surface that renders one labels it (AD-18).
+* It is **never a citation target**. A document is a claim *about* evidence,
+  so citing it would establish that the model said something rather than that
+  the meeting did — the circularity this gate exists to prevent. Its content
+  reaches an answer only through the moments its individual claims anchor to,
+  which is the published-artifact path above, gated exactly as before (AD-6).
+
+So the sentence this gate can still stand behind is: nothing uncitable becomes
+citable, and no unpublished *artifact* is ever projected. What changed is that
+"projected" no longer implies "published" for every kind of thing in the
+stores.
 """
 
 from __future__ import annotations
