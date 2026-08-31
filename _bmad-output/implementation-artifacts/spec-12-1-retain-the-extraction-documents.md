@@ -3,7 +3,7 @@ title: 'Story 12.1: Retain the Extraction Documents'
 type: 'feature'
 created: '2026-08-31'
 baseline_revision: '9fc760fe939922528826da9a54e891694e0c7bad'
-status: 'review'
+status: 'in-progress'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
@@ -215,15 +215,15 @@ before the story started and recorded in AD-3.
   row with the new reply. Correct remediation requires an owner choice among
   versioned sources and links, freezing reruns, or a lifecycle change; the
   review lane does not silently choose one.
-- [ ] [Review][Patch] F1 — Make `documentText` required-but-nullable in OpenAPI
+- [x] [Review][Patch] F1 — Make `documentText` required-but-nullable in OpenAPI
   and the generated client. [`server/meetingminer/api/extraction.py:135`]
-- [ ] [Review][Patch] F2 — Type 404 and 409 `application/problem+json` bodies as
+- [x] [Review][Patch] F2 — Type 404 and 409 `application/problem+json` bodies as
   `ProblemDetails`. [`server/meetingminer/api/extraction.py:95`]
-- [ ] [Review][Patch] F3 — Turn lone-surrogate encoding failures into a named
+- [x] [Review][Patch] F3 — Turn lone-surrogate encoding failures into a named
   document-specific `StageError`. [`server/meetingminer/pipeline/stages/extract.py:468`]
-- [ ] [Review][Patch] F4 — Align the route's public description with AD-4's
+- [x] [Review][Patch] F4 — Align the route's public description with AD-4's
   claim-about-evidence boundary. [`server/meetingminer/api/extraction.py:174`]
-- [ ] [Review][Patch] F6 — Add negative verification for digest disagreement,
+- [x] [Review][Patch] F6 — Add negative verification for digest disagreement,
   adopted two-read disagreement, and the database length CHECK.
   [`server/meetingminer/pipeline/stages/extract.py:919`]
 
