@@ -4139,6 +4139,14 @@ screen below the excerpt.
   lands; the field names are that story's acceptance criteria verbatim, and
   every test drives them as fixtures.
 
-The Threads placeholder is registered at `/threads/*` so a thread chip's deep
-link resolves there rather than falling to the catch-all; 10.6 replaces the
-element and may narrow the path.
+The Threads placeholder lives in `features/threads/ThreadsPlaceholder.route.tsx`
+at path `/threads/*`, so a thread chip's deep link resolves there rather than
+falling to the catch-all. It is **not** named `Threads.route.tsx`, which is
+what both build prompts implied: story 10.6 had already created that exact file
+on its own branch, and `branch_conflicts.py` reported the collision. Narrowing
+this lane's edit — a separate filename — was the fix, per the wave rule that
+you narrow your own edit rather than touch the other branch's file. **Delete
+this file and `ThreadsPlaceholder.tsx` at integration**; 10.6 ships
+`/threads` and react-router ranks it above the splat, so the placeholder is
+dead the moment 10.6 lands and only ever answers a thread deep link that 10.6
+has no route for.
