@@ -39,6 +39,15 @@ Date: 2026-08-31
 - **Suggested direction** — Remove the unconditional lifecycle claim (or make any phase-specific claim derive from an explicit served field). Preserve the api's refusal detail and remediation as the authoritative explanation.
 - **Disposition** — fixed red-first. The intake-failure regression failed because the unconditional no-finalization sentence was present; it passed after the UI left lifecycle facts to the served refusal detail/remediation.
 
+### F4 — Offline URL validation rejects a watch URL the server accepts
+
+- **Location** — `web/src/features/acquisitions/youtubeUrl.ts:81`
+- **Severity** — medium
+- **Finding** — A watch URL with one valid `v` value and an additional blank `v` parameter is accepted by the server but blocked offline by the screen, so the claimed mirror has drifted.
+- **Evidence** — Python's `parse_qs` in `server/meetingminer/youtube.py:244` drops blank query values by default; `video_id_from_url('https://youtube.com/watch?v=dQw4w9WgXcQ&v=')` returns the valid id. `URLSearchParams.getAll('v')` preserves the blank value, so the client sees two entries and rejects at lines 81–82. The frozen shape-valid contract requires the client to mirror the server and the review prompt explicitly calls out multiple `v=` keys.
+- **Suggested direction** — Match `parse_qs` by discarding empty `v` values before applying the exactly-one rule, while continuing to reject two non-empty candidates.
+- **Disposition** — patchable; remediation in progress.
+
 ## Disposition
 
 Review in progress. No pass/fail verdict has been assigned.
