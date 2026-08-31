@@ -173,7 +173,8 @@ def extraction_sources(pool: ConnectionPool, meeting_id: UUID) -> dict[str, dict
     with pool.connection() as conn:
         rows = conn.execute(
             "SELECT kind, origin, drop_relative_path, sha256, byte_size, layout,"
-            " item_count, artifact_count, model, prompt_version, prompt_hash"
+            " item_count, artifact_count, model, prompt_version, prompt_hash,"
+            " document_text"
             " FROM extraction_source WHERE meeting_id = %s",
             (meeting_id,),
         ).fetchall()
@@ -189,6 +190,7 @@ def extraction_sources(pool: ConnectionPool, meeting_id: UUID) -> dict[str, dict
             "model": row[8],
             "prompt_version": row[9],
             "prompt_hash": row[10],
+            "document_text": row[11],
         }
         for row in rows
     }
@@ -309,6 +311,8 @@ def test_adopting_both_documents_makes_no_model_call_and_records_both_sources(
         "model": None,
         "prompt_version": None,
         "prompt_hash": None,
+        # Story 12.1: the document itself, not only a description of it.
+        "document_text": SUMMARY_DOC,
     }
     assert sources["action-items"]["drop_relative_path"] == (
         f"{drop.name}/extraction-action-items.md"
@@ -1237,3 +1241,261 @@ def test_search_never_returns_an_extracted_artifacts_content(
     # draft's title or body text anywhere in its fields.
     hits = response.json()["hits"]
     assert "Zorblatt" not in json.dumps(hits)
+
+
+# --- story 12.1: the document is retained, and it is the bytes that parsed ---
+#
+# Measured on the live corpus 2026-08-31: 45 extraction runs, 193 artifacts,
+# zero retained documents. The row said everything about a run except what the
+# model wrote, so the run whose text somebody needs to read — the one that
+# yielded nothing worth approving — left no readable trace at all.
+
+# Prose the parser has no use for, wrapped around a table it does. The point of
+# retaining the document is that the reader sees this paragraph too: a parse of
+# the document is not a substitute for it.
+GENERATED_SUMMARY_WITH_ASIDE = """\
+# Architecture summary — Data Hub Demo
+
+The team spent most of the hour on the vendor feed, and the tone was noticeably
+more settled than last week. Nothing below captures that, which is the point.
+
+## 3. Decisions made
+
+| ID | Decision | Context and consequences | Mark | Timestamp |
+|----|----------|--------------------------|------|-----------|
+| D1 | Standardize on SFTP | The vendor feed moves off the shared mailbox | Confirmed | [0:10] |
+
+## Parking lot
+
+Revisit the retention window once legal answers. No decision, no owner, no date.
+"""
+
+
+def stored_document(pool: ConnectionPool, meeting_id: UUID, kind: str) -> str | None:
+    with pool.connection() as conn:
+        return conn.execute(
+            "SELECT document_text FROM extraction_source"
+            " WHERE meeting_id = %s AND kind = %s",
+            (meeting_id, kind),
+        ).fetchone()[0]
+
+
+def assert_checksum_verifies(source: dict[str, Any], kind: str) -> None:
+    """The story's own requirement, checked the way a reader would check it.
+
+    The recorded `sha256` and `byte_size` describe the bytes the parser read.
+    If the stored text is those bytes, hashing the stored text reproduces the
+    recorded digest — so this is the assertion that proves the retained
+    document is the document the artifacts came from, rather than a
+    re-rendering that merely looks like it.
+    """
+    text = source["document_text"]
+    assert text is not None, f"the {kind} document was not retained"
+    raw = text.encode("utf-8")
+    assert hashlib.sha256(raw).hexdigest() == source["sha256"], (
+        f"the retained {kind} text does not hash to the recorded sha256"
+    )
+    assert len(raw) == source["byte_size"]
+
+
+def test_an_adopted_document_is_retained_byte_for_byte_under_its_recorded_sha256(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_transcript_drop: Callable[..., Any],
+    fake_llm: Callable[..., FakeLlm],
+) -> None:
+    """AC 2: a document the drop carried is stored exactly as a generated one is.
+
+    The reason is AD-4, not economy. `projections/` never opens an evidence
+    file — it reads Postgres values only, and `rebuild` regenerates both stores
+    from Postgres plus `config.yaml` alone — so text living only in the drop
+    could not be indexed and would fall out of search on every rebuild.
+    """
+    fake_llm()
+    drop = make_transcript_drop(
+        "source-adopted-text", summary=SUMMARY_DOC, actions=ACTIONS_DOC
+    )
+    job_id = enqueue(pool, drop, "source-adopted-text")
+    assert runner.run_once(pool, app_config, content_root) is True
+    assert job_row(pool, job_id) == ("done", None)
+
+    [meeting] = meetings(pool, job_id)
+    sources = extraction_sources(pool, meeting["id"])
+
+    # Byte-for-byte against the file still sitting in the write-once drop —
+    # not "equivalent markdown", the same bytes.
+    on_disk = (drop / "extraction-summary.md").read_bytes()
+    assert sources["arch-summary"]["document_text"].encode("utf-8") == on_disk
+    assert sources["action-items"]["document_text"] == ACTIONS_DOC
+    for kind in ("arch-summary", "action-items"):
+        assert sources[kind]["origin"] == "adopted"
+        assert_checksum_verifies(sources[kind], kind)
+
+    # And the row still points at the drop file: the copy is what makes the
+    # document indexable, and it does not replace the provenance path.
+    assert sources["arch-summary"]["drop_relative_path"] == (
+        f"{drop.name}/extraction-summary.md"
+    )
+
+
+def test_a_generated_document_is_retained_verbatim_including_the_ignored_prose(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_transcript_drop: Callable[..., Any],
+    fake_llm: Callable[..., FakeLlm],
+) -> None:
+    """AC 1: what is stored is the model's reply, not the parser's view of it."""
+    fake_llm(replies=(GENERATED_SUMMARY_WITH_ASIDE, ACTIONS_DOC))
+    job_id = enqueue(
+        pool, make_transcript_drop("source-generated-text"), "source-generated-text"
+    )
+    assert runner.run_once(pool, app_config, content_root) is True
+    assert job_row(pool, job_id) == ("done", None)
+
+    [meeting] = meetings(pool, job_id)
+    sources = extraction_sources(pool, meeting["id"])
+    summary = sources["arch-summary"]
+    assert summary["origin"] == "generated"
+    assert summary["document_text"] == GENERATED_SUMMARY_WITH_ASIDE
+    assert_checksum_verifies(summary, "arch-summary")
+
+    # The two things the parser threw away are in the stored text — that is
+    # the whole difference between keeping the document and keeping its parse.
+    assert "more settled than last week" in summary["document_text"]
+    assert "## Parking lot" in summary["document_text"]
+    assert summary["item_count"] == 1, "and only the one table row became an item"
+
+    # Every kind the run wrote is retained, the always-generated ones included:
+    # `topics` and `ranking-signals` are documents a reader may need for the
+    # same reason the artifact documents are.
+    assert set(sources) == {
+        "arch-summary", "action-items", "topics", "ranking-signals",
+    }
+    for kind, source in sources.items():
+        assert_checksum_verifies(source, kind)
+
+
+def test_a_rerun_replaces_the_document_alongside_the_artifacts_it_yielded(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_transcript_drop: Callable[..., Any],
+    fake_llm: Callable[..., FakeLlm],
+) -> None:
+    """AC 3: a stored document is never a stale record of a changed run."""
+    fake_llm(replies=(GENERATED_SUMMARY_WITH_ASIDE, ACTIONS_DOC))
+    job_id = enqueue(
+        pool, make_transcript_drop("source-rerun-text"), "source-rerun-text"
+    )
+    assert runner.run_once(pool, app_config, content_root) is True
+    [meeting] = meetings(pool, job_id)
+    assert stored_document(pool, meeting["id"], "arch-summary") == (
+        GENERATED_SUMMARY_WITH_ASIDE
+    )
+    first_titles = [row["title"] for row in artifact_rows(pool, meeting["id"])]
+    assert "Standardize on SFTP" in first_titles
+
+    # A second run answering differently: two decisions instead of one, and
+    # different prose around them.
+    rerun_doc = SUMMARY_DOC
+    fake_llm(replies=(rerun_doc, ACTIONS_DOC))
+    requeue_extract(pool, job_id)
+    assert runner.run_once(pool, app_config, content_root) is True
+
+    source = extraction_sources(pool, meeting["id"])["arch-summary"]
+    assert source["document_text"] == rerun_doc, "the document was replaced whole"
+    assert "## Parking lot" not in source["document_text"], (
+        "and nothing of the superseded run survived in it"
+    )
+    assert_checksum_verifies(source, "arch-summary")
+    # The artifacts moved with it, so the document and the rows it explains
+    # describe the same run.
+    assert source["item_count"] == 2
+    assert {row["title"] for row in artifact_rows(pool, meeting["id"])} == {
+        "Standardize on SFTP",
+        "Ops owns the credentials",
+        "Set up the SFTP credentials",
+    }
+
+
+def test_a_document_that_yielded_nothing_is_retained_and_still_named(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_transcript_drop: Callable[..., Any],
+    fake_llm: Callable[..., FakeLlm],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """AC 5, and the case the whole story exists for.
+
+    A document whose populated sections parsed to zero items is retained
+    regardless — it is the one run with nothing else to read — and the
+    existing no-silent-zero signal still fires over it, unchanged.
+    """
+    fake_llm()
+    job_id = enqueue(
+        pool,
+        make_transcript_drop(
+            "source-zero-retained", summary=ZERO_YIELD_DOC, actions=EMPTY_DOC
+        ),
+        "source-zero-retained",
+    )
+    assert runner.run_once(pool, app_config, content_root) is True
+    assert job_row(pool, job_id) == ("done", None)
+
+    [meeting] = meetings(pool, job_id)
+    assert artifact_rows(pool, meeting["id"]) == [], "nothing was worth approving"
+
+    sources = extraction_sources(pool, meeting["id"])
+    summary = sources["arch-summary"]
+    assert summary["item_count"] == 0 and summary["artifact_count"] == 0
+    assert summary["document_text"] == ZERO_YIELD_DOC, (
+        "the run that produced no artifacts is exactly the run whose text"
+        " somebody needs to read"
+    )
+    assert_checksum_verifies(summary, "arch-summary")
+    # A document that is honestly empty of items is retained too, and is not
+    # the same thing as a document that was never kept: `''` would be a real
+    # empty document, `NULL` is a run from before retention existed.
+    assert sources["action-items"]["document_text"] == EMPTY_DOC
+
+    # The named signal is unchanged by retention.
+    zeros = [
+        r for r in log_events(capsys) if r["event"] == "stage.extract.zero_artifacts"
+    ]
+    assert [r["document"] for r in zeros] == ["arch-summary"]
+    assert zeros[0]["populated_sections"] == ["Decisions and open questions"]
+
+
+def test_a_document_carrying_a_nul_is_refused_by_name(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_transcript_drop: Callable[..., Any],
+    fake_llm: Callable[..., FakeLlm],
+) -> None:
+    """A NUL is valid UTF-8 and unstorable in Postgres `text`.
+
+    Deliberately placed in prose the parser ignores, so no artifact column
+    ever sees it and the retained document is the only thing that would carry
+    it. Without the stage's own check this reaches psycopg as an unattributed
+    `DataError` naming no document; it must name the document, like every
+    other unusable input in this stage.
+    """
+    fake_llm(
+        replies=(
+            GENERATED_SUMMARY_WITH_ASIDE.replace(
+                "more settled", "more\x00settled"
+            ),
+        )
+    )
+    job_id = enqueue(pool, make_transcript_drop("source-nul"), "source-nul")
+
+    assert runner.run_once(pool, app_config, content_root) is True
+
+    status, error = job_row(pool, job_id)
+    assert status == "failed"
+    assert error is not None
+    assert "arch-summary" in error and "NUL" in error
