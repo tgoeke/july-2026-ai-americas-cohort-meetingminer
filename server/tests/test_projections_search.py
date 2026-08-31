@@ -1217,6 +1217,7 @@ def test_the_settle_point_indexes_documents_without_reprojecting_the_meeting(
     app_config: AppConfig,
     projection_stores: Any,
     fake_embedder: FakeEmbedder,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """"As soon as it is stored", which the structural pass alone cannot give.
 
@@ -1233,6 +1234,13 @@ def test_the_settle_point_indexes_documents_without_reprojecting_the_meeting(
     project(pool, app_config, seeded.meeting_id, fake_embedder)
     moments_before = documents_of(client, MOMENTS_INDEX, seeded.meeting_id)
     assert documents_of(client, DOCUMENTS_INDEX, seeded.meeting_id) == []
+
+    @contextmanager
+    def graph_must_not_open(*_args: Any, **_kwargs: Any):
+        raise AssertionError("a documents-only projection must not open Neo4j")
+        yield
+
+    monkeypatch.setattr(projections, "neo4j_driver", graph_must_not_open)
 
     with pool.connection() as conn:
         seed_document(conn, seeded.meeting_id)
