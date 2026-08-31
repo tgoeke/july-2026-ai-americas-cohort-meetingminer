@@ -608,12 +608,12 @@ class ProbeReport:
 def probe_only(url: str, *, max_duration_minutes: int) -> ProbeReport:
     """The refusal matrix without the acquisition (story 6.4's probe route).
 
-    Composed from the same functions :func:`acquire` calls, in the same order,
-    so what the pre-submit check accepts is exactly what the acquisition
-    accepts: :func:`video_id_from_url`, :func:`ensure_tools`, :func:`probe`,
-    :func:`validate_info`, :func:`select_captions`. ``require_format_id`` is
-    ``False`` for the same reason it is in :func:`acquire`'s pre-download
-    check — no format has been selected yet.
+    Composed from the same focused checks :func:`acquire` calls:
+    :func:`video_id_from_url`, :func:`ensure_tools`, :func:`probe`, video
+    identity, :func:`refuse_unacceptable`, and :func:`select_captions`. It
+    deliberately stops before acquisition-only provenance requirements such
+    as publisher and publication time; the frozen pre-submit boundary names
+    URL/identity, availability, stream, tool, and duration checks only.
 
     ``title`` falls back to the video id exactly as :func:`acquire` does when
     the metadata carries no usable one, so the pre-submit preview names the
@@ -623,12 +623,8 @@ def probe_only(url: str, *, max_duration_minutes: int) -> ProbeReport:
     ensure_tools()
     canonical = watch_url(video_id)
     info = probe(canonical)
-    validate_info(
-        info,
-        expected_video_id=video_id,
-        max_duration_minutes=max_duration_minutes,
-        require_format_id=False,
-    )
+    _validate_video_identity(info, video_id)
+    refuse_unacceptable(info, max_duration_minutes=max_duration_minutes)
     title = info.get("title")
     return ProbeReport(
         video_id=video_id,
