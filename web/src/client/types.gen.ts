@@ -1241,6 +1241,69 @@ export type LlmRoleView = {
 };
 
 /**
+ * MeetingArtifact
+ *
+ * One artifact scoped to the meeting rather than to a moment.
+ *
+ * Deliberately carries **no** moment id and no replay offset. There is
+ * nothing to omit: the row has no moment, and a field that were present and
+ * null would invite a consumer to treat "meeting-scoped" as "citation not
+ * loaded yet" and go looking for one (AD-18).
+ */
+export type MeetingArtifact = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Kind
+     */
+    kind: string;
+    /**
+     * State
+     */
+    state: 'extracted' | 'approved' | 'published';
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Body
+     */
+    body: string;
+    /**
+     * Createdat
+     */
+    createdAt: string;
+    /**
+     * Publishedat
+     */
+    publishedAt?: string | null;
+    /**
+     * Publishrelativepath
+     */
+    publishRelativePath?: string | null;
+    /**
+     * Publishcommitsha
+     */
+    publishCommitSha?: string | null;
+};
+
+/**
+ * MeetingArtifactsResponse
+ */
+export type MeetingArtifactsResponse = {
+    /**
+     * Meetingid
+     */
+    meetingId: string;
+    /**
+     * Artifacts
+     */
+    artifacts: Array<MeetingArtifact>;
+};
+
+/**
  * MeetingDrilldownResponse
  *
  * The whole meeting's evidence: header, series, full transcript.
@@ -1460,6 +1523,17 @@ export type MeetingSpeakersResponse = {
      * Speakers
      */
     speakers: Array<SpeakerTag>;
+};
+
+/**
+ * MeetingSummaryResponse
+ */
+export type MeetingSummaryResponse = {
+    /**
+     * Meetingid
+     */
+    meetingId: string;
+    summary: MeetingArtifact | null;
 };
 
 /**
@@ -3778,6 +3852,86 @@ export type GetAcquisitionResponses = {
 };
 
 export type GetAcquisitionResponse = GetAcquisitionResponses[keyof GetAcquisitionResponses];
+
+export type GetMeetingSummaryData = {
+    body?: never;
+    path: {
+        /**
+         * Meeting Id
+         */
+        meeting_id: string;
+    };
+    query?: never;
+    url: '/meetings/{meeting_id}/summary';
+};
+
+export type GetMeetingSummaryErrors = {
+    /**
+     * `not-found` — no meeting with that id.
+     */
+    404: ProblemDetails;
+    /**
+     * `meeting-not-viewable` — the meeting exists but an evidence stage has not settled; the same gate every meeting-scoped read passes.
+     */
+    409: ProblemDetails;
+    /**
+     * `invalid-request` — the route parameter is not a UUID.
+     */
+    422: ProblemDetails;
+};
+
+export type GetMeetingSummaryError = GetMeetingSummaryErrors[keyof GetMeetingSummaryErrors];
+
+export type GetMeetingSummaryResponses = {
+    /**
+     * Successful Response
+     */
+    200: MeetingSummaryResponse;
+};
+
+export type GetMeetingSummaryResponse = GetMeetingSummaryResponses[keyof GetMeetingSummaryResponses];
+
+export type ApproveMeetingArtifactsData = {
+    body?: never;
+    path: {
+        /**
+         * Meeting Id
+         */
+        meeting_id: string;
+    };
+    query?: never;
+    url: '/meetings/{meeting_id}/artifacts/approve';
+};
+
+export type ApproveMeetingArtifactsErrors = {
+    /**
+     * `not-found` — no meeting with that id.
+     */
+    404: ProblemDetails;
+    /**
+     * `meeting-not-viewable` — an evidence stage has not settled; or `nothing-to-approve` — the meeting has no extracted meeting-scoped artifacts.
+     */
+    409: ProblemDetails;
+    /**
+     * `invalid-request` — the route parameter is not a UUID.
+     */
+    422: ProblemDetails;
+    /**
+     * `publish-export-failed` — the artifact could not be written under MM_PUBLISH_ROOT; every row stays `extracted`.
+     */
+    500: ProblemDetails;
+};
+
+export type ApproveMeetingArtifactsError = ApproveMeetingArtifactsErrors[keyof ApproveMeetingArtifactsErrors];
+
+export type ApproveMeetingArtifactsResponses = {
+    /**
+     * Successful Response
+     */
+    200: MeetingArtifactsResponse;
+};
+
+export type ApproveMeetingArtifactsResponse = ApproveMeetingArtifactsResponses[keyof ApproveMeetingArtifactsResponses];
 
 export type GetConfigurationData = {
     body?: never;

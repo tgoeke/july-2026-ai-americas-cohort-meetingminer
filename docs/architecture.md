@@ -135,6 +135,24 @@ every answer. The chat path ends in a deterministic validator that rejects any
 answer whose claims lack resolvable moment ids. "No citation, no answer" is
 enforced by that gate, not by prompt instructions.
 
+An **artifact may be scoped to a meeting rather than to a moment** — a meeting
+summary analyses the whole transcript and has no single moment to hang from —
+and that scope is a property of its `kind`, declared in exactly one place so
+that no reader re-derives the mapping with a list of its own. What does **not**
+widen is the citation contract. `meeting_id` is an artifact's scope and
+provenance, never a citation: a citation is a moment, because AD-15's array
+carries `startMs`/`endMs` and the promise is that a citation opens the
+recording at the second. Admitting an entry with no moment would hand every
+consumer — the web app's replay links, the eval checks, search — a citation
+that cannot replay, which is the silent degradation AD-18 forbids. A
+meeting-scoped artifact is therefore readable in its meeting's panel, and
+citable in an answer only through the moments its individual claims anchor to;
+a claim the document does not anchor is not citable, which is the rule every
+other claim already obeys. Widening an artifact's scope must also not weaken
+its anchor: where a moment is named, the composite edge pinning it to that
+moment's own meeting still holds, so no artifact can name a moment from a
+different meeting.
+
 **AD-7 — Graph retrieval is deterministic traversal templates.** Hand-written
 parameterized Cypher against the graph projection. No framework builds, extracts,
 or owns graph structure; the model only classifies the question to a template and

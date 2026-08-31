@@ -80,42 +80,43 @@ _MEETING_SCOPED_ARTIFACTS = (
     " WHERE meeting_id = %s AND moment_id IS NULL ORDER BY created_at, id"
 )
 
-_PROBLEM_RESPONSES = {
-    422: {
+def _problem(description: str) -> dict[str, object]:
+    return {
         "content": {
             "application/problem+json": {
                 "schema": {"$ref": "#/components/schemas/ProblemDetails"}
             }
         },
-        "description": "`invalid-request` — the route parameter is not a UUID.",
-    },
-    404: {
-        "content": {
-            "application/problem+json": {
-                "schema": {"$ref": "#/components/schemas/ProblemDetails"}
-            }
-        },
-        "description": "`not-found` — no meeting with that id.",
-    },
-    409: {
-        "content": {
-            "application/problem+json": {
-                "schema": {"$ref": "#/components/schemas/ProblemDetails"}
-            }
-        },
-        "description": "`meeting-not-viewable` — the meeting exists but an"
-        " evidence stage has not settled; or, on approve,"
-        " `nothing-to-approve`.",
-    },
-    500: {
-        "content": {
-            "application/problem+json": {
-                "schema": {"$ref": "#/components/schemas/ProblemDetails"}
-            }
-        },
-        "description": "`publish-export-failed` — the artifact could not be"
-        " written under MM_PUBLISH_ROOT; every row stays `extracted`.",
-    },
+        "description": description,
+    }
+
+
+# The two routes advertise different failures, and they are kept apart on
+# purpose. One shared map would have made the read's generated client carry a
+# `500 publish-export-failed` it can never return and a 409 whose description
+# named a condition only the write has — a published error contract that is not
+# the route's own is a small lie a consumer writes a handler against.
+_READ_PROBLEM_RESPONSES = {
+    422: _problem("`invalid-request` — the route parameter is not a UUID."),
+    404: _problem("`not-found` — no meeting with that id."),
+    409: _problem(
+        "`meeting-not-viewable` — the meeting exists but an evidence stage has"
+        " not settled; the same gate every meeting-scoped read passes."
+    ),
+}
+
+_APPROVE_PROBLEM_RESPONSES = {
+    422: _problem("`invalid-request` — the route parameter is not a UUID."),
+    404: _problem("`not-found` — no meeting with that id."),
+    409: _problem(
+        "`meeting-not-viewable` — an evidence stage has not settled; or"
+        " `nothing-to-approve` — the meeting has no extracted meeting-scoped"
+        " artifacts."
+    ),
+    500: _problem(
+        "`publish-export-failed` — the artifact could not be written under"
+        " MM_PUBLISH_ROOT; every row stays `extracted`."
+    ),
 }
 
 
@@ -181,7 +182,7 @@ def _artifact(row: tuple) -> MeetingArtifact:
     "/meetings/{meeting_id}/summary",
     operation_id="getMeetingSummary",
     response_model=MeetingSummaryResponse,
-    responses=_PROBLEM_RESPONSES,
+    responses=_READ_PROBLEM_RESPONSES,
 )
 def get_meeting_summary(meeting_id: UUID, request: Request) -> MeetingSummaryResponse:
     """The meeting's summary artifact, whatever its lifecycle state.
@@ -216,7 +217,7 @@ def get_meeting_summary(meeting_id: UUID, request: Request) -> MeetingSummaryRes
     "/meetings/{meeting_id}/artifacts/approve",
     operation_id="approveMeetingArtifacts",
     response_model=MeetingArtifactsResponse,
-    responses=_PROBLEM_RESPONSES,
+    responses=_APPROVE_PROBLEM_RESPONSES,
 )
 def approve_meeting_artifacts(
     meeting_id: UUID, request: Request

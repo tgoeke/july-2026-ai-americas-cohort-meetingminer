@@ -2,7 +2,7 @@
 
 import { type Client, type ClientMeta, formDataBodySerializer, type Options as Options2, type RequestResult, type ServerSentEventsResult, type TDataShape } from './client';
 import { client } from './client.gen';
-import type { ApproveMomentArtifactsData, ApproveMomentArtifactsErrors, ApproveMomentArtifactsResponses, AskCorpusData, AskCorpusErrors, AskCorpusResponses, AssignMeetingProjectData, AssignMeetingProjectErrors, AssignMeetingProjectResponses, AssignMeetingSeriesData, AssignMeetingSeriesErrors, AssignMeetingSeriesResponses, AssignMeetingSpeakerData, AssignMeetingSpeakerErrors, AssignMeetingSpeakerResponses, AssignProjectProductData, AssignProjectProductErrors, AssignProjectProductResponses, CreateIngestData, CreateIngestErrors, CreateIngestResponses, CreateProductData, CreateProductErrors, CreateProductResponses, CreateProjectData, CreateProjectErrors, CreateProjectResponses, CreateSeriesData, CreateSeriesErrors, CreateSeriesResponses, CreateUploadSessionData, CreateUploadSessionErrors, CreateUploadSessionResponses, DeleteUploadSessionData, DeleteUploadSessionErrors, DeleteUploadSessionResponses, GetAcquisitionData, GetAcquisitionErrors, GetAcquisitionResponses, GetConfigurationData, GetConfigurationResponses, GetCorpusStatsData, GetCorpusStatsResponses, GetExtractionPromptsData, GetExtractionPromptsResponses, GetHealthData, GetHealthResponses, GetJobData, GetJobErrors, GetJobResponses, GetMediaFileData, GetMediaFileErrors, GetMediaFileResponses, GetMeetingDrilldownData, GetMeetingDrilldownErrors, GetMeetingDrilldownResponses, GetModelSettingsData, GetModelSettingsResponses, GetMomentData, GetMomentErrors, GetMomentResponses, GetMomentsFeedData, GetMomentsFeedErrors, GetMomentsFeedResponses, GetRecordingData, GetRecordingErrors, GetRecordingResponses, GetSystemStatusData, GetSystemStatusResponses, GetThreadTimelineData, GetThreadTimelineErrors, GetThreadTimelineResponses, GetUploadSessionData, GetUploadSessionErrors, GetUploadSessionResponses, ListMeetingExtractionDocumentsData, ListMeetingExtractionDocumentsErrors, ListMeetingExtractionDocumentsResponses, ListMeetingMomentsData, ListMeetingMomentsErrors, ListMeetingMomentsResponses, ListMeetingsData, ListMeetingSpeakersData, ListMeetingSpeakersErrors, ListMeetingSpeakersResponses, ListMeetingsResponses, ListParticipantsData, ListParticipantsResponses, ListProductsData, ListProductsResponses, ListProjectsData, ListProjectsResponses, ListSeriesData, ListSeriesResponses, ListThreadsData, ListThreadsResponses, MergeParticipantsData, MergeParticipantsErrors, MergeParticipantsResponses, ProbeAcquisitionData, ProbeAcquisitionErrors, ProbeAcquisitionResponses, RenameParticipantData, RenameParticipantErrors, RenameParticipantResponses, SearchCorpusData, SearchCorpusErrors, SearchCorpusResponses, SelectRoleBindingData, SelectRoleBindingErrors, SelectRoleBindingResponses, StartAcquisitionData, StartAcquisitionErrors, StartAcquisitionResponses, StreamJobEventsData, StreamJobEventsResponses } from './types.gen';
+import type { ApproveMeetingArtifactsData, ApproveMeetingArtifactsErrors, ApproveMeetingArtifactsResponses, ApproveMomentArtifactsData, ApproveMomentArtifactsErrors, ApproveMomentArtifactsResponses, AskCorpusData, AskCorpusErrors, AskCorpusResponses, AssignMeetingProjectData, AssignMeetingProjectErrors, AssignMeetingProjectResponses, AssignMeetingSeriesData, AssignMeetingSeriesErrors, AssignMeetingSeriesResponses, AssignMeetingSpeakerData, AssignMeetingSpeakerErrors, AssignMeetingSpeakerResponses, AssignProjectProductData, AssignProjectProductErrors, AssignProjectProductResponses, CreateIngestData, CreateIngestErrors, CreateIngestResponses, CreateProductData, CreateProductErrors, CreateProductResponses, CreateProjectData, CreateProjectErrors, CreateProjectResponses, CreateSeriesData, CreateSeriesErrors, CreateSeriesResponses, CreateUploadSessionData, CreateUploadSessionErrors, CreateUploadSessionResponses, DeleteUploadSessionData, DeleteUploadSessionErrors, DeleteUploadSessionResponses, GetAcquisitionData, GetAcquisitionErrors, GetAcquisitionResponses, GetConfigurationData, GetConfigurationResponses, GetCorpusStatsData, GetCorpusStatsResponses, GetExtractionPromptsData, GetExtractionPromptsResponses, GetHealthData, GetHealthResponses, GetJobData, GetJobErrors, GetJobResponses, GetMediaFileData, GetMediaFileErrors, GetMediaFileResponses, GetMeetingDrilldownData, GetMeetingDrilldownErrors, GetMeetingDrilldownResponses, GetMeetingSummaryData, GetMeetingSummaryErrors, GetMeetingSummaryResponses, GetModelSettingsData, GetModelSettingsResponses, GetMomentData, GetMomentErrors, GetMomentResponses, GetMomentsFeedData, GetMomentsFeedErrors, GetMomentsFeedResponses, GetRecordingData, GetRecordingErrors, GetRecordingResponses, GetSystemStatusData, GetSystemStatusResponses, GetThreadTimelineData, GetThreadTimelineErrors, GetThreadTimelineResponses, GetUploadSessionData, GetUploadSessionErrors, GetUploadSessionResponses, ListMeetingExtractionDocumentsData, ListMeetingExtractionDocumentsErrors, ListMeetingExtractionDocumentsResponses, ListMeetingMomentsData, ListMeetingMomentsErrors, ListMeetingMomentsResponses, ListMeetingsData, ListMeetingSpeakersData, ListMeetingSpeakersErrors, ListMeetingSpeakersResponses, ListMeetingsResponses, ListParticipantsData, ListParticipantsResponses, ListProductsData, ListProductsResponses, ListProjectsData, ListProjectsResponses, ListSeriesData, ListSeriesResponses, ListThreadsData, ListThreadsResponses, MergeParticipantsData, MergeParticipantsErrors, MergeParticipantsResponses, ProbeAcquisitionData, ProbeAcquisitionErrors, ProbeAcquisitionResponses, RenameParticipantData, RenameParticipantErrors, RenameParticipantResponses, SearchCorpusData, SearchCorpusErrors, SearchCorpusResponses, SelectRoleBindingData, SelectRoleBindingErrors, SelectRoleBindingResponses, StartAcquisitionData, StartAcquisitionErrors, StartAcquisitionResponses, StreamJobEventsData, StreamJobEventsResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -168,6 +168,43 @@ export const probeAcquisition = <ThrowOnError extends boolean = false>(options: 
  * One acquisition's state — queued | running | posted | failed — read from the status file its detached runner writes.
  */
 export const getAcquisition = <ThrowOnError extends boolean = false>(options: Options<GetAcquisitionData, ThrowOnError>): RequestResult<GetAcquisitionResponses, GetAcquisitionErrors, ThrowOnError> => (options.client ?? client).get<GetAcquisitionResponses, GetAcquisitionErrors, ThrowOnError>({ url: '/acquisitions/{acquisition_id}', ...options });
+
+/**
+ * Get Meeting Summary
+ *
+ * The meeting's summary artifact, whatever its lifecycle state.
+ *
+ * Served regardless of `state`, drafts included, because this is a read of
+ * stored artifact state through the api's own Postgres read — the same door
+ * the moment view's right rail already opens onto unpublished artifacts
+ * (AD-4). It is not an answer and needs no citation to be shown.
+ *
+ * A meeting with no summary answers `200` with `summary: null` rather than
+ * `404`. "Not extracted yet", "the document carried no executive summary" and
+ * "no such meeting" are three different facts; the 404 is reserved for the
+ * third so a client never has to parse a message to tell them apart.
+ */
+export const getMeetingSummary = <ThrowOnError extends boolean = false>(options: Options<GetMeetingSummaryData, ThrowOnError>): RequestResult<GetMeetingSummaryResponses, GetMeetingSummaryErrors, ThrowOnError> => (options.client ?? client).get<GetMeetingSummaryResponses, GetMeetingSummaryErrors, ThrowOnError>({ url: '/meetings/{meeting_id}/summary', ...options });
+
+/**
+ * Approve Meeting Artifacts
+ *
+ * The meeting-scoped approval gesture — the per-moment one, other scope.
+ *
+ * One request advances every `extracted` meeting-scoped artifact of this
+ * meeting through both `approved` and `published`, through the same
+ * :func:`publish_extracted` the per-moment route calls: export to
+ * `MM_PUBLISH_ROOT` first, then the Postgres `UPDATE`, so a filesystem
+ * failure leaves every row `extracted` rather than half-published
+ * (AD-4/AD-5). A meeting-level artifact is not an exception to
+ * human-approved publishing (AD-6).
+ *
+ * The response re-reads the meeting's whole meeting-scoped set rather than
+ * only the rows this call published — story 4.3's rule, for its reason: a
+ * client that replaces its state with this response must not lose an artifact
+ * an earlier call published or a later rerun proposed.
+ */
+export const approveMeetingArtifacts = <ThrowOnError extends boolean = false>(options: Options<ApproveMeetingArtifactsData, ThrowOnError>): RequestResult<ApproveMeetingArtifactsResponses, ApproveMeetingArtifactsErrors, ThrowOnError> => (options.client ?? client).post<ApproveMeetingArtifactsResponses, ApproveMeetingArtifactsErrors, ThrowOnError>({ url: '/meetings/{meeting_id}/artifacts/approve', ...options });
 
 /**
  * Get Configuration
