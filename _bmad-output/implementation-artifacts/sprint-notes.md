@@ -3355,3 +3355,67 @@ in its spec, notes and review prompt but never filed them in
 two items must be renumbered **and actually filed** — a reader of the backlog
 would not find them today. Naming an id in a spec does not reserve it; filing
 it does.
+## B-36 (diarizer half) built, in review — 2026-08-30
+
+Branch `story/b36-remote-diarizer`, worktree `../meetingminer-wt/b36-remote-diarizer`.
+The `Diarizer` port now has an engine that can actually run here. `remote-http`
+(`adapters/diarize/remote_http.py`) POSTs the audio to the LAN GPU host's
+`/diarize` over `urllib` — the convention `adapters/embed/ollama.py` set, no new
+dependency — and turns the endpoint's float seconds into the port's integer
+milliseconds. The name is transport-descriptive on purpose: it claims nothing
+about the model, and it leaves the same name free for B-36's `Stt` half, which
+stays open.
+
+**The engine is bound but not chosen.** `diarizer.engine` is still `noop` in the
+committed `config.yaml`; `base_url` and `timeout_seconds` are new keys beside the
+existing pyannote ones. Whether the LAN engine or in-process `pyannote` becomes
+the recommendation is the owner's call, pending the capacity measurement.
+
+**Not in `ENGINES`.** That registry maps a name to a *zero-argument* class and
+constructs it `engine()`; this engine needs the endpoint and the timeout off the
+binding, so it is special-cased in `build_diarizer` the way story 7.1's
+`pyannote` already is. Both are now enumerated in a new `ENGINE_CHOICES`, so the
+unknown-engine diagnostic still lists every value config.yaml accepts, and a test
+asserts that set is exactly the three engines.
+
+**Every failure is named; none is survivable.** Unreachable host, timeout, 503
+with the GPU held elsewhere, 400 from ffmpeg, a non-JSON body, a malformed turn,
+a turn whose end precedes its start, more than 1000 distinct speakers — each
+raises `DiarizerError` carrying the endpoint, the model the host named, and the
+host's own `reason` verbatim. No engine is ever substituted: an empty turn list
+from a healthy host is legitimate success, which makes it indistinguishable
+after the fact from a silent fallback. An empty list is the one no-signal answer
+this engine returns.
+
+**Two contract details worth knowing.** Each boundary rounds independently
+(`round(x * 1000)`, never `start + round(duration)`), so a boundary two turns
+share lands on the same millisecond in both — the same rounding `pyannote.py`
+applies, and it matters because `transcribe` assigns each segment the tag with
+the longest overlap. And labels are canonicalized to `SPEAKER_NN` by first
+appearance *after* sorting by start, capped at 1000: `speakers.py`'s placeholder
+pattern matches `speaker` plus at most three trailing characters, so a
+`SPEAKER_1000` would stop being a placeholder and could resolve to a participant.
+
+**Coverage is offline by construction** — 36 tests against a scripted
+`BaseHTTPRequestHandler` on `127.0.0.1:0`, so the multipart encoding, the
+`Content-Length`, the status codes and the socket failures are all real while the
+LAN host stays untouched. The one live test is env-flagged
+(`MM_DIARIZE_REMOTE_NETWORK_TEST=1`) and skipped by default, the shape story
+6.2's network test has. Every test was observed red before its code existed, and
+eight mutations of the finished engine — round-down instead of round, label in
+host order, drop the reversed turn, keep the collapsed turn, an off-by-one cap, a
+missing `Content-Length`, an empty-turns fallback on an unreachable host, and
+swallowing the host's reason — were each caught by the test that claims them.
+
+**Two contract tests reacted to the new module and were satisfied inside it.**
+`test_compose_contract.py` discovers pyannote-sensitive test modules by searching
+for the literal string, so the test file names the engine through
+`PYANNOTE_ENGINE` instead; and it pins an exact set of `slow`-marked tests, so
+the live test carries only its `skipif`, as story 6.2's does. Neither contract
+file was edited.
+
+**Never exercised against the live host from this branch.** The suite is offline
+by design and the LAN box is operator-scheduled; the flagged test exists and has
+not been run here. The endpoint's own behaviour is what the backlog entry
+records from 2026-08-30, and turn *quality* remains unvalidated against ground
+truth — 2 speakers on a scripted two-person demo is plausible, not measured.

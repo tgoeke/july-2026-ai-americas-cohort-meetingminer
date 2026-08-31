@@ -145,3 +145,6 @@ development_status:
   11-3-eval-runs-own-their-namespace: done
   11-4-lint-and-type-tooling-in-the-fast-loop: done
   epic-11-retrospective: optional
+
+  # Added by a concurrent branch; re-file under its epic.
+  b36-remote-diarizer: review

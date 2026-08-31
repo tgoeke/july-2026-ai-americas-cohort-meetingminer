@@ -2,8 +2,8 @@
 title: 'B-36 (diarizer half): bind the LAN diarization endpoint behind the Diarizer port'
 type: 'feature'
 created: '2026-08-30'
-status: 'ready-for-dev'
-baseline_revision: 'fceab4098d104d3e431aee626e69604dac40e06d'
+status: 'review'
+baseline_revision: 'a401d6cd0ba5e04a689ff052dae9c36c5d0e5e1b'
 review_loop_iteration: 0
 followup_review_recommended: false
 context: []
@@ -140,6 +140,48 @@ is not 503-only.
 - Given the LAN host is switched off, when `make test` runs, then the whole suite passes and the live test reports as skipped with its flag named.
 
 ## Spec Change Log
+
+**2026-08-30 — `ENGINE_CHOICES` added to `adapters/diarize/__init__.py`.**
+Task 3 said "name it in the unknown-engine choices". The list was built inline
+in the error message as `sorted([*ENGINES, PYANNOTE_ENGINE])`; a third
+special-cased engine made that expression the second place an engine name has
+to be remembered. It is now a module constant the diagnostic formats and a test
+asserts is exactly the three engines, so an engine cannot be bound without
+appearing in the message that offers it. Inside the footprint; no gap.
+
+**2026-08-30 — two contract registries in `test_compose_contract.py` reacted to
+the new test module. Both were satisfied inside the footprint; neither file was
+edited.** `test_compose_contract.py` is outside this story's footprint (the
+build prompt does not name it, and the wave rules bar appending to shared test
+modules), and the new module tripped two of its assertions:
+
+1. `test_diarize_extra_gate_pins_every_pyannote_sensitive_module` discovers
+   "pyannote-sensitive" modules by searching every `test_*.py` for the literal
+   string `pyannote`, and would have required `test_diarize_remote.py` to join
+   `DIARIZE_EXTRA_TEST_MODULES` **and** the `make diarize-extra-test` command —
+   which would run this module in the torch-sized extra lane for no reason,
+   since it does not depend on the extra at all. Resolved by naming the engine
+   through the `PYANNOTE_ENGINE` constant rather than as a literal, which is
+   the better reference regardless.
+2. `test_the_per_test_slow_set_is_exactly_the_measured_four` and
+   `test_every_slow_marked_item_this_session_collected_is_pinned` pin an exact
+   set of `slow`-marked tests. The live test's `pytest.mark.slow` would have
+   required editing that registry. Removed: the test is skipped by default via
+   `skipif` anyway, which is exactly the shape story 6.2's network test has and
+   what this spec's Code Map pointed at. Its docstring names
+   `-o mm_fast_test_budget_seconds=120` for running it by hand.
+
+**2026-08-30 — `.encode()` rather than `.encode("utf-8")`** in the multipart
+prefix and suffix. Ruff's `UP012` fires on the explicit argument, and a new file
+gets every rule outside the seven globally ignored in `server/pyproject.toml`.
+Mechanical; no behaviour change (UTF-8 is the default).
+
+**Not deviations, recorded because a reviewer will look for them:** the
+`Content-Length` header is set explicitly rather than left to `urllib`, which
+would otherwise send `Transfer-Encoding: chunked` for a `read()`-able body — a
+test asserts the server received exactly the advertised byte count. And
+`_number` rejects `bool`, because it is an `int` subclass and a JSON `true` in
+a timestamp field would otherwise become 1.0 seconds.
 
 ## Review Triage Log
 
