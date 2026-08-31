@@ -1936,7 +1936,9 @@ So that what the model actually wrote is evidence rather than a discarded interm
 **When** an extraction document is produced or parsed,
 **Then** its full text is persisted with the `extraction_source` row that already records the run's kind, model, prompt hash, sha256 and byte size, and the stored bytes are the exact bytes the parser read, so the `sha256` already recorded verifies against them. A **generated** document — produced through the `Llm(extraction)` port — is primary data with no other home and is stored in Postgres, the precedent being `artifact.body`; AD-3's content root is for binaries (frames, screenshots, audio) and does not apply.
 
-> **Open owner question, to settle before this story starts — does an *adopted* document get copied too?** A document a drop already carried is permanent where it is: the drop is write-once and `drop_relative_path` points at those exact bytes, so storing them again is a second permanent copy of permanent material, which is the reasoning AD-3 used to refuse copying a recording under the content root. The counter is that AD-3 was weighing a large binary where a copy doubles real storage, a few KB of markdown is different in kind, and one uniform read path for the new endpoint has value of its own. **If the copy is kept, the spine needs a sentence saying why AD-3's reasoning does not extend to small text** — otherwise the next reader cites AD-3 to reverse it. If it is not kept, the endpoint reads adopted documents from the drop and generated ones from Postgres, and must present them identically.
+**Given** a document a drop already carried,
+**When** it is adopted rather than generated,
+**Then** its text is stored too, exactly as a generated one is, so both kinds are read back through one path. **The reason is AD-4, not economy.** Every extraction document must be searchable, and `projections/` never opens an evidence file — it reads Postgres values only, and `rebuild` regenerates both stores from Postgres plus `config.yaml` alone. Text living only in a drop could not be indexed without turning the projection module into a filesystem reader, and it would fall out of search on every rebuild. AD-3's anti-copy rule governs material the system *serves but does not retrieve over* (a recording is never indexed; everything searchable derived from it is already rows), so it does not reach here — see AD-3 as amended 2026-08-31.
 
 **Given** a rerun,
 **When** a meeting is extracted again,
@@ -2005,3 +2007,60 @@ So that I read what the meeting produced without hunting through moments that mo
 **Given** the moment view,
 **When** a moment is opened,
 **Then** its existing per-moment rail is unchanged for the artifacts anchored to that moment — this story adds the meeting scope rather than moving the moment one.
+
+### Story 12.4: Extraction Documents Are Searchable
+
+As a user,
+I want to search and ask questions about the extraction documents themselves,
+So that the analysis a run produced is findable, including the run that produced nothing worth approving.
+
+Owner ruling 2026-08-31, recorded in AD-4: extraction documents are indexed
+**immediately and ungated** — search and chat retrieve over evidence, published
+artifacts, and every extraction document regardless of approval state. This is
+the **first deliberate exception to the publish gate** in this build. The
+reasoning is story 12.1's own motivation turned around: the run whose text
+somebody needs to read is exactly the run that yielded nothing worth approving,
+so gating documents behind approval withholds them in precisely the case they
+exist for.
+
+**Acceptance Criteria:**
+
+**Given** `projections` as the sole writer of both stores (AD-4),
+**When** an extraction document is stored,
+**Then** it is indexed as soon as it is stored, without passing the publish
+gate, and it is re-indexed by `rebuild` from its Postgres row alone — the
+projection module still opens no evidence file, so its filesystem access is
+unchanged by this story.
+
+**Given** AD-18, which forbids unreviewed output that reads the same as
+reviewed output,
+**When** a document is indexed or rendered,
+**Then** it carries its unreviewed, machine-written status **in the indexed
+record itself**, and every surface that renders one labels it as such — the
+same requirement topics and threads already carry. **The exception is to reach,
+never to legibility.** Indexing a document without that label is an AD-18
+violation, not a missing polish item, and a test pins the label's presence in
+the indexed record rather than only in the UI.
+
+**Given** "no citation, no answer" and AD-6,
+**When** a document's content appears in an answer,
+**Then** the document is **never a citation target**. It is a claim *about*
+evidence, not evidence: citing it would establish that the model said
+something, not that the meeting did — the circularity the publish gate exists
+to prevent. Content reaches an answer only through the moments its individual
+claims anchor to; unanchored prose stays readable and findable without becoming
+citable, and a test asserts no citation can resolve to a document.
+
+**Given** `chunking.py` keys a chunk on its first transcript segment's UUID,
+**When** a document is chunked for indexing,
+**Then** it takes **no** chunk identity from a transcript segment, having none;
+its indexed identity derives from its `extraction_source` row. Because a
+document is not citable, that identity is a build decision rather than an
+invariant — choose one, state it, and pin it with a test so a later reader does
+not have to infer it.
+
+**Given** `publish/publish_gate.py`,
+**When** this story lands,
+**Then** its module docstring no longer describes a rule that holds only in
+part: it names the extraction-document exception and points at AD-4, so the
+gate's own account of itself stays true.
