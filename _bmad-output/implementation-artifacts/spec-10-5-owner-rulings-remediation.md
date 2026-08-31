@@ -2,8 +2,9 @@
 title: 'Story 10.5 owner-rulings remediation'
 type: 'bugfix'
 created: '2026-08-31'
-status: 'ready-for-dev'
+status: 'in-review'
 review_loop_iteration: 0
+baseline_commit: '71f27f8533d784a29faa2213fd9e4d05b721523f'
 context:
   - '_bmad-output/implementation-artifacts/epic-10-context.md'
   - '_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/EXPERIENCE.md'
@@ -52,12 +53,12 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `web/src/features/moments/feed.ts`, `MomentsFeed.tsx` -- require `unfilteredTotal`, enforce count invariants, and render the counted-header shapes.
-- [ ] `web/src/App.tsx`, Search/Ask components -- put compact, focus-expanding, fully functional surfaces inside the sticky chrome.
-- [ ] Moments thread filtering -- consume strict `GET /threads` contract with searchable selection and honest unavailable/deep-link behavior.
-- [ ] `web/src/features/moments/MomentCard.tsx` -- order title, actions, source, player controls, then kind/thread chips; the spine wins the frozen story's visual-description conflict.
-- [ ] Shell/Settings/SpeakerNaming shortcut modules -- implement the specified bindings and default-on localStorage preference.
-- [ ] New ruling test files and affected fixtures -- prove red-first behavior, realistic envelopes, async-safe assertions, and update the review report.
+- [x] `web/src/features/moments/feed.ts`, `MomentsFeed.tsx` -- require `unfilteredTotal`, enforce count invariants, and render the counted-header shapes.
+- [x] `web/src/App.tsx`, Search/Ask components -- put compact, focus-expanding, fully functional surfaces inside the sticky chrome.
+- [x] Moments thread filtering -- consume strict `GET /threads` contract with searchable selection and honest unavailable/deep-link behavior.
+- [x] `web/src/features/moments/MomentCard.tsx` -- order title, actions, source, player controls, then kind/thread chips; the spine wins the frozen story's visual-description conflict.
+- [x] Shell/Settings/SpeakerNaming shortcut modules -- implement the specified bindings and default-on localStorage preference.
+- [x] New ruling test files and affected fixtures -- prove red-first behavior, realistic envelopes, async-safe assertions, and update the review report.
 
 **Acceptance Criteria:**
 - Given `/` at desktop width, when no compact surface is active, then Moments follows the 56px sticky chrome without a flow-height Search/Ask block.
