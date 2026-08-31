@@ -80,7 +80,16 @@ A drops root and a content root. Every stored path is relative to exactly one,
 chosen by *how the file came to exist*: arrived material stays in its drop,
 produced material is keyed by meeting id so it survives a re-emit. Neither root's
 absolute location is stored or served, so relocation is an environment change
-rather than a data migration.
+rather than a data migration. This rule governs material the system **serves but
+does not retrieve over** (amended 2026-08-31). Where content must be
+*searchable* it is a Postgres row, not a file: the projections are built from
+Postgres and `config.yaml` alone (AD-4) and never open an evidence file, so text
+living only in a drop cannot be indexed and would fall out of search on every
+rebuild. That is why the recording stays in its drop — nothing retrieves over
+the mp4 bytes, and everything searchable derived from it is already rows — and
+why an extraction document's text is a column for *both* origins (story 12.1).
+Do not read the recording precedent as a general rule against copying arrived
+material into Postgres; it is a rule about material nothing searches.
 
 **AD-4 — Projections have exactly one writer.** All graph and search writes go
 through `server/projections`. The publish gate lives inside that module and
@@ -95,6 +104,18 @@ and remain uncitable: only moment ids are citations (AD-6), so a topic name
 never reaches an answer as a fact. Sole-writer is unchanged — the worker
 derives them into Postgres, and `projections` stays the only module that opens
 a store client.
+
+Extraction documents are the one deliberate exception to the gate (owner
+decision 2026-08-31): every document is indexed as soon as it is stored,
+approved or not, because the run whose text somebody needs to read is exactly
+the run that yielded nothing worth approving. The exception is to *reach*, never
+to legibility — a document carries its unreviewed, machine-written status in the
+indexed record itself and every surface that renders one labels it as such
+(AD-18). It is never a citation target: a document is a claim *about* evidence,
+not evidence, so citing it would establish that the model said something rather
+than that the meeting did. Its content reaches an answer only through the
+moments its individual claims anchor to (AD-6). Story 12.1 stores the text
+against its `extraction_source` row; story 12.4 indexes it.
 
 **AD-5 — Table ownership is disjoint.** The worker writes evidence and job
 tables; the api writes user-declared data. Two processes never mutate the same
