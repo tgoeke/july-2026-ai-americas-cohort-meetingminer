@@ -7,7 +7,7 @@ Adversarial review of Story 8.2 implementation and its stated footprint against 
 ## Review range
 
 - Baseline: `ea0c113`
-- Story branch: `story/8-2`
+- Story branch: `story/8-2` at `2e5ba83`
 - Review branch: `story/8-2-review`
 - Range: `ea0c113..story/8-2`
 - Review date: 2026-08-30
@@ -101,3 +101,58 @@ Adversarial review of Story 8.2 implementation and its stated footprint against 
 - **Finding** — when no configured provider or role endpoint resolves, the model-not-served error says only `"the provider's default endpoint"` and carries `api_base=None`. That is readable but it is not the endpoint URL the B-38 contract says must be named. This path is reachable for a valid legacy role: story 8.1 deliberately lets a synthesized prefixed catalog load without a matching `providers:` entry. The story therefore closes silent substitution but does not fully close B-38's actionable-endpoint requirement. This is **open** because obtaining an authoritative URL would require changing the frozen legacy-config rule or defining a new source of provider endpoint truth; guessing from LiteLLM would conflict with AD-10.
 - **Evidence** — `config.py:323-335` explicitly exempts synthesized legacy entries and says an unmatched prefix gets no configured `api_base`. `LiteLlmCompleter` substitutes the prose label at line 170 and sets the exception field from `self.api_base` (still `None`) at line 180. `test_the_refusal_is_still_readable_with_no_configured_endpoint` asserts only that the message omits the word `None`, not that it contains a URL.
 - **Suggested direction** — owner must choose between requiring an explicit endpoint for every callable binding (including legacy projections), weakening B-38's URL requirement for SDK-default routing, or introducing an architecture-approved provider-default endpoint source. Do not infer the URL from the SDK's provider label ad hoc.
+
+## Remediation
+
+The review lane applied every unambiguous patch red-first and committed each with its finding number:
+
+| Finding | Result | Commit |
+|---|---|---|
+| 1 | Open — owner/spec decision; not patched | — |
+| 2 | Fixed — SDK provider metadata is no longer authoritative | `14b4f66` |
+| 3 | Fixed — chat 502 is declared, tested, and present in the regenerated client | `387a27b` |
+| 4 | Fixed — selection 404/422 problems are declared and typed in the regenerated client | `a11a803` |
+| 5 | Fixed — the API-level immutability assertion now compares against the pre-request value | `04e270a` |
+| 6 | Fixed — settings reads emit the shared stale-selection event shape | `4a5e9f2` |
+| 7 | Fixed — write and read call one catalog-membership predicate | `ccd7c03` |
+| 8 | Fixed — PUT accepts the same non-empty binding domain the catalog permits | `0836354` |
+| 9 | Fixed — the frozen `fileBinding` wire name is restored end-to-end | `a8fc36c` |
+| 10 | Fixed — problem extensions emit `configPath` and `upstreamStatus` | `415c5db` |
+| 11 | Open — owner/architecture decision; not patched | — |
+
+Red evidence was observed for every patch. Finding 5 is a verification-only defect, so its corrected assertion was mutation-tested against a temporary resolver that mutated the process-wide role: the corrected test failed, the temporary mutation was restored, and the test passed against production code. No temporary mutation was committed.
+
+## Design-decision rulings
+
+- **Stale selection → file default:** accepted for this story. The operator's catalog edit withdraws the stored choice before call time, the frozen contract explicitly selects the declared default, and the effective/stale split is visible. Finding 6 repaired the missing settings-read event, so the discard is now reported on the API read as well as chat/worker resolution. This is distinct from answering a call-time model-not-found with a substitute.
+- **502 for `binding-failed`:** accepted. The host answered and retrying the same binding cannot repair it. The web chat path treats any non-422 problem as the server's named problem, and eval HTTP clients already treat any non-2xx as a failure. Finding 3 repaired the missing OpenAPI declaration.
+- **`binding` means model tag:** accepted as problem-type-specific vocabulary because `configPath` separately anchors the configuration location. Finding 10 repaired that companion field's actual wire spelling. The two existing 503 slugs keep their established `binding="llm.roles.chat"` contract.
+- **Role `base_url` carries into a selected model:** accepted within the frozen role semantics. It preserves the role endpoint rather than silently rerouting through the provider map; an endpoint that does not serve the selected tag now refuses by name. Finding 11 remains open for the distinct legacy case where no endpoint URL is configured at all.
+- **Fallback remains outside the catalog:** no new finding; it is explicitly deferred in the spec and out of this review's patch scope.
+- **Generic `app_setting` table:** accepted. API writes are catalog-validated, every read revalidates against the current catalog, scalar/nonblank checks protect the stored shape, and production search confirmed only `api/settings.py` writes it.
+- **Eval reads effective bindings over HTTP and continues when unavailable:** accepted as the frozen AD-16/client behavior. The snapshot records an explicit problem and never guesses the file binding; changing verdict validity belongs to an owner/spec decision beyond this story.
+- **Chat reuses its no-evidence connection:** accepted. The added indexed lookup occurs inside the existing short connection context, which closes before either model call or retrieval, so it adds no long-lived pool hold and resolves once per request.
+
+The three footprint extensions were forced: router order is pinned by `BASELINE_ROUTER_ORDER`; the LiteLLM stub must expose every lazily referenced exception class; and the harness network-import guard must list `run.py` once it calls the public settings endpoint. The LiteLLM `.env` containment also passed with the real SDK import executed before the two named config-precedence tests; the deferred item accurately records that the repository-wide guard still belongs in `server/tests/conftest.py`.
+
+B-38's primary ordering is correct after remediation: `NotFoundError` maps before the outage/generic clauses, `FallbackLlm` re-raises `LlmModelNotServedError` before its substituting `except LlmError`, and the provider now comes only from `provider_for_model`. No selected-primary model-not-served path reached the fallback in the inspected callers or tests. AD-4, AD-6, and AD-15 remain intact: the chat edit occurs before retrieval/synthesis and does not change projection writers, citation minting, marker parsing, or the final citation gate.
+
+## Verification
+
+- `uv run --project server pytest server/tests/test_settings_resolution.py server/tests/test_api_settings.py -q` — **33 passed**.
+- `uv run --project server pytest server/tests/test_worker_extract.py server/tests/test_api_chat.py -q` — **23 passed, 55 deselected**.
+- Real LiteLLM import followed by the two named config-precedence tests — **3 passed**; the SDK did not leak `.env` state across the fixture boundary.
+- `uv run --project server pytest evals/tests -q` — **655 passed**.
+- `make lint` — **All checks passed**.
+- `make typecheck` — **Success: no issues found in 13 source files**.
+- `make web-test` — **294 passed in 16 files**.
+- `make test-fast` — **1995 passed, 2 expected skips, 378 deselected**.
+- `make test` — optional diarizer lane **92 passed**; full server gate **2373 passed, 2 expected skips** in 609.66s; production web build passed. The two skips are the named pyannote/default-environment case and opt-in YouTube network case.
+- `python3 _bmad/scripts/branch_conflicts.py --against story/8-2` — `story/8-2 × story/8-2-review` is **clean**. The command also reproduced only the already-characterized `sprint-notes.md` conflicts and the `story/7-3` generated-client conflict.
+- `make check-reviews` — **every dispatched review has a committed report**.
+
+The requested rebase onto `origin/main` was attempted before inspection and stopped at the already-characterized `sprint-notes.md` conflict while replaying `5e39c3c`. It was aborted without resolving or altering that integration-owned file, as instructed. No merge to `main` was attempted.
+
+## Verdict
+
+The patchable implementation is green and ready for owner integration from `story/8-2-review`, but Story 8.2 does **not** receive a clean-pass verdict yet: Findings 1 and 11 remain open medium-severity owner/spec decisions. The review branch was not merged, and neither frozen intent nor integration-owned conflicts were modified.
