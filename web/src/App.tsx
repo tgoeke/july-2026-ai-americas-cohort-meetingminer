@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   BrowserRouter,
   Link,
+  NavLink,
   Outlet,
   matchPath,
   useLocation,
@@ -10,10 +11,11 @@ import {
 } from 'react-router'
 import { getHealth } from '@/client/sdk.gen'
 import type { HealthResponse } from '@/client/types.gen'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { ChatPanel } from '@/features/chat/ChatPanel'
 import { CorpusStats } from '@/features/home/CorpusStats'
 import { MeetingsList } from '@/features/meetings/MeetingsList'
+import { MomentsFeed } from '@/features/moments/MomentsFeed'
 import { CorpusSearch } from '@/features/search/CorpusSearch'
 import { StatusIndicator } from '@/features/status/StatusIndicator'
 import { API_BASE } from '@/lib/api'
@@ -98,22 +100,56 @@ function HealthPanel() {
   )
 }
 
+/** The standing destinations, in the order EXPERIENCE.md · Chrome states.
+ * Moments is the front door and Threads the second primary view; the four
+ * screens that existed before stay reachable from the same row. */
+const PRIMARY_NAV = [
+  { to: '/', label: 'Moments', end: true },
+  { to: '/threads', label: 'Threads', end: false },
+  { to: '/meetings', label: 'Meetings', end: true },
+  { to: '/participants', label: 'Participants', end: false },
+  { to: '/status', label: 'Status', end: false },
+  { to: '/settings', label: 'Settings', end: false },
+] as const
+
 /**
- * The layout route: shell plus home content, with every other screen a
- * discovered child rendered in `<Outlet />` (story 2.8). Screens are
- * `*.route.tsx` files beside their components — see `routes/registry.ts` —
- * so adding a screen no longer edits this file. Navigation is browser
- * history: the old hand-rolled view stack became real history entries, and
- * Back is `navigate(-1)` with a home fallback for deep links.
+ * The layout route: the persistent chrome, with every screen either a
+ * discovered child in `<Outlet />` (story 2.8) or one of the two views the
+ * shell itself composes.
+ *
+ * Story 10.5 recomposed the front door. `/` is **Moments** — the ranked feed,
+ * the first thing the app shows — and `/threads` is the second primary view.
+ * The reimagined home did not go anywhere: its corpus counts, meeting cards
+ * and health panel moved to **`/meetings`**, whole and unchanged inside, and
+ * the chrome links to it. Both views live in this layout route rather than
+ * being discovered children for the reason home always did: a `<Routes>` swap
+ * would unmount them, and the meetings stream must stay subscribed and the
+ * feed must keep its page across a moment opened out of it.
+ *
+ * Adding a *screen* is still adding a `*.route.tsx` file; this file changes
+ * only when the front door itself is recomposed.
  */
 function Shell() {
   const { pathname } = useLocation()
   const navigate = useNavigate()
   const openPath = useOpenPath()
   // A child screen is open when a discovered route matches. The unknown-path
-  // catch-all is deliberately not a discovered route, so a stray URL shows
-  // home rather than a blank shell with a Back control.
+  // catch-all is deliberately not a discovered route, so a stray URL shows the
+  // front door rather than a blank shell with a Back control.
   const childOpen = childRoutes.some((route) => matchPath(route.path, pathname) !== null)
+  // The two views this layout composes. `/meetings` is not a discovered route
+  // (`/meetings/:meetingId` is), so it falls to the shell; every remaining
+  // path — `/` and anything unknown — is the front door.
+  const meetingsOpen = !childOpen && matchPath('/meetings', pathname) !== null
+  const momentsOpen = !childOpen && !meetingsOpen
+
+  // Dark is the only mode (DESIGN.md · Colors): the app's `.dark` tokens
+  // exist but were never applied, so every screen rendered light. The shell
+  // applies the class once, at the root, and `index.html` carries it too so
+  // the first paint is already dark.
+  useEffect(() => {
+    document.documentElement.classList.add('dark')
+  }, [])
 
   // The child screen is placed above the chrome (see the `<Outlet />` block
   // below), which is what actually fixes "Open moment does nothing". This
@@ -144,95 +180,121 @@ function Shell() {
   }, [navigate])
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-8 p-8">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-wrap items-baseline gap-6">
-          <h1 className="text-3xl font-semibold tracking-tight">MeetingMiner</h1>
-          {/* SPEC-ui-reimagine CAP-1 chrome: the standing destinations, on
-              every screen. `/settings` is story ui-4's configuration page —
-              the link target is part of this chrome either way, and until
-              that route lands the unknown-path catch-all shows home. */}
-          <nav aria-label="Primary" className="flex items-center gap-4 text-sm text-muted-foreground">
-            <Link to="/" className="hover:text-foreground">
-              Home
-            </Link>
-            <Link to="/status" className="hover:text-foreground">
-              Status
-            </Link>
-            <Link to="/settings" className="hover:text-foreground">
-              Settings
-            </Link>
+    <div className="flex min-h-screen flex-col">
+      {/* SPEC-ui-reimagine CAP-1 chrome, recomposed by story 10.5: the brand,
+          the standing destinations, the one primary action, and the health
+          indicator, sticky at the top of every screen. */}
+      <header className="sticky top-0 z-20 border-b border-border bg-background">
+        <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center gap-x-6 gap-y-2 px-8 py-3">
+          <span className="text-lg font-semibold tracking-tight">MeetingMiner</span>
+          <nav aria-label="Primary" className="flex flex-wrap items-center gap-4 text-sm">
+            {PRIMARY_NAV.map((entry) => (
+              <NavLink
+                key={entry.to}
+                to={entry.to}
+                end={entry.end}
+                className={({ isActive }) =>
+                  isActive
+                    ? 'border-b-2 border-primary pb-0.5 font-medium text-foreground'
+                    : 'pb-0.5 text-muted-foreground hover:text-foreground'
+                }
+              >
+                {entry.label}
+              </NavLink>
+            ))}
           </nav>
+          <div className="ml-auto flex items-center gap-4">
+            {/* Story 6.5's Add-meeting flow at `/add`. The chrome carries the
+                link before that route lands, exactly as it carried
+                `/settings` before story ui-4 — until then the unknown-path
+                catch-all shows the front door. */}
+            <Link
+              to="/add"
+              className={buttonVariants({ variant: 'default', size: 'sm' })}
+            >
+              Add meeting
+            </Link>
+            {/* SPEC-system-status CAP-1: the persistent health indicator lives
+                in the chrome, outside the view blocks, so it is visible on
+                every screen and polls for the whole session. */}
+            <StatusIndicator />
+          </div>
         </div>
-        {/* SPEC-system-status CAP-1: the persistent health indicator lives in
-            the chrome, outside the hidden-on-child-screens home block, so it
-            is visible on every screen and polls for the whole session. */}
-        <StatusIndicator />
-      </div>
-      {childOpen && (
-        <div>
-          <Button size="sm" variant="outline" onClick={back}>
-            ← Back
-          </Button>
-        </div>
-      )}
-      {/* The open child screen sits ABOVE the persistent search/ask chrome
-          (2026-08-22 hot fix). It used to render in the last `<Outlet />`,
-          after that chrome — and the chrome stays mounted on purpose so Back
-          returns to the same result list. A full page of hits is taller than
-          the viewport, so the opened moment landed ~4000px down a ~5000px
-          document, where the browser cannot even scroll it to the top, and
-          the click read as "Open moment does nothing". Replay looked fine
-          throughout because its player opens inline beside the clicked hit,
-          which is why only one of the two buttons appeared broken.
+      </header>
+      <main className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col gap-8 p-8">
+        {childOpen && (
+          <div>
+            <Button size="sm" variant="outline" onClick={back}>
+              ← Back
+            </Button>
+          </div>
+        )}
+        {/* The open child screen sits ABOVE the persistent search/ask chrome
+            (2026-08-22 hot fix; pinned by `shellPlacement.test.tsx`, backlog
+            B-13). It used to render in the last `<Outlet />`, after that
+            chrome — and the chrome stays mounted on purpose so Back returns
+            to the same result list. A full page of hits is taller than the
+            viewport, so the opened moment landed ~4000px down a ~5000px
+            document, where the browser cannot even scroll it to the top, and
+            the click read as "Open moment does nothing". Replay looked fine
+            throughout because its player opens inline beside the clicked hit,
+            which is why only one of the two buttons appeared broken.
 
-          Same remedy as `spec-meeting-artifacts-below-fold`: fix document
-          order rather than chase it with scrolling, so DOM order (and
-          therefore tab order and screen-reader linearization) matches what
-          the eye should reach first. `hidden` rather than unmounting keeps
-          `main`'s `gap-8` from opening a stray gap on home, and a
-          display:none flex child takes part in neither layout nor gap. */}
-      <div ref={childRef} hidden={!childOpen}>
-        <Outlet />
-      </div>
-      {/* Persistent chrome, not home panels (SPEC-ui-reimagine CAP-1): search
-          and ask-the-corpus stand on every route. Always mounted for the same
-          reason home is hidden rather than unmounted — the verify-a-claim
-          loop is search → moment → back → next hit, and unmounting would
-          blank the query and results on every navigation. Search first:
-          search answers "where was this discussed", chat answers a cited
-          question over that same corpus (FR12, FR15, UX-DR3, UX-DR10); both
-          open a citation's moment view by `momentId` alone. */}
-      <div className="grid gap-8 lg:grid-cols-2">
-        <CorpusSearch onOpenMoment={(momentId) => openPath(`/moments/${momentId}`)} />
-        <ChatPanel onOpenMoment={(momentId) => openPath(`/moments/${momentId}`)} />
-      </div>
-      {/* Hidden, never unmounted, while a meeting or moment is open: the
-          meetings stream stays subscribed and the list keeps its rows, so
-          Back never re-seeds. This is why home lives in the layout route
-          rather than being a discovered child — a `<Routes>` swap would
-          unmount it. */}
-      <div hidden={childOpen} className="flex flex-col gap-8">
-        {/* The corpus's scale, before its contents: CAP-1's one-screen
-            answer to "how much evidence does this corpus hold". */}
-        <CorpusStats />
-        <MeetingsList
-          onOpen={(row) => {
-            // `meetingId` is null until the worker mints the meeting row; a
-            // viewable row always has one, but the type does not know that.
-            if (row.meetingId != null) openPath(`/meetings/${row.meetingId}`)
-          }}
-        />
-        <div className="flex justify-end">
-          {/* Story 2.4's one entry point into the curation screen — the
-              spec's only App.tsx edit. */}
-          <Button size="sm" variant="outline" onClick={() => openPath('/participants')}>
-            Participants
-          </Button>
+            Same remedy as `spec-meeting-artifacts-below-fold`: fix document
+            order rather than chase it with scrolling, so DOM order (and
+            therefore tab order and screen-reader linearization) matches what
+            the eye should reach first. `hidden` rather than unmounting keeps
+            `main`'s `gap-8` from opening a stray gap, and a display:none flex
+            child takes part in neither layout nor gap.
+
+            Child screens render at the reading width, not the shell's: they
+            are columns of prose and evidence, not ranked grids
+            (DESIGN.md · Layout & Spacing). */}
+        <div ref={childRef} hidden={!childOpen} className="mx-auto w-full max-w-5xl">
+          <Outlet />
         </div>
-        <HealthPanel />
-      </div>
-    </main>
+        {/* Persistent chrome, not view panels (SPEC-ui-reimagine CAP-1):
+            search and ask-the-corpus stand on every route. Always mounted for
+            the same reason the views are hidden rather than unmounted — the
+            verify-a-claim loop is search → moment → back → next hit, and
+            unmounting would blank the query and results on every navigation.
+            Search first: search answers "where was this discussed", chat
+            answers a cited question over that same corpus (FR12, FR15,
+            UX-DR3, UX-DR10); both open a citation's moment view by
+            `momentId` alone. */}
+        <div className="grid gap-8 lg:grid-cols-2">
+          <CorpusSearch onOpenMoment={(momentId) => openPath(`/moments/${momentId}`)} />
+          <ChatPanel onOpenMoment={(momentId) => openPath(`/moments/${momentId}`)} />
+        </div>
+        {/* The front door (story 10.5): the ranked feed, hidden but never
+            unmounted while a moment opened out of it is on screen, so Back
+            lands on the same page of cards rather than re-ranking. */}
+        <div hidden={!momentsOpen}>
+          <MomentsFeed
+            onOpenMoment={(momentId) => openPath(`/moments/${momentId}`)}
+            onOpenMeeting={(meetingId) => openPath(`/meetings/${meetingId}`)}
+            onOpenThread={(threadId) => openPath(`/threads/${threadId}`)}
+          />
+        </div>
+        {/* The reimagined home, relocated to `/meetings` whole: the corpus
+            counts, the live meeting cards, and the health panel. Hidden,
+            never unmounted, so the meetings stream stays subscribed and the
+            list keeps its rows across a meeting opened out of it. */}
+        <div hidden={!meetingsOpen} className="flex flex-col gap-8">
+          {/* The corpus's scale, before its contents: CAP-1's one-screen
+              answer to "how much evidence does this corpus hold". */}
+          <CorpusStats />
+          <MeetingsList
+            onOpen={(row) => {
+              // `meetingId` is null until the worker mints the meeting row; a
+              // viewable row always has one, but the type does not know that.
+              if (row.meetingId != null) openPath(`/meetings/${row.meetingId}`)
+            }}
+          />
+          <HealthPanel />
+        </div>
+      </main>
+    </div>
   )
 }
 
@@ -243,8 +305,8 @@ function AppRoutes() {
       element: <Shell />,
       children: [
         ...childRoutes.map(({ path, element }) => ({ path, element })),
-        // Unknown path: render the shell with home visible, never a blank
-        // screen or an error page.
+        // Unknown path: render the shell with the front door visible, never a
+        // blank screen or an error page.
         { path: '*', element: null },
       ],
     },
