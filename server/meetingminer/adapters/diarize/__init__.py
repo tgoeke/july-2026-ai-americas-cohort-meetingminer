@@ -6,6 +6,18 @@ build time — before any work — with a :class:`DiarizerError` naming exactly
 what is missing (the extra's install command, or the Hugging Face token and
 licence acceptance). When both checks pass, the returned engine has still
 loaded nothing: the model load is deferred to its first ``diarize`` call.
+
+``remote-http`` (backlog B-36) is the LAN diarization service, which needs no
+token at all. It has nothing to check at build time and deliberately does not
+probe the host: that box is operator-scheduled, and a ``/health`` call here
+would make "is it up right now" a build-time dependency of every transcribe
+run. Its failures surface on the ``diarize`` call, by name (AD-9).
+
+Neither engine is in :data:`ENGINES`. That registry maps a name to a
+*zero-argument* class and constructs it as ``engine()``; both of these need
+values off the binding, so both are special-cased in :func:`build_diarizer`
+and both are named in :data:`ENGINE_CHOICES`, which is what keeps the
+unknown-engine diagnostic an exhaustive list of what config.yaml accepts.
 """
 
 from __future__ import annotations
@@ -17,9 +29,11 @@ from typing import Protocol
 from meetingminer.adapters.diarize.noop import NoopDiarizer
 from meetingminer.adapters.diarize.port import DiarizationTurn, Diarizer, DiarizerError
 from meetingminer.adapters.diarize.pyannote import PyannoteDiarizer
+from meetingminer.adapters.diarize.remote_http import RemoteHttpDiarizer
 
 __all__ = [
     "ENGINES",
+    "ENGINE_CHOICES",
     "DiarizationTurn",
     "Diarizer",
     "DiarizerBinding",
@@ -27,15 +41,25 @@ __all__ = [
     "NoopDiarizer",
     "PYANNOTE_ENGINE",
     "PyannoteDiarizer",
+    "REMOTE_HTTP_ENGINE",
+    "RemoteHttpDiarizer",
     "build_diarizer",
 ]
 
 PYANNOTE_ENGINE = PyannoteDiarizer.name
+REMOTE_HTTP_ENGINE = RemoteHttpDiarizer.name
 
-# Engine name in config.yaml -> zero-argument implementation. `pyannote` is
-# deliberately absent: it needs the availability and token checks plus config
-# arguments, so `build_diarizer` special-cases it below.
+# Engine name in config.yaml -> zero-argument implementation. `pyannote` and
+# `remote-http` are deliberately absent: the first needs the availability and
+# token checks plus config arguments, the second needs the endpoint and the
+# timeout off the binding, and this registry's values are constructed
+# `engine()` with none.
 ENGINES: dict[str, type[Diarizer]] = {NoopDiarizer.name: NoopDiarizer}
+
+# Every engine name config.yaml accepts — the registry plus the two
+# special-cased above. The unknown-engine diagnostic enumerates this, so a new
+# engine cannot be bound without appearing in the message that lists them.
+ENGINE_CHOICES = sorted([*ENGINES, PYANNOTE_ENGINE, REMOTE_HTTP_ENGINE])
 
 PYANNOTE_UNAVAILABLE = (
     f"the {PYANNOTE_ENGINE} diarizer is not bundled: pyannote.audio is the"
@@ -80,21 +104,27 @@ def _pyannote_token_missing(token_env: str) -> str:
 class DiarizerBinding(Protocol):
     """Structural mirror of :class:`meetingminer.config.DiarizerConfig`, whole.
 
-    All three fields are always present on the real config object; the
-    ``noop`` branch simply ignores ``model`` and ``token_env``.
+    Every field is always present on the real config object, and each branch
+    simply ignores the ones its engine does not use: ``noop`` reads none of
+    them, ``pyannote`` reads ``model`` and ``token_env``, ``remote-http``
+    reads ``base_url`` and ``timeout_seconds``.
     """
 
     engine: str
     model: str
     token_env: str
+    base_url: str
+    timeout_seconds: float
 
 
 def build_diarizer(diarizer_config: DiarizerBinding) -> Diarizer:
     """Construct the configured diarizer, or raise :class:`DiarizerError`.
 
-    Fails closed here, before any work: an unavailable engine never reaches a
-    stage run. Returning the pyannote engine loads no model — that is
-    deferred to its first ``diarize`` call.
+    Every misconfiguration fails closed here, before any work: an unknown
+    engine name, a missing extra, an absent token. What is checked is what
+    this process can know on its own — returning the pyannote engine loads no
+    model, and returning the remote engine contacts no host; both defer to
+    their first ``diarize`` call, which is also where their failures are named.
     """
     engine_name = diarizer_config.engine
     if engine_name == PYANNOTE_ENGINE:
@@ -104,10 +134,18 @@ def build_diarizer(diarizer_config: DiarizerBinding) -> Diarizer:
         if not token:
             raise DiarizerError(_pyannote_token_missing(diarizer_config.token_env))
         return PyannoteDiarizer(model=diarizer_config.model, token=token)
+    if engine_name == REMOTE_HTTP_ENGINE:
+        # Nothing to check and nothing to reach. Whether the LAN host is up
+        # right now is a fact about the `diarize` call, not about the binding:
+        # probing it here would fail an ingest that never needed diarization.
+        return RemoteHttpDiarizer(
+            base_url=diarizer_config.base_url,
+            timeout_seconds=diarizer_config.timeout_seconds,
+        )
     engine = ENGINES.get(engine_name)
     if engine is None:
         raise DiarizerError(
             f"unknown diarizer engine {engine_name!r} in config.yaml —"
-            f" choose one of {', '.join(sorted([*ENGINES, PYANNOTE_ENGINE]))}"
+            f" choose one of {', '.join(ENGINE_CHOICES)}"
         )
     return engine()

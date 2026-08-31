@@ -18,8 +18,12 @@ stt:
   model: mlx-community/whisper-large-v3-turbo
 
 diarizer:
-  engine: noop # noop | pyannote
-  # pyannote is an optional extra, installed by hand:
+  engine: noop # noop | pyannote | remote-http
+  # `noop` returns no turns at all, so speaker identity comes only from a
+  # provided transcript. It stays bound until the owner picks between the two
+  # real engines below; that choice is pending a capacity measurement.
+  #
+  # pyannote runs in this process and is an optional extra, installed by hand:
   #   uv sync --project server --extra diarize
   # Its models are gated: accept the model licence on huggingface.co, then
   # keep that account's token in .env under the variable `token_env` names —
@@ -28,6 +32,17 @@ diarizer:
   # The adapter disables pyannote telemetry before constructing the pipeline.
   model: pyannote/speaker-diarization-community-1
   token_env: HF_TOKEN
+  # remote-http POSTs the audio to the LAN GPU host's /diarize and needs no
+  # token and no extra. Scheme, host and port only — the adapter appends the
+  # route. That host is operator-scheduled (started by hand, and its GPU is
+  # shared), so when it is down this engine fails the stage by name rather
+  # than substituting another engine.
+  base_url: http://10.77.0.120:8000
+  # Finite, and enforced on every request. 60 minutes of audio measured 57.5s
+  # on an idle GPU, but /diarize and /transcribe share one inference lock
+  # there, so a call can queue behind a whole transcription. 900s absorbs that
+  # queue and still fails a wedged host in fifteen minutes rather than never.
+  timeout_seconds: 900
 
 llm:
   roles:

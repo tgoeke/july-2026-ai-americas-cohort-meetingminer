@@ -203,17 +203,27 @@ class SttConfig(_StrictModel):
 class DiarizerConfig(_StrictModel):
     """The `Diarizer` port binding (AD-8).
 
-    ``model`` and ``token_env`` matter only to the ``pyannote`` engine: the
-    Hugging Face model id to load, and the *name* of the environment variable
-    holding the token whose account accepted that model's licence. The worker
-    reads it from its own process environment (.env stores the value, but the
-    host worker does not load .env into its environment today). The ``noop``
-    engine ignores both.
+    Fields belong to engines, and each engine ignores the others':
+
+    * ``model`` and ``token_env`` are the ``pyannote`` engine's — the Hugging
+      Face model id to load, and the *name* of the environment variable holding
+      the token whose account accepted that model's licence. The worker reads
+      it from its own process environment (.env stores the value, but the host
+      worker does not load .env into its environment today).
+    * ``base_url`` and ``timeout_seconds`` are the ``remote-http`` engine's —
+      the scheme, host and port of the LAN diarization service, with no path
+      (the adapter appends ``/diarize``), and the finite per-request budget it
+      enforces. ``allow_inf_nan=False`` makes "finite" a validated property of
+      the binding rather than a hope about it: an unbounded timeout would let a
+      wedged host hang a transcribe stage indefinitely.
+    * ``noop`` ignores all four.
     """
 
-    engine: Literal["noop", "pyannote"]
+    engine: Literal["noop", "pyannote", "remote-http"]
     model: NonEmptyText = "pyannote/speaker-diarization-community-1"
     token_env: NonEmptyText = "HF_TOKEN"
+    base_url: NonEmptyText = "http://10.77.0.120:8000"
+    timeout_seconds: float = Field(default=900.0, gt=0, allow_inf_nan=False)
 
 
 class CatalogEntry(_StrictModel):
