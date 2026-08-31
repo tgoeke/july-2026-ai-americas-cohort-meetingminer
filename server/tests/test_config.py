@@ -121,6 +121,24 @@ acquisition:
 threads:
   link_rule: normalized-name-or-embedding-similarity
   embedding_similarity_threshold: 0.82
+ranking:
+  weights:
+    adr: 5.0
+    decision: 4.0
+    action_item_stated_timing: 3.0
+    due_urgency: 4.0
+    risk: 3.5
+    question: 2.0
+    meeting_recency: 2.5
+    publication_recency: 2.0
+    thread_membership: 1.0
+  recency_half_life_days: 14.0
+  due_horizon_days: 14.0
+  max_signal_reasons: 3
+  max_thread_reasons: 3
+  default_limit: 20
+  max_limit: 100
+  signals_prompt: extract risks and open questions
 """
 
 

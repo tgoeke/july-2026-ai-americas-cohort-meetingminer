@@ -264,10 +264,12 @@ def test_adopting_both_documents_makes_no_model_call_and_records_both_sources(
     assert statuses["extract"] == "done"
     assert job_row(pool, job_id) == ("done", None)
     # The whole point of adoption: a derivative document already exists, so
-    # nothing is asked of a model for it. The topics document (story 10.1)
-    # has no adoption path, so exactly one call went out — the topics one.
-    [topics_call] = engine.calls
+    # nothing is asked of a model for it. The two documents with no adoption
+    # path — topics (story 10.1) and ranking signals (story 10.4) — are the
+    # only calls that went out.
+    topics_call, signals_call = engine.calls
     assert "## Topics" in topics_call
+    assert "## Risks" in signals_call and "## Open questions" in signals_call
 
     [meeting] = meetings(pool, job_id)
     moments = moment_ids(pool, meeting["id"])
@@ -292,7 +294,9 @@ def test_adopting_both_documents_makes_no_model_call_and_records_both_sources(
     assert rows[2]["provenance"]["document_kind"] == "action-items"
 
     sources = extraction_sources(pool, meeting["id"])
-    assert set(sources) == {"arch-summary", "action-items", "topics"}
+    assert set(sources) == {
+        "arch-summary", "action-items", "topics", "ranking-signals",
+    }
     assert sources["topics"]["origin"] == "generated"
     assert sources["arch-summary"] == {
         "origin": "adopted",
@@ -359,7 +363,7 @@ def test_generating_both_documents_makes_one_call_per_document_kind(
     assert runner.run_once(pool, app_config, content_root) is True
     assert job_row(pool, job_id) == ("done", None)
 
-    assert len(engine.calls) == 3
+    assert len(engine.calls) == 4
     for call in engine.calls:
         # The *whole* transcript, not one moment's slice.
         assert "[0:02] Goeke, Timothy: We will standardize on SFTP" in call
@@ -367,6 +371,7 @@ def test_generating_both_documents_makes_one_call_per_document_kind(
     assert "## Decisions" in engine.calls[0]
     assert "## Action items" in engine.calls[1]
     assert "## Topics" in engine.calls[2]
+    assert "## Risks" in engine.calls[3]
     # The grounding both prompts depend on. Without the date line, models
     # invent calendar due dates for vague commitments like "next week"; a
     # `_meeting_date` that returned "" or reformatted would ship silently
@@ -509,11 +514,13 @@ def test_a_drop_carrying_one_document_adopts_it_and_generates_the_other(
     assert runner.run_once(pool, app_config, content_root) is True
     assert job_row(pool, job_id) == ("done", None)
 
-    # Two calls: the summary, and the topics document (story 10.1, always
-    # generated). The action items arrived in the drop.
-    assert len(engine.calls) == 2
+    # Three calls: the summary, the topics document (story 10.1) and the
+    # ranking-signals document (story 10.4) — both always generated. The
+    # action items arrived in the drop.
+    assert len(engine.calls) == 3
     assert "## Decisions" in engine.calls[0]
     assert "## Topics" in engine.calls[1]
+    assert "## Risks" in engine.calls[2]
 
     [meeting] = meetings(pool, job_id)
     sources = extraction_sources(pool, meeting["id"])
@@ -594,7 +601,9 @@ def test_a_document_whose_populated_section_yields_nothing_is_named(
     [summary] = [r for r in records if r["event"] == "stage.extract.summary"]
     assert summary["artifacts"] == {"action-item": 0, "adr": 0}
     assert summary["adopted"] == 2, "both artifact documents came from the drop"
-    assert summary["generated"] == 1, "the topics document is always generated"
+    assert summary["generated"] == 2, (
+        "the topics and ranking-signals documents are always generated"
+    )
 
 
 # --- idempotence (AD-11): drafts are replaced, approval is untouchable ------
@@ -690,9 +699,10 @@ def test_the_stage_writes_only_artifact_and_extraction_source_rows(
     requeue_extract(pool, job_id)
     assert runner.run_once(pool, app_config, content_root) is True
     assert evidence_counts(pool, meeting["id"]) == before
-    # The source rows are upserted, never accumulated — three kinds now that
-    # the topics document (story 10.1) writes its own.
-    assert len(extraction_sources(pool, meeting["id"])) == 3
+    # The source rows are upserted, never accumulated — four kinds now that
+    # the topics document (story 10.1) and the ranking-signals document
+    # (story 10.4) each write their own.
+    assert len(extraction_sources(pool, meeting["id"])) == 4
 
 
 # --- malformed documents: retry on generate, never on adopt -----------------
@@ -710,8 +720,8 @@ def test_a_generated_document_that_will_not_parse_is_retried_once(
 
     assert runner.run_once(pool, app_config, content_root) is True
     assert job_row(pool, job_id) == ("done", None)
-    # Four calls over three documents: the summary took two.
-    assert len(engine.calls) == 4
+    # Five calls over four documents: the summary took two.
+    assert len(engine.calls) == 5
     assert engine.calls[0] == engine.calls[1], "the retry re-sends the same prompt"
     [meeting] = meetings(pool, job_id)
     assert len(artifact_rows(pool, meeting["id"])) == 3
@@ -736,7 +746,7 @@ def test_a_generated_unrelated_table_is_retried_once(
 
     assert runner.run_once(pool, app_config, content_root) is True
     assert job_row(pool, job_id) == ("done", None)
-    assert len(engine.calls) == 4
+    assert len(engine.calls) == 5
     assert engine.calls[0] == engine.calls[1]
 
 
@@ -875,9 +885,11 @@ def test_a_drop_that_carries_a_document_without_declaring_it_is_still_adopted(
     )
     assert runner.run_once(pool, app_config, content_root) is True
     assert job_row(pool, job_id) == ("done", None)
-    # Both artifact documents adopted; the one call is the topics pass.
-    [topics_call] = engine.calls
+    # Both artifact documents adopted; the two calls are the topics pass and
+    # the ranking-signals pass, neither of which has an adoption path.
+    topics_call, signals_call = engine.calls
     assert "## Topics" in topics_call
+    assert "## Risks" in signals_call
 
 
 def test_an_extraction_document_that_is_not_utf8_is_a_named_refusal(
@@ -979,7 +991,7 @@ def test_an_unavailable_primary_engages_the_fallback_for_the_whole_meeting(
     assert job_row(pool, job_id) == ("done", None)
     # The primary was asked once; the fallback served every document after.
     assert len(primary.calls) == 1
-    assert len(fallback.calls) == 3
+    assert len(fallback.calls) == 4
     [meeting] = meetings(pool, job_id)
     rows = artifact_rows(pool, meeting["id"])
     assert len(rows) == 3

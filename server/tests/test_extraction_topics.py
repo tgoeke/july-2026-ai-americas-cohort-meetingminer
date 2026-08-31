@@ -597,11 +597,14 @@ def test_topics_land_as_rows_with_a_mention_per_containing_moment(
     assert runner.run_once(pool, app_config, content_root) is True
     assert job_row(pool, job_id) == ("done", None)
 
-    # Both artifact documents were adopted; the one call is the topics pass,
-    # over the whole transcript, carrying the committed template.
-    assert len(engine.calls) == 1
+    # Both artifact documents were adopted, so the only calls are the two
+    # passes with no adoption path: topics, then story 10.4's ranking
+    # signals. The topics call is the first, over the whole transcript,
+    # carrying the committed template.
+    assert len(engine.calls) == 2
     binding = app_config.settings.llm.roles.extraction
     assert engine.calls[0].startswith(binding.topics_prompt)
+    assert engine.calls[1].startswith(app_config.settings.ranking.signals_prompt)
     assert "[1:30] Goeke, Timothy: Nothing else to report today." in engine.calls[0]
 
     [meeting] = meetings(pool, job_id)
@@ -752,7 +755,7 @@ def test_an_early_exit_rerun_removes_existing_topics_and_mentions(
     requeue_extract(pool, job_id)
     assert runner.run_once(pool, app_config, content_root) is True
     assert job_row(pool, job_id) == ("done", None)
-    assert len(engine.calls) == 1, "the empty rerun must exit before another model call"
+    assert len(engine.calls) == 2, "the empty rerun must exit before another model call"
     assert topic_rows(pool, meeting["id"]) == []
     assert topics_source(pool, meeting["id"]) is None
 
@@ -847,7 +850,7 @@ def test_a_moment_only_augmentation_deletes_a_topic_left_without_mentions(
     set_job_status(pool, job_id, "queued")
     assert runner.run_once(pool, app_config, content_root) is True
     assert stage_statuses(pool, job_id)["extract"] == "done"
-    assert len(engine.calls) == 1, "augmentation must leave extract settled"
+    assert len(engine.calls) == 2, "augmentation must leave extract settled"
 
     with pool.connection() as conn:
         assert conn.execute(
@@ -982,7 +985,9 @@ def test_an_unparseable_topics_reply_earns_one_retry(
     job_id = enqueue(pool, make_extraction_drop("source-retry"), "source-retry")
     assert runner.run_once(pool, app_config, content_root) is True
     assert job_row(pool, job_id) == ("done", None)
-    assert len(engine.calls) == 2
+    # Two topics calls (the refusal and its retry) plus story 10.4's
+    # ranking-signals pass, which runs after topics settle.
+    assert len(engine.calls) == 3
     [meeting] = meetings(pool, job_id)
     assert len(topic_rows(pool, meeting["id"])) == 2
 
@@ -1004,7 +1009,9 @@ def test_a_contentful_foreign_topics_reply_earns_one_retry(
     job_id = enqueue(pool, make_extraction_drop("source-foreign-retry"), "source-foreign-retry")
     assert runner.run_once(pool, app_config, content_root) is True
     assert job_row(pool, job_id) == ("done", None)
-    assert len(engine.calls) == 2
+    # Two topics calls (the refusal and its retry) plus story 10.4's
+    # ranking-signals pass, which runs after topics settle.
+    assert len(engine.calls) == 3
     [meeting] = meetings(pool, job_id)
     assert len(topic_rows(pool, meeting["id"])) == 2
 
@@ -1030,7 +1037,9 @@ def test_an_idless_contentful_foreign_topics_reply_earns_one_retry(
     )
     assert runner.run_once(pool, app_config, content_root) is True
     assert job_row(pool, job_id) == ("done", None)
-    assert len(engine.calls) == 2
+    # Two topics calls (the refusal and its retry) plus story 10.4's
+    # ranking-signals pass, which runs after topics settle.
+    assert len(engine.calls) == 3
     [meeting] = meetings(pool, job_id)
     assert len(topic_rows(pool, meeting["id"])) == 2
 

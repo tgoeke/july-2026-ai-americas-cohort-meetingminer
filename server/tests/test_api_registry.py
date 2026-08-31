@@ -30,6 +30,12 @@ BASELINE_ROUTER_ORDER = [
     "events",
     "jobs",
     "meetings",
+    # Story 10.4: `moments_feed.py` declares `ROUTER_ORDER = 35`, below
+    # `moments.py`'s 40, because `/moments/feed` is a literal path under
+    # `/moments/{moment_id}`'s prefix — exactly the hazard this module's own
+    # docstring warned about. Registered the other way round, FastAPI would
+    # match `feed` as a `moment_id` and reject it as a malformed UUID.
+    "moments_feed",
     "moments",
     "search",
     "chat",
