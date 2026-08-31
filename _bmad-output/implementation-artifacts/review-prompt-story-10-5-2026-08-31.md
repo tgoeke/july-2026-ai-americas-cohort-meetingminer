@@ -103,9 +103,14 @@ review that only reads the diff will miss the same class.
 5. **Boundaries this lane was told to respect.** It must not have restructured
    the ask box (story 8.3) or the meeting view (story 7.4), must not have
    hand-edited a route registry, and must not have built the Threads screen.
-   The one deliberate seam is `web/src/features/threads/Threads.route.tsx` —
-   created here, filled by 10.6, registered at `/threads/*` so a thread chip's
-   deep link resolves rather than falling to the catch-all.
+   The one deliberate seam is
+   `web/src/features/threads/ThreadsPlaceholder.route.tsx` at `/threads/*`,
+   which keeps the nav's second destination honest until 10.6 lands. Both
+   build prompts implied the filename `Threads.route.tsx`; 10.6 had already
+   created exactly that file, so `branch_conflicts.py` reported a collision and
+   this lane narrowed its own edit to a separate name. **Integration deletes
+   the placeholder and `ThreadsPlaceholder.tsx`.** Check that nothing else on
+   this branch still points at the old filename.
 
 ## Verification this lane actually ran
 
