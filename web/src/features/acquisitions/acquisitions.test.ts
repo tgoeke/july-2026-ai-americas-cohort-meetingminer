@@ -32,6 +32,7 @@ function status(overrides: Partial<AcquisitionStatus> = {}): AcquisitionStatus {
     updatedAt: '2026-08-31T10:00:05Z',
     logTail: [],
     ...overrides,
+    kind: overrides.kind ?? 'youtube',
   }
 }
 

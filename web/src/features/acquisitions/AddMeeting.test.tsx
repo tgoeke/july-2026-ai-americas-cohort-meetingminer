@@ -84,6 +84,7 @@ function acquisition(overrides: Partial<AcquisitionStatus> = {}): AcquisitionSta
     updatedAt: '2026-08-31T10:00:05Z',
     logTail: [],
     ...overrides,
+    kind: overrides.kind ?? 'youtube',
   }
 }
 
