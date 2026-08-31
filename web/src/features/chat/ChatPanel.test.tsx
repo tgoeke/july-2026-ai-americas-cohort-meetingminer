@@ -92,9 +92,41 @@ function route(overrides: Partial<RouteModel> = {}): RouteModel {
 
 let fetchMock: ReturnType<typeof vi.fn>
 
+/**
+ * The ask box now mounts the model select (story 8.3), which reads
+ * `GET /settings/models` and `GET /status` on mount through the generated
+ * client. Those reads are not this file's subject, and the assertions below
+ * count `fetchMock` calls to prove one submitted question makes exactly one
+ * request — so they are answered here and never reach `fetchMock`.
+ *
+ * The two callers are told apart by call shape rather than by URL matching:
+ * `chatStream()` calls `fetch(url, init)` with a string url, the generated
+ * client calls `fetch(request)` with a `Request`.
+ */
+function pickerResponse(request: Request): Response {
+  const body = request.url.endsWith('/status')
+    ? {
+        generatedAt: '2026-08-31T00:00:00Z',
+        overall: 'ok',
+        api: { id: 'api', label: 'api', state: 'ok', detail: '', remediation: null },
+        stores: [],
+        llmRoles: [],
+        worker: { state: 'running', jobs: {}, stageBacklog: {}, detail: '', remediation: null },
+      }
+    : { roles: [] }
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
 beforeEach(() => {
   fetchMock = vi.fn()
-  vi.stubGlobal('fetch', fetchMock)
+  vi.stubGlobal('fetch', (input: unknown, init?: RequestInit) =>
+    input instanceof Request
+      ? Promise.resolve(pickerResponse(input))
+      : fetchMock(input, init),
+  )
 })
 
 async function ask(question: string) {

@@ -7,6 +7,7 @@ import type {
   SearchIndexView,
 } from '@/client/types.gen'
 import { API_BASE } from '@/lib/api'
+import { ModelRoles } from './ModelRoles'
 import {
   changePath,
   CONFIG_TIMEOUT_MS,
@@ -123,6 +124,17 @@ function Loaded({ config }: { config: ConfigResponse }) {
         on <Link to="/status" className="underline">system status</Link>, which
         reports whether each of these actually answers.
       </p>
+
+      {/* Story 8.3: the page's one editable thing, and deliberately its own
+          block rather than part of "LLM roles" below — that section's
+          change path is a file edit plus a restart, which is exactly what
+          choosing a model is not. */}
+      <section className="flex flex-col gap-2">
+        <h3 className="text-sm font-medium text-muted-foreground">Model per role</h3>
+        <div className="flex flex-col gap-3 rounded-md border p-3">
+          <ModelRoles />
+        </div>
+      </section>
 
       <Section
         title="LLM roles"

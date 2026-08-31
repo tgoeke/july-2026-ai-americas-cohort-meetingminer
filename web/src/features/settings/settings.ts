@@ -21,14 +21,21 @@ export type ConfigLoad =
   | { kind: 'failed'; message: string }
 
 /**
- * The page-level read-only contract, stated once in the chrome of the page.
- * Mirrors `REMEDIATION_IS_A_FILE_EDIT` on the status page — status is live
- * health, this page is the declared stack.
+ * The page-level contract, stated once in the chrome of the page. Mirrors
+ * `REMEDIATION_IS_A_FILE_EDIT` on the status page — status is live health,
+ * this page is the declared stack.
+ *
+ * Story 8.3 gave the page its one exception, and the sentence names it rather
+ * than being left to contradict the screen: the per-role model selection is
+ * stored by the api (`PUT /settings/roles/{role}`, story 8.2) and read per
+ * request, so it is neither a file edit nor a restart. Everything else on the
+ * page still is, and every section still says so.
  */
 export const READ_ONLY_CONTRACT =
-  'This page is read-only. Changing anything here is a file edit — ' +
-  'config.yaml — plus a restart of the affected process; there is no edit ' +
-  'control and never will be.'
+  'Everything on this page is read-only except the model bound to each LLM ' +
+  'role: changing anything else is a file edit — config.yaml — plus a ' +
+  'restart of the affected process, and no other edit control exists. The ' +
+  'model selection is stored by the api and applies to the next call.'
 
 /**
  * One section's change path. `projections.*` edits additionally need
