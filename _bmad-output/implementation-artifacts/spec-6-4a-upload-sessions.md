@@ -3,8 +3,8 @@ title: 'Story 6.4a: Upload Sessions'
 type: 'feature'
 created: '2026-08-31'
 baseline_revision: '2d68dcc6dba31007c7d6fd84f0884edbc79508d5'
-status: 'review'
-review_loop_iteration: 0
+status: 'in-progress'
+review_loop_iteration: 1
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/spec-6-4-acquisition-launch-surface.md'
@@ -192,6 +192,26 @@ the session directory. The api never mints, never converts and never ingests.
 ## Spec Change Log
 
 ## Review Triage Log
+
+### Review Findings
+
+- [ ] [Review][Patch] Reject truncated multipart bodies unless the parser reaches its terminal state. [`server/meetingminer/uploads.py:882`]
+- [ ] [Review][Patch] Enforce the observed whole-request ceiling against streamed bytes. [`server/meetingminer/uploads.py:849`]
+- [ ] [Review][Patch] Budget both transcript roles in the declared body ceiling. [`server/meetingminer/uploads.py:320`]
+- [ ] [Review][Patch] Refuse repeated immutable metadata fields. [`server/meetingminer/uploads.py:742`]
+- [ ] [Review][Patch] Use the same filename-extension rule as `mint-drop`, without compatibility normalization. [`server/meetingminer/uploads.py:786`]
+- [ ] [Review][Patch] Enforce the upload contract's RFC 3339 grammar before shared timestamp normalization. [`server/meetingminer/uploads.py:983`]
+- [ ] [Review][Patch] Refuse Zoom declarations that cannot convert before publishing the session. [`server/meetingminer/uploads.py:1005`]
+- [ ] [Review][Patch] Classify session-state and dialect failures through the upload refusal vocabulary. [`server/meetingminer/acquisitions.py:377`]
+- [ ] [Review][Patch] Remove sessions on every ordinary acquisition failure boundary, including pre-dispatch config and process-start failures. [`server/meetingminer/acquisitions.py:778`]
+- [ ] [Review][Patch] Serialize launch/delete/sweep ownership so claimed or actively streaming sessions cannot be erased. [`server/meetingminer/acquisitions.py:821`]
+- [ ] [Review][Patch] Add `rule` and `remediation` to source-selection and upload-collision refusals. [`server/meetingminer/api/acquisitions.py:223`]
+- [ ] [Review][Patch] Derive source tool from immutable drop provenance for `exists`. [`server/meetingminer/acquisitions.py:1098`]
+- [ ] [Review][Patch] Hash during streaming and move ffprobe off the API event loop. [`server/meetingminer/uploads.py:742`]
+- [ ] [Review][Patch] Translate parser-constructor failures into named multipart refusals. [`server/meetingminer/uploads.py:868`]
+- [ ] [Review][Patch] Renumber Story 6.4a's colliding backlog entries to B-55/B-56 after rebasing. [`docs/backlog.md`]
+- [ ] [Review][Patch] Pin upload-side timestamp/precision identity for every supported primary/dialect shape. [`server/tests/test_api_uploads.py:934`]
+- [ ] [Review][Patch] Pin the real detached upload argv and CLI dispatch. [`server/meetingminer/acquisitions.py:701`]
 
 ## Design Notes
 
