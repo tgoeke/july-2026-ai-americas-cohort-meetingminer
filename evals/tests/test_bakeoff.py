@@ -456,7 +456,11 @@ def test_run_bakeoff_excludes_a_candidate_that_fails_after_its_probe(
     from meetingminer.adapters.llm import LlmError
     from meetingminer.config import LlmRoleBinding
 
-    candidate = Candidate(pool="frontier-api", label="drops-later", binding=LlmRoleBinding(model="x"))
+    candidate = Candidate(
+        pool="frontier-api",
+        label="drops-later",
+        binding=LlmRoleBinding(model="test/x"),
+    )
 
     class DropsAfterProbe:
         calls = 0
@@ -521,14 +525,18 @@ def test_run_bakeoff_breaks_an_agreement_tie_by_consistency_end_to_end(
     from meetingminer.config import LlmRoleBinding
 
     flaky = Candidate(
-        pool="hosted-open-weight", label="flaky", binding=LlmRoleBinding(model="flaky-model")
+        pool="hosted-open-weight",
+        label="flaky",
+        binding=LlmRoleBinding(model="test/flaky-model"),
     )
     stable = Candidate(
-        pool="frontier-api", label="stable", binding=LlmRoleBinding(model="stable-model")
+        pool="frontier-api",
+        label="stable",
+        binding=LlmRoleBinding(model="test/stable-model"),
     )
 
     def fake_build_llm(role_binding: Any, providers: Any, log: Any = None) -> Any:
-        if role_binding.model == "flaky-model":
+        if role_binding.model == "test/flaky-model":
             # probe, then repeat 1 (True), repeat 2 (False), repeat 3 (True):
             # the first repeat agrees with gold, so agreement ties with
             # `stable`, but the verdict is not the same across repeats.
