@@ -49,12 +49,13 @@ NO_LIFECYCLE = "unreviewed"
 # Who wrote the row.
 MACHINE = "machine"
 HUMAN_APPROVED = "human-approved"
+AUTHORSHIPS: frozenset[str] = frozenset({MACHINE, HUMAN_APPROVED})
 
 # The states in which a human has actually accepted the content. Named as a set
 # rather than tested against a single string so a caller reads "is this
 # reviewed" instead of "is this equal to published", which is the question that
 # would go stale if the lifecycle ever gained a state.
-REVIEWED_STATES: frozenset[str] = frozenset({"published"})
+REVIEWED_STATES: frozenset[str] = frozenset({"approved", "published"})
 
 # Every key a marking writes into a record. Named once so the guard, the
 # consumers and the tests that pin them all read the same list.
@@ -71,6 +72,7 @@ _STATE_SENTENCES: Mapping[str, str] = {
     " and it is not part of the published record",
     "published": "Published — a human approved this {subject} and published it",
 }
+_MACHINE_WRITTEN_STATES: frozenset[str] = frozenset({NO_LIFECYCLE, "extracted"})
 
 
 class ReviewMarkingRefused(RuntimeError):
@@ -131,6 +133,16 @@ def marking(
             " indexing one that reports something else would put a status in"
             " front of a reader that this system cannot explain (AD-18)"
         )
+    if authorship not in AUTHORSHIPS:
+        raise ReviewMarkingRefused(
+            f"no review sentence is defined for authorship {authorship!r} — a"
+            f" row may only report {', '.join(sorted(AUTHORSHIPS))} (AD-18)"
+        )
+    if review_state in _MACHINE_WRITTEN_STATES and authorship != MACHINE:
+        raise ReviewMarkingRefused(
+            f"state {review_state!r} is described as machine-written, so it"
+            f" cannot carry authorship {authorship!r} (AD-18)"
+        )
     if not subject.strip():
         raise ReviewMarkingRefused(
             "a review marking needs a subject noun to describe; an empty one"
@@ -176,6 +188,18 @@ def assert_carries_marking(record: Mapping[str, Any]) -> None:
             f"a projected record reports reviewState {state!r}, which is not a"
             f" state this system can explain to a reader — the known states are"
             f" {', '.join(sorted(_STATE_SENTENCES))} (AD-18)"
+        )
+    authorship = record["authorship"]
+    if authorship not in AUTHORSHIPS:
+        raise ReviewMarkingRefused(
+            f"a projected record reports authorship {authorship!r}, which is"
+            f" not one this system can explain — the known values are"
+            f" {', '.join(sorted(AUTHORSHIPS))} (AD-18)"
+        )
+    if state in _MACHINE_WRITTEN_STATES and authorship != MACHINE:
+        raise ReviewMarkingRefused(
+            f"a projected record reports state {state!r}, whose label says"
+            f" machine-written, with authorship {authorship!r} (AD-18)"
         )
     if not str(record["reviewLabel"]).strip():
         raise ReviewMarkingRefused(
