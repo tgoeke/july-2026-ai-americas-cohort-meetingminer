@@ -15,8 +15,14 @@
  * is drawn.
  *
  * `--t` values are milliseconds relative to the drawn layer's epoch (the tier's
- * own anchor), not epoch milliseconds, so the numbers stay small enough that a
- * single-precision calc cannot lose a visible fraction of a pixel.
+ * own anchor) rather than epoch milliseconds. Measured 2026-08-31 in Chrome 151
+ * — the recording target — the two are identical to the pixel: Blink evaluates
+ * the calc in double and rounds only the resulting length to single precision
+ * (~0.008px at x = 1800). The anchoring is therefore a portability safeguard,
+ * not a fix for a fault seen here: an engine that evaluated the expression in
+ * single precision would lose ~100 seconds on a raw 1.78e12 epoch value, which
+ * is 50px at the moments tier, and would lose nothing on a value bounded by
+ * twice the visible span.
  *
  * Colours are the semantic tokens from `web/src/index.css`, which story 10.5's
  * theme replaces in place; the thread hues are inline from `palette.ts`.
