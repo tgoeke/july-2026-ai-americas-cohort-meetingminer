@@ -2072,51 +2072,110 @@ gate's own account of itself stays true.
 ### Story 10.7: Threads Is a Query, Not a Catalogue
 
 As a user,
-I want to open Threads empty, type a subject, and fly along a timeline of every meeting where it was discussed,
+I want to open Threads empty, name a subject, and fly along a timeline of every meeting where it was discussed,
 So that a thread is a route into the corpus rather than a list of everything the machine derived. (FR42, FR43, UX-DR18)
 
-**Why this story exists.** Story 10.6 built the zoom, and the zoom works. What
-is wrong is both ends of it. The view opens on a catalogue — every derived
-thread as a band, 1,090 of them on the corpus of 2026-08-31, of which **976
-involve exactly one meeting** — so the reader arrives at a wall of rows that are
-not subjects followed across meetings at all. And the deepest zoom ends at a
-moment, when the thing the reader wants is the meeting.
+**Why this story exists.** Story 10.6 built a zoom and the zoom works, but both
+ends of it are wrong. The view opens on a catalogue — every derived thread as a
+band, 1,090 of them on the corpus of 2026-08-31, of which **976 involve exactly
+one meeting** — so the reader arrives at a wall of rows that are not subjects
+followed across meetings at all. And the deepest zoom ends at a moment, when the
+thing the reader wants is the meeting.
 
-Owner direction 2026-08-31, in their words: *"I go to the threads view and I
-type in a thread topic. Then I get an overview of all the meetings where that
-thread runs through those meetings … you're going to see a timeline across all
-your meetings where that gets surfaced … and then I can click into a meeting
-like I can do in the meeting view."*
+Owner direction 2026-08-31: *"I go to the threads view and I type in a thread
+topic. Then I get an overview of all the meetings where that thread runs through
+those meetings … you're going to see a timeline across all your meetings where
+that gets surfaced … and then I can click into a meeting like I can do in the
+meeting view."*
+
+**This design is taken from a working prototype** the owner pointed at, which
+solves it well. Where an acceptance criterion below states a mechanism, that
+mechanism is the prototype's and is deliberate — read
+`web/src/ZoomTimeline.tsx`, `web/src/Thread.tsx` and `api/thread.js` in that
+tree before designing an alternative.
 
 **Acceptance Criteria:**
 
 **Given** the Threads view,
 **When** it opens,
 **Then** it is **empty** — no thread list, no bands, no derived catalogue — and
-offers one thing: a place to type a subject. Nothing is drawn until the reader
-asks for something.
+offers a place to name a subject, beside a handful of **suggested subjects
+drawn from the corpus**.
 
-**Given** a subject typed into that box,
-**When** the reader is still typing or has not chosen,
-**Then** the view offers **candidate subjects adjacent to what was typed**, as
-suggestions to pick from rather than a single guessed match — "trail closures"
-surfaces both "Cedar Lake Trail closure" and "Trail reopening outlook", and the
-reader chooses. Adjacency comes from the same embedding the derivation already
-uses, so a paraphrase finds its subject.
+**Given** those suggestions,
+**When** they are chosen,
+**Then** they are **not the most-mentioned subjects**. The most-mentioned ones
+are generic, appear in nearly every meeting, and their thread is the whole
+corpus and no story at all. Choose subjects appearing in a **middling** number
+of meetings and rank them by **how much calendar time they span**, because a
+subject worth tracing is specific enough to be one concern and recurrent enough
+to have a history. Drop near-duplicates so one concern does not consume two
+slots. Each suggestion shows its reach — how many meetings, over how many days.
+
+**Given** a subject typed into the box,
+**When** it resolves,
+**Then** there are **two ways in and the view says which one it took**. A typed
+phrase that unambiguously names a known subject walks the stored mentions and
+is **exhaustive within the corpus**; anything else is a **top-k retrieval
+sample**, ordered by relevance and then re-sorted by time. A sample presented as
+a full history is the same unverified-absence failure as claiming no recording
+exists, so the completeness of what is on screen is stated in words, always.
+
+**Given** a subject that resolves to more than one candidate,
+**When** the reader has not yet chosen,
+**Then** the adjacent candidates are offered to pick from rather than one being
+guessed — "trail closures" surfaces both "Cedar Lake Trail closure" and "Trail
+reopening outlook".
 
 **Given** a chosen subject,
 **When** the timeline builds,
 **Then** it runs **left to right in time** across **every** meeting where that
-subject surfaced, **on one timeline** — meetings from different recurring
-series are interleaved by date, not separated into lanes. The same subject
-discussed in two different community meeting settings appears as two points on
-one schedule, which is the comparison the reader came for.
+subject surfaced, **on one timeline** — meetings from different recurring series
+interleaved by date, not separated into lanes. The same subject discussed in two
+different community meeting settings is two points on one schedule, which is the
+comparison the reader came for.
+
+**Given** a subject with more mentions than can be drawn,
+**When** the result is capped,
+**Then** the cap is applied **per meeting, never overall**. An overall limit
+cuts the tail off a long-running subject and shows the first months as though
+they were the whole history. Every meeting that mentions the subject stays a
+stop on the timeline; only the number of moments quoted at each stop is limited,
+and both figures are reported. **A shorter timeline is comprehensible; a
+timeline with holes in it is not.**
 
 **Given** the built timeline,
 **When** the reader zooms and pans,
-**Then** it behaves like story 10.6's canvas — continuous, extending beyond the
-screen, no layout jump — and **meetings reveal their detail as the zoom deepens**
-rather than all at once.
+**Then** the zoom is **semantic, not magnification**. Layout is computed in
+world coordinates — **pixels per day** — and every label is drawn at a constant
+readable size, the way a map keeps its place names legible at any altitude.
+Scaling a container with a CSS transform is explicitly wrong here: it is
+unreadable at the top of the zoom and merely bigger at the bottom, and never
+reveals anything new.
+
+**Given** the altitude,
+**When** it changes,
+**Then** **what a meeting is** changes with it, over one payload already in
+hand rather than by refetching a tier:
+
+| pixels per day | a meeting is |
+|---|---|
+| under 20 | a bar — height is moment count, marked when it carries screens |
+| 20 to 60 | the bar, with its date |
+| 60 to 160 | a card — title, who spoke, a strip of its screens |
+| over 160 | its moments — timecode, speaker, quote, screen, clickable |
+
+So zooming out answers "what shape did this concern have over four months" and
+zooming in answers "what exactly was said, and what was on screen when" —
+without changing view. Zoom is about the cursor, so what is under the pointer
+stays under it, and the view opens at the altitude where the whole span fits.
+
+**Given** two meetings close together in time,
+**When** the view is zoomed,
+**Then** lanes are packed against each card's **actual pixel footprint at that
+altitude**, not against the calendar date. Two meetings a day apart do not
+overlap at 8 pixels per day and do overlap at 210, so a lane assignment fixed at
+load time is wrong at every zoom but one.
 
 **Given** a meeting on the timeline,
 **When** it is clicked,
@@ -2124,14 +2183,30 @@ rather than all at once.
 screenshots and everything else already held for it. The meeting is the
 destination; the thread was the route.
 
-**Given** a subject that matches nothing,
-**When** the reader submits it,
-**Then** the view says so plainly and suggests nothing it cannot back — no
-invented subject, no empty timeline presented as a result.
+**Given** a meeting that carries no date,
+**When** the timeline is drawn,
+**Then** it is placed at one end and **named as unplaceable**, never
+interleaved into the sequence. Guessing a position would fabricate exactly the
+chronology this view exists to show.
 
-**Partial delivery is acceptable** by owner decision: the timeline and its zoom
-are the point, and shipping them without the deepest tier is better than
-shipping nothing.
+**Given** a meeting with no screens,
+**When** it appears as a stop,
+**Then** it is a legitimate stop with its reason stated, never a blank that
+reads as a rendering failure, and never "no recording" unless that has actually
+been established (AD-18).
+
+**Given** a built thread,
+**When** it is displayed,
+**Then** the subjects that co-occur with its moments are offered beneath it, so
+a thread leads somewhere rather than dead-ending.
+
+**Given** a subject that matches nothing,
+**When** it is submitted,
+**Then** the view says so plainly and offers nothing it cannot back.
+
+**Partial delivery is acceptable** by owner decision: the query entry, the
+suggestions and the left-to-right timeline with its semantic zoom are the spine.
+Shipping those without the deepest altitude is better than shipping nothing.
 
 ### Story 10.7a: Retire the Thread Catalogue
 
@@ -2144,7 +2219,7 @@ So that the endpoint matches how threads are actually entered. (FR42)
 **Given** story 10.7's query entry,
 **When** it lands,
 **Then** the unfiltered thread list is no longer the view's front door, and the
-endpoint either serves the suggestion query or is scoped to threads that
+endpoint either serves the suggestion query or is scoped to subjects that
 actually span meetings — a one-meeting, one-mention row is not a thread by
 `domain/threads.py`'s own definition and must not be offered as one.
 
