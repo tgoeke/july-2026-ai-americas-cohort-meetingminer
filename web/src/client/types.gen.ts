@@ -3965,6 +3965,56 @@ export type GetRecordingResponses = {
 
 export type GetRecordingResponse = GetRecordingResponses[keyof GetRecordingResponses];
 
+export type GetMediaFileByIdData = {
+    body?: never;
+    path: {
+        /**
+         * Media Id
+         */
+        media_id: string;
+    };
+    query?: never;
+    url: '/media/files/{media_id}';
+};
+
+export type GetMediaFileByIdErrors = {
+    /**
+     * Bad Request
+     */
+    400: unknown;
+    /**
+     * Not Found
+     */
+    404: unknown;
+    /**
+     * Requested Range Not Satisfiable
+     */
+    416: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+    /**
+     * Internal Server Error
+     */
+    500: unknown;
+};
+
+export type GetMediaFileByIdError = GetMediaFileByIdErrors[keyof GetMediaFileByIdErrors];
+
+export type GetMediaFileByIdResponses = {
+    /**
+     * The file's bytes.
+     */
+    200: Blob | File;
+    /**
+     * The requested byte range.
+     */
+    206: Blob | File;
+};
+
+export type GetMediaFileByIdResponse = GetMediaFileByIdResponses[keyof GetMediaFileByIdResponses];
+
 export type GetMediaFileData = {
     body?: never;
     path: {
