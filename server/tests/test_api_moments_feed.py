@@ -222,6 +222,38 @@ def test_every_item_carries_a_non_empty_ordered_reasons_list(
     assert top["reasons"][0]["ref"] is not None
 
 
+def test_a_published_artifact_produces_a_published_reason_with_its_timestamp(
+    client, test_pool
+) -> None:
+    """The one path that parses a timestamp back out of the aggregate's JSON.
+
+    `published_at` reaches the scorer as a string inside `jsonb_agg`, not as a
+    psycopg `datetime`, so this asserts the round trip against a real Postgres
+    rather than against a hand-built candidate — the pure tests cannot catch a
+    rendering the parser does not accept.
+    """
+    stale = NOW - timedelta(days=200)
+    seeded = _seed(test_pool, source_id="feed-published", started_at=stale)
+    published_at = NOW - timedelta(days=2)
+    with test_pool.connection() as conn:
+        artifact_id = insert_artifact(
+            conn, seeded.moment_ids[0], seeded.meeting_id, kind="adr",
+            state="published", title="Adopt SFTP",
+        )
+        conn.execute(
+            "UPDATE artifact SET published_at = %s WHERE id = %s",
+            (published_at, artifact_id),
+        )
+
+    item = client.get("/moments/feed").json()["items"][0]
+
+    [reason] = [r for r in item["reasons"] if r["kind"] == "published"]
+    assert reason["label"] == "Adopt SFTP"
+    assert reason["ref"] == str(artifact_id)
+    assert reason["at"] is not None
+    assert reason["at"].startswith(published_at.date().isoformat())
+
+
 def test_a_decision_outranks_a_bare_recent_moment(client, test_pool) -> None:
     decided = _seed(test_pool, source_id="feed-rank-decided", started_at=NOW)
     with test_pool.connection() as conn:
