@@ -34,6 +34,13 @@ BASELINE_ROUTER_ORDER = [
     "search",
     "chat",
     "media",
+    # Story 6.4: `acquisitions.py` declares no `ROUTER_ORDER` either, so it is
+    # default-order too and sorts first among those modules by name — right
+    # after the last explicitly-ordered one. Its own matching hazard
+    # (`/acquisitions/probe` under `/acquisitions/{acquisition_id}`) is
+    # resolved *inside* the router by declaration order, the `media.py` way,
+    # so its position among the modules carries none.
+    "acquisitions",
     # Story 4.2: `extraction.py` declares no `ROUTER_ORDER`, so it sorts at
     # `DEFAULT_ROUTER_ORDER` (100) — after every module above, which all
     # declare an explicit order below that — with the module name as the

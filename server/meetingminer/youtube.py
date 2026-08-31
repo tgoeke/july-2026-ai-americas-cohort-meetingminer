@@ -582,6 +582,67 @@ def select_captions(info: dict[str, Any]) -> tuple[str, str] | None:
     return None
 
 
+# --- probe-only (story 6.4) --------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ProbeReport:
+    """What a pre-submit check learned about a video, and nothing it changed.
+
+    Produced by :func:`probe_only`, which runs story 6.2's URL, tool,
+    availability, stream and duration checks and then stops: no media bytes,
+    no drop, no process, no acquisition state. ``captions`` is ``acquire()``'s
+    own ``(language, kind)`` selection, or ``None`` when the video publishes no
+    English track — a recording-only drop is still valid, so that is an answer
+    rather than a refusal.
+    """
+
+    video_id: str
+    source_id: str
+    url: str
+    title: str
+    duration_ms: int
+    captions: tuple[str, str] | None
+
+
+def probe_only(url: str, *, max_duration_minutes: int) -> ProbeReport:
+    """The refusal matrix without the acquisition (story 6.4's probe route).
+
+    Composed from the same functions :func:`acquire` calls, in the same order,
+    so what the pre-submit check accepts is exactly what the acquisition
+    accepts: :func:`video_id_from_url`, :func:`ensure_tools`, :func:`probe`,
+    :func:`validate_info`, :func:`select_captions`. ``require_format_id`` is
+    ``False`` for the same reason it is in :func:`acquire`'s pre-download
+    check — no format has been selected yet.
+
+    ``title`` falls back to the video id exactly as :func:`acquire` does when
+    the metadata carries no usable one, so the pre-submit preview names the
+    drop the acquisition would actually mint.
+    """
+    video_id = video_id_from_url(url)
+    ensure_tools()
+    canonical = watch_url(video_id)
+    info = probe(canonical)
+    validate_info(
+        info,
+        expected_video_id=video_id,
+        max_duration_minutes=max_duration_minutes,
+        require_format_id=False,
+    )
+    title = info.get("title")
+    return ProbeReport(
+        video_id=video_id,
+        source_id=f"{YOUTUBE_SOURCE_ID_PREFIX}{video_id}",
+        url=canonical,
+        title=title if isinstance(title, str) and title.strip() else video_id,
+        # Milliseconds because every other duration the api reports is in
+        # milliseconds (`meeting_media.duration_ms`, the moment bounds); the
+        # probe must not be the one surface that answers in seconds.
+        duration_ms=round(_duration_seconds(info) * 1000),
+        captions=select_captions(info),
+    )
+
+
 # --- download ---------------------------------------------------------------
 
 
