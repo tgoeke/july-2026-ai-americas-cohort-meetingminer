@@ -157,6 +157,18 @@ selected, and no selection is a fallback: a failing binding surfaces as an
 error. Bindings cannot scatter across env vars, code defaults, and flags, and
 the eval harness snapshots the resolved config into every run so any run is
 reproducible.
+The two halves resolve on different clocks. The catalog is a process-start
+snapshot — the api holds `CONFIG = _load_or_die()` at module level
+(`api/main.py`) — so a `config.yaml` edit reaches a running process only on
+restart, and the api and the worker must both be restarted or they hold
+different catalogs. The selection is a per-request Postgres read
+(`domain/model_selection.py` `resolve_role`), so it applies live. On
+2026-08-31 a config edit was followed by a worker restart and no api restart,
+and `GET /status` reported local extraction from its stale snapshot while the
+worker was calling a paid provider. That is an AD-18 case, and it is a
+property of the snapshot boundary rather than a defect in the status surface:
+any surface reporting a binding reports *that process's* snapshot, never the
+system's behaviour, and must say which process it is.
 
 **AD-11 — Jobs are Postgres rows advanced by the host worker.** The api enqueues
 by inserting a row; the worker claims it and advances named stages, checkpointing

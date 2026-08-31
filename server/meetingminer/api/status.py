@@ -24,6 +24,25 @@ Copy contract (CAP-3): a failing binding is named ``llm.roles.<role>`` —
 exactly the style the chat panel's 503 problems use (``api/chat.py``: "the
 configured `llm.roles.chat` binding") — so the in-flow error and this surface
 tell one story.
+
+**Whose view this is** (story 8.2a, AD-10 as amended 2026-08-31, AD-18). The
+two halves of a binding resolve on different clocks. The *catalog* and the
+role bindings are a process-start snapshot — ``api/main.py`` holds
+``CONFIG = _load_or_die()`` at module level — so a ``config.yaml`` edit reaches
+this process only on restart. The *selection* is a per-request ``app_setting``
+read (``domain/model_selection.py``), so it applies live, but each process
+re-checks it against its own startup catalog and calls it through its own
+loaded endpoint. Consequently this payload describes the **api process**, never
+"the system": the worker holds an independent snapshot the api cannot observe.
+That is not hypothetical — on 2026-08-31 a ``config.yaml`` edit was followed by
+a worker restart and no api restart, and this endpoint reported local
+extraction from its stale snapshot while the worker was calling a paid
+provider. Reporting a state the system is not in is an AD-18 violation, so
+every binding and key row carries ``observedBy``, every role row carries the
+process that actually issues its calls (``servedBy``) and a sentence saying
+what the reading covers, and the payload carries one ``observedBy`` block
+naming the file this process loaded. No wording here may imply that one answer
+covers both processes.
 """
 
 from __future__ import annotations
@@ -32,7 +51,7 @@ import socket
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 import httpx
@@ -41,7 +60,10 @@ from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
 from meetingminer.config import AppConfig
+from meetingminer.api.settings import SETTINGS_ROLE_POLICY
+from meetingminer.domain import model_selection
 from meetingminer.domain.model_providers import provider_for_model
+from meetingminer.domain.model_selection import EffectiveBinding
 
 router = APIRouter()
 
@@ -69,6 +91,80 @@ _now = time.monotonic
 State = Literal["ok", "degraded"]
 KeyState = Literal["present", "missing", "invalid", "not-required"]
 
+#: How the binding a role is serving was arrived at. ``selection`` and
+#: ``file-default`` are :mod:`~meetingminer.domain.model_selection`'s own two
+#: sources; ``unknown`` is this surface's third, and exists because the
+#: selection lives in Postgres: when Postgres is down the api cannot read what
+#: is stored, and saying "the file default is in force" would be a claim it
+#: cannot support (AD-18).
+RoleBindingSource = Literal["selection", "file-default", "unknown"]
+
+# --- whose view this is (AD-10 as amended 2026-08-31, AD-18) ---------------
+
+#: The process that answered the request. Every binding, endpoint and key
+#: state in this payload is *this* process's reading; none of it describes the
+#: worker, and none of it describes "the system".
+OBSERVING_PROCESS = "api"
+
+#: Which process issues each role's LLM calls. ``extraction`` is the worker's
+#: only ``llm.roles.*`` call, ``chat`` is the api's own, and ``judge`` is bound
+#: by the eval harness in the process ``make evals-run`` starts. A role whose
+#: caller is not :data:`OBSERVING_PROCESS` cannot be reported as the binding in
+#: use — only as this process's snapshot of a file both processes read
+#: separately. A role absent from this table gets no claim about any process.
+ROLE_CALLERS: dict[str, str] = {
+    "extraction": "worker",
+    "chat": "api",
+    "judge": "eval harness",
+}
+
+CATALOG_IS_THIS_PROCESS_SNAPSHOT = (
+    "Every binding, endpoint and key state below is the api process's own"
+    " reading. The role bindings, the catalog and the provider endpoints are"
+    " `config.yaml` as this process loaded it at startup, so an edit to that"
+    " file reaches this process only when it is restarted."
+)
+
+SELECTION_IS_LIVE_BUT_PER_PROCESS = (
+    "A stored model selection is read from Postgres on every request, so it"
+    " applies with no restart — but each process re-checks it against its own"
+    " startup catalog and calls it through its own loaded endpoint. The worker"
+    " holds a separate snapshot this api cannot observe, so after a"
+    " `config.yaml` edit restart the api and the worker together; until then"
+    " the two can be bound differently and this page speaks only for the api."
+)
+
+
+def _role_attribution(role: str) -> str:
+    """What this row's reading covers, and what it does not.
+
+    One sentence per role, and it never says "the system". When the observing
+    process is also the calling process the row is authoritative for the next
+    call; otherwise it is explicitly this process's snapshot and names the
+    process that would actually make the call.
+    """
+    caller = ROLE_CALLERS.get(role)
+    if caller == OBSERVING_PROCESS:
+        return (
+            f"Read by the {OBSERVING_PROCESS} process, which is also the"
+            f" process that calls `llm.roles.{role}`: this is the binding the"
+            f" next {role} call from this process uses."
+        )
+    if caller is None:
+        return (
+            f"Read by the {OBSERVING_PROCESS} process. Which process calls"
+            f" `llm.roles.{role}` is not recorded here, so this row states the"
+            f" {OBSERVING_PROCESS}'s snapshot and claims nothing about any"
+            " other process."
+        )
+    return (
+        f"Read by the {OBSERVING_PROCESS} process, which does not call"
+        f" `llm.roles.{role}` — the {caller} does, from its own `config.yaml`"
+        f" snapshot and its own resolution of the stored selection. This row is"
+        f" the {OBSERVING_PROCESS} process's snapshot, not the {caller}'s, and"
+        " the two disagree until both are restarted after a `config.yaml` edit."
+    )
+
 
 class _CamelModel(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
@@ -84,8 +180,56 @@ class ComponentStatus(_CamelModel):
     remediation: str | None = None
 
 
+class ProviderStatus(_CamelModel):
+    """One configured provider's key validity (story 8.2a, FR39).
+
+    The four fields the story names — ``provider``, ``keyState``, ``detail``,
+    ``remediation`` — plus two that keep the row honest. ``state`` is carried
+    rather than inferred from ``remediation is not None``: a reader that
+    derives health from the presence of prose is one wording change away from
+    reporting the wrong thing. ``observedBy`` names the process whose ``.env``
+    and ``config.yaml`` snapshot produced the reading, because a key state is
+    as process-local as a binding is (AD-10 as amended).
+
+    Probed through the provider's free model-list endpoint only, behind the
+    same cache the role rows use — never a completion, and never a second
+    request for a provider a role already probed at the same endpoint.
+    """
+
+    provider: str
+    key_state: KeyState
+    detail: str
+    remediation: str | None = None
+    state: State
+    observed_by: str = OBSERVING_PROCESS
+
+
+class ObservedBy(_CamelModel):
+    """Whose reading the whole payload is (AD-10 as amended, AD-18).
+
+    Named once at the top so no consumer has to assemble the attribution from
+    the rows, and so a surface that renders only a summary still has the one
+    fact it may not omit: which process answered, and out of which file.
+    """
+
+    process: str
+    #: The ``config.yaml`` this process loaded — the path, not its contents.
+    config_path: str
+    #: When this process took that snapshot. ``None`` only for an app that did
+    #: not record it, which is never the shipped api.
+    config_loaded_at: datetime | None = None
+    catalog_note: str = CATALOG_IS_THIS_PROCESS_SNAPSHOT
+    selection_note: str = SELECTION_IS_LIVE_BUT_PER_PROCESS
+
+
 class LlmRoleStatus(_CamelModel):
     role: str
+    #: The binding **in force** for this role as this process resolves it:
+    #: the stored selection when one is in force, otherwise the file default.
+    #: Not the file's ``model`` field, which travels separately as
+    #: ``fileBinding`` — a selection may name a different provider entirely,
+    #: and probing the file's model would report the health of a binding no
+    #: call is going to use.
     model: str
     fallback: str | None = None
     provider: str | None = None
@@ -93,6 +237,22 @@ class LlmRoleStatus(_CamelModel):
     state: State
     detail: str
     remediation: str | None = None
+    # --- story 8.2a: the active binding beside the file default -----------
+    source: RoleBindingSource
+    #: What `config.yaml` says on its own, served beside the effective binding
+    #: rather than in place of it — the same pairing `GET /settings/models`
+    #: reports, so the two surfaces cannot disagree about the file half.
+    default_binding: str
+    file_binding: str
+    #: What is stored for this role, whether or not it is still selectable.
+    selected: str | None = None
+    stale_selection: str | None = None
+    stale_reason: str | None = None
+    # --- story 8.2a: whose reading this row is ----------------------------
+    observed_by: str = OBSERVING_PROCESS
+    #: The process that actually issues this role's calls, when it is known.
+    served_by: str | None = None
+    attribution: str
 
 
 class WorkerStatus(_CamelModel):
@@ -108,8 +268,12 @@ class WorkerStatus(_CamelModel):
 class StatusResponse(_CamelModel):
     generated_at: datetime
     overall: State
+    #: Attribution first: the rest of the payload is only meaningful once the
+    #: reader knows which process produced it.
+    observed_by: ObservedBy
     api: ComponentStatus
     stores: list[ComponentStatus]
+    providers: list[ProviderStatus]
     llm_roles: list[LlmRoleStatus]
     worker: WorkerStatus
 
@@ -236,38 +400,49 @@ def _store_row(store_id: str, label: str, up: bool, detail: str) -> ComponentSta
     )
 
 
-# --- llm role rows ---------------------------------------------------------
+# --- provider key health ---------------------------------------------------
 
 
-def _role_row(
-    role: str,
-    model: str,
-    fallback: str | None,
-    base_url_override: str | None,
-    config: AppConfig,
-) -> LlmRoleStatus:
-    """Health of one ``llm.roles.<role>`` binding, remediation included.
+@dataclass(frozen=True)
+class _KeyHealth:
+    """One provider endpoint's credential state, in provider terms only.
 
-    The key itself never appears — only which env var is missing or invalid.
+    Deliberately free of role framing so the provider rows and the role rows
+    are the *same* decision rendered twice rather than two decisions that can
+    drift. The key itself never appears — only which env var is missing or
+    invalid, and what the free list endpoint answered.
     """
-    provider = provider_of(model)
-    binding = f"`llm.roles.{role}` ({model})"
-    provider_conf = config.settings.providers.get(provider) if provider else None
-    base_url = base_url_override or (
-        provider_conf.base_url if provider_conf is not None else None
-    )
 
+    key_state: KeyState
+    state: State
+    detail: str
+    remediation: str | None
+
+
+def _api_key(config: AppConfig, provider: str) -> str | None:
+    """This process's loaded key for ``provider``. Never serialized anywhere."""
+    secrets = config.secrets
+    return {
+        "anthropic": secrets.anthropic_api_key,
+        "openai": secrets.openai_api_key,
+        "openrouter": secrets.openrouter_api_key,
+    }.get(provider)
+
+
+def _key_health(
+    provider: str | None, base_url: str | None, config: AppConfig
+) -> _KeyHealth:
+    """Is this provider's key usable at this endpoint, and if not, what to do.
+
+    Both `.env` and `config.yaml` are read once per process, so every
+    remediation names restarting the processes that read them rather than
+    implying the fix lands live.
+    """
     if provider is None or base_url is None:
         # LiteLLM's own routing would answer this; without an endpoint there
         # is nothing free to probe, so say so rather than guess.
-        return LlmRoleStatus(
-            role=role,
-            model=model,
-            fallback=fallback,
-            provider=provider,
-            key_state="not-required",
-            state="ok",
-            detail=f"{binding}: no configured endpoint to probe; not checked",
+        return _KeyHealth(
+            "not-required", "ok", "no configured endpoint to probe; not checked", None
         )
 
     env_var = KEY_ENV_VARS.get(provider)
@@ -275,61 +450,244 @@ def _role_row(
         # Keyless (local) provider: reachability is the whole health question.
         result = _cached_probe(provider, base_url, None)
         if result.state == "ok":
-            return LlmRoleStatus(
-                role=role, model=model, fallback=fallback, provider=provider,
-                key_state="not-required", state="ok",
-                detail=f"{binding}: endpoint {base_url} answering",
+            return _KeyHealth(
+                "not-required", "ok", f"endpoint {base_url} answering", None
             )
-        return LlmRoleStatus(
-            role=role, model=model, fallback=fallback, provider=provider,
-            key_state="not-required", state="degraded",
-            detail=f"{binding}: {result.detail}",
-            remediation=(
-                f"check that the {provider} host at {base_url} is up and serving"
-                f" this model, or edit the binding in config.yaml and restart"
-                " the api and worker"
-            ),
+        return _KeyHealth(
+            "not-required",
+            "degraded",
+            result.detail,
+            f"check that the {provider} host at {base_url} is up and serving"
+            " this model, or edit the binding in config.yaml and restart"
+            " the api and worker",
         )
 
-    secrets = config.secrets
-    api_key = {
-        "anthropic": secrets.anthropic_api_key,
-        "openai": secrets.openai_api_key,
-        "openrouter": secrets.openrouter_api_key,
-    }.get(provider)
-
+    api_key = _api_key(config, provider)
     if api_key is None:
-        return LlmRoleStatus(
-            role=role, model=model, fallback=fallback, provider=provider,
-            key_state="missing", state="degraded",
-            detail=f"{binding}: {env_var} is not set, so every call on this"
-            " binding will fail",
-            remediation=f"set {env_var} in .env and restart the api (`make api`)",
+        # A missing key is a fact, not something to spend a request finding out.
+        return _KeyHealth(
+            "missing",
+            "degraded",
+            f"{env_var} is not set, so every call on this provider will fail",
+            f"set {env_var} in .env and restart the api (`make api`); the"
+            " worker reads .env for itself, so restart it too",
         )
 
     result = _cached_probe(provider, base_url, api_key)
     if result.state == "invalid-key":
-        return LlmRoleStatus(
-            role=role, model=model, fallback=fallback, provider=provider,
-            key_state="invalid", state="degraded",
-            detail=f"{binding}: {env_var} is invalid — {result.detail}",
-            remediation=(
-                f"set a valid {env_var} in .env and restart the api"
-                " (`make api`); until then requests on this binding fail"
-            ),
+        return _KeyHealth(
+            "invalid",
+            "degraded",
+            f"{env_var} is invalid — {result.detail}",
+            f"set a valid {env_var} in .env and restart the api (`make api`)"
+            " and the worker; until then requests on this provider fail",
         )
     if result.state == "unreachable":
-        return LlmRoleStatus(
-            role=role, model=model, fallback=fallback, provider=provider,
-            key_state="present", state="degraded",
-            detail=f"{binding}: key present but the endpoint could not be"
-            f" verified — {result.detail}",
-            remediation=f"check network access to {base_url}, then re-check",
+        return _KeyHealth(
+            "present",
+            "degraded",
+            f"key present but the endpoint could not be verified — {result.detail}",
+            f"check network access to {base_url}, then re-check",
         )
+    return _KeyHealth("present", "ok", f"key present and {result.detail}", None)
+
+
+def _provider_rows(config: AppConfig) -> list[ProviderStatus]:
+    """Key validity for every provider ``config.yaml`` declares (story 8.2a).
+
+    Every provider, in the file's own order — not only the ones a role happens
+    to bind today, because the question this answers is "is my key good", asked
+    before anything is selected. Each row costs at most one free list request
+    per :data:`PROBE_TTL_SECONDS`, and a role probing the same endpoint shares
+    the cache entry rather than making a second request.
+    """
+    return [
+        ProviderStatus(
+            provider=provider,
+            key_state=health.key_state,
+            detail=f"{provider} ({endpoint.base_url}): {health.detail}",
+            remediation=health.remediation,
+            state=health.state,
+            observed_by=OBSERVING_PROCESS,
+        )
+        for provider, endpoint, health in (
+            (name, endpoint, _key_health(name, endpoint.base_url, config))
+            for name, endpoint in config.settings.providers.items()
+        )
+    ]
+
+
+# --- llm role rows ---------------------------------------------------------
+
+# The stores remediation, said for the one thing this surface loses when
+# Postgres is down that is not a store row: the stored model selection.
+_SELECTION_UNREADABLE_REMEDIATION = (
+    "start the data stores with `make infra-up` (Docker), then re-check —"
+    " the binding in force cannot be read while Postgres is down"
+)
+
+
+def _adopts_selection(role: str) -> bool:
+    """Whether a stored selection actually governs this role's calls.
+
+    Read from ``api/settings.py``'s single policy table rather than re-listed
+    here. The judge role is declared file-only there because the eval harness
+    still binds ``config.settings.llm.roles.judge`` directly, so reporting a
+    persisted judge selection as effective would be false — the same reason
+    ``GET /settings/models`` refuses to serve it.
+    """
+    return SETTINGS_ROLE_POLICY.get(role) is None
+
+
+def _resolve_effective_bindings(
+    request: Request, config: AppConfig, postgres_up: bool
+) -> dict[str, EffectiveBinding | None]:
+    """Each role's binding in force, or ``None`` when it cannot be read.
+
+    ``None`` is not "no selection" — that is a resolved ``file-default``. It is
+    "this process could not find out", which happens when Postgres is down, and
+    it is reported as such rather than as the file default (AD-18).
+    """
+    roles = config.settings.llm.roles
+    names = tuple(type(roles).model_fields)
+    selectable = tuple(name for name in names if _adopts_selection(name))
+
+    stored: dict[str, str] = {}
+    if postgres_up and selectable:
+        try:
+            with request.app.state.pool.connection() as conn:
+                stored = model_selection.read_selections(conn, selectable)
+        except Exception:
+            # The store row already reports why; this endpoint must not 500
+            # because one of its readings is unavailable.
+            return {name: None for name in names}
+
+    resolved: dict[str, EffectiveBinding | None] = {}
+    for name in names:
+        role_binding = getattr(roles, name)
+        if not _adopts_selection(name):
+            # File-only role: resolved from the file alone, deliberately, so a
+            # row that exists in `app_setting` is never shown as in force.
+            resolved[name] = model_selection.resolve(name, role_binding, None)
+        elif not postgres_up:
+            resolved[name] = None
+        else:
+            resolved[name] = model_selection.resolve(
+                name, role_binding, stored.get(name)
+            )
+    return resolved
+
+
+def _source_clause(
+    role: str, default: str, effective: EffectiveBinding | None
+) -> str:
+    """Why *this* binding, in one sentence, never blurring the two clocks."""
+    if effective is None:
+        return (
+            " The binding in force could not be determined: the api could not"
+            f" read the stored selection, so the config.yaml default ({default})"
+            " is shown and may not be the binding the next call uses."
+        )
+    if effective.source == "selection":
+        return (
+            " In force by a stored selection, which applies with no restart;"
+            f" the config.yaml default is {default}."
+        )
+    if effective.stale_selection is not None:
+        return (
+            f" In force by the config.yaml default ({default}) because"
+            f" {effective.stale_reason}."
+        )
+    if not _adopts_selection(role):
+        return (
+            f" In force by the config.yaml default ({default}); this role does"
+            " not adopt a stored selection —"
+            f" {SETTINGS_ROLE_POLICY[role]}."
+        )
+    return (
+        f" In force by the config.yaml default ({default}); no selection is"
+        " stored for this role."
+    )
+
+
+def _role_row(
+    role: str,
+    role_binding: Any,
+    effective: EffectiveBinding | None,
+    config: AppConfig,
+) -> LlmRoleStatus:
+    """Health of the binding ``llm.roles.<role>`` is actually serving.
+
+    The binding probed is the **effective** one — the stored selection when it
+    is in force — because a selection may name a different provider than the
+    file, and probing the file's model would report the health of a binding no
+    call is going to use, which is the wrong-selection blindness story 8.2a
+    exists to remove.
+
+    The key itself never appears: only which env var is missing or invalid.
+    """
+    default = role_binding.default or role_binding.model
+    if effective is None:
+        model = default
+        source: RoleBindingSource = "unknown"
+        selected = stale_selection = stale_reason = None
+    else:
+        model = effective.binding
+        source = effective.source
+        selected = effective.selected
+        stale_selection = effective.stale_selection
+        stale_reason = effective.stale_reason
+
+    provider = provider_of(model)
+    provider_conf = config.settings.providers.get(provider) if provider else None
+    # `bind()` keeps the role's own `base_url` when a selection replaces the
+    # primary model, so the endpoint probed here is the endpoint the call
+    # would use — role override first, provider entry second.
+    base_url = role_binding.base_url or (
+        provider_conf.base_url if provider_conf is not None else None
+    )
+    health = _key_health(provider, base_url, config)
+
+    binding = f"`llm.roles.{role}` ({model})"
+    detail = f"{binding}: {health.detail}.{_source_clause(role, default, effective)}"
+
+    remediations = [health.remediation] if health.remediation else []
+    if effective is None:
+        remediations.append(_SELECTION_UNREADABLE_REMEDIATION)
+    elif stale_selection is not None:
+        remediations.append(
+            f"choose a binding this role's catalog offers on the settings page,"
+            f" or restore {stale_selection} to the `llm.roles.{role}` catalog in"
+            " config.yaml and restart the api and worker"
+        )
+
+    # A row cannot read healthy while it cannot vouch for what is in force, and
+    # a discarded selection is a state the owner has to see before asking
+    # anything — both are `degraded` even when the key itself is fine.
+    state: State = (
+        "degraded"
+        if health.state == "degraded" or effective is None or stale_selection
+        else "ok"
+    )
+
     return LlmRoleStatus(
-        role=role, model=model, fallback=fallback, provider=provider,
-        key_state="present", state="ok",
-        detail=f"{binding}: key present and {result.detail}",
+        role=role,
+        model=model,
+        fallback=role_binding.fallback,
+        provider=provider,
+        key_state=health.key_state,
+        state=state,
+        detail=detail,
+        remediation=" ".join(remediations) if remediations else None,
+        source=source,
+        default_binding=default,
+        file_binding=role_binding.model,
+        selected=selected,
+        stale_selection=stale_selection,
+        stale_reason=stale_reason,
+        observed_by=OBSERVING_PROCESS,
+        served_by=ROLE_CALLERS.get(role),
+        attribution=_role_attribution(role),
     )
 
 
@@ -462,9 +820,12 @@ def get_status(request: Request) -> StatusResponse:
         _store_row("meilisearch", "Meilisearch", meili_up, meili_detail),
     ]
 
+    providers = _provider_rows(config)
+
     roles = config.settings.llm.roles
+    effective = _resolve_effective_bindings(request, config, pg_up)
     llm_rows = [
-        _role_row(name, binding.model, binding.fallback, binding.base_url, config)
+        _role_row(name, binding, effective[name], config)
         for name, binding in (
             ("extraction", roles.extraction),
             ("chat", roles.chat),
@@ -483,6 +844,7 @@ def get_status(request: Request) -> StatusResponse:
 
     degraded = (
         any(row.state == "degraded" for row in stores)
+        or any(row.state == "degraded" for row in providers)
         or any(row.state == "degraded" for row in llm_rows)
         # The stopped worker is a deliberate state, but the surface must not
         # read green while ingestion is paused (SPEC: no silent fallback) —
@@ -492,8 +854,14 @@ def get_status(request: Request) -> StatusResponse:
     return StatusResponse(
         generated_at=datetime.now(timezone.utc),
         overall="degraded" if degraded else "ok",
+        observed_by=ObservedBy(
+            process=OBSERVING_PROCESS,
+            config_path=str(config.config_path),
+            config_loaded_at=getattr(request.app.state, "config_loaded_at", None),
+        ),
         api=api_row,
         stores=stores,
+        providers=providers,
         llm_roles=llm_rows,
         worker=worker,
     )

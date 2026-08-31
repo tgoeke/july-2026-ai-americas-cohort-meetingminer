@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import sys
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import AsyncIterator
 
 import psycopg
@@ -40,6 +41,14 @@ def _load_or_die() -> AppConfig:
 
 
 CONFIG = _load_or_die()
+
+# When this process took its `config.yaml` snapshot (AD-10 as amended
+# 2026-08-31). The catalog and every role binding are frozen at this instant
+# for the life of the process, while a model *selection* is read from Postgres
+# per request — so `GET /status` reports this timestamp to say how old the
+# reading it is serving actually is, and the worker's own snapshot is a
+# different instant this process cannot observe.
+CONFIG_LOADED_AT = datetime.now(timezone.utc)
 
 # The drops-root gate (story 2.1a). Unlike MM_CONTENT_ROOT — which the api only
 # reads and the worker creates — every stored drop path is *relative* to this
@@ -128,6 +137,9 @@ problems.register_handlers(app)
 # module (which would be circular): the job-event stream reads its poll and
 # heartbeat intervals from here.
 app.state.config = CONFIG
+# Same reasoning: `/status` reports which process answered and when that
+# process loaded its configuration, rather than importing this module.
+app.state.config_loaded_at = CONFIG_LOADED_AT
 # Same reasoning: `/search` reaches the embedder through the app rather than
 # by importing this module.
 app.state.embedder = EMBEDDER
