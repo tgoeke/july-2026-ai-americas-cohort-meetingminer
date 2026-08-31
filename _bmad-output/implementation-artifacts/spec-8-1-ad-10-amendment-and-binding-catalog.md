@@ -245,6 +245,9 @@ story stops at the config contract: it changes no call path.
   [`_bmad-output/implementation-artifacts/epic-8-context.md:32`].
 - [x] [Review][Patch] Finding 7 — Reconcile the recorded catalog test count
   [`_bmad-output/implementation-artifacts/sprint-notes.md:3051`].
+- [x] [Review][Defer] Finding 8 — Current main's fast/full server runs skip the
+  optional main-venv pyannote import and opt-in real YouTube network case;
+  the isolated diarize gate passes [`server/tests/test_diarize_pyannote.py:266`].
 
 ## Spec Change Log
 

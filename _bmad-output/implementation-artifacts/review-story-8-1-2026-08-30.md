@@ -7,7 +7,9 @@ Adversarial review of Story 8.1 on `story/8-1-review`, including the eight chang
 ## Range
 
 - Original story range: `82f864b51d210920ab07770720c2d81bde200355..story/8-1`
-- Review basis: `story/8-1`, rebased onto `origin/main` before implementation inspection
+- Final rebased implementation range reviewed: `f92cb9c..8f2c4ff`
+- Final integration base: `f92cb9c` (`origin/main`, Story 6.3 landed)
+- Review commits begin at: `3ace393`
 - Review branch: `story/8-1-review`
 
 ## Findings
@@ -73,5 +75,65 @@ Adversarial review of Story 8.1 on `story/8-1-review`, including the eight chang
 - **Location:** `server/tests/test_diarize_pyannote.py:266`; `server/tests/test_youtube.py:1353`
 - **Severity:** Low
 - **Finding:** The review handoff's zero-skip baseline no longer reproduces after rebasing onto current main: `make test-fast` skips the optional pyannote import case and the explicitly opt-in real YouTube network acquisition case.
-- **Evidence:** The final fast server run reported 1,845 passed, 2 skipped, and 378 deselected. The named reasons were `No module named 'pyannote'` and `set MM_YOUTUBE_NETWORK_TEST=1 to run it`. Both tests landed on main after the original Story 8.1 baseline and neither is reached by the catalog change.
+- **Evidence:** The final post-rebase fast server run reported 1,893 passed, 2 skipped, and 378 deselected. The named reasons were `No module named 'pyannote'` and `set MM_YOUTUBE_NETWORK_TEST=1 to run it`. Both tests landed on main after the original Story 8.1 baseline and neither is reached by the catalog change.
 - **Suggested direction:** No Story 8.1 patch. Treat the fast result as qualified by these two intentional current-main environment gates; use the dedicated diarize-extra gate when validating pyannote and the explicit environment flag only when a real network acquisition run is intended.
+
+## Review-layer and triage summary
+
+All four configured layers ran locally and sequentially: Blind Hunter, Edge
+Case Hunter, Verification Gap Reviewer, and Acceptance Auditor. They produced
+eight confirmed findings after deduplication: six patch findings fixed in this
+review, one high-severity owner/spec decision left open, and one low-severity
+current-main/environment qualification deferred. No review layer failed.
+
+The original deferred inventory was reassessed rather than duplicated:
+
+- The stale chat comment and active-model boundary were wrongly deferred; they
+  became Findings 3 and 2 and are fixed.
+- Provider-rule drift was more serious than recorded; the concrete bare-tag
+  mismatch became open Finding 4.
+- The live `fallback` exemption remains a medium owner/Story 8.2 boundary.
+- API visibility remains correctly owned by Story 8.2.
+- Resolved-config dump round-tripping remains a low, currently unconsumed gap.
+- Duplicate bindings, first-error-only reporting, `catalog: null`, and the
+  blank-model diagnostic remain low and outside the frozen acceptance surface.
+
+## Red-first remediation evidence
+
+- Finding 1: the legacy-prefixed regression failed with `None == 'openai'` on
+  the unfixed loader, then passed with derived provider metadata and an explicit
+  synthesized marker; legacy undeclared-prefix and bare-tag cases also passed.
+- Finding 2: the active-model regression failed because no `ConfigError` was
+  raised, then passed after the authored-catalog membership check was added.
+- Finding 3: a source assertion failed while both stale Anthropic claims were
+  present, then passed after their removal and preservation of the three live
+  chat rules.
+- Finding 5: an AD-10 contract assertion failed on the missing selection,
+  resolution, and no-fallback clauses, then passed after the accepted wording
+  was united with Story 11.2's infrastructure sentence.
+- Findings 6 and 7: source assertions failed on the stale provider-validation
+  claim and mismatched test counts, then passed after their records were
+  corrected.
+
+## Final verification
+
+All final gates ran after rebasing onto `origin/main` at `f92cb9c`:
+
+- `uv sync --project server` — clean.
+- `make lint` — clean.
+- `make typecheck` — no issues in 13 source files.
+- `make test-fast` — puller 128 passed; web 294 passed; evals 643 passed;
+  server 1,893 passed, 2 skipped, 378 deselected. Both skips are Finding 8.
+- `make test` — puller 128 passed; web 294 passed; evals 643 passed; isolated
+  diarize-extra gate 92 passed; test-store reachability 1 passed; server 2,271
+  passed and the same 2 tests skipped; production web build clean.
+- Targeted pre-rebase remediation suites also passed: config/catalog 134 and
+  fail-fast 12. The final fast and full gates reran those modules after rebase.
+
+## Verdict
+
+**Story 8.1 does not pass review as it stands.** All six patch findings are
+fixed and verified, but high-severity Finding 4 remains open because its correct
+resolution changes the frozen prefix-less binding contract or the ownership of
+runtime provider routing. The story and sprint status are therefore
+`in-progress`. This review did not merge or commit to `main`.
