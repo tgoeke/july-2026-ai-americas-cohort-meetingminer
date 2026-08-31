@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-18-2026 10:04
-last_updated: 08-30-2026 23:15
+last_updated: 08-30-2026 23:35
 project: meetingminer
 project_key: NOKEY
 tracking_system: file-system
@@ -111,7 +111,7 @@ development_status:
   epic-7: in-progress
   7-1-diarizer-engine-behind-the-port: done
   7-2-speaker-tags-on-the-wire: done
-  7-3-speaker-assignment: review
+  7-3-speaker-assignment: done
   7-4-speaker-naming-ui: backlog
   epic-7-retrospective: optional
 

@@ -3667,3 +3667,49 @@ speaker read to Epic 2's merge predicate as having absorbed someone. Four
 recorded footprint departures (`pipeline/stages/align.py`, `api/participants.py`,
 and one forced line each in `test_api_speakers.py` and `test_compose_contract.py`)
 are in the spec's Change Log. B-39 and B-40 filed. Left at `review`.
+
+## 7-3 landed, 2026-08-30 ~23:35 — a rename cannot break a citation
+
+`main` at `ee21eb5`. `PUT /meetings/{meetingId}/speakers/{tag}` accepts a
+participant id, a new display name, or `unresolved`; it writes an api-owned
+`participant_alias` row under `speaker:<meetingId>:<tag>` (AD-5) and re-arms
+the meeting's job for `align → moments → extract` only. `unresolved` is a
+deletion of the alias, which restores `align`'s own `placeholder` and guesses
+no name. No migration — every column already existed.
+
+**The story's real risk was proved, not asserted.** The citation test was
+written first and observed failing whole, then demonstrated by mutation:
+perturbing segment timing by 1 ms re-keys `transcript:40000` to
+`transcript:40001`, mints a new moment id, and the test catches it. After a
+rerun every pre-existing moment id, citation, and approved or published
+artifact still resolves; extraction replaces drafts only.
+
+**Two silent defects were caught during the build, both fixed:** a
+curator-minted participant keyed by its own alias key could never be merged,
+because `participants.py` reads "own identity key appears as an alias key" as
+"merged away" — minted rows now use a separate `curated:` space; and any
+participant named as a speaker looked to Epic 2's merge predicate as having
+absorbed someone, silently blocking every later merge of them.
+
+**Two owner rulings, 2026-08-30:**
+
+- **The frozen matrix row was amended, not the code.** The row required the
+  minted participant's `identity_key` to equal the speaker alias key, which
+  specifies the unmergeable design above. The spec now names the `curated:`
+  space and records why.
+- **The speaker PUT is admitted when a meeting's evidence is unsettled.** A
+  failed `align`/`moments` rerun previously made the meeting unviewable, which
+  locked the curator out of the very surface needed to undo the assignment that
+  caused it. This is one deliberate PUT-only exception with explicit
+  recovery-state fields — every other read and write keeps today's viewability
+  behaviour, pinned by a regression, and an unknown meeting is still 404.
+
+**Generated-client conflict, resolved by regeneration rather than merge.**
+Stories 7.3 and 8.2 both regenerated `web/src/client/`, so their generated
+files conflicted at integrate. Generated output is never hand-merged: main's
+side was taken through the rebase and the client was then regenerated once from
+an in-process `app.openapi()` dump on the rebased tree, so it now carries both
+8.2's `/settings` routes and 7.3's speaker assignment. **The dump must add a
+`servers` entry** — generating from a file rather than a URL otherwise drops
+`client.gen.ts`'s `baseUrl`, which would quietly break the web client's default
+host. That was caught by reading the diff rather than trusting the tool.
