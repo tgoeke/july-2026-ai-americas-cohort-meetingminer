@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, ServerSentEventsResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { ApproveMomentArtifactsData, ApproveMomentArtifactsErrors, ApproveMomentArtifactsResponses, AskCorpusData, AskCorpusErrors, AskCorpusResponses, AssignMeetingProjectData, AssignMeetingProjectErrors, AssignMeetingProjectResponses, AssignMeetingSeriesData, AssignMeetingSeriesErrors, AssignMeetingSeriesResponses, AssignMeetingSpeakerData, AssignMeetingSpeakerErrors, AssignMeetingSpeakerResponses, AssignProjectProductData, AssignProjectProductErrors, AssignProjectProductResponses, CreateIngestData, CreateIngestErrors, CreateIngestResponses, CreateProductData, CreateProductErrors, CreateProductResponses, CreateProjectData, CreateProjectErrors, CreateProjectResponses, CreateSeriesData, CreateSeriesErrors, CreateSeriesResponses, GetAcquisitionData, GetAcquisitionErrors, GetAcquisitionResponses, GetConfigurationData, GetConfigurationResponses, GetCorpusStatsData, GetCorpusStatsResponses, GetExtractionPromptsData, GetExtractionPromptsResponses, GetHealthData, GetHealthResponses, GetJobData, GetJobErrors, GetJobResponses, GetMediaFileData, GetMediaFileErrors, GetMediaFileResponses, GetMeetingDrilldownData, GetMeetingDrilldownErrors, GetMeetingDrilldownResponses, GetModelSettingsData, GetModelSettingsResponses, GetMomentData, GetMomentErrors, GetMomentResponses, GetRecordingData, GetRecordingErrors, GetRecordingResponses, GetSystemStatusData, GetSystemStatusResponses, ListMeetingMomentsData, ListMeetingMomentsErrors, ListMeetingMomentsResponses, ListMeetingsData, ListMeetingSpeakersData, ListMeetingSpeakersErrors, ListMeetingSpeakersResponses, ListMeetingsResponses, ListParticipantsData, ListParticipantsResponses, ListProductsData, ListProductsResponses, ListProjectsData, ListProjectsResponses, ListSeriesData, ListSeriesResponses, MergeParticipantsData, MergeParticipantsErrors, MergeParticipantsResponses, ProbeAcquisitionData, ProbeAcquisitionErrors, ProbeAcquisitionResponses, RenameParticipantData, RenameParticipantErrors, RenameParticipantResponses, SearchCorpusData, SearchCorpusErrors, SearchCorpusResponses, SelectRoleBindingData, SelectRoleBindingErrors, SelectRoleBindingResponses, StartAcquisitionData, StartAcquisitionErrors, StartAcquisitionResponses, StreamJobEventsData, StreamJobEventsResponses } from './types.gen';
+import type { ApproveMomentArtifactsData, ApproveMomentArtifactsErrors, ApproveMomentArtifactsResponses, AskCorpusData, AskCorpusErrors, AskCorpusResponses, AssignMeetingProjectData, AssignMeetingProjectErrors, AssignMeetingProjectResponses, AssignMeetingSeriesData, AssignMeetingSeriesErrors, AssignMeetingSeriesResponses, AssignMeetingSpeakerData, AssignMeetingSpeakerErrors, AssignMeetingSpeakerResponses, AssignProjectProductData, AssignProjectProductErrors, AssignProjectProductResponses, CreateIngestData, CreateIngestErrors, CreateIngestResponses, CreateProductData, CreateProductErrors, CreateProductResponses, CreateProjectData, CreateProjectErrors, CreateProjectResponses, CreateSeriesData, CreateSeriesErrors, CreateSeriesResponses, GetAcquisitionData, GetAcquisitionErrors, GetAcquisitionResponses, GetConfigurationData, GetConfigurationResponses, GetCorpusStatsData, GetCorpusStatsResponses, GetExtractionPromptsData, GetExtractionPromptsResponses, GetHealthData, GetHealthResponses, GetJobData, GetJobErrors, GetJobResponses, GetMediaFileData, GetMediaFileErrors, GetMediaFileResponses, GetMeetingDrilldownData, GetMeetingDrilldownErrors, GetMeetingDrilldownResponses, GetModelSettingsData, GetModelSettingsResponses, GetMomentData, GetMomentErrors, GetMomentResponses, GetRecordingData, GetRecordingErrors, GetRecordingResponses, GetSystemStatusData, GetSystemStatusResponses, GetThreadTimelineData, GetThreadTimelineErrors, GetThreadTimelineResponses, ListMeetingMomentsData, ListMeetingMomentsErrors, ListMeetingMomentsResponses, ListMeetingsData, ListMeetingSpeakersData, ListMeetingSpeakersErrors, ListMeetingSpeakersResponses, ListMeetingsResponses, ListParticipantsData, ListParticipantsResponses, ListProductsData, ListProductsResponses, ListProjectsData, ListProjectsResponses, ListSeriesData, ListSeriesResponses, ListThreadsData, ListThreadsResponses, MergeParticipantsData, MergeParticipantsErrors, MergeParticipantsResponses, ProbeAcquisitionData, ProbeAcquisitionErrors, ProbeAcquisitionResponses, RenameParticipantData, RenameParticipantErrors, RenameParticipantResponses, SearchCorpusData, SearchCorpusErrors, SearchCorpusResponses, SelectRoleBindingData, SelectRoleBindingErrors, SelectRoleBindingResponses, StartAcquisitionData, StartAcquisitionErrors, StartAcquisitionResponses, StreamJobEventsData, StreamJobEventsResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -396,6 +396,27 @@ export const assignMeetingProject = <ThrowOnError extends boolean = false>(optio
         ...options.headers
     }
 });
+
+/**
+ * List Threads
+ */
+export const listThreads = <ThrowOnError extends boolean = false>(options?: Options<ListThreadsData, ThrowOnError>): RequestResult<ListThreadsResponses, unknown, ThrowOnError> => (options?.client ?? client).get<ListThreadsResponses, unknown, ThrowOnError>({ url: '/threads', ...options });
+
+/**
+ * Get Thread Timeline
+ *
+ * One thread at one level of detail, bounded by an optional window.
+ *
+ * Window membership at every level is selected by each topic mention's
+ * anchor. A fine row's `occurredAt` is instead its evidence start and may
+ * fall outside the requested window.
+ *
+ * All reads for one response happen on one connection under `REPEATABLE
+ * READ`, the rule `api/moments.py` states: a response is one snapshot, so a
+ * band and the meetings under it can never come from either side of a
+ * concurrent derivation.
+ */
+export const getThreadTimeline = <ThrowOnError extends boolean = false>(options: Options<GetThreadTimelineData, ThrowOnError>): RequestResult<GetThreadTimelineResponses, GetThreadTimelineErrors, ThrowOnError> => (options.client ?? client).get<GetThreadTimelineResponses, GetThreadTimelineErrors, ThrowOnError>({ url: '/threads/{thread_id}/timeline', ...options });
 
 /**
  * Health

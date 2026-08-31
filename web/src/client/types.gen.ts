@@ -244,6 +244,60 @@ export type AssignSpeakerRequest = {
 };
 
 /**
+ * BandsTimeline
+ */
+export type BandsTimeline = {
+    /**
+     * Threadid
+     */
+    threadId: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Colorordinal
+     */
+    colorOrdinal: number;
+    /**
+     * Windowfrom
+     */
+    windowFrom?: string | null;
+    /**
+     * Windowto
+     */
+    windowTo?: string | null;
+    /**
+     * Mentioncount
+     */
+    mentionCount: number;
+    /**
+     * Meetingcount
+     */
+    meetingCount: number;
+    /**
+     * Momentcount
+     */
+    momentCount: number;
+    /**
+     * Level
+     */
+    level: 'bands';
+    /**
+     * Bucketms
+     */
+    bucketMs?: number | null;
+    /**
+     * Bucketcount
+     */
+    bucketCount: number;
+    /**
+     * Bands
+     */
+    bands: Array<TimelineBand>;
+};
+
+/**
  * CatalogEntryView
  *
  * One binding a role may be served by, as a picker renders it.
@@ -602,6 +656,56 @@ export type EmbedderView = {
      * Dimension
      */
     dimension: number;
+};
+
+/**
+ * EvidenceTimeline
+ */
+export type EvidenceTimeline = {
+    /**
+     * Threadid
+     */
+    threadId: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Colorordinal
+     */
+    colorOrdinal: number;
+    /**
+     * Windowfrom
+     */
+    windowFrom?: string | null;
+    /**
+     * Windowto
+     */
+    windowTo?: string | null;
+    /**
+     * Mentioncount
+     */
+    mentionCount: number;
+    /**
+     * Meetingcount
+     */
+    meetingCount: number;
+    /**
+     * Momentcount
+     */
+    momentCount: number;
+    /**
+     * Level
+     */
+    level: 'evidence';
+    /**
+     * Truncated
+     */
+    truncated: boolean;
+    /**
+     * Evidence
+     */
+    evidence: Array<TimelineEvidence>;
 };
 
 /**
@@ -1104,6 +1208,52 @@ export type MeetingsResponse = {
 };
 
 /**
+ * MeetingsTimeline
+ */
+export type MeetingsTimeline = {
+    /**
+     * Threadid
+     */
+    threadId: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Colorordinal
+     */
+    colorOrdinal: number;
+    /**
+     * Windowfrom
+     */
+    windowFrom?: string | null;
+    /**
+     * Windowto
+     */
+    windowTo?: string | null;
+    /**
+     * Mentioncount
+     */
+    mentionCount: number;
+    /**
+     * Meetingcount
+     */
+    meetingCount: number;
+    /**
+     * Momentcount
+     */
+    momentCount: number;
+    /**
+     * Level
+     */
+    level: 'meetings';
+    /**
+     * Meetings
+     */
+    meetings: Array<TimelineMeeting>;
+};
+
+/**
  * MeilisearchView
  */
 export type MeilisearchView = {
@@ -1325,6 +1475,56 @@ export type MomentSegment = {
      * Text
      */
     text: string;
+};
+
+/**
+ * MomentsTimeline
+ */
+export type MomentsTimeline = {
+    /**
+     * Threadid
+     */
+    threadId: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Colorordinal
+     */
+    colorOrdinal: number;
+    /**
+     * Windowfrom
+     */
+    windowFrom?: string | null;
+    /**
+     * Windowto
+     */
+    windowTo?: string | null;
+    /**
+     * Mentioncount
+     */
+    mentionCount: number;
+    /**
+     * Meetingcount
+     */
+    meetingCount: number;
+    /**
+     * Momentcount
+     */
+    momentCount: number;
+    /**
+     * Level
+     */
+    level: 'moments';
+    /**
+     * Truncated
+     */
+    truncated: boolean;
+    /**
+     * Moments
+     */
+    moments: Array<TimelineMoment>;
 };
 
 /**
@@ -2175,6 +2375,275 @@ export type SttView = {
      * Model
      */
     model: string;
+};
+
+/**
+ * ThreadSummary
+ *
+ * One thread as the Threads view lists it.
+ *
+ * Every instant is an RFC 3339 UTC string the server derived, never a
+ * timestamp the client is expected to reassemble from an offset.
+ */
+export type ThreadSummary = {
+    /**
+     * Threadid
+     */
+    threadId: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Mentioncount
+     */
+    mentionCount: number;
+    /**
+     * Meetingcount
+     */
+    meetingCount: number;
+    /**
+     * Firstmentionat
+     */
+    firstMentionAt: string;
+    /**
+     * Lastmentionat
+     */
+    lastMentionAt: string;
+    /**
+     * Colorordinal
+     */
+    colorOrdinal: number;
+};
+
+/**
+ * ThreadsResponse
+ */
+export type ThreadsResponse = {
+    /**
+     * Threads
+     */
+    threads: Array<ThreadSummary>;
+};
+
+/**
+ * TimelineArtifact
+ */
+export type TimelineArtifact = {
+    /**
+     * Artifactid
+     */
+    artifactId: string;
+    /**
+     * Kind
+     */
+    kind: string;
+    /**
+     * State
+     */
+    state: string;
+    /**
+     * Title
+     */
+    title: string;
+};
+
+/**
+ * TimelineBand
+ *
+ * One bucket of the density strip. Half-open `[startAt, endAt)`, except
+ * the band's last bucket, which is closed on the window's own end.
+ */
+export type TimelineBand = {
+    /**
+     * Startat
+     */
+    startAt: string;
+    /**
+     * Endat
+     */
+    endAt: string;
+    /**
+     * Mentioncount
+     */
+    mentionCount: number;
+    /**
+     * Meetingcount
+     */
+    meetingCount: number;
+};
+
+/**
+ * TimelineEvidence
+ *
+ * The moments tier plus what backs it.
+ *
+ * `recordingMediaId` is the meeting id: `meeting_media` is keyed by
+ * `meeting_id` (migration 0002), so the meeting id *is* the recording's
+ * media id. It is NULL when the meeting has no recording, so a client never
+ * offers replay it cannot get bytes for.
+ */
+export type TimelineEvidence = {
+    /**
+     * Momentid
+     */
+    momentId: string;
+    /**
+     * Meetingid
+     */
+    meetingId: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Startms
+     */
+    startMs: number;
+    /**
+     * Occurredat
+     *
+     * Evidence start and seek position, derived from moment.start_ms. Window membership is selected by the topic mention anchor, so this value may fall outside the requested window.
+     */
+    occurredAt: string;
+    /**
+     * Occurredatprecision
+     */
+    occurredAtPrecision: string;
+    /**
+     * Speakers
+     */
+    speakers: Array<string>;
+    /**
+     * Screenshotid
+     */
+    screenshotId?: string | null;
+    /**
+     * Excerpt
+     */
+    excerpt?: string | null;
+    /**
+     * Artifacts
+     */
+    artifacts: Array<TimelineArtifact>;
+    /**
+     * Hasrecording
+     */
+    hasRecording: boolean;
+    /**
+     * Recordingmediaid
+     */
+    recordingMediaId?: string | null;
+};
+
+/**
+ * TimelineMeeting
+ */
+export type TimelineMeeting = {
+    /**
+     * Meetingid
+     */
+    meetingId: string;
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Corpus
+     */
+    corpus: string;
+    /**
+     * Hasrecording
+     */
+    hasRecording: boolean;
+    /**
+     * Occurredat
+     */
+    occurredAt: string;
+    /**
+     * Lastoccurredat
+     */
+    lastOccurredAt: string;
+    /**
+     * Occurredatprecision
+     */
+    occurredAtPrecision: string;
+    /**
+     * Mentioncount
+     */
+    mentionCount: number;
+    /**
+     * Momentcount
+     */
+    momentCount: number;
+    /**
+     * Topics
+     */
+    topics: Array<TimelineTopic>;
+};
+
+/**
+ * TimelineMoment
+ *
+ * The moments tier, exactly. No excerpt, no artifacts, no media beyond
+ * the opaque screenshot id — those are the evidence tier's.
+ */
+export type TimelineMoment = {
+    /**
+     * Momentid
+     */
+    momentId: string;
+    /**
+     * Meetingid
+     */
+    meetingId: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Startms
+     */
+    startMs: number;
+    /**
+     * Occurredat
+     *
+     * Evidence start and seek position, derived from moment.start_ms. Window membership is selected by the topic mention anchor, so this value may fall outside the requested window.
+     */
+    occurredAt: string;
+    /**
+     * Occurredatprecision
+     */
+    occurredAtPrecision: string;
+    /**
+     * Speakers
+     */
+    speakers: Array<string>;
+    /**
+     * Screenshotid
+     */
+    screenshotId?: string | null;
+};
+
+/**
+ * TimelineTopic
+ *
+ * One of the thread's topics as a meeting carries it, with the leg of
+ * story 10.2's rule that attached it.
+ */
+export type TimelineTopic = {
+    /**
+     * Topicid
+     */
+    topicId: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Linkedby
+     */
+    linkedBy: string;
 };
 
 /**
@@ -3325,6 +3794,83 @@ export type AssignMeetingProjectResponses = {
 };
 
 export type AssignMeetingProjectResponse = AssignMeetingProjectResponses[keyof AssignMeetingProjectResponses];
+
+export type ListThreadsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/threads';
+};
+
+export type ListThreadsResponses = {
+    /**
+     * Successful Response
+     */
+    200: ThreadsResponse;
+};
+
+export type ListThreadsResponse = ListThreadsResponses[keyof ListThreadsResponses];
+
+export type GetThreadTimelineData = {
+    body?: never;
+    path: {
+        /**
+         * Thread Id
+         */
+        thread_id: string;
+    };
+    query?: {
+        /**
+         * Level
+         */
+        level?: 'bands' | 'meetings' | 'moments' | 'evidence';
+        /**
+         * From
+         */
+        from?: string | null;
+        /**
+         * To
+         */
+        to?: string | null;
+    };
+    url: '/threads/{thread_id}/timeline';
+};
+
+export type GetThreadTimelineErrors = {
+    /**
+     * `invalid-window` — `from` is after `to`.
+     */
+    400: unknown;
+    /**
+     * `not-found` — no thread with that id.
+     */
+    404: unknown;
+    /**
+     * `invalid-request` — the id is not a UUID, or `level` is not one of `bands|meetings|moments|evidence`.
+     */
+    422: ProblemDetails;
+};
+
+export type GetThreadTimelineError = GetThreadTimelineErrors[keyof GetThreadTimelineErrors];
+
+export type GetThreadTimelineResponses = {
+    /**
+     * Response Getthreadtimeline
+     *
+     * Successful Response
+     */
+    200: ({
+        level: 'bands';
+    } & BandsTimeline) | ({
+        level: 'meetings';
+    } & MeetingsTimeline) | ({
+        level: 'moments';
+    } & MomentsTimeline) | ({
+        level: 'evidence';
+    } & EvidenceTimeline);
+};
+
+export type GetThreadTimelineResponse = GetThreadTimelineResponses[keyof GetThreadTimelineResponses];
 
 export type GetHealthData = {
     body?: never;
