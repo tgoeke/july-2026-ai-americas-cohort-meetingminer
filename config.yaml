@@ -634,3 +634,153 @@ threads:
   # lowering it fuses them; the loader refuses anything below 0.5, the point
   # at which this leg would begin unioning the whole corpus into one thread.
   embedding_similarity_threshold: 0.82
+
+# Moments feed ranking (story 10.4, FR40). `GET /moments/feed` answers "what
+# needs my attention" by scoring stored rows — artifacts, ranking signals,
+# thread membership and two timestamps — with no model call at request time.
+#
+# Every number the order depends on is here, with its reasoning, for the
+# reason AD-10 gives: a weight that exists only as a Python constant is not
+# one anybody can turn, and re-deriving today's feed order has to be possible
+# from Postgres plus this file alone. The loader has no fallback and refuses a
+# config that omits any of them.
+#
+# None of these are measured values. The retrieval eval scores citation
+# quality, not feed order, so nothing below has been scored against ground
+# truth. That is stated rather than implied: the relative ordering of the
+# weights is the deliberate part, the absolute magnitudes are a starting
+# point.
+ranking:
+  weights:
+    # The two "a decision was made here" signals, and the highest weights in
+    # the block. A recorded decision is the most useful thing the corpus
+    # knows about a moment: it is what a reader comes back for, it is what
+    # everything downstream cites, and — unlike a risk or a question — it is
+    # a settled fact rather than an open one.
+    #
+    # `adr` sits above `decision` because an ADR is the architecturally
+    # consequential subset: the meeting decided something judged worth
+    # writing down as a durable record, not merely something it resolved in
+    # passing.
+    adr: 5.0
+    decision: 4.0
+
+    # An action item that states its timing at all. Below a decision and
+    # above an open question, because a stated commitment is the second most
+    # actionable thing on a card. The AC's phrase is "with stated timing":
+    # an action item whose timing the transcript never stated earns nothing
+    # here, because the extraction prompt writes "not stated" rather than
+    # inventing a date, and ranking on an invented date is worse than not
+    # ranking on one.
+    action_item_stated_timing: 3.0
+    # The "soonest first" half. Added on top of the term above and scaled by
+    # how close the stated date is — 1.0 when due today or overdue, falling
+    # linearly to 0.0 at `due_horizon_days` — so among two items that both
+    # state timing the nearer one always sorts first. It is the largest
+    # single term at full urgency, deliberately: something due today
+    # outranks a decision recorded a fortnight ago, which is the point of a
+    # feed rather than a list.
+    due_urgency: 4.0
+
+    # A risk outranks an open question: a risk names a thing that could go
+    # wrong whether or not anyone asks about it, while a question is by
+    # definition already somebody's next move. Both sit below decisions,
+    # because a feed of everything anyone ever worried about is a feed
+    # nobody reads.
+    risk: 3.5
+    question: 2.0
+
+    # Meeting recency. Present so a corpus with no artifacts yet still opens
+    # onto its newest evidence rather than an empty screen, and kept modest
+    # so recency alone never outranks a genuine signal: at full strength it
+    # is worth less than one risk.
+    meeting_recency: 2.5
+    # Publication recency — a moment whose artifact was approved and
+    # published recently. Just below meeting recency, because publishing is
+    # the end of a piece of work rather than the start of one: it earns a
+    # place on the feed as a receipt, not as a demand.
+    publication_recency: 2.0
+
+    # Thread membership. The smallest weight in the block on purpose: a
+    # moment belonging to a followed subject is context, not urgency, and
+    # this term exists to separate otherwise equal moments rather than to
+    # lift a moment nothing else recommends.
+    thread_membership: 1.0
+
+  # Age at which a recency term is worth half its weight. Two weeks: long
+  # enough that a meeting stays on the feed across the fortnight anyone would
+  # still call it current, short enough that a month-old meeting has visibly
+  # receded (at 28 days the term keeps a quarter of its weight). Exponential
+  # decay rather than a cutoff, so the feed never reorders itself overnight
+  # for a reason a reader cannot see.
+  recency_half_life_days: 14.0
+
+  # How far ahead a stated due date still earns urgency. Also two weeks, for
+  # the matching reason: a commitment further out than a fortnight is not yet
+  # the thing needing attention today. It keeps its
+  # `action_item_stated_timing` term rather than dropping off the feed.
+  due_horizon_days: 14.0
+
+  # How many risk and question reasons one card may carry. Three: enough to
+  # show that a moment raised several, few enough that the card stays a card.
+  # Scoring is capped with it — a moment that raised nine questions is not
+  # nine times more pressing than one that raised three.
+  max_signal_reasons: 3
+
+  # How many thread memberships contribute a chip and a score term. Three
+  # matches the story 6.1 card, which shows at most three thread chips.
+  max_thread_reasons: 3
+
+  # The page the front door gets when it names no limit, and the ceiling on
+  # one it does name. Twenty is roughly two screens of cards; the ceiling is
+  # a bound on the wire, not a preference.
+  default_limit: 20
+  max_limit: 100
+
+  # The ranking-signals prompt (story 10.4). It sits here rather than beside
+  # the other three under `llm.roles.extraction` for one narrow reason: the
+  # frozen story footprint gives story 10.4 the end of this file and gives
+  # the `llm:` block to nobody, and editing a block another lane may hold is
+  # the widening the wave rules forbid. The port is unchanged — the stage
+  # still calls `Llm(extraction)` — and relocating this key is filed as B-41.
+  #
+  # It pins the same markdown shape the other extraction prompts pin, for the
+  # same reason: the parser keys on the short item ID and the timestamp,
+  # never on heading numbering.
+  signals_prompt: |
+    You are an expert meeting analyst. Extract every RISK and every OPEN QUESTION from one meeting or recorded session transcript.
+
+    The transcript is verbatim and auto-generated, in the form `[m:ss] Speaker Name: text`, and covers the whole recording.
+
+    Ground rules, all of them binding:
+    - Do not invent facts. Report only what was said. If two statements conflict, report the conflict rather than silently reconciling it.
+    - Anchor every item to the transcript with the [m:ss] timestamp where it was discussed. An item with no timestamp cannot be cited and must not be written.
+    - One item per row, even when it is restated later. Put every relevant timestamp in that one row.
+    - Expect speech-to-text noise: mis-heard names and technical terms ("sequel" = SQL), dropped words, mid-sentence self-corrections. Normalize obvious mis-hears; keep an uncertain name or term and mark it "(sp?)".
+
+    More rules for this document:
+    - A RISK is a stated way the work could go wrong: a dependency that may not land, a deadline nobody is confident about, a system that may not hold, a decision that may prove wrong. Something already known to have gone wrong is not a risk; leave it out.
+    - An OPEN QUESTION is something the meeting raised and did NOT answer. A question somebody answered in the same meeting is not open; leave it out.
+    - Neither is an action item. If somebody committed to do the work, it belongs to the action-items document, not this one.
+    - Write the Risk or Question cell as one short line a reader can act on, not a paragraph.
+
+    Produce exactly these two sections and nothing else:
+
+    ## Risks
+
+    A markdown table with this header row and one row per risk:
+
+    | ID | Risk | Detail | Timestamp |
+    |----|------|--------|-----------|
+    | R1 | The vendor key may not arrive before the cutover | Blocks the SFTP move | [5:12] |
+
+    ## Open questions
+
+    A markdown table with this header row and one row per open question:
+
+    | ID | Question | Detail | Timestamp |
+    |----|----------|--------|-----------|
+    | Q1 | Who approves the purchase order? | Nobody claimed it | [44:02] |
+
+    IDs run R1, R2, R3... and Q1, Q2, Q3... Write nothing outside those two sections. If the meeting produced no risks, write the Risks heading with the table header and no rows under it; the same for open questions.
+

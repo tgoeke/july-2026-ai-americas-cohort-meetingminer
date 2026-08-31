@@ -930,6 +930,80 @@ class ThreadsConfig(_StrictModel):
     embedding_similarity_threshold: float = Field(ge=0.5, le=1.0)
 
 
+class RankingWeights(_StrictModel):
+    """Every weight the Moments feed's score is built from (story 10.4, FR40).
+
+    One field per signal the acceptance criteria name, and nothing else: the
+    score is a sum of these terms and there is no unnamed ranking constant in
+    ``api/moments_feed.py``. Each is required — there is no code-level default
+    — so a config that omits one fails at load rather than ranking the corpus
+    against a number nobody chose (AD-10). The rationale for each shipped
+    value lives beside it in ``config.yaml``.
+
+    All are floored at zero. A negative weight would let one signal *demote* a
+    moment, which is not a ranking any acceptance criterion describes and
+    would make the feed's order impossible to explain from its own
+    ``reasons[]``.
+    """
+
+    adr: float = Field(ge=0.0)
+    decision: float = Field(ge=0.0)
+    # Split deliberately: "an action item exists and states its timing at all"
+    # and "that timing is close" are different facts, and the AC asks for both
+    # ("action items with stated timing (soonest first)").
+    action_item_stated_timing: float = Field(ge=0.0)
+    due_urgency: float = Field(ge=0.0)
+    risk: float = Field(ge=0.0)
+    question: float = Field(ge=0.0)
+    meeting_recency: float = Field(ge=0.0)
+    publication_recency: float = Field(ge=0.0)
+    thread_membership: float = Field(ge=0.0)
+
+
+class RankingConfig(_StrictModel):
+    """How ``GET /moments/feed`` ranks (story 10.4, FR40, AD-10).
+
+    The score is deterministic and computed at request time over rows already
+    in Postgres — no model call, no cached ordering — so everything that
+    decides an order is here rather than in Python constants. The prompt text
+    for the risk/question extraction pass lives here too; ``config.yaml``
+    records why it is not under ``llm.roles.extraction`` with the other three.
+    """
+
+    weights: RankingWeights
+    # Age at which a recency term is worth half its weight. Exponential decay
+    # rather than a cliff: a cliff makes the feed reorder itself overnight for
+    # no reason a reader can see.
+    recency_half_life_days: float = Field(gt=0.0)
+    # How far ahead a stated due date still earns urgency. Beyond it the
+    # urgency term is zero and only the "timing is stated" term remains.
+    due_horizon_days: float = Field(gt=0.0)
+    # How many risk/question reasons one item may carry. A moment that raised
+    # nine questions is not nine times more pressing than one that raised
+    # three, and an unbounded list would make the card unreadable.
+    max_signal_reasons: int = Field(ge=1)
+    # How many thread memberships may contribute a chip and a score term.
+    max_thread_reasons: int = Field(ge=1)
+    # The page size when the caller names none, and the ceiling on one it does
+    # name — a bound on the wire, not a preference.
+    default_limit: int = Field(ge=1)
+    max_limit: int = Field(ge=1)
+    # The complete prompt text for the ranking-signals document (story 10.4),
+    # composed verbatim with the meeting header and transcript exactly as the
+    # other three extraction prompts are. No code-level default.
+    signals_prompt: NonEmptyText
+
+    @model_validator(mode="after")
+    def _default_limit_within_max(self) -> "RankingConfig":
+        if self.default_limit > self.max_limit:
+            raise ValueError(
+                f"ranking.default_limit ({self.default_limit}) exceeds"
+                f" ranking.max_limit ({self.max_limit}); the default page"
+                " must be servable"
+            )
+        return self
+
+
 class Settings(_StrictModel):
     """The validated shape of config.yaml."""
 
@@ -986,6 +1060,7 @@ class Settings(_StrictModel):
     api: ApiConfig
     acquisition: AcquisitionConfig
     threads: ThreadsConfig
+    ranking: RankingConfig
 
 
 class Secrets(BaseModel):
