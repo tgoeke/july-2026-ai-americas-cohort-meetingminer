@@ -21,7 +21,10 @@ A user picks which model answers questions and which model extracts artifacts, c
 - The status surface reports key validity per configured provider and the active binding per role. Key probing uses free provider endpoints only (a model listing, never a completion) and is cached between polls — no money may be spent to render a status page.
 - No fragment of any API key may serialize into any response, log, or UI surface. Secrets stay in environment variables; the config file carries bindings and endpoints only.
 - Backward compatibility: existing single-model role declarations must still load, treated as a one-entry catalog.
-- Fail closed at load: a default outside its catalog, or a catalog entry naming an undeclared provider, is a named startup error before any partial boot.
+- Fail closed at load: a default outside its catalog, a catalog binding whose
+  derived provider is undeclared, an authored provider label, or an ambiguous
+  bare binding is a named startup error before any partial boot. Provider
+  identity comes from the one dependency-neutral rule runtime routing uses.
 - Documentation is part of the deliverable: the architecture decision text, the repo's agent-instruction policy line about bindings, and a stale config comment about a previously revoked key all change with the amendment.
 - Anthropic model ids and parameters must be taken from the `claude-api` reference at build time, never from memory.
 

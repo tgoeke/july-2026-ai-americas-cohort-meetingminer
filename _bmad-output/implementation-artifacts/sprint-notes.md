@@ -3239,29 +3239,39 @@ so, never by guessing.
 exactly that reason.
 ## 8-1 — AD-10 amendment and binding catalog, 2026-08-30
 
-`llm.roles.<role>` now declares a `catalog[]` of `binding` / `label` /
-`provider` plus a `default`, validated when `config.yaml` loads. Two named
+`llm.roles.<role>` now declares a `catalog[]` of authored `binding` / `label`
+plus a derived `provider`, and a `default`, validated when `config.yaml` loads. Two named
 refusals, both raised from `Settings` validation — the layer `load_config`
 already wraps into `ConfigError`: a `default` outside its own catalog, and a
-catalog entry naming a provider `providers:` does not declare. An omitted
-`provider` is derived from the `<provider>/` tag prefix (the rule
-`resolve_api_base` already routes on, restated rather than imported so
-`config.py` depends on no adapter); an *authored* entry whose tag carries no
-prefix must name its provider, while a *synthesized* one is marked internally
-and exempt from the new provider refusal because it projects a file written
-before the rule existed. A role that declares only `model` therefore still loads, as a
-one-entry catalog with `default` equal to `model`.
+catalog binding whose derived provider `providers:` does not declare. After the
+owner's Finding 4 ruling, `provider_for_model` is the single dependency-neutral
+spelling rule consumed by config, `resolve_api_base`, and `/status`; an authored
+`provider` key is forbidden, known bare OpenAI and Anthropic spellings derive
+their runtime provider, and ambiguous bare spellings refuse by name. A
+*synthesized* prefixed entry remains marked internally and exempt from the
+declared-provider cross-check because it projects a file written before that
+rule existed. A role that declares only a routable `model` therefore still
+loads as a one-entry catalog with `default` equal to `model`.
 
 Declaration only: `model` remains what `build_llm`, `resolve_api_base` and
-`_role_view` read. No call path changed, no selection is persisted, no route
+`_role_view` read. Runtime routing behavior is unchanged, no selection is persisted, no route
 or picker exists — 8.2 / 8.2a / 8.3.
+
+**Owner ruling addendum, 2026-08-30.** A provider that does not serve the
+requested model must eventually raise
+`provider {provider!r} at {api_base!r} does not serve model {model!r}` and must
+not engage fallback; genuine `LlmUnavailableError` outages keep fallback. The
+current adapter instead drops endpoint identity into generic `LlmError`, which
+`FallbackLlm` catches. Because Story 8.1's frozen boundary changes no call path
+and marks the adapter read-only, that verified call-time defect is filed as
+B-38 rather than widened into this config-contract story.
 
 The committed `config.yaml` gains a two-entry catalog per role (extraction:
 the two local Ollama bindings it already names; chat and judge: `openai/gpt-5.2`
 beside the free local `ollama/gpt-oss:120b`), with each `default` equal to the
 `model` that role already used, so which model runs is unchanged.
 
-Coverage is a new module, `server/tests/test_config_catalog.py` — 13 tests
+Coverage is a new module, `server/tests/test_config_catalog.py` — 17 collected cases
 covering the spec's I/O matrix, the committed file, and review regressions;
 each behavior-changing test was observed failing against the unfixed loader
 first. `test_config.py` was not touched (11-2 appends there).

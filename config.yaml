@@ -40,11 +40,12 @@ llm:
       # nothing else says (story 8.1, FR38, AD-10). Declaration only for now:
       # `model` below is still what every call path reads, until story 8.2
       # persists a selection. The loader refuses the file if `default` or the
-      # still-active `model` is not one of these bindings, or if an entry names
-      # a provider `providers:` does not declare — an omitted `provider` is
-      # derived from the `<provider>/` tag prefix, so only a prefix-less binding needs one
-      # written. Both entries here are local Ollama models: extraction is the
-      # worker's only LLM call and stays free.
+      # still-active `model` is not one of these bindings, or if a binding's
+      # derived provider is absent from `providers:`. Provider is never written
+      # beside an entry: config, runtime routing, and status derive it from one
+      # shared spelling rule, and an ambiguous bare spelling is refused. Both
+      # entries here are local Ollama models: extraction is the worker's only
+      # LLM call and stays free.
       catalog:
         - binding: ollama/gpt-oss:120b
           label: GPT-OSS 120B (local)

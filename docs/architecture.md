@@ -125,7 +125,11 @@ ports its stores publish. The name and id are infrastructure ownership metadata;
 the ports are infrastructure location, applied by the loader to the configured
 endpoints rather than written into a second config file. A default outside its
 own catalog, an active `model` outside an authored catalog, and a catalog entry
-naming a provider `providers:` does not declare are refused when the file loads.
+whose derived provider `providers:` does not declare are refused when the file
+loads. Provider identity is never declared beside a binding: one
+dependency-neutral model-spelling rule drives catalog metadata, call-time
+endpoint resolution, and status display; authored provider labels and
+ambiguous bare spellings are refused rather than guessed.
 A user's selection is user-declared data (AD-5): persisted in Postgres by the
 api, resolved at call time by api and worker, and recorded in every eval run's
 config snapshot beside the file values. Nothing outside the catalog can be

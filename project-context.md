@@ -38,10 +38,12 @@ companions its frontmatter lists, plus the per-story frozen contracts in
 - Each `llm.roles.<role>` block declares a `catalog` of the bindings that role
   may be served by and a `default` among them (story 8.1, AD-10). The loader
   refuses a `default` or active `model` outside its own catalog, and refuses an
-  authored catalog entry naming a provider `providers:` does not declare; an
-  entry derives an omitted `provider` from the `<provider>/` tag prefix.
-  Synthesized legacy entries retain derived metadata but remain exempt so an old file still loads.
-  The catalog is
+  authored catalog binding whose derived provider `providers:` does not
+  declare. Provider metadata is derived by the same dependency-neutral rule
+  runtime routing and status use; authored provider labels and ambiguous bare
+  spellings are refused. Synthesized legacy entries retain derived metadata
+  but remain exempt from the declared-provider cross-check so an old prefixed
+  file still loads. The catalog is
   declaration only — every call path still reads the role's `model` until a
   persisted selection lands (story 8.2).
 - Work on `story/<slug>`, and rebase onto `main` before merging.

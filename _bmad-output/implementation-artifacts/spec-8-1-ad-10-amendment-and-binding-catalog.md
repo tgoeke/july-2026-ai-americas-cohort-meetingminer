@@ -22,26 +22,6 @@ deferred:
       server/meetingminer/config.py - Settings._catalog_providers_are_declared
     severity: medium
   - summary: >-
-      Three provider-derivation rules now exist in the tree and they disagree.
-    evidence: |-
-      `adapters/llm/litellm.py:resolve_api_base` and `api/status.py:provider_of`
-      both resolve bare `claude-...` to anthropic and bare OpenAI spellings to
-      openai; `config._provider_prefix` deliberately does not. The divergence
-      is documented in the new docstring and is deliberate - copying the
-      bare-spelling tables would write provider names into config.py - but
-      nothing pins the three against each other, so they may drift further.
-      Consequence today: a legacy `model: claude-sonnet-5` synthesizes an entry
-      with no derivable provider while `/config` and `/status` report anthropic
-      for the same tag. Prefixed legacy tags retain their derived provider but
-      are marked internally so the new authored-catalog refusal is skipped.
-      More seriously, an authored bare `gpt-4o` entry may declare
-      `provider: ollama` and pass validation while `resolve_api_base` routes
-      that spelling to OpenAI. Resolving that mismatch requires an owner/spec
-      decision about which layer owns bare-spelling routing.
-    location: >-
-      server/meetingminer/config.py:141
-    severity: high
-  - summary: >-
       The catalog is invisible to an operator of the running stack.
     evidence: |-
       `GET /config`'s `LlmRoleView` is an explicit allowlist and
@@ -54,15 +34,13 @@ deferred:
       server/meetingminer/api/config_view.py
     severity: medium
   - summary: >-
-      A resolved-config dump no longer round-trips for a role whose catalog
-      was synthesized from a prefixed tag.
+      A resolved-config dump does not round-trip through validation.
     evidence: |-
-      `Settings.model_dump(mode="json")` emits the synthesized entry's public
-      fields but not its private synthesized marker. Feeding that back to
-      `Settings.model_validate` makes the entry look authored and checks its
-      provider, so a dump of a config whose tag prefix names an undeclared
-      provider would be refused on the way back in. Nothing
-      re-loads a dump today, but `evals/harness/run.py` writes exactly this as
+      `Settings.model_dump(mode="json")` emits each entry's computed
+      `provider`, while authored `provider` input is deliberately forbidden.
+      Feeding the dump back to `Settings.model_validate` therefore refuses the
+      derived output as extra input. Nothing reloads a dump today, but
+      `evals/harness/run.py` writes exactly this shape as
       `config-snapshot.yaml`.
     location: >-
       server/meetingminer/config.py - LlmRoleBinding._catalog_from_model
@@ -94,12 +72,14 @@ different model edits the file and restarts. Epic 8 opens a bounded choice, and 
 downstream — a persisted selection (8.2), provider health (8.2a), a picker (8.3) — can
 reference a catalog entry until the file declares one. FR38.
 
-**Approach:** Add a per-role `catalog[]` of `binding` / `label` / `provider` plus a
-`default` to `llm.roles.<role>`, validated when the file loads. A `default` outside its
-own catalog, and a catalog entry naming a provider that `providers:` does not declare,
-are both named refusals; a file that declares only `model` still loads, as a one-entry
-catalog. Carry the amendment into AD-10 and the repository's binding policy line. This
-story stops at the config contract: it changes no call path.
+**Approach:** Add a per-role `catalog[]` of authored `binding` / `label` plus a
+derived `provider`, and a `default` to `llm.roles.<role>`, validated when the file
+loads. Provider identity comes from one dependency-neutral model-spelling rule used by
+the loader, runtime adapter, and status surface; authored `provider` input and ambiguous
+bare spellings are refused. A `default` outside its own catalog, and a catalog entry whose
+derived provider `providers:` does not declare, are both named refusals; a file that
+declares only a routable `model` still loads as a one-entry catalog. Carry the amendment
+into AD-10 and the repository's binding policy line. Runtime routing behavior is unchanged.
 
 ## Boundaries & Constraints
 
@@ -107,9 +87,10 @@ story stops at the config contract: it changes no call path.
 - Fail closed and fail named. Both refusals raise from `Settings` validation, which is the
   layer `load_config` already wraps into `ConfigError` — the message names the file, the
   role, the offending value, and the legal set.
-- Backward compatible. Every `config.yaml` that loads today still loads: an absent
-  `catalog` becomes one entry synthesized from `model`, an absent `default` becomes
-  `model`.
+- Backward compatible except where the owner explicitly tightened ambiguity. An absent
+  `catalog` becomes one entry synthesized from `model`, and an absent `default` becomes
+  `model`; a genuinely ambiguous bare `model` now refuses because no layer can identify
+  its provider without guessing.
 - `model` remains the field every adapter caller reads (`build_llm`, `resolve_api_base`,
   `_role_view`). The catalog is declaration only until 8.2 resolves a selection.
 - Declared-ness is a fact about the file, never about reachability. No provider is probed
@@ -133,28 +114,33 @@ story stops at the config contract: it changes no call path.
   of `Settings`, `server/tests/conftest.py`, `infra/Makefile`, `AGENTS.md`,
   `docs/backlog.md`, or `README.md` — other lanes own those exact regions.
 - Never append to `server/tests/test_config.py`; all coverage lives in a new module.
-- No provider name is hardcoded in Python. The declared set is whatever `providers:` holds.
+- No provider spelling table exists in `config.py` or an adapter. The one
+  dependency-neutral resolver recognizes the established bare spellings; the declared
+  endpoint set remains whatever `providers:` holds.
 
 ## I/O & Edge-Case Matrix
 
 | Scenario | Input / State | Expected Output / Behavior | Error Handling |
 |----------|--------------|---------------------------|----------------|
 | Legacy single-model role | `chat: {model: openai/gpt-5.2}`, no `catalog`, no `default` | Loads. Catalog is one entry: binding and label `openai/gpt-5.2`, provider `openai` derived from the tag prefix. `default` is `openai/gpt-5.2` | No error expected |
-| Legacy bare tag | `chat: {model: some-model}` (no `/` prefix) | Loads. One-entry catalog, `provider` is `None` — the file named none and a file that loads today must keep loading | No error expected |
+| Known legacy bare tag | `chat: {model: gpt-4o}` or `chat: {model: claude-sonnet-5}` | Loads. One-entry catalog derives `openai` or `anthropic` from the same rule runtime routing uses | No error expected |
+| Ambiguous legacy bare tag | `chat: {model: some-model}` | Refused before partial boot; no provider is guessed | `ConfigError` names `some-model` and says the shared rule cannot determine its provider |
 | Authored catalog | two entries, `default` equal to the second entry's binding | Loads. Entries keep file order; `default` is as written; `model` is untouched | No error expected |
 | Default outside catalog | `default: openai/gpt-9`, not among the entries | Refused before any partial boot | `ConfigError` naming the role's default and every catalog binding |
-| Undeclared provider | entry `provider: moonshot`; `providers:` declares anthropic/openai/openrouter/ollama | Refused | `ConfigError` naming role, binding, the undeclared provider, and the declared providers |
-| Provider omitted, derivable | entry binding `ollama/qwen3:30b`, no `provider` | Provider derived as `ollama`, then checked against `providers:` | Refused by the undeclared-provider rule if the derived prefix is not declared |
-| Provider omitted, underivable | authored entry binding `claude-sonnet-5`, no `provider` | Refused: an entry whose tag carries no prefix must say which provider serves it | `ConfigError` naming the role and the binding |
+| Undeclared provider | entry binding `moonshot/kimi-k2`; `providers:` declares anthropic/openai/openrouter/ollama | Provider derives as `moonshot`, then is refused | `ConfigError` naming role, binding, the undeclared provider, and the declared providers |
+| Known bare authored entry | entry binding `claude-sonnet-5` | Provider derives as `anthropic`, exactly as runtime routing does, then is checked against `providers:` | Refused by the undeclared-provider rule only if `anthropic` is not declared |
+| Ambiguous bare authored entry | entry binding `some-model` | Refused; the loader never guesses or accepts a parallel provider label | `ConfigError` naming the role, binding, and ambiguous routing |
+| Authored provider field | entry `{binding: gpt-4o, provider: ollama}` | Refused; `provider` is derived output, not YAML input | `ConfigError` naming `provider` as forbidden extra input |
 | Authored empty catalog | `catalog: []` | Refused — `default` (or `model`) cannot be in an empty catalog | Falls out of the default-in-catalog rule; no separate rule invented |
 
 </intent-contract>
 
 ## Code Map
 
-- `server/meetingminer/config.py:141` — `class LlmRoleBinding(_StrictModel)`: `model`,
-  `fallback`, `base_url`, `fallback_base_url`, `timeout_seconds`, `num_ctx`. The new
-  `CatalogEntry` class goes immediately before it; `catalog` and `default` are added to it.
+- `server/meetingminer/domain/model_providers.py` — the dependency-neutral
+  `provider_for_model` spelling rule shared by config, runtime routing, and status.
+- `server/meetingminer/config.py` — `CatalogEntry.provider` is computed from
+  `binding`; `catalog` and `default` live on `LlmRoleBinding`.
   `ExtractionRoleBinding` (line 176) subclasses it and is owned by story 10-1 — read only.
 - `server/meetingminer/config.py:689` — `class Settings`: fields `config_version` … `api`,
   including `llm: LlmConfig` and `providers: dict[str, ProviderEndpoint]`. The
@@ -167,13 +153,10 @@ story stops at the config contract: it changes no call path.
   cross-check is not placed there. Read only — story 11-2 rewrites this function's tail.
 - `server/meetingminer/config.py:99` — `_StrictModel` is `extra="forbid"`; `NonEmptyText`
   (line 103) is the strip-and-min-length-1 alias used for required text.
-- `server/meetingminer/adapters/llm/litellm.py:53` — `resolve_api_base`: the routing rule the
-  provider derivation mirrors — `model.split("/", 1)[0]` when the tag is prefixed, and no
-  provider (LiteLLM's own default) when it is not. Read only; not imported, because
-  `config.py` must not depend on an adapter.
-- `server/meetingminer/api/status.py:131` — `provider_of`, the same rule plus bare
-  `claude-`/`gpt-` spellings. Read only, and deliberately not imported: `config.py` importing
-  from `api/` would invert the dependency direction.
+- `server/meetingminer/adapters/llm/litellm.py` — `resolve_api_base` resolves the
+  provider name through `provider_for_model`, then looks up its configured endpoint.
+- `server/meetingminer/api/status.py` — `provider_of` aliases
+  `provider_for_model`, so displayed identity cannot drift from runtime routing.
 - `config.yaml:60`-`160` — `llm.roles.{extraction,chat,judge}`; `providers:` at line 169
   declares anthropic, openai, openrouter, ollama. All three roles use prefixed tags
   (`ollama/gpt-oss:120b`, `openai/gpt-5.2`), so every synthesized provider is declared.
@@ -192,11 +175,11 @@ story stops at the config contract: it changes no call path.
 - `server/tests/test_config_catalog.py` — NEW module holding every test for this story;
   write each test and observe it fail against the unfixed loader before the change lands —
   the two refusal messages, the back-compat synthesis, and the authored-catalog path.
-- `server/meetingminer/config.py` — add `class CatalogEntry(_StrictModel)` (`binding`,
-  `label`, `provider`) immediately before `class LlmRoleBinding`; add `catalog` and
-  `default` to `LlmRoleBinding` with an after-validator that synthesizes the one-entry
-  catalog, derives an omitted provider from the tag prefix, refuses an authored entry whose
-  tag carries no prefix and no `provider`, and refuses a `default` outside the catalog.
+- `server/meetingminer/domain/model_providers.py` — define the single
+  dependency-neutral provider resolution rule consumed by config, runtime, and status.
+- `server/meetingminer/config.py` — `CatalogEntry` accepts authored `binding` and
+  optional `label`, exposes computed `provider`, refuses ambiguous bare spellings and
+  authored `provider` input, and keeps the existing catalog/default membership rules.
 - `server/meetingminer/config.py` — add an after-validator to `Settings`, placed with the
   `providers` field rather than at the class tail, refusing any catalog entry whose resolved
   provider is not a key of `providers`.
@@ -221,17 +204,20 @@ story stops at the config contract: it changes no call path.
 - Given a role whose `default` names a binding absent from its catalog, when the loader runs,
   then it raises `ConfigError` and the message names both the default and the catalog's
   bindings.
-- Given a role whose catalog entry names a provider absent from `providers:`, when the loader
-  runs, then it raises `ConfigError` and the message names the role, the binding, the
+- Given a role whose catalog binding derives a provider absent from `providers:`, when the
+  loader runs, then it raises `ConfigError` and the message names the role, the binding, the
   undeclared provider, and the declared providers.
+- Given a known bare OpenAI or Anthropic spelling, when config and runtime resolve it, then
+  both derive the same provider; given an ambiguous bare spelling or an authored `provider`
+  field, load refuses by name rather than guessing or trusting a parallel label.
 - Given the amendment, when it lands, then AD-10 carries the catalog wording and
   `project-context.md`'s binding policy line matches it.
 
 ### Review Findings
 
-- [ ] [Review][Decision] Finding 4 — A bare binding can declare one provider
-  and route to another; owner/spec must choose catalog-owned routing, a shared
-  dependency-neutral resolver, or a narrower prefix-less-binding contract.
+- [x] [Review][Owner Patch] Finding 4 — Provider identity now comes from one
+  dependency-neutral resolver shared by config, runtime, and status; authored
+  `provider` input and ambiguous bare spellings are refused.
 - [x] [Review][Patch] Finding 1 — Preserve provider metadata on synthesized
   prefixed entries while exempting them from authored-entry checks
   [`server/meetingminer/config.py:314`].
@@ -360,13 +346,14 @@ that produces the named `ConfigError`; a refusal raised from `AppConfig` would e
 pydantic error. `Settings` is therefore the outermost layer where the check both has its
 inputs and fails with the named message the AC requires.
 
-**Why an omitted `provider` is derived rather than required.** `resolve_api_base` already
-treats the tag prefix as the routing fact, so deriving `ollama` from `ollama/qwen3:30b` states
-what the file already says instead of asking an author to repeat it. The rule is asymmetric on
-purpose: an *authored* entry whose tag has no prefix must name its provider, because an entry
-that names no provider cannot be checked against the declared set; a *synthesized* entry keeps
-`provider: None` only when its tag has no prefix, and its internal marker skips the new
-declared-provider refusal because it projects a file written before that rule existed.
+**Why `provider` is derived output rather than authored input.** Provider identity affects
+both cost and endpoint routing, so a parallel YAML label can never be allowed to disagree
+with the call. `provider_for_model` is dependency-neutral and is the only spelling rule:
+`CatalogEntry.provider`, `resolve_api_base`, and `/status` all consume it. Known bare OpenAI
+and Anthropic spellings retain their established runtime routing; an ambiguous bare spelling
+refuses rather than accepting a guess. Synthesized legacy entries remain exempt only from
+the declared-provider cross-check for a known prefixed binding, preserving the compatibility
+case that lets the embedder fail-fast gate own its own error.
 
 **Why no separate empty-catalog rule.** `default` falls back to `model`, and `model` is
 required and non-empty, so an authored `catalog: []` is already refused by the
@@ -401,26 +388,25 @@ an implementation-status report.
 Status: review (not `done`: the wave's build-auto customization and the build
 prompt both end this story at `review`, for the Codex `bmad-code-review` lane).
 
-**Implemented.** `llm.roles.<role>` declares `catalog[]` of
-`binding` / `label` / `provider` plus a `default`, validated when `config.yaml`
-loads. Two headline refusals, both raised from `Settings` validation — the layer
-`load_config` wraps into the named `ConfigError`: a `default` outside its own
-catalog, and an authored catalog entry naming a provider `providers:` does not
-declare. Two more keep the second honest, on authored entries only: a tag with
-no `<provider>/` prefix must name its provider, and a written provider may not
-contradict the prefix the tag carries. A role declaring only `model` still
-loads, as a one-entry catalog that retains any provider derivable from its tag
-but is marked internally and skipped by the authored-entry provider check.
-Declaration only — `model` remains what `build_llm`,
-`resolve_api_base` and `_role_view` read; no call path changed.
+**Implemented.** `llm.roles.<role>` declares authored `catalog[]` entries of
+`binding` / `label` plus a derived `provider`, and a `default`, validated when
+`config.yaml` loads. `provider_for_model` is the one dependency-neutral
+spelling rule used by config, runtime endpoint resolution, and status display.
+Authored `provider` input is forbidden, known bare OpenAI/Anthropic spellings
+derive the runtime provider, and ambiguous bare spellings refuse by name. A
+role declaring only a routable `model` still loads as a one-entry catalog; its
+internal synthesized marker preserves the existing undeclared-prefix
+compatibility exemption. Declaration only — `model` remains the active binding
+until persisted selection lands.
 
 **Files changed**
 
-- `server/meetingminer/config.py` — `_provider_prefix`, `CatalogEntry`, the
-  `catalog`/`default` fields and their two validators on `LlmRoleBinding`, and
-  the catalog×providers cross-check on `Settings` (placed with the `providers`
-  field, not the class tail, which story 6-2 appends to).
-- `server/tests/test_config_catalog.py` — NEW; 13 tests covering every
+- `server/meetingminer/domain/model_providers.py` — the single provider spelling rule.
+- `server/meetingminer/config.py` — computed catalog provider metadata,
+  ambiguity refusal, catalog/default validation, and the catalog×providers cross-check.
+- `server/meetingminer/adapters/llm/litellm.py` and
+  `server/meetingminer/api/status.py` — runtime and display consume the shared rule.
+- `server/tests/test_config_catalog.py` — NEW; 17 collected cases covering every
   I/O-matrix row, the committed file, and the back-compat and active-model
   review regressions.
 - `server/tests/test_failfast.py` — fixture only; drops the authored catalogs

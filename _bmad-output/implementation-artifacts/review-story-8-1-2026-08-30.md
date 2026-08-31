@@ -38,13 +38,13 @@ Adversarial review of Story 8.1 on `story/8-1-review`, including the eight chang
 - **Evidence:** Both statements remain verbatim after rebasing onto the main that contains Story 10.1, so the former line-overlap blocker is gone. The surrounding rules are still true: OpenAI remains the owner-selected chat model, chat has no runtime fallback, and `_BARE_OPENAI_PREFIXES` does not include `gpt-5`, so the `openai/` prefix is still required for configured endpoint resolution.
 - **Suggested direction:** Delete only the invalidated-key and superseded-default claims. Preserve the current OpenAI choice, no-fallback rule, and `openai/` prefix rationale.
 
-### Finding 4 — A bare binding can declare one provider and route to another (patch — owner ruling received)
+### Finding 4 — A bare binding can declare one provider and route to another (closed — owner ruling implemented)
 
 - **Location:** `server/meetingminer/config.py:215-237,356-395`; `server/meetingminer/adapters/llm/litellm.py:54-75`
 - **Severity:** High
 - **Finding:** An authored prefix-less binding may explicitly declare any configured provider, but the runtime independently routes recognized bare spellings. The catalog can therefore promise one endpoint and call another.
-- **Evidence:** A real `Settings` validation of `model: gpt-4o`, catalog entry `{binding: gpt-4o, provider: ollama}`, and `default: gpt-4o` succeeds. The resulting entry reports `ollama`, while `resolve_api_base('gpt-4o', providers)` resolves `https://api.openai.com/v1`. A future picker/health surface could show a local Ollama provider while the call reaches paid OpenAI. The same class of mismatch exists for bare `claude-*`. `_provider_prefix` intentionally cannot detect it because it is narrower than the runtime rule.
-- **Suggested direction:** Apply the owner ruling dated 2026-08-30: move the one model-spelling rule into a dependency-neutral module used by config, runtime, and status; derive catalog provider metadata from it; forbid authored `provider` input; and refuse any ambiguous bare spelling at load by name. This intentionally amends the frozen prefix-less-entry rule because an unverified declared provider is a label, not a fact, and the project does not mislead silently.
+- **Evidence:** Before the fix, a real `Settings` validation of `model: gpt-4o`, catalog entry `{binding: gpt-4o, provider: ollama}`, and `default: gpt-4o` succeeded while `resolve_api_base('gpt-4o', providers)` selected OpenAI. The red regression reproduced that acceptance. `provider_for_model` now lives in `domain/model_providers.py`; `CatalogEntry.provider`, `resolve_api_base`, and `status.provider_of` all consume that function. The same regression now refuses `provider` as extra input, known bare `gpt-4o` and `claude-*` derive OpenAI and Anthropic consistently, and `some-model` refuses as ambiguous.
+- **Suggested direction:** Implemented in commit `1271686`: provider identity is derived output from the one shared rule; authored `provider` input and ambiguous bare spellings are named load failures.
 
 ### Finding 5 — AD-10 omits the owner-approved selection half of the amendment (patch)
 
@@ -78,7 +78,7 @@ Adversarial review of Story 8.1 on `story/8-1-review`, including the eight chang
 - **Evidence:** The final post-rebase fast server run reported 1,893 passed, 2 skipped, and 378 deselected. The named reasons were `No module named 'pyannote'` and `set MM_YOUTUBE_NETWORK_TEST=1 to run it`. Both tests landed on main after the original Story 8.1 baseline and neither is reached by the catalog change.
 - **Suggested direction:** No Story 8.1 patch. Treat the fast result as qualified by these two intentional current-main environment gates; use the dedicated diarize-extra gate when validating pyannote and the explicit environment flag only when a real network acquisition run is intended.
 
-### Finding 9 — A missing model loses its endpoint identity and may engage fallback (defer — B-38)
+### Finding 9 — A missing model loses its endpoint identity and may engage fallback (defer — filed as B-38)
 
 - **Location:** `server/meetingminer/adapters/llm/litellm.py:155-179`; `server/meetingminer/adapters/llm/__init__.py:66-91`
 - **Severity:** High
@@ -89,10 +89,11 @@ Adversarial review of Story 8.1 on `story/8-1-review`, including the eight chang
 ## Review-layer and triage summary
 
 All four configured layers ran locally and sequentially: Blind Hunter, Edge
-Case Hunter, Verification Gap Reviewer, and Acceptance Auditor. They produced
-eight confirmed findings after deduplication: six patch findings fixed in this
-review, one high-severity owner/spec decision left open, and one low-severity
-current-main/environment qualification deferred. No review layer failed.
+Case Hunter, Verification Gap Reviewer, and Acceptance Auditor. The original
+eight findings plus the owner-verified call-time Finding 9 are now triaged:
+seven patch findings are fixed, one low-severity current-main/environment
+qualification is deferred, and the out-of-scope call-time defect is filed as
+B-38. No review layer failed.
 
 The original deferred inventory was reassessed rather than duplicated:
 
@@ -122,6 +123,12 @@ The original deferred inventory was reassessed rather than duplicated:
 - Findings 6 and 7: source assertions failed on the stale provider-validation
   claim and mismatched test counts, then passed after their records were
   corrected.
+- Finding 4 owner remediation: six focused cases failed on the unfixed branch —
+  the misleading authored provider was accepted, ambiguous legacy bare input
+  was accepted, authored known-bare inputs were refused, and synthesized
+  known-bare entries carried no provider. All six passed after the shared
+  resolver and computed provider landed; the full catalog/adapter/status set
+  then passed 136 tests.
 
 ## Final verification
 
@@ -140,8 +147,8 @@ All final gates ran after rebasing onto `origin/main` at `f92cb9c`:
 
 ## Verdict
 
-**Story 8.1 does not pass review as it stands.** All six patch findings are
-fixed and verified, but high-severity Finding 4 remains open because its correct
-resolution changes the frozen prefix-less binding contract or the ownership of
-runtime provider routing. The story and sprint status are therefore
-`in-progress`. This review did not merge or commit to `main`.
+**Pending final gates.** Finding 4 is closed under the owner's frozen-spec
+amendment. Finding 9 is verified but intentionally outside Story 8.1's
+no-call-path boundary and is filed as B-38. The final verdict will be recorded
+after lint, typecheck, fast/full tests, and `make check-reviews`. This review
+does not merge or commit to `main`.
