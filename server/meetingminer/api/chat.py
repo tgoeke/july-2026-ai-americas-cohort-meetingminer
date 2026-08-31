@@ -223,7 +223,7 @@ _ARTIFACT_CONTEXT = (
 # and the gate are untouched by this leg.
 _DOCUMENT_CONTEXT = (
     "SELECT es.id, es.meeting_id, es.kind, es.model, es.item_count,"
-    " es.document_text"
+    " left(es.document_text, %s)"
     " FROM extraction_source es"
     " WHERE es.id = ANY(%s) AND es.document_text IS NOT NULL"
 )
@@ -742,7 +742,12 @@ def _read_document_context(
     ids = [document_id for document_id, _label in hits]
     labels = dict(hits)
     with pool.connection() as conn:
-        rows = conn.execute(_DOCUMENT_CONTEXT, (ids,)).fetchall()
+        # Fetch one character beyond the prompt allowance so assembly can tell
+        # an exact fit from a cropped document without materializing an
+        # arbitrarily large TEXT value in the API process.
+        rows = conn.execute(
+            _DOCUMENT_CONTEXT, (DOCUMENTS_PER_MOMENT_MAX_CHARS + 1, ids)
+        ).fetchall()
     by_id = {row[0]: row for row in rows}
     for document_id in ids:
         if document_id not in by_id:
@@ -1094,6 +1099,28 @@ def _crop(text: str, budget: int) -> tuple[str, bool]:
     return text[:budget].rstrip() + " …", True
 
 
+def _document_block(documents: Sequence[RetrievedDocument]) -> tuple[str, bool]:
+    """Assemble one meeting's documents without exceeding the prompt budget.
+
+    Each row was already bounded to ``budget + 1`` in Postgres. Stop as soon
+    as the combined headings and text fill the allowance, so many ranked
+    documents cannot rebuild an unbounded intermediate string merely to crop
+    it immediately afterwards.
+    """
+    combined = ""
+    for document in documents:
+        piece = (
+            f"\nUnreviewed extraction document ({document.kind},"
+            f" {document.model or 'model not recorded'}) — {document.review_label}"
+            f"\n{document.text}"
+        )
+        remaining = DOCUMENTS_PER_MOMENT_MAX_CHARS - len(combined)
+        if len(piece) > remaining:
+            return combined + piece[: max(remaining, 0)].rstrip() + " …", True
+        combined += piece
+    return combined, False
+
+
 def build_synthesis_prompt(
     question: str,
     moments: Iterable[RetrievedMoment],
@@ -1140,15 +1167,9 @@ def build_synthesis_prompt(
     document_texts: dict[UUID, str] = {}
     cropped_document_meetings: set[UUID] = set()
     for meeting_id, meeting_documents in documents.items():
-        combined = "".join(
-            f"\nUnreviewed extraction document ({document.kind},"
-            f" {document.model or 'model not recorded'}) — {document.review_label}"
-            f"\n{document.text}"
-            for document in meeting_documents
-        )
-        cropped, was_cropped = _crop(combined, DOCUMENTS_PER_MOMENT_MAX_CHARS)
-        if cropped:
-            document_texts[meeting_id] = cropped
+        combined, was_cropped = _document_block(meeting_documents)
+        if combined:
+            document_texts[meeting_id] = combined
         if was_cropped:
             cropped_document_meetings.add(meeting_id)
 

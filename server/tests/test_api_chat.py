@@ -33,9 +33,11 @@ from meetingminer import projections
 from meetingminer.api.chat import (
     ARTIFACTS_PER_MOMENT_MAX_CHARS,
     CHAT_QUESTION_MAX_LENGTH,
+    DOCUMENTS_PER_MOMENT_MAX_CHARS,
     MOMENT_TEXT_MAX_CHARS,
     RetrievedArtifact,
     RetrievedMoment,
+    _read_document_context,
     build_synthesis_prompt,
 )
 from meetingminer.api.citations import MomentCitation, Rejection, validate
@@ -1839,6 +1841,54 @@ def _document(meeting_id, text="The feed moved to SFTP."):
         review_label="Unreviewed — machine-written extraction output.",
         text=text,
     )
+
+
+def test_document_context_is_bounded_in_the_postgres_read() -> None:
+    """The 800-character prompt cap also bounds transfer and resident text."""
+    document_id = uuid4()
+    meeting_id = uuid4()
+    source_text = "x" * (DOCUMENTS_PER_MOMENT_MAX_CHARS * 100)
+
+    class Cursor:
+        def __init__(self) -> None:
+            self.parameters: tuple[object, ...] = ()
+
+        def execute(self, _query: str, parameters: tuple[object, ...]):
+            self.parameters = parameters
+            return self
+
+        def fetchall(self):
+            limit = int(self.parameters[0])
+            return [
+                (
+                    document_id,
+                    meeting_id,
+                    "arch-summary",
+                    "test-model",
+                    0,
+                    source_text[:limit],
+                )
+            ]
+
+    cursor = Cursor()
+
+    class Connection:
+        def __enter__(self):
+            return cursor
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    class Pool:
+        def connection(self):
+            return Connection()
+
+    grouped = _read_document_context(
+        Pool(), ((document_id, "Unreviewed — machine-written extraction output."),)
+    )
+
+    assert cursor.parameters[0] == DOCUMENTS_PER_MOMENT_MAX_CHARS + 1
+    assert len(grouped[meeting_id][0].text) <= DOCUMENTS_PER_MOMENT_MAX_CHARS + 1
 
 
 def test_a_document_adds_no_marker_and_no_citable_moment() -> None:
