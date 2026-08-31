@@ -62,7 +62,11 @@ describe('review F5 — card facts and replay ownership', () => {
   ] as const)('collapses replay before %s navigates', async (button, callback) => {
     const actions = renderCard({}, true)
 
-    await userEvent.click(screen.getByRole('button', { name: new RegExp(button) }))
+    await userEvent.click(
+      screen.getByTestId(
+        button === 'Open moment' ? 'open-moment-moment-1' : 'open-meeting-moment-1',
+      ),
+    )
     expect(actions.onToggleReplay).toHaveBeenCalledTimes(1)
     expect(actions[callback]).toHaveBeenCalledTimes(1)
     expect(actions.onToggleReplay.mock.invocationCallOrder[0]).toBeLessThan(
