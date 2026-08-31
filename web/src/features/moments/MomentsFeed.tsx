@@ -47,11 +47,11 @@ export interface MomentsFeedProps {
 
 type FeedState =
   | { kind: 'loading' }
-  | { kind: 'ready'; items: Array<MomentFeedItem>; total: number; unfilteredTotal: number }
+  | { kind: 'ready'; items: Array<MomentFeedItem>; total: number; corpusTotal: number }
   | {
       kind: 'error'
       message: string
-      stale: { items: Array<MomentFeedItem>; total: number; unfilteredTotal: number } | null
+      stale: { items: Array<MomentFeedItem>; total: number; corpusTotal: number } | null
       retry: { offset: number; previous: Array<MomentFeedItem> | null }
     }
 
@@ -114,7 +114,7 @@ export function MomentsFeed({
       fallback: {
         items: Array<MomentFeedItem>
         total: number
-        unfilteredTotal: number
+        corpusTotal: number
       } | null,
     ) => {
       controller.current?.abort()
@@ -131,7 +131,7 @@ export function MomentsFeed({
           kind: 'ready',
           items: previous === null ? page.items : [...previous, ...page.items],
           total: page.total,
-          unfilteredTotal: page.unfilteredTotal,
+          corpusTotal: page.corpusTotal,
         }
         if (offset === 0) loadedFilterKey.current = filterKey
         publish(next)
@@ -162,7 +162,7 @@ export function MomentsFeed({
         ? {
             items: current.items,
             total: current.total,
-            unfilteredTotal: current.unfilteredTotal,
+            corpusTotal: current.corpusTotal,
           }
         : current.kind === 'error'
           ? current.stale
@@ -276,11 +276,11 @@ export function MomentsFeed({
       : state.kind === 'error'
         ? (state.stale?.total ?? 0)
         : 0
-  const unfilteredTotal =
+  const corpusTotal =
     state.kind === 'ready'
-      ? state.unfilteredTotal
+      ? state.corpusTotal
       : state.kind === 'error'
-        ? (state.stale?.unfilteredTotal ?? 0)
+        ? (state.stale?.corpusTotal ?? 0)
         : 0
   const threadName =
     threadCatalog.kind === 'ready'
@@ -302,7 +302,7 @@ export function MomentsFeed({
                 className="font-mono tabular-nums text-foreground"
                 data-testid="moments-count"
               >
-                {momentsHeaderCount(total, unfilteredTotal, filtered)}
+                {momentsHeaderCount(total, corpusTotal, filtered)}
               </span>
             </>
           )}
@@ -406,7 +406,7 @@ export function MomentsFeed({
                 variant="outline"
                 data-testid="moments-show-more"
                 onClick={() =>
-                  void read(items.length, items, { items, total, unfilteredTotal })
+                  void read(items.length, items, { items, total, corpusTotal })
                 }
               >
                 Show {Math.min(FEED_PAGE_SIZE, total - items.length)} more

@@ -25,7 +25,7 @@ function item(momentId: string) {
 }
 
 function response(items: Array<ReturnType<typeof item>>, total: number, offset = 0) {
-  return new Response(JSON.stringify({ items, total, unfilteredTotal: total, limit: 24, offset }), {
+  return new Response(JSON.stringify({ items, total, corpusTotal: total, limit: 24, offset }), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   })
@@ -70,7 +70,7 @@ describe('review F4 — a mounted feed owns its visible page', () => {
   it('does not reload or lose paging when a child route hides it', async () => {
     const feedCalls: Array<URL> = []
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
-      const url = new URL(String(input))
+      const url = new URL(input instanceof Request ? input.url : String(input))
       if (url.pathname.endsWith('/threads')) {
         return Promise.resolve(new Response(JSON.stringify({ threads: [] })))
       }
@@ -94,7 +94,7 @@ describe('review F4 — a mounted feed owns its visible page', () => {
   it('keeps the accumulated page and retries the failed offset', async () => {
     const feedCalls: Array<URL> = []
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
-      const url = new URL(String(input))
+      const url = new URL(input instanceof Request ? input.url : String(input))
       if (url.pathname.endsWith('/threads')) {
         return Promise.resolve(new Response(JSON.stringify({ threads: [] })))
       }
@@ -119,7 +119,7 @@ describe('review F4 — a mounted feed owns its visible page', () => {
   it('keeps the previous cards stale when a filter refresh fails', async () => {
     const feedCalls: Array<URL> = []
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
-      const url = new URL(String(input))
+      const url = new URL(input instanceof Request ? input.url : String(input))
       if (url.pathname.endsWith('/threads')) {
         return Promise.resolve(new Response(JSON.stringify({ threads: [] })))
       }

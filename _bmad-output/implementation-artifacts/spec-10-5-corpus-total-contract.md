@@ -49,10 +49,10 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] Add a new regression that serves only `corpusTotal` and observe the stale reader fail.
-- [ ] Replace `unfilteredTotal` identifiers and fixtures with `corpusTotal`; use generated response/item/reason/thread types and `getMomentsFeed`.
-- [ ] Replace raw `/threads` transport with generated `listThreads`, retaining strict parser behavior.
-- [ ] Audit Story 10.5 for timeline containment assumptions and record the result.
+- [x] Add a new regression that serves only `corpusTotal` and observe the stale reader fail.
+- [x] Replace `unfilteredTotal` identifiers and fixtures with `corpusTotal`; use generated response/item/reason/thread types and `getMomentsFeed`.
+- [x] Replace raw `/threads` transport with generated `listThreads`, retaining strict parser behavior.
+- [x] Audit Story 10.5 for timeline containment assumptions and record the result.
 - [ ] Update the review report, run gates and conflict scan, commit, and push.
 
 **Acceptance Criteria:**
@@ -69,3 +69,9 @@ context:
 - `make web-test` -- complete web suite passes.
 - `make test-fast` -- repository loop passes in the foreground.
 - `python3 _bmad/scripts/branch_conflicts.py --against story/10-5-review` -- remaining overlaps are recorded.
+
+**Implementation result:** The exact-envelope regression failed red against the
+stale reader, then passed with the generated contract. TypeScript, all 551 web
+tests, and the complete fast repository loop pass. The review report records
+the timeline audit and conflict scan. Commit is pending; the parent agent owns
+the required force-with-lease push of this intentionally rebased branch.

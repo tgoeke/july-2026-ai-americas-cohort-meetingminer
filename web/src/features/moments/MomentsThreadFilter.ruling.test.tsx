@@ -20,7 +20,7 @@ describe('F11 owner ruling: complete searchable thread source', () => {
   it('selects an off-page thread from GET /threads and filters by its id', async () => {
     const feedCalls: Array<URL> = []
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
-      const url = new URL(String(input))
+      const url = new URL(input instanceof Request ? input.url : String(input))
       if (url.pathname.endsWith('/threads')) {
         return Promise.resolve(new Response(JSON.stringify({
           threads: [thread('thread-page', 'Visible on page'), thread('thread-off-page', 'Launch readiness')],
@@ -30,7 +30,7 @@ describe('F11 owner ruling: complete searchable thread source', () => {
       return Promise.resolve(new Response(JSON.stringify({
         items: [],
         total: 0,
-        unfilteredTotal: 24,
+        corpusTotal: 24,
         limit: 24,
         offset: 0,
       })))
@@ -54,7 +54,7 @@ describe('F11 owner ruling: complete searchable thread source', () => {
   it('announces catalog failure, retains a deep link, and retries', async () => {
     let threadAttempt = 0
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
-      const url = new URL(String(input))
+      const url = new URL(input instanceof Request ? input.url : String(input))
       if (url.pathname.endsWith('/threads')) {
         threadAttempt += 1
         return threadAttempt === 1
@@ -64,7 +64,7 @@ describe('F11 owner ruling: complete searchable thread source', () => {
             })))
       }
       return Promise.resolve(new Response(JSON.stringify({
-        items: [], total: 0, unfilteredTotal: 24, limit: 24, offset: 0,
+        items: [], total: 0, corpusTotal: 24, limit: 24, offset: 0,
       })))
     }))
 

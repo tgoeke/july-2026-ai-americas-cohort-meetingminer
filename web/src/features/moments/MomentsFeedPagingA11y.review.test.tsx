@@ -27,7 +27,7 @@ function item(momentId: string, overrides: Partial<MomentFeedItem> = {}): Moment
 }
 
 function response(items: Array<MomentFeedItem>, total: number, offset = 0) {
-  return new Response(JSON.stringify({ items, total, unfilteredTotal: total, limit: 24, offset }), {
+  return new Response(JSON.stringify({ items, total, corpusTotal: total, limit: 24, offset }), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   })
@@ -62,7 +62,7 @@ describe('review F7 — paging ownership and announcements', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn((input: RequestInfo | URL) => {
-        const offset = Number(new URL(String(input)).searchParams.get('offset') ?? '0')
+        const offset = Number(new URL(input instanceof Request ? input.url : String(input)).searchParams.get('offset') ?? '0')
         return Promise.resolve(
           offset === 0
             ? response([item('moment-1')], 2)

@@ -24,13 +24,13 @@ describe('review F1 — Story 10.4 colorOrdinal compatibility', () => {
         },
       ],
       total: 1,
-      unfilteredTotal: 1,
+      corpusTotal: 1,
       limit: 24,
       offset: 0,
     })
 
     expect(page.items[0].threads[0].colorOrdinal).toBeNull()
-    expect(threadPaletteOf(page.items[0].threads[0].colorOrdinal)).toEqual({
+    expect(threadPaletteOf(page.items[0].threads[0].colorOrdinal ?? null)).toEqual({
       hue: null,
       lap: null,
       textCssVar: '--thread-beyond-band',

@@ -94,7 +94,7 @@ describe('parseFeedResponse', () => {
     const page = parseFeedResponse({
       items: [item()],
       total: 24,
-      unfilteredTotal: 24,
+      corpusTotal: 24,
       limit: 24,
       offset: 0,
     })
@@ -107,17 +107,17 @@ describe('parseFeedResponse', () => {
   it('refuses an item with no reason rather than rendering an unexplained card', () => {
     // Story 10.4 drops these before pagination. One that escapes would make
     // the header count a lie, so it is a page-level error, not a quiet card.
-    expect(() => parseFeedResponse({ items: [item({ reasons: [] })], total: 1, unfilteredTotal: 1 })).toThrow(
+    expect(() => parseFeedResponse({ items: [item({ reasons: [] })], total: 1, corpusTotal: 1 })).toThrow(
       FeedContractError,
     )
-    expect(() => parseFeedResponse({ items: [item({ reasons: [] })], total: 1, unfilteredTotal: 1 })).toThrow(
+    expect(() => parseFeedResponse({ items: [item({ reasons: [] })], total: 1, corpusTotal: 1 })).toThrow(
       /items\[0\]: reasons\[\] must be non-empty/,
     )
   })
 
   it('names the field and the item when a required value is missing', () => {
     expect(() =>
-      parseFeedResponse({ items: [{ ...item(), momentId: undefined }], total: 1, unfilteredTotal: 1 }),
+      parseFeedResponse({ items: [{ ...item(), momentId: undefined }], total: 1, corpusTotal: 1 }),
     ).toThrow(/items\[0\]: momentId/)
   })
 
@@ -127,7 +127,7 @@ describe('parseFeedResponse', () => {
   })
 
   it('refuses an envelope that omits its required paging fields', () => {
-    expect(() => parseFeedResponse({ items: [item()], unfilteredTotal: 1 })).toThrow(/total/)
+    expect(() => parseFeedResponse({ items: [item()], corpusTotal: 1 })).toThrow(/total/)
   })
 })
 
@@ -158,12 +158,12 @@ describe('cardMetaLabel', () => {
     expect(cardMetaLabel(item())).toBe('2026-08-14 · 12:40–14:05 · real')
   })
 
-  it('shows one offset when the api served no end', () => {
-    expect(cardMetaLabel(item({ endMs: null }))).toBe('2026-08-14 · 12:40 · real')
+  it('shows one offset when the served end does not follow the start', () => {
+    expect(cardMetaLabel(item({ endMs: 760_000 }))).toBe('2026-08-14 · 12:40 · real')
   })
 
-  it('leaves out a part the api did not serve rather than inventing one', () => {
-    expect(cardMetaLabel(item({ startedAt: null, corpus: '' }))).toBe('12:40–14:05')
+  it('leaves out an empty corpus rather than inventing one', () => {
+    expect(cardMetaLabel(item({ corpus: '' }))).toBe('2026-08-14 · 12:40–14:05')
   })
 })
 

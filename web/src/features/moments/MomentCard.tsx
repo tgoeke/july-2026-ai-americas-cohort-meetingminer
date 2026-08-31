@@ -76,7 +76,7 @@ function ThreadChip({
   label?: string
   onOpen: () => void
 }) {
-  const palette = threadPaletteOf(thread.colorOrdinal)
+  const palette = threadPaletteOf(thread.colorOrdinal ?? null)
   return (
     <button
       type="button"

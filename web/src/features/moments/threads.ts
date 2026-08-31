@@ -1,9 +1,7 @@
-import { API_BASE } from '@/lib/api'
+import { listThreads } from '@/client/sdk.gen'
+import type { ThreadSummary, ThreadsResponse } from '@/client/types.gen'
 
-export interface ThreadOption {
-  threadId: string
-  name: string
-}
+export type ThreadOption = Pick<ThreadSummary, 'threadId' | 'name'>
 
 export const THREADS_TIMEOUT_MS = 8000
 
@@ -45,18 +43,18 @@ function timestampOf(row: Record<string, unknown>, key: string, where: string): 
   return value
 }
 
-/** Strict local seam for Story 10.3's generated `listThreads` operation. */
+/** Strict runtime seam around Story 10.3's generated thread response. */
 export function parseThreadsResponse(body: unknown): Array<ThreadOption> {
   const envelope = objectOf(body, 'the threads response')
   if (!Array.isArray(envelope.threads)) {
     throw new ThreadsContractError('the threads response.threads must be an array')
   }
   const seen = new Set<string>()
-  return envelope.threads.map((raw, index) => {
+  const threads: ThreadsResponse['threads'] = envelope.threads.map((raw, index) => {
     const where = `threads[${index}]`
     const row = objectOf(raw, where)
-    countOf(row, 'mentionCount', where)
-    countOf(row, 'meetingCount', where)
+    const mentionCount = countOf(row, 'mentionCount', where)
+    const meetingCount = countOf(row, 'meetingCount', where)
     const first = timestampOf(row, 'firstMentionAt', where)
     const last = timestampOf(row, 'lastMentionAt', where)
     if (Date.parse(first) > Date.parse(last)) {
@@ -70,16 +68,24 @@ export function parseThreadsResponse(body: unknown): Array<ThreadOption> {
     return {
       threadId,
       name: stringOf(row, 'name', where),
+      mentionCount,
+      meetingCount,
+      firstMentionAt: first,
+      lastMentionAt: last,
+      colorOrdinal: ordinal,
     }
   })
+  return threads.map(({ threadId, name }) => ({ threadId, name }))
 }
 
 export async function fetchThreadOptions(signal?: AbortSignal): Promise<Array<ThreadOption>> {
-  const response = await fetch(`${API_BASE}/threads`, {
-    headers: { Accept: 'application/json' },
-    signal,
-  })
-  const body: unknown = await response.json().catch(() => null)
-  if (!response.ok) throw new Error(`the threads endpoint refused the request (${response.status})`)
-  return parseThreadsResponse(body)
+  const result = await listThreads({ signal, parseAs: 'json' })
+  if (result.error !== undefined) {
+    if (result.response === undefined) {
+      if (result.error instanceof Error) throw result.error
+      throw new Error(String(result.error))
+    }
+    throw new Error(`the threads endpoint refused the request (${result.response.status})`)
+  }
+  return parseThreadsResponse(result.data)
 }

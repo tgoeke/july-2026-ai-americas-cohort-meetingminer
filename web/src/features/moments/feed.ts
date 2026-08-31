@@ -1,3 +1,11 @@
+import { getMomentsFeed } from '@/client/sdk.gen'
+import type {
+  FeedItem as GeneratedFeedItem,
+  FeedReason as GeneratedFeedReason,
+  FeedThread as GeneratedFeedThread,
+  GetMomentsFeedData,
+  MomentsFeedResponse as GeneratedMomentsFeedResponse,
+} from '@/client/types.gen'
 import { API_BASE } from '@/lib/api'
 import { offsetLabel } from '@/lib/affordance'
 
@@ -9,13 +17,9 @@ import { offsetLabel } from '@/lib/affordance'
  * everything worth testing without rendering lives here, and the components
  * stay about state and layout.
  *
- * **Why a hand-written reader rather than the generated sdk.** `GET
- * /moments/feed` is story 10.4, built in parallel with this screen, so
- * `client/sdk.gen.ts` carries no operation for it yet and regenerating it here
- * would fight that lane for the same file. The field names below are 10.4's
- * acceptance criteria verbatim; when the api lands and the client is
- * regenerated, `fetchMomentsFeed` collapses into the generated call and
- * nothing else on this screen moves.
+ * The generated client owns the transport and compile-time wire vocabulary.
+ * The reader below remains deliberately strict at runtime: generated types do
+ * not make an untrusted JSON response valid.
  */
 
 /** The api's `MomentArtifact.kind` vocabulary — the seven publishable kinds. */
@@ -33,6 +37,7 @@ export type ArtifactKind = (typeof ARTIFACT_KINDS)[number]
 
 const SIGNAL_REASON_KINDS = ['due', 'risk', 'question', 'recency', 'published', 'thread'] as const
 const REASON_KINDS: ReadonlySet<string> = new Set([...ARTIFACT_KINDS, ...SIGNAL_REASON_KINDS])
+const VIEW_TYPES: ReadonlySet<string> = new Set(['slide', 'ui-screen', 'participant-gallery'])
 
 /** Whether a reason's `kind` is one of the seven artifact kinds — the only
  * kinds that may ever be drawn as a kind chip (`DESIGN.md` · Moment kinds). */
@@ -46,49 +51,18 @@ export function isArtifactKind(kind: string): kind is ArtifactKind {
  * published | thread`); `label` is the sentence to render verbatim — this
  * client never composes a reason.
  */
-export interface FeedReason {
-  kind: string
-  label: string
-  ref?: string | null
-  at?: string | null
-}
+export type FeedReason = GeneratedFeedReason
 
 /** A thread the moment belongs to. `colorOrdinal` is the persisted immutable
  * ordinal that decides the hue — never list position (`DESIGN.md` · Threads). */
-export interface FeedThread {
-  threadId: string
-  name: string
-  colorOrdinal: number | null
-}
+export type FeedThread = GeneratedFeedThread
 
 /** One ranked moment. Field names are story 10.4's acceptance criteria. */
-export interface MomentFeedItem {
-  momentId: string
-  meetingId: string
-  meetingTitle: string | null
-  startedAt: string | null
-  startedAtPrecision?: string | null
-  startMs: number
-  endMs?: number | null
-  corpus: string
-  hasRecording: boolean
-  sourceDeepLink?: string | null
-  screenshotId: string | null
-  viewType: string | null
-  preview: string | null
-  threads: Array<FeedThread>
-  reasons: Array<FeedReason>
-}
+export type MomentFeedItem = GeneratedFeedItem
 
-/** The paged envelope. `total` is filtered; `unfilteredTotal` is the same
+/** The paged envelope. `total` is filtered; `corpusTotal` is the same
  * eligible set before any optional feed filter is applied. */
-export interface MomentFeedResponse {
-  items: Array<MomentFeedItem>
-  total: number
-  unfilteredTotal: number
-  limit: number
-  offset: number
-}
+export type MomentFeedResponse = GeneratedMomentsFeedResponse
 
 /** One page of the feed — the "Show 24 more" step and the api's default. */
 export const FEED_PAGE_SIZE = 24
@@ -219,11 +193,24 @@ function reasonOf(raw: unknown, where: string): FeedReason {
     throw new FeedContractError(`${where}: at must be an RFC 3339 string or null`)
   }
   return {
-    kind,
+    kind: kind as FeedReason['kind'],
     label: requireString(row, 'label', where),
     ref: optionalString(row, 'ref'),
     at: at ?? null,
   }
+}
+
+function optionalViewType(
+  row: Record<string, unknown>,
+  key: string,
+  where: string,
+): MomentFeedItem['viewType'] {
+  const value = row[key]
+  if (value === undefined || value === null) return null
+  if (typeof value !== 'string' || !VIEW_TYPES.has(value)) {
+    throw new FeedContractError(`${where}: ${key} must be a declared screen view type or null`)
+  }
+  return value as NonNullable<MomentFeedItem['viewType']>
 }
 
 function threadOf(raw: unknown, where: string): FeedThread {
@@ -254,15 +241,15 @@ function itemOf(raw: unknown, index: number): MomentFeedItem {
     momentId: requireString(row, 'momentId', where),
     meetingId: requireString(row, 'meetingId', where),
     meetingTitle: optionalString(row, 'meetingTitle'),
-    startedAt: optionalString(row, 'startedAt'),
-    startedAtPrecision: optionalString(row, 'startedAtPrecision'),
+    startedAt: requireString(row, 'startedAt', where),
+    startedAtPrecision: requireString(row, 'startedAtPrecision', where),
     startMs: requireNumber(row, 'startMs', where),
-    endMs: typeof row.endMs === 'number' ? row.endMs : null,
+    endMs: requireNumber(row, 'endMs', where),
     corpus: requireString(row, 'corpus', where),
     hasRecording: requireBoolean(row, 'hasRecording', where),
     sourceDeepLink: optionalString(row, 'sourceDeepLink'),
     screenshotId: optionalString(row, 'screenshotId'),
-    viewType: optionalString(row, 'viewType'),
+    viewType: optionalViewType(row, 'viewType', where),
     preview: optionalString(row, 'preview'),
     threads: requireArray(row, 'threads', where).map((thread) => threadOf(thread, where)),
     reasons,
@@ -280,16 +267,16 @@ export function parseFeedResponse(body: unknown): MomentFeedResponse {
   }
   const items = row.items.map(itemOf)
   const total = requirePageInteger(row, 'total', 0)
-  const unfilteredTotal = requirePageInteger(row, 'unfilteredTotal', 0)
+  const corpusTotal = requirePageInteger(row, 'corpusTotal', 0)
   const limit = requirePageInteger(row, 'limit', 1)
   const offset = requirePageInteger(row, 'offset', 0)
   if (offset + items.length > total) {
     throw new FeedContractError('the feed response: offset + items.length must not exceed total')
   }
-  if (total > unfilteredTotal) {
-    throw new FeedContractError('the feed response: total must not exceed unfilteredTotal')
+  if (total > corpusTotal) {
+    throw new FeedContractError('the feed response: total must not exceed corpusTotal')
   }
-  return { items, total, unfilteredTotal, limit, offset }
+  return { items, total, corpusTotal, limit, offset }
 }
 
 /**
@@ -305,26 +292,31 @@ export async function fetchMomentsFeed(
   offset: number,
   signal?: AbortSignal,
 ): Promise<MomentFeedResponse> {
-  const query = feedSearchParams(filters, limit, offset)
-  const response = await fetch(`${API_BASE}/moments/feed?${query.toString()}`, {
-    headers: { Accept: 'application/json' },
-    signal,
-  })
-  const body: unknown = await response.json().catch(() => null)
-  if (!response.ok) {
-    // Thrown with the problem body attached so the caller can run it through
-    // `problemMessage()` — the same shape the generated sdk hands back.
-    throw Object.assign(new Error(`the feed refused the request (${response.status})`), {
-      problem: body,
-    })
+  type FeedQuery = NonNullable<GetMomentsFeedData['query']>
+  const query: FeedQuery = { limit, offset }
+  if (filters.corpus !== null) query.corpus = filters.corpus as FeedQuery['corpus']
+  if (filters.thread !== null) query.thread = filters.thread
+  if (filters.kind !== null) query.kind = filters.kind
+  if (filters.meeting !== null) query.meeting = filters.meeting
+
+  const result = await getMomentsFeed({ query, signal, parseAs: 'json' })
+  if (result.error !== undefined) {
+    if (result.response === undefined) {
+      if (result.error instanceof Error) throw result.error
+      throw new Error(String(result.error))
+    }
+    throw Object.assign(
+      new Error(`the feed refused the request (${result.response.status})`),
+      { problem: result.error },
+    )
   }
-  const page = parseFeedResponse(body)
+  const page = parseFeedResponse(result.data)
   if (page.limit !== limit || page.offset !== offset) {
     throw new FeedContractError('the feed response page does not match the request')
   }
-  if (!hasActiveFilters(filters) && page.total !== page.unfilteredTotal) {
+  if (!hasActiveFilters(filters) && page.total !== page.corpusTotal) {
     throw new FeedContractError(
-      'the unfiltered feed response: total must equal unfilteredTotal',
+      'the unfiltered feed response: total must equal corpusTotal',
     )
   }
   return page
@@ -348,12 +340,12 @@ export function screenshotUrl(screenshotId: string): string {
  */
 export function momentsHeaderCount(
   total: number,
-  unfilteredTotal: number,
+  corpusTotal: number,
   filtered: boolean,
 ): string {
-  return filtered && total !== unfilteredTotal
-    ? `${total} of ${unfilteredTotal}`
-    : String(unfilteredTotal)
+  return filtered && total !== corpusTotal
+    ? `${total} of ${corpusTotal}`
+    : String(corpusTotal)
 }
 
 /** The ISO date a moment is dated by — `2026-08-14` — or `null` when the api

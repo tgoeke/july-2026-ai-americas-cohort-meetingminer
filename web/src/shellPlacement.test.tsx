@@ -89,9 +89,9 @@ beforeEach(() => {
   vi.stubGlobal(
     'fetch',
     vi.fn((input: RequestInfo | URL) => {
-      if (String(input).includes('/moments/feed')) {
+      if ((input instanceof Request ? input.url : String(input)).includes('/moments/feed')) {
         return Promise.resolve(
-          new Response(JSON.stringify({ items: [], total: 0, unfilteredTotal: 0, limit: 24, offset: 0 }), {
+          new Response(JSON.stringify({ items: [], total: 0, corpusTotal: 0, limit: 24, offset: 0 }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
           }),
