@@ -190,15 +190,23 @@ function answers({
 }
 
 /**
- * Both reads, not just the rows. The speakers list and the drill-down are two
- * requests that settle independently, and the clips column is drawn from the
- * drill-down's `hasRecording` — so a helper that waited only for the rows
- * would race the column it is about to assert on.
+ * All THREE reads, not just the rows. The speakers list, the drill-down and the
+ * participant roster settle independently: the clips column is drawn from the
+ * drill-down's `hasRecording`, and the combobox is not in the document until
+ * the roster resolves — so a helper that waited only for the rows would race
+ * whichever of them the test touches first.
+ *
+ * The roster was the one this helper originally missed. Sixteen call sites then
+ * reached for `getByRole('combobox')` synchronously, which is a `get*` query
+ * and throws rather than waiting, so the suite failed intermittently under load
+ * and passed on an idle machine. Awaiting it here fixes every one of those
+ * sites at the source rather than sixteen times over.
  */
 async function loaded() {
   render(<SpeakerNaming meetingId={MEETING} />)
   await screen.findByTestId('speaker-row-SPEAKER_00')
   await screen.findByText(/Weekly community sync/)
+  await screen.findByRole('combobox')
 }
 
 beforeEach(() => {
