@@ -911,6 +911,26 @@ describe('clips and the tag-filtered transcript', () => {
     expect(screen.getByText(/Transcript only — no recording/)).toBeInTheDocument()
   })
 
+  it('does not claim there is no recording while drilldown is unanswered', async () => {
+    answers()
+    sdk.getMeetingDrilldown.mockReturnValue(new Promise<never>(() => {}))
+    render(<SpeakerNaming meetingId={MEETING} />)
+
+    await screen.findByTestId('speaker-row-SPEAKER_00')
+    expect(screen.queryByText(/Transcript only — no recording/)).not.toBeInTheDocument()
+    expect(screen.getByText('Loading recording availability…')).toBeInTheDocument()
+  })
+
+  it('offers Retry when drilldown alone refuses', async () => {
+    answers()
+    sdk.getMeetingDrilldown.mockResolvedValue({ data: undefined, error: NOT_VIEWABLE })
+    render(<SpeakerNaming meetingId={MEETING} />)
+
+    await screen.findByTestId('speaker-row-SPEAKER_00')
+    const failure = await screen.findByTestId('transcript-failure')
+    expect(within(failure).getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+  })
+
   it('shows only the selected tag’s lines, and follows the selection', async () => {
     answers({
       segments: [
