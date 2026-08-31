@@ -4432,3 +4432,73 @@ assertion would pass on a clipped or under-painted layer.
 `make client` is owed on that landing. Nothing is broken meanwhile —
 `web/src/features/moments/feed.ts` builds that URL by hand rather than through
 the generated sdk.
+
+## Story 12.4 landed — 2026-08-31
+
+Extraction documents are searchable. `story/12-4-review` merged to `main` as
+`3b6835b9` — the review branch, not `story/12-4`: it carries the nine
+red-first remediations (F-01, F-02, F-04 through F-07, F-09, F-10, F-12) on
+top of the build.
+
+**How it landed, and why not a rebase.** The branch's history holds three
+merge commits and duplicated commit chains — 56 non-merge commits would have
+replayed against `origin/main`, most of them twice. `origin/main` was merged
+*into* the branch instead, which is the shape that branch already had
+(`f6403347` merged main once before), then fast-forwarded onto `main`. The
+reviewed content is byte-identical either way; the reviewed *range* is not,
+so read the review report against `3b6835b9`'s second parent.
+
+One conflict, in `web/src/client/index.ts`: main's `84cea180` added
+`getMediaFileById` and 12.4 added `DocumentHitModel`, and the two export lines
+are one line each. Resolved as the union — main's side plus `DocumentHitModel`
+in its alphabetical slot. `types.gen.ts` and `sdk.gen.ts` auto-merged carrying
+both. A post-merge `make client` against the restarted api produced **no
+diff**, which is what confirms the hand-union was the generated answer.
+`CorpusSearch.tsx` auto-merged cleanly: main contributed the chrome header
+label and placeholder, 12.4 the document hit rendering, in disjoint regions.
+
+Gate on the merged tree: `make lint` clean, `make typecheck` clean, `make
+test-fast` **2547 passed, 3 standing skips, 432 deselected** — the same
+numbers the reviewer recorded pre-merge, plus 803 web and 655 eval-harness.
+
+**Two owner decisions were open at the merge; both were ruled 2026-08-31.**
+
+- **F-03 — document text in the synthesis prompt.** Ruled: land as-is, file
+  the anchor as story `12-4a`. The deterministic gate's hard guarantee is
+  untouched — every marker names a retrieved live moment, a document
+  contributes no marker of its own, and a document whose meeting has no
+  retrieved moment reaches nobody. What is *not* enforced in code is that the
+  cited moment supports a document-derived sentence: the document is folded
+  under whichever retrieved moment of its meeting comes first, and only
+  `SYNTHESIS_PROMPT` rule 5 tells the model not to lean on it. That residual
+  is model non-compliance, not a code hole, and closing it needs a
+  claim-to-moment relation the retained schema does not carry. Filed as
+  `12-4a-document-claims-anchor-to-moments` and in `deferred-work.md`.
+- **F-11 — one exact unchunked record has a store ceiling.** Ruled: not
+  reachable, file it. Meilisearch 1.53.1's `--http-payload-size-limit`
+  defaults to 100 MB and Compose overrides nothing; extraction documents are
+  model outputs measured in tens of KB. In `deferred-work.md` with the
+  revisit trigger.
+
+**Post-merge operations run.** `make migrate` reported *nothing to apply* —
+12.4 adds no migration, only the `projections.search.documents` block in
+`config.yaml`. The api was restarted, because config is read at startup and
+the old process had neither that index config nor the new routes. `make
+client`: no drift. `make rebuild --all` over 59 meetings, which is what
+carries the **224 rows with `document_text`** into the new `documents` index —
+extraction documents ride the structural pass (see the docstring on
+`_project_structural`), so nothing separate indexes them.
+
+**What will bite the next person.** The worker is running but was started
+before this merge, so it holds the pre-12.4 code and has no
+`_maybe_project_documents` settle point: a *new* ingest will store its
+extraction document in Postgres and leave the index without it until either
+the worker restarts or a `rebuild` runs. Restarting it is the paid-ops gate
+and was not taken. Nothing was lost meanwhile — the queue was drained (58
+done, 1 failed, none queued) when the merge landed.
+
+The `documents` index is **ungated** — AD-4's one deliberate exception, by
+owner ruling, because the run whose text somebody needs to read is exactly the
+run that yielded nothing worth approving. Anything reading that index is
+reading unapproved machine output by design; `reviewState` is filterable so
+that status is queryable rather than only renderable.

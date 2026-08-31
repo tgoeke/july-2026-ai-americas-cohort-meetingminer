@@ -148,11 +148,12 @@ development_status:
   11-4-lint-and-type-tooling-in-the-fast-loop: done
   epic-11-retrospective: optional
 
-  epic-12: backlog
+  epic-12: in-progress
   12-1-retain-the-extraction-documents: done
   12-2-the-meeting-summary: backlog
   12-3-the-meeting-analysis-panel: backlog
-  12-4-extraction-documents-are-searchable: in-progress
+  12-4-extraction-documents-are-searchable: done
+  12-4a-document-claims-anchor-to-moments: backlog
   12-5-artifacts-are-indexed-when-made: backlog
 
   # Added by a concurrent branch; re-file under its epic.
