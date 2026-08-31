@@ -2227,3 +2227,79 @@ actually span meetings — a one-meeting, one-mention row is not a thread by
 **When** it mints identity rows for single-topic clusters,
 **Then** those rows keep existing — they are reuse targets that make a rerun
 idempotent — but existing is not the same as being served.
+
+### Story 12.5: Artifacts Are Indexed When They Are Made, Not When They Are Published
+
+As a user,
+I want to find an artifact as soon as it exists,
+So that extraction produces something I can search for rather than something I have to publish before I can locate it. (FR13, FR24)
+
+**The correction this story exists for.** Publishing and indexing are different
+concerns and the build has them coupled. Owner, 2026-08-31:
+
+> *"Artifacts need to be indexed before they're published, obviously … otherwise
+> how can you find any of those artifacts."*
+
+> *"Publishing them puts them in GitHub or in SharePoint or in some other system
+> like Obsidian. So that's the definition of publish."*
+
+**Publish means export to an external system** — a git repository, SharePoint,
+Obsidian — and it is a deliberate human act with an audience outside
+MeetingMiner. It has never meant "make this findable in MeetingMiner", and
+using it as the gate for indexing was a category error.
+
+Measured on the corpus 2026-08-31: **941 artifacts, 0 approved, 0 published,
+and the `artifacts` search index holds 0 documents** while `moments` holds 4,940
+and `chunks` holds 6,570. Every ADR and action item the extraction has ever
+produced is unfindable, not because anything failed but because the gate for
+sending them *out* is also the gate for finding them *in*.
+
+**Acceptance Criteria:**
+
+**Given** an artifact,
+**When** it is created by the extract stage,
+**Then** it is indexed and findable **immediately**, in whatever state it holds.
+Its lifecycle state is not a condition of being indexed.
+
+**Given** the publish gate,
+**When** it runs,
+**Then** it governs **export only** — writing the markdown to the publish root
+and committing an ADR to the git repository rooted there. Publishing remains a
+human act on human judgement (AD-6) and nothing here weakens it; what changes is
+that it stops standing between an artifact and the search box.
+
+**Given** AD-18,
+**When** an artifact is indexed or rendered,
+**Then** it carries **its lifecycle state in the indexed record itself** —
+`extracted`, `approved` or `published` — and every surface that shows one says
+which. Unreviewed machine output must never read the same as reviewed output,
+and a reader must be able to tell a draft from a decision a human has stood
+behind. A test pins the state's presence in the record, not only in the UI.
+
+**Given** story 12.4's ungated indexing of extraction documents,
+**When** this story lands,
+**Then** it **reuses that mechanism rather than carving a second bypass** —
+"this row type is indexed ungated" is a declaration, and artifacts are the
+second row type to make it.
+
+**Given** an unapproved artifact appearing in a cited answer,
+**When** the citation is followed,
+**Then** it resolves to its moment and replays, exactly as any other citation
+does — an artifact is moment-anchored and genuinely citable, which is the
+difference between it and an extraction document. **Whether an `extracted`
+artifact may ground an answer at all, or only be found by search, is an owner
+decision this story must surface rather than assume**; the honest default is
+that it is findable and clearly labelled, and that an answer says what state
+the thing it cites is in.
+
+**Given** the projections module,
+**When** artifacts are indexed on creation,
+**Then** `projections` remains the sole writer of both stores (AD-4), `rebuild`
+still regenerates them from Postgres and `config.yaml` alone, and no evidence
+file is opened.
+
+**Given** `docs/architecture.md` and the architecture spine,
+**When** this story lands,
+**Then** both record that publish means export to an external system, because
+AD-4 currently describes the gate as governing what search and chat operate
+over, and that is the sentence this story overturns.

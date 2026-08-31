@@ -153,6 +153,7 @@ development_status:
   12-2-the-meeting-summary: backlog
   12-3-the-meeting-analysis-panel: backlog
   12-4-extraction-documents-are-searchable: backlog
+  12-5-artifacts-are-indexed-when-made: backlog
 
   # Added by a concurrent branch; re-file under its epic.
   b36-remote-diarizer: done
