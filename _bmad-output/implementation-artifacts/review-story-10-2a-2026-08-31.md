@@ -6,9 +6,11 @@ Adversarial design and implementation review of Story 10.2a, with particular att
 
 ## Review range
 
-`2d68dcc6..8cd911bc` on `story/10-2a`, reviewed and remediated on `story/10-2a-review`.
+Original builder range: `2d68dcc6..8cd911bc` on `story/10-2a`.
 
-The review branch must be rebased onto the then-current `origin/main` before closeout; the final reviewed/remediated range and head will be recorded below.
+After rebasing onto `origin/main` at `bd1a8fc9`, that builder range is
+`e46abe0d..d4d74609`; review and remediation continue through `6128c5b9` on
+`story/10-2a-review`. The report-finalization commit follows that code head.
 
 ## Findings
 
@@ -67,7 +69,7 @@ The review branch must be rebased onto the then-current `origin/main` before clo
 
 ### F7 — Remediated: re-extracted split membership lost its curated provenance
 
-- **Location:** `server/meetingminer/domain/threads.py` (`derive_threads`, `_upsert_membership`); `server/meetingminer/domain/thread_curation.py` (`EFFECTIVE_MEMBERSHIP` and its stale-hint argument); `server/meetingminer/migrations/0015_threads_and_index.sql` / `0021_thread_curation.sql`
+- **Location:** `server/meetingminer/domain/threads.py` (`derive_threads`, `_upsert_membership`); `server/meetingminer/domain/thread_curation.py` (`EFFECTIVE_MEMBERSHIP` and its stale-hint argument); `server/meetingminer/migrations/0015_threads.sql` / `0021_thread_curation.sql`
 - **Severity:** Major
 - **Finding:** A same-name re-extraction correctly matches the durable split pin and moves the replacement topic to the curated thread, but the derivation writes the cluster's machine `linked_by` leg into `topic_thread`. The pin's old `topic_id` hint no longer joins the replacement row, so every SQL reader reports the human-decided membership as `seed`, `normalized-name`, or `embedding-similarity`. The documented claim that `topic_thread` carries the complete pinned answer after a pass is therefore false: it carries the target UUID but not the required human provenance (and can retain an irrelevant similarity score).
 - **Evidence:** Strengthened the same-name re-extraction regression to inspect the replacement row's stored linkage leg. Against the unfixed branch it failed red: the new UUID landed in the curated thread but stored `('normalized-name', NULL)` instead of `('curated', NULL)`.
@@ -110,8 +112,85 @@ The review branch must be rebased onto the then-current `origin/main` before clo
 
 ## Verification
 
-Pending.
+### Central durability claims
+
+- **Split-row reuse / AD-18:** Added a corpus where a split first becomes a
+  stored attachment and a later embedding-linked, lexicographically earlier
+  topic moves the cluster identity key. With the exclusion present, the normal
+  row was legitimately reused and the split row retained its key, name,
+  membership, and ordinal. Mutation-testing by removing only
+  `NOT starts_with(th.identity_key, 'curated-split:')` made the test fail: the
+  normal topic moved onto the curated UUID, demonstrating the claimed silent
+  overwrite hazard was real. Restoring the filter made it green.
+- **No-write idempotency:** Added a live compound shape with merge, split, and
+  rename together. After a stabilizing pass, an unchanged second pass produced
+  byte-identical row JSON and identical `xmin` for every row in `thread`,
+  `topic_thread`, `thread_curation`, `thread_alias`, and `thread_topic_pin`.
+  This checks actual writes rather than only selected timestamps.
+- **Colour ordinals:** Merge tests preserve both survivor and absorbed
+  ordinals; split receives a distinct ordinal through the ordinary insert path.
+  Migration 0017's immutable-column trigger remained green in the full suite.
+  No curation UPDATE names `color_ordinal`.
+- **Re-extraction:** Same-normalized-name replacement now preserves both the
+  split target and `linked_by = 'curated'`. Changed-normalized-name replacement
+  remains the open F2 counterexample.
+
+### Readers, plans, and concurrency
+
+- Ran real `EXPLAIN (COSTS ON)` for `_THREAD_LIST`, `_THREAD_SPAN`,
+  `_THREAD_MENTIONS`, `_MEETING_TOPICS`, and `_MOMENTS_LEVEL` on the private
+  migrated worktree database. The effective-membership fragments plan as
+  bounded hash joins over curation tables followed by indexed mention,
+  meeting, topic, and moment lookups. `_MOMENTS_LEVEL`'s `IN` becomes a hash
+  aggregate plus indexed moment lookup; `_MEETING_TOPICS`'s repeated fragment
+  is two set joins, not a correlated or quadratic scan. No plan regression was
+  found.
+- API merge locks both thread rows in UUID order and performs all chain checks
+  after the locks. Split and rename lock only their one source row and acquire
+  no later thread lock, so they cannot form a lock cycle with that sorted pair.
+  The API-owned writer therefore cannot create a chain or merge/split deadlock.
+  The flatness trigger alone would not serialize arbitrary concurrent direct
+  SQL, but direct SQL is not an authorized second writer in this story; a future
+  second writer must add a serialization point rather than treating the trigger
+  as sufficient concurrency control.
+- Window-boundary and `linkedBy = curated` semantics stayed green through the
+  timeline API suites. Immediate split reads use the UUID hint; after derivation
+  F7 makes the worker-owned output carry the same provenance.
+
+### Recorded deviations challenged
+
+- **B-53 duplicate display names:** No new finding. A display-name uniqueness
+  refusal would conflate human labels with subject identity and would reject a
+  legitimate correction; the filed advisory is the proportionate follow-up.
+- **B-54 no unmerge:** The general undo omission remains outside the AC, but
+  the stronger iterative-correction consequence is not: F8 records that the
+  first survivor can never merge again. That requires a contract decision on
+  alias retargeting/flattening, not merely an optional Undo button.
+- **Split UI/API parity:** Both require at least one but fewer than all topics
+  and a nonblank name. Existing refusal tests prove a 4xx keeps the panel,
+  checks, and input intact; the full UI suite remained green.
+
+### Gates (foreground, real output)
+
+- Focused curation module: **28 passed**.
+- Focused affected UI modules: **36 passed**.
+- `make test-fast`: ruff clean; mypy clean; puller **128 passed**; web
+  **697 passed**; eval harness **655 passed**; server fast set **2356 passed,
+  3 named skips, 412 deselected**.
+- `make test`: puller **128 passed**; web **697 passed**; eval harness **655
+  passed**; isolated diarization **92 passed**; required-store reachability
+  **1 passed**; full server **2768 passed, 3 named skips** in 11m23s; production
+  web build succeeded.
 
 ## Closeout
 
-Pending.
+**Verdict: FAIL / do not integrate yet.** Eight findings were remediated
+(F1, F3–F7, F10–F11). Three remain open because their correct resolution
+changes the frozen contract or lifecycle policy: F2 (replacement-topic
+lineage), F8 (iterative canonical merge), and F9 (curation-aware thread
+deletion). F2 and F8 are Major and invalidate the unconditional promise that a
+human correction survives every valid future derivation.
+
+The branch was rebased onto current `origin/main`, pushed, and deliberately not
+merged. The owner should amend the specification for F2/F8, rule on F9, then
+re-derive the implementation contract before another build/review pass.
