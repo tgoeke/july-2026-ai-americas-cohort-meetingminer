@@ -21,7 +21,7 @@ Adversarial review of Story 8.2 implementation and its stated footprint against 
 - **Finding** — `GET /settings/models` and `PUT /settings/roles/{role}` include every declared role, including `judge`, and label the stored `judge` choice as `effectiveBinding`. The only production judge call path still binds `config.settings.llm.roles.judge` directly, so a successful `PUT /settings/roles/judge` has no effect on the model that judges a run. The snapshot can therefore call a persisted judge choice “effective” while `llm-judge-report.yaml` and the actual calls use the file binding. This is **open** because the frozen intent contract names call-time adoption only for chat and extraction and the required correction reaches `evals/harness/judge.py`, outside the story footprint; resolving it requires an owner/spec decision.
 - **Evidence** — `rg -n "roles\\.judge|build_llm\\(" evals server/meetingminer -g '*.py'` found the judge call at `evals/harness/judge.py:499-500`, which assigns the file role and passes it directly to `build_llm`. `server/meetingminer/api/settings.py:97-104` derives the settings surface from every `LlmRoles.model_fields` entry, and `:123-145` labels any stored choice as the effective binding. `evals/tests/test_run_judge.py` replaces `build_llm` but never asserts which binding was passed, so the non-adoption is not detected.
 - **Suggested direction** — Decide whether persisted selection governs the manual eval judge. If it does, amend the frozen contract and footprint so the judge reads the public settings response and applies that returned binding at call time without importing server-owned selection logic. If it does not, stop accepting/reporting a `judge` selection as effective and define clearly what the catalog entry means.
-- **Owner ruling and resolution (2026-08-30)** — Judge is file-only today. The settings surface now derives its roles through an exhaustive policy that excludes judge, `PUT /settings/roles/judge` returns the named `role-file-only` refusal, and no settings payload can report a judge `effectiveBinding`. A paired eval regression asserts that `run_judge` still passes the file role to `build_llm`. Follow-up B-41 owns adopting persisted selection in the harness. Implemented in `bd87fde`.
+- **Owner ruling and resolution (2026-08-30)** — Judge is file-only today. The settings surface now derives its roles through an exhaustive policy that excludes judge, `PUT /settings/roles/judge` returns the named `role-file-only` refusal, and no settings payload can report a judge `effectiveBinding`. A paired eval regression asserts that `run_judge` still passes the file role to `build_llm`. Follow-up B-41 owns adopting persisted selection in the harness. Implemented in `30266a6` after rebase.
 
 ### Finding 2 — the model-not-served error still trusts LiteLLM's provider spelling
 
@@ -102,7 +102,7 @@ Adversarial review of Story 8.2 implementation and its stated footprint against 
 - **Finding** — when no configured provider or role endpoint resolves, the model-not-served error says only `"the provider's default endpoint"` and carries `api_base=None`. That is readable but it is not the endpoint URL the B-38 contract says must be named. This path is reachable for a valid legacy role: story 8.1 deliberately lets a synthesized prefixed catalog load without a matching `providers:` entry. The story therefore closes silent substitution but does not fully close B-38's actionable-endpoint requirement. This is **open** because obtaining an authoritative URL would require changing the frozen legacy-config rule or defining a new source of provider endpoint truth; guessing from LiteLLM would conflict with AD-10.
 - **Evidence** — `config.py:323-335` explicitly exempts synthesized legacy entries and says an unmatched prefix gets no configured `api_base`. `LiteLlmCompleter` substitutes the prose label at line 170 and sets the exception field from `self.api_base` (still `None`) at line 180. `test_the_refusal_is_still_readable_with_no_configured_endpoint` asserts only that the message omits the word `None`, not that it contains a URL.
 - **Suggested direction** — owner must choose between requiring an explicit endpoint for every callable binding (including legacy projections), weakening B-38's URL requirement for SDK-default routing, or introducing an architecture-approved provider-default endpoint source. Do not infer the URL from the SDK's provider label ad hoc.
-- **Owner ruling and resolution (2026-08-30)** — Config now refuses every catalog binding whose derived provider prefix lacks a `providers:` endpoint, including synthesized legacy entries. The named load error gives the binding, provider prefix, missing endpoint, and exact `providers.<prefix>.base_url` remedy. The former legacy exemption is intentionally compatibility-breaking and is recorded in the spec change log. Implemented in `9acc900`.
+- **Owner ruling and resolution (2026-08-30)** — Config now refuses every catalog binding whose derived provider prefix lacks a `providers:` endpoint, including synthesized legacy entries. The named load error gives the binding, provider prefix, missing endpoint, and exact `providers.<prefix>.base_url` remedy. The former legacy exemption is intentionally compatibility-breaking and is recorded in the spec change log. Implemented in `f4108e1` after rebase.
 
 ## Remediation
 
@@ -110,17 +110,17 @@ The review lane applied every unambiguous patch red-first and committed each wit
 
 | Finding | Result | Commit |
 |---|---|---|
-| 1 | Fixed by owner ruling — judge is explicitly file-only and absent from the selection surface | `bd87fde` |
-| 2 | Fixed — SDK provider metadata is no longer authoritative | `14b4f66` |
-| 3 | Fixed — chat 502 is declared, tested, and present in the regenerated client | `387a27b` |
-| 4 | Fixed — selection 404/422 problems are declared and typed in the regenerated client | `a11a803` |
-| 5 | Fixed — the API-level immutability assertion now compares against the pre-request value | `04e270a` |
-| 6 | Fixed — settings reads emit the shared stale-selection event shape | `4a5e9f2` |
-| 7 | Fixed — write and read call one catalog-membership predicate | `ccd7c03` |
-| 8 | Fixed — PUT accepts the same non-empty binding domain the catalog permits | `0836354` |
-| 9 | Fixed — the frozen `fileBinding` wire name is restored end-to-end | `a8fc36c` |
-| 10 | Fixed — problem extensions emit `configPath` and `upstreamStatus` | `415c5db` |
-| 11 | Fixed by owner ruling — endpoint-less catalog bindings fail at config load | `9acc900` |
+| 1 | Fixed by owner ruling — judge is explicitly file-only and absent from the selection surface | `30266a6` |
+| 2 | Fixed — SDK provider metadata is no longer authoritative | `9d53b39` |
+| 3 | Fixed — chat 502 is declared, tested, and present in the regenerated client | `37470e1` |
+| 4 | Fixed — selection 404/422 problems are declared and typed in the regenerated client | `5b7c97d` |
+| 5 | Fixed — the API-level immutability assertion now compares against the pre-request value | `c351669` |
+| 6 | Fixed — settings reads emit the shared stale-selection event shape | `35f7426` |
+| 7 | Fixed — write and read call one catalog-membership predicate | `4a6be32` |
+| 8 | Fixed — PUT accepts the same non-empty binding domain the catalog permits | `331340a` |
+| 9 | Fixed — the frozen `fileBinding` wire name is restored end-to-end | `3986e02` |
+| 10 | Fixed — problem extensions emit `configPath` and `upstreamStatus` | `2d1756e` |
+| 11 | Fixed by owner ruling — endpoint-less catalog bindings fail at config load | `f4108e1` |
 
 Red evidence was observed for every patch. Finding 5 is a verification-only defect, so its corrected assertion was mutation-tested against a temporary resolver that mutated the process-wide role: the corrected test failed, the temporary mutation was restored, and the test passed against production code. No temporary mutation was committed.
 
@@ -129,7 +129,7 @@ Red evidence was observed for every patch. Finding 5 is a verification-only defe
 - **Stale selection → file default:** accepted for this story. The operator's catalog edit withdraws the stored choice before call time, the frozen contract explicitly selects the declared default, and the effective/stale split is visible. Finding 6 repaired the missing settings-read event, so the discard is now reported on the API read as well as chat/worker resolution. This is distinct from answering a call-time model-not-found with a substitute.
 - **502 for `binding-failed`:** accepted. The host answered and retrying the same binding cannot repair it. The web chat path treats any non-422 problem as the server's named problem, and eval HTTP clients already treat any non-2xx as a failure. Finding 3 repaired the missing OpenAPI declaration.
 - **`binding` means model tag:** accepted as problem-type-specific vocabulary because `configPath` separately anchors the configuration location. Finding 10 repaired that companion field's actual wire spelling. The two existing 503 slugs keep their established `binding="llm.roles.chat"` contract.
-- **Role `base_url` carries into a selected model:** accepted within the frozen role semantics. It preserves the role endpoint rather than silently rerouting through the provider map; an endpoint that does not serve the selected tag now refuses by name. Finding 11 remains open for the distinct legacy case where no endpoint URL is configured at all.
+- **Role `base_url` carries into a selected model:** accepted within the frozen role semantics. It preserves the role endpoint rather than silently rerouting through the provider map; an endpoint that does not serve the selected tag now refuses by name. The Finding 11 owner ruling closes the legacy gap by refusing a binding whose provider endpoint is not explicitly configured.
 - **Fallback remains outside the catalog:** no new finding; it is explicitly deferred in the spec and out of this review's patch scope.
 - **Generic `app_setting` table:** accepted. API writes are catalog-validated, every read revalidates against the current catalog, scalar/nonblank checks protect the stored shape, and production search confirmed only `api/settings.py` writes it.
 - **Eval reads effective bindings over HTTP and continues when unavailable:** accepted as the frozen AD-16/client behavior. The snapshot records an explicit problem and never guesses the file binding; changing verdict validity belongs to an owner/spec decision beyond this story.
@@ -153,12 +153,35 @@ B-38's primary ordering is correct after remediation: `NotFoundError` maps befor
 - `python3 _bmad/scripts/branch_conflicts.py --against story/8-2` — `story/8-2 × story/8-2-review` is **clean**. The command also reproduced only the already-characterized `sprint-notes.md` conflicts and the `story/7-3` generated-client conflict.
 - `make check-reviews` — **every dispatched review has a committed report**.
 
-The requested rebase onto `origin/main` was attempted before inspection and stopped at the already-characterized `sprint-notes.md` conflict while replaying `5e39c3c`. It was aborted without resolving or altering that integration-owned file, as instructed. No merge to `main` was attempted.
+## Owner-ruling closeout
+
+- Both owner regressions were red against the unfixed code: the settings API
+  returned `judge`, and a synthesized `moonshot/kimi-k2` binding loaded with no
+  `providers.moonshot` endpoint. The paired judge-harness assertion passed and
+  pins that `run_judge` still calls `build_llm` with the file role.
+- Focused post-fix verification passed: **52 server tests** across catalog,
+  selection, settings, and fail-fast behavior; **20 eval tests** across judge
+  and effective-binding snapshots; lint, typecheck, and client drift checks.
+- The branch rebased successfully onto `origin/main` at `c678837`. The sole
+  conflict was the characterized `sprint-notes.md` append and was resolved as
+  a union; migration `0015_threads.sql` and `0016_app_setting.sql` coexist and
+  passed the migration suite.
+- The first post-rebase full gate exposed one test-fixture regression after
+  **2,509 passed / 3 skipped**: the embedder fail-fast fixture no longer made
+  only the embedder unroutable under the new catalog invariant. The corrected
+  fixture explicitly rebinds all LLM catalogs to declared OpenAI before
+  removing `providers.ollama`; its slow test passed with `-m ""` and the fix is
+  committed as `0da468a`.
+- The complete gate was then rerun from the beginning and passed: puller
+  **128**, web **294**, evals **655**, isolated diarization/STT **92**, server
+  **2,510 passed / 3 expected skips** in 662.17 seconds, followed by a clean
+  production web build. The three skips are the named pyannote dependency,
+  opt-in remote diarizer network, and opt-in YouTube network cases.
+- B-41 is filed with the exact judge call and missing-assertion evidence. No
+  merge to `main` was attempted.
 
 ## Verdict
 
-The original review stopped short of a clean pass because Findings 1 and 11
-needed owner decisions. Both decisions were supplied on 2026-08-30 and have now
-been implemented red-first. Final clean-pass status is contingent on the
-post-rebase full gate recorded in the closeout addendum below. The review branch
-was not merged.
+**Clean pass.** All eleven findings are closed, including the two owner-ruling
+items. The rebased branch passes the full gate and is ready for owner
+integration from `story/8-2-review`. The review branch was not merged.
