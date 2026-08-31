@@ -643,9 +643,15 @@ describe('the rerun a naming starts', () => {
     emit({ event: 'job.done', jobId: 'job-1', jobStatus: 'done', viewable: true })
 
     await waitFor(() => expect(sdk.listMeetingSpeakers).toHaveBeenCalledTimes(2))
-    expect(
-      within(screen.getByTestId('speaker-row-SPEAKER_03')).getByRole('button'),
-    ).toHaveAttribute('aria-pressed', 'true')
+    // The reread having been *called* is not the reread having been *rendered*:
+    // the second response still has to resolve and flush before selection moves.
+    // Asserting outside waitFor raced that flush and failed about one run in
+    // three under load.
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId('speaker-row-SPEAKER_03')).getByRole('button'),
+      ).toHaveAttribute('aria-pressed', 'true'),
+    )
     expect(screen.getByRole('region', { name: 'Name SPEAKER_03' })).toBeInTheDocument()
   })
 
