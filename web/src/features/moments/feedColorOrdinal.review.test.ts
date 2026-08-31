@@ -24,6 +24,7 @@ describe('review F1 — Story 10.4 colorOrdinal compatibility', () => {
         },
       ],
       total: 1,
+      unfilteredTotal: 1,
       limit: 24,
       offset: 0,
     })
