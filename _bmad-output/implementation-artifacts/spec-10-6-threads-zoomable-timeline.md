@@ -14,9 +14,8 @@ context:
   - '{project-root}/_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/EXPERIENCE.md'
 warnings: []
 deferred:
-  - 'B-41 — the bands tier issues one request per thread; a corpus-wide bands level is an api change'
-  - 'B-42 — timeline pins (`p`, up to three, in the URL)'
-  - 'B-43 — the `/threads/:threadId` deep-link route'
+  - 'B-44 — the bands tier issues one request per thread; a corpus-wide bands level is an api change'
+  - 'B-45 — timeline pins (`p`, up to three, in the URL)'
 ---
 
 <intent-contract>
@@ -155,21 +154,40 @@ All paths under `web/src/features/threads/`, all new.
 - `Threads.tsx` — the screen: list load, corpus span, tier derivation, the
   debounced generation-owned tier fetch with its cache, the refusal box, and the
   zoom-in block while a tier stands refused.
-- `Threads.route.tsx` — `/threads`.
+- `ThreadsTimeline.route.tsx` — `/threads`, and `ThreadFocus.route.tsx` —
+  `/threads/:threadId`. Both `order: 20`. Story 10.5 mounts a `/threads/*`
+  splat placeholder from its own `Threads.route.tsx`; these two claim the
+  literal and the param path, which react-router ranks above a splat, so both
+  branches land side by side with no edit to 10.5's file — which is what 10.5's
+  own comment anticipates. Integration should then delete
+  `ThreadsPlaceholder.tsx` and 10.5's route module.
 - `fixtures.ts` — test-only fixture data at every level.
 - Tests: `timeline.test.ts` (25), `palette.test.ts` (10), `threadsApi.test.ts`
-  (6), `Threads.test.tsx` (18) — 59 in all.
+  (6), `Threads.test.tsx` (20) — 61 in all.
 
 ## Change Log
 
 - **Footprint kept.** Only `web/src/features/threads/` (new) and an append to
   `docs/backlog.md`, which the build prompt names explicitly.
-- **`Threads.route.tsx` may collide with story 10.5's placeholder.** The build
-  prompt says 10.5 "is creating a Threads route placeholder for you"; at the
-  time of writing `story/10-5` had no commits, and route discovery is a Vite
-  glob over `features/**/*.route.tsx`, so the natural file name is the one used
-  here. If 10.5 lands a placeholder at the same path, this file is the
-  resolution — a three-line module.
+- **The route collision with story 10.5 was found and removed, not left.**
+  `branch_conflicts.py` reported `web/src/features/threads/Threads.route.tsx`
+  against `story/10-5`, which had by then landed a `/threads/*` splat
+  placeholder whose own comment says a narrower route added beside it wins
+  without the placeholder needing to move. This story's route module was
+  therefore renamed to `ThreadsTimeline.route.tsx` and a
+  `ThreadFocus.route.tsx` added, so nothing in 10.5's footprint is touched and
+  the pair reports clean.
+- **`/threads/:threadId` was built rather than deferred.** It was initially
+  filed as backlog on the evidence that nothing linked to it; story 10.5's route
+  comment then stated that *every thread chip in the app* points there, which
+  would have sent a demo deep link to a placeholder. Two small route modules and
+  a `useParams` read, with the `No thread has this id — it may have been merged
+  away.` state the experience spine fixes.
+- **The backlog counter was raced by three lanes.** The build prompt said the
+  highest id in use was B-40; `main` already carried a B-41, `story/7-4` had
+  taken B-41 and B-42, and `story/8-3` B-42 and B-43. These entries were
+  renumbered to **B-44** and **B-45**, which are unclaimed on every branch
+  checked at `5410fb2`.
 - **Response shapes assumed**, as recorded above. Named here so integration
   reconciles against 10.3 rather than discovering it at the demo.
 - **Three findings the tests produced**, each fixed with the test that found it:
@@ -198,6 +216,5 @@ All paths under `web/src/features/threads/`, all new.
 
 ## Not built here
 
-B-41 (per-thread bands fetch — an api-shape question), B-42 (pins), B-43
-(`/threads/:threadId`). The evidence tier and inline replay are story 10.6a.
-Curation is story 10.2a.
+B-44 (per-thread bands fetch — an api-shape question) and B-45 (pins). The
+evidence tier and inline replay are story 10.6a. Curation is story 10.2a.

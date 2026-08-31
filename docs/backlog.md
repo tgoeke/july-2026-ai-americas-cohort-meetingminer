@@ -588,7 +588,7 @@ holding when this was found.
 
 ---
 
-### B-41 · The bands tier is one request per thread — S
+### B-44 · The bands tier is one request per thread — S
 
 `GET /threads/{id}/timeline?level=bands` is per-thread, and the bands tier draws
 *every* thread, so opening the Threads screen issues one request per thread for
@@ -602,7 +602,7 @@ thread over one window, with the per-thread route kept for the entered thread's
 finer levels. That is an api change (story 10.3's surface), not a client one,
 which is why story 10.6 did not make it.
 
-### B-42 · Threads timeline has no pins — S
+### B-45 · Threads timeline has no pins — S
 
 `EXPERIENCE.md` · Semantic Zoom · Multi-thread specifies up to three threads
 pinned with `p`, kept at full-height bands while the others collapse, with the
@@ -614,15 +614,3 @@ thread ids and sorts it, so pin membership is part of request identity the
 moment more than one id is passed (`timeline.ts` · `cacheKey`, tested). What is
 missing is the `p` handler, the URL parameter, and drawing more than one
 full-height band at the meetings and moments tiers.
-
-### B-43 · `/threads/:threadId` is not a route — S
-
-`EXPERIENCE.md`'s IA table lists `/threads/:threadId` as the way a thread chip
-anywhere in the product opens Threads focused on that thread, with an unknown
-id answering `No thread has this id — it may have been merged away.` Story
-10.6 mounts `/threads` only; a thread is entered by selecting it in the list or
-by drilling one of its buckets.
-
-Nothing links to the deep-link route today (checked across `web/src` at
-`e221ffa`), so it is not a dead link — but the first screen to render a thread
-chip needs it, and that screen should not have to build it.

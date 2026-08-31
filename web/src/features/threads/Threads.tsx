@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useParams } from 'react-router'
 import { useOpenPath } from '@/routes/navigation'
 import { ThreadList, type ThreadSort } from './ThreadList'
 import { TimelineCanvas } from './TimelineCanvas'
@@ -53,12 +54,15 @@ const FETCH_DEBOUNCE_MS = 120
 
 export function Threads() {
   const openPath = useOpenPath()
+  // `/threads/:threadId` opens the screen with that thread already entered;
+  // `/threads` opens on every band. Both mount this component.
+  const { threadId: routeThreadId } = useParams()
 
   const [threads, setThreads] = useState<Array<ThreadSummary> | null>(null)
   const [listFailure, setListFailure] = useState<ThreadsFailure | null>(null)
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<ThreadSort>('activity')
-  const [focusedThreadId, setFocusedThreadId] = useState<string | null>(null)
+  const [focusedThreadId, setFocusedThreadId] = useState<string | null>(routeThreadId ?? null)
 
   const [drawn, setDrawn] = useState<Drawn | null>(null)
   const [pending, setPending] = useState(false)
@@ -250,6 +254,20 @@ export function Threads() {
       <main className="mx-auto w-full max-w-[1600px] p-8">
         <h1 className="text-3xl font-semibold tracking-tight">Threads</h1>
         <p className="mt-4 text-sm text-muted-foreground">Loading threads…</p>
+      </main>
+    )
+  }
+
+  if (routeThreadId !== undefined && !threads.some((t) => t.threadId === routeThreadId)) {
+    return (
+      <main className="mx-auto w-full max-w-[1600px] p-8">
+        <h1 className="text-3xl font-semibold tracking-tight">Threads</h1>
+        <p className="mt-4 text-sm text-muted-foreground">
+          No thread has this id — it may have been merged away.{' '}
+          <Link to="/threads" className="underline">
+            All threads
+          </Link>
+        </p>
       </main>
     )
   }
