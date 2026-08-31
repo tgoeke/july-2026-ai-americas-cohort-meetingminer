@@ -91,3 +91,35 @@ implementation through the builder's closing documentation commit.
   `path` converter so it consumes the remaining decoded path verbatim, retain
   the existing exact database label check, and pin both routing and generated
   OpenAPI/client behavior with the slash regression test.
+
+### F-4 — A failed speaker rerun has no curator-level retry path — OPEN (frozen spec)
+
+- Location: `_bmad-output/implementation-artifacts/spec-7-3-speaker-assignment.md`
+  (`<intent-contract>`, “Evidence not settled” row);
+  `server/meetingminer/api/moments.py:451-480`;
+  `server/meetingminer/api/ingests.py:890-925`
+- Severity: Medium — Open; owner/spec decision required
+- Finding: An accepted assignment persists its alias before the worker runs.
+  If `align` or `moments` then fails, the failed evidence stage makes
+  `_require_viewable` reject every meeting read and every later speaker PUT.
+  The curator sees the saved name and the failed stage through job events, but
+  cannot retry or correct it from the speaker surface. The meeting is not
+  irrecoverable at system level: reposting the original source drop to
+  `POST /ingests` requeues a failed job. That recovery deletes and reseeds all
+  stage checkpoints, however, rather than retrying the assignment's exact
+  `align → moments → extract` scope, and it is an operator ingest action rather
+  than the Story 7.4 failure gesture.
+- Evidence: `_fail_job` leaves the failed stage non-settled; the shared
+  `_require_viewable` gate rejects whenever any evidence stage is not
+  `done`/`skipped`. `api/jobs.py` has only `GET /jobs/{id}`. The only failed-job
+  requeue found by route/symbol search is `create_ingest`'s retry branch, which
+  executes `DELETE FROM job_stage` followed by `_seed_stages`. This is also why
+  the assignment response text calling every 409 “transient: retry once the
+  job settles” is false for a failed rerun: it will not settle without a new
+  write action.
+- Suggested direction: Amend the frozen matrix and choose an explicit recovery
+  contract before changing code: either allow the same speaker PUT to re-arm a
+  failed speaker-owned rerun, or add a job retry gesture that preserves the
+  assignment's restricted stage scope. Story 7.4 then needs to expose that
+  choice beside the failed-stage state. Do not silently relax the current
+  evidence gate in this review lane.
