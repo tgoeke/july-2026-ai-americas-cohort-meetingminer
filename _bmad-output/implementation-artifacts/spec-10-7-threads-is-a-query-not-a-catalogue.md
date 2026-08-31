@@ -164,7 +164,14 @@ containers healthy).
 | `oxlint src/features/threads` | No finding in any new file; the seven warnings are all pre-existing 10.6 modules. |
 | `make web-test` | **784 passed, 65 files.** 746 before this story, so the 38 added are the new ones and nothing regressed. |
 | `pytest server/tests/test_api_thread_trace.py test_thread_trace.py test_api_threads.py test_thread_timeline_levels.py` | **88 passed** — the 39 new tests alongside story 10.3's existing 49. |
-| `make test` (full gate, `-m ""`) | See "Full gate" below. |
+| `make test` (full gate, `-m ""`) | **2800 passed, 3 skipped**, exit 0, in 13m29s, against this worktree's own stack. |
+
+The full gate was run twice by accident — a first invocation was moved to the
+background by a tool timeout and reported no output, so a second was started
+before the first was seen to have finished. The first completed green (the
+figures above); the second was stopped once that was known. Two suites in one
+checkout queue on the projection lock rather than corrupting a store
+(`AGENTS.md`), so the overlap cost time and nothing else.
 
 **What each acceptance criterion is held by**
 

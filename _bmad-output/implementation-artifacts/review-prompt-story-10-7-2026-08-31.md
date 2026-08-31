@@ -131,6 +131,6 @@ Nothing else was touched. `config.yaml` was not committed.
 | `oxlint src/features/threads` | No finding in any new file |
 | `make web-test` | 784 passed / 65 files (746 before this story) |
 | server thread suites | 88 passed |
-| `make test` | See the spec's Verification section |
+| `make test` | 2800 passed, 3 skipped, exit 0 (13m29s) |
 
 Re-run them yourself; the review does not inherit the builder's word for it.
