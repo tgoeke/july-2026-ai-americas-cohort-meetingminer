@@ -122,11 +122,16 @@ def config_with_no_embedder_provider(tmp_path: Path) -> Path:
     that gate runs first.
     """
     raw = yaml.safe_load((REPO_ROOT / "config.yaml").read_text(encoding="utf-8"))
-    # Keep every LLM catalog valid and make only the embedder unroutable. A
-    # synthesized LLM catalog no longer bypasses provider endpoint validation,
-    # so removing Ollama would correctly stop at config load before this
-    # post-load embedder gate.
-    raw["embedder"]["model"] = "moonshot/embedding-model"
+    # Keep every LLM catalog valid on a declared provider, then remove only the
+    # endpoint the Ollama embedder needs. A synthesized LLM catalog no longer
+    # bypasses provider endpoint validation, so each role is explicitly rebound
+    # before Ollama is removed; config load succeeds and the post-load embedder
+    # gate remains the one behavior this fixture isolates.
+    for role_block in raw["llm"]["roles"].values():
+        role_block["model"] = "openai/gpt-5.2"
+        role_block["catalog"] = [{"binding": "openai/gpt-5.2"}]
+        role_block["default"] = "openai/gpt-5.2"
+    raw["providers"].pop("ollama", None)
     path = tmp_path / "config.yaml"
     path.write_text(yaml.safe_dump(raw), encoding="utf-8")
     schema_dir = tmp_path / "docs"
@@ -205,7 +210,7 @@ def test_api_exits_1_when_no_provider_serves_the_configured_embedder(
     )
     assert proc.returncode == 1
     assert "fatal: api startup aborted" in proc.stderr
-    assert "no providers.moonshot endpoint to serve it" in proc.stderr
+    assert "no providers.ollama endpoint to serve it" in proc.stderr
     assert "Traceback" not in proc.stderr
 
 
