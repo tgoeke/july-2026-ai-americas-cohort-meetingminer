@@ -221,7 +221,7 @@ function Shell() {
           </div>
         </div>
       </header>
-      <main className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col gap-8 p-8">
+      <main className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col gap-6 px-8 pt-6 pb-12">
         {childOpen && (
           <div>
             <Button size="sm" variant="outline" onClick={back}>
