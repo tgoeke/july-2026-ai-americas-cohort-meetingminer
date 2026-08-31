@@ -4,8 +4,8 @@ type: 'feature'
 created: '2026-08-31'
 baseline_revision: '2d68dcc6dba31007c7d6fd84f0884edbc79508d5'
 baseline_commit: '311788ba'
-status: 'in-progress'
-review_loop_iteration: 1
+status: 'in-review'
+review_loop_iteration: 2
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/spec-6-4-acquisition-launch-surface.md'
@@ -192,6 +192,18 @@ the session directory. The api never mints, never converts and never ingests.
 
 ## Spec Change Log
 
+- **2026-08-31, second remediation complete.** F-18 through F-28 are closed.
+  An in-flight create is hidden until its pid-bearing owner marker can be
+  published atomically, and sweep excludes that live owner without holding the
+  acquisition lock across an await. Deletion first quarantines the UUID and
+  surfaces named failures; terminal publication cannot coexist with a reusable
+  session, and a transient terminal status-write failure is compensated as a
+  durable failed record. Every upload state/start HTTP refusal now carries the
+  closed rule/detail/remediation shape; collision remediation is source-kind
+  correct; immutable YouTube `ytDlpVersion` survives `exists`. The parity
+  matrix observes all supported single-file dialects plus multi-file evidence,
+  real launch argv, barrier interleavings, completion-time TTL, and child-file
+  activity. The rebased backlog references are B-57/B-58.
 - **2026-08-31, second remediation red phase.** Added focused regressions for
   F-18 through F-27 before changing production code. Against `b0de6123`, the
   focused selection reported **10 failed, 12 passed, 113 deselected**: deletion
@@ -232,9 +244,20 @@ the session directory. The api never mints, never converts and never ingests.
 - [x] [Review][Patch] Derive source tool from immutable drop provenance for `exists`. [`server/meetingminer/acquisitions.py:1098`]
 - [x] [Review][Patch] Hash during streaming and move ffprobe off the API event loop. [`server/meetingminer/uploads.py:742`]
 - [x] [Review][Patch] Translate parser-constructor failures into named multipart refusals. [`server/meetingminer/uploads.py:868`]
-- [x] [Review][Patch] Renumber Story 6.4a's colliding backlog entries to B-55/B-56 after rebasing. [`docs/backlog.md`]
+- [x] [Review][Patch] Renumber Story 6.4a's colliding backlog entries to B-57/B-58 after rebasing. [`docs/backlog.md`]
 - [x] [Review][Patch] Pin upload-side timestamp/precision identity for every supported primary/dialect shape. [`server/tests/test_api_uploads.py:934`]
 - [x] [Review][Patch] Pin the real detached upload argv and CLI dispatch. [`server/meetingminer/acquisitions.py:701`]
+- [x] [Review][Patch] Publish process-visible in-flight create ownership atomically, without holding a blocking lock across the request stream. [`server/meetingminer/uploads.py`]
+- [x] [Review][Patch] Quarantine before recursive deletion and refuse terminal publication while a UUID session remains reusable. [`server/meetingminer/uploads.py`]
+- [x] [Review][Patch] Return complete named upload state/start refusals from POST, GET, DELETE, and acquisition launch. [`server/meetingminer/api/uploads.py`]
+- [x] [Review][Patch] Select in-progress remediation according to upload versus YouTube ownership. [`server/meetingminer/api/acquisitions.py`]
+- [x] [Review][Patch] Preserve immutable YouTube `ytDlpVersion` when an upload rediscovers an existing drop. [`server/meetingminer/acquisitions.py`]
+- [x] [Review][Patch] Recover a transient terminal status-write failure as a durable failed record after session quarantine. [`server/meetingminer/acquisitions.py`]
+- [x] [Review][Patch] Compare hand-mint and upload identity for every supported input shape and a multi-file session. [`server/tests/test_api_uploads.py`]
+- [x] [Review][Patch] Test real launch argument composition while replacing only process creation. [`server/tests/test_api_uploads.py`]
+- [x] [Review][Patch] Interleave launch/delete/sweep/terminal cleanup with barriers at the ownership boundary. [`server/tests/test_api_uploads.py`]
+- [x] [Review][Patch] Pin completion-time TTL and current child-file activity for incomplete uploads. [`server/tests/test_api_uploads.py`]
+- [x] [Review][Patch] Correct the rebased Story 6.4a backlog references to B-57/B-58. [`docs/backlog.md`]
 
 ## Design Notes
 
@@ -299,6 +322,21 @@ parallel wave.
   live-create ownership, terminal cleanup and transient status-write recovery,
   immutable YouTube tool version, and kind-correct YouTube collision remedy.
   The passing nodes were newly added verification-gap coverage, not fixes.
+- A focused quarantine-rename mutation then reported **1 failed, 96
+  deselected**, proving terminal completion still swallowed the state error
+  while the UUID directory remained reusable.
+- A barrier held owner-marker creation before its write and reported **1
+  failed, 96 deselected**, proving the UUID directory was sweep-visible during
+  that synchronous publication gap.
+
+**Second-remediation green phase (2026-08-31, `33d84bf2`):**
+
+- `make lint` -- all checks passed.
+- `make typecheck` -- success, no issues in 13 source files.
+- `uv run --project server pytest -m "" server/tests/test_api_uploads.py
+  server/tests/test_api_acquisitions.py -q` -- **137 passed**, one dependency
+  deprecation warning.
+- `make check-client` -- passed; no generated-client drift.
 
 **Review-remediation results (2026-08-31):**
 
@@ -315,10 +353,9 @@ parallel wave.
   optional diarizer-extra 92 passed; web 669, evals 655 and puller 128 passed;
   production web build passed.
 
-**Integration warning:** the spec-required B-55/B-56 renumber is applied, but
-`origin/main` acquired a separate B-56 after this review branch's baseline.
-The integration rebase must allocate the next free id for one of those entries
-instead of landing duplicate B-56 headings.
+**Integration resolution:** the rebased backlog assigns Story 12.1 B-55/B-56
+and Story 6.4a B-57/B-58. There are no duplicate headings or unresolved ID
+collisions.
 
 **Results at `1db5b9b7` (2026-08-31), against this worktree's own stack:**
 

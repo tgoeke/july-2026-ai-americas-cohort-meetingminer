@@ -133,9 +133,9 @@ The review will also account for the required rebase onto `origin/main` before c
 
 - **Location:** `docs/backlog.md` (`B-53` and `B-54` added by Story 6.4a)
 - **Severity:** Low
-- **Finding:** `origin/main` now owns B-53 for Story 8.2a, while this branch independently added B-53 and B-54. Rebasing as required would leave duplicate identifiers and make references ambiguous.
-- **Evidence:** `git show origin/main:docs/backlog.md` contains `B-53 · Let the api report the worker's loaded binding...`; the two Story 6.4a entries are `A failed upload acquisition...` and `Nothing reaps an acquisition's status file`. The owner explicitly reserved the next free IDs above B-54 for this lane.
-- **Suggested direction:** Renumber only Story 6.4a's two entries to B-55 and B-56 during the rebase; do not alter another lane's identifiers.
+- **Finding:** The integration branch acquired B-53 through B-56 while this story was in flight. Rebasing with any of those provisional identifiers would leave duplicate headings and ambiguous references.
+- **Evidence:** The rebased `docs/backlog.md` assigns B-55/B-56 to Story 12.1 and assigns the two Story 6.4a entries, `A failed upload acquisition...` and `Nothing reaps an acquisition's status file`, to B-57/B-58.
+- **Suggested direction:** Resolved during rebase: keep Story 6.4a's two entries at B-57/B-58 and do not alter another lane's identifiers.
 
 ### F-16 — The identity test cannot detect an upload-side timestamp regression
 
