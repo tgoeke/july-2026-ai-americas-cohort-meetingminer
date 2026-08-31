@@ -162,7 +162,11 @@ export function fitView(span: Span, width: number): View {
     to += 60_000
   }
   const scale = clampScale((to - from) / usable)
-  return { from, scale }
+  // Centred on the span's midpoint rather than anchored at its left edge. For a
+  // span that fits, the two are the same number; for one so short that the
+  // scale clamps at the evidence threshold, only centring puts the thing the
+  // reader asked to see in the middle of the canvas instead of near its edge.
+  return { from: from + (to - from) / 2 - (usable * scale) / 2, scale }
 }
 
 /**
@@ -337,8 +341,8 @@ export function offsetLabel(ms: number): string {
   const hours = Math.floor(total / 3600)
   const minutes = Math.floor((total % 3600) / 60)
   const seconds = total % 60
-  const mm = hours > 0 ? String(minutes).padStart(2, '0') : String(minutes)
-  return `${hours}:${mm}:${String(seconds).padStart(2, '0')}`
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${hours}:${pad(minutes)}:${pad(seconds)}`
 }
 
 /** The tick marks on the axis: evenly spaced days across the visible window. */
