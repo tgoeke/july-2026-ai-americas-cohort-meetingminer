@@ -44,3 +44,12 @@ Adversarial review of the Story 7.4 web implementation, with emphasis on unsettl
 - **Evidence:** `load` closes over the new ID, but `selected` continues to resolve from the prior `speakers` array and `selectedTag`; the save path uses the new prop. `SPEAKER_00`-style tags commonly exist in more than one meeting, so this is reachable without any malformed data.
 - **Suggested direction:** Key the stateful screen by meeting identity so a parameter change synchronously remounts and clears all meeting-owned state before the new load. Preserve stale rows only across rereads of the same meeting.
 - **Red/green evidence:** The regression first retained the old `SPEAKER_00` row after rerendering with `meeting-2`; the keyed state boundary removes it synchronously and the targeted test passes.
+
+### F4 — Harmless edits discard a picked participant's identity
+
+- **Location:** `web/src/features/speakers/SpeakerNaming.tsx:675`; `web/src/features/speakers/speakers.ts:217`
+- **Severity:** Medium
+- **Status:** Confirmed — patch required
+- **Finding:** Every input change unconditionally clears `picked`, even though `choiceOf()` is designed to keep the participant choice while the trimmed field still equals that participant's display name. Adding whitespace, or editing and restoring the original text, therefore changes the body from `{participantId}` to `{displayName}`. With two participants sharing a display name, the field text cannot recover which person the curator selected.
+- **Evidence:** The suggestion click stores the exact `ParticipantRow`; the next `onChange` drops it before `choiceOf()` can apply its equality boundary. The API's exactly-one-field contract is still met, but the wrong assignment path is chosen and may mint or reuse a different participant.
+- **Suggested direction:** Retain the picked row as selection provenance while the field is edited and let `choiceOf()` decide whether the current text still represents it. Verify whitespace, edit-away-and-restore, and duplicate-display-name selections.
