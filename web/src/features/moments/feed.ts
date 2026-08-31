@@ -72,17 +72,11 @@ export const FEED_PAGE_SIZE = 24
 export const FEED_TIMEOUT_MS = 8000
 
 type FeedQuery = NonNullable<GetMomentsFeedData['query']>
-export type FeedCorpus = Exclude<FeedQuery['corpus'], null | undefined>
-
-/** Narrow an untrusted URL value to the generated corpus vocabulary. */
-export function feedCorpusFromParam(value: string | null): FeedCorpus | null {
-  return value === 'real' || value === 'scripted' ? value : null
-}
 
 /** The three filters the feed is narrowed by, plus the hidden meeting filter
  * set when arriving from a meeting. `null` is "any". */
 export interface FeedFilters {
-  corpus: FeedCorpus | null
+  corpus: string | null
   thread: string | null
   kind: string | null
   meeting: string | null
@@ -281,7 +275,12 @@ export async function fetchMomentsFeed(
   signal?: AbortSignal,
 ): Promise<MomentFeedResponse> {
   const query: FeedQuery = { limit, offset }
-  if (filters.corpus !== null) query.corpus = filters.corpus
+  if (filters.corpus !== null) {
+    if (filters.corpus !== 'real' && filters.corpus !== 'scripted') {
+      throw new FeedContractError('the feed request: corpus must be real or scripted')
+    }
+    query.corpus = filters.corpus
+  }
   if (filters.thread !== null) query.thread = filters.thread
   if (filters.kind !== null) query.kind = filters.kind
   if (filters.meeting !== null) query.meeting = filters.meeting

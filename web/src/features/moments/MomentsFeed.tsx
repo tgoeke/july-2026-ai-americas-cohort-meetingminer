@@ -12,7 +12,6 @@ import {
   RANKED_BY,
   RANKING_SENTENCE,
   fetchMomentsFeed,
-  feedCorpusFromParam,
   filterEmptySentence,
   hasActiveFilters,
   momentsHeaderCount,
@@ -30,7 +29,7 @@ const KNOWN_CORPORA = ['real', 'scripted'] as const
  * (EXPERIENCE.md · Filters row). */
 function filtersFromParams(params: URLSearchParams): FeedFilters {
   return {
-    corpus: feedCorpusFromParam(params.get('corpus')),
+    corpus: params.get('corpus'),
     thread: params.get('thread'),
     kind: params.get('kind'),
     meeting: params.get('meeting'),
