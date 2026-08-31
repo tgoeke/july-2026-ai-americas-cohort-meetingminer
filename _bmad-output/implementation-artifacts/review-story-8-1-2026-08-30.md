@@ -35,3 +35,11 @@ Adversarial review of Story 8.1 on `story/8-1-review`, including the eight chang
 - **Finding:** AC clause 3 remains unmet: the committed chat comment says the Anthropic key was deliberately invalidated and that `claude-sonnet-5` is AD-10's superseded default, although the key was restored and the catalog amendment replaced that history.
 - **Evidence:** Both statements remain verbatim after rebasing onto the main that contains Story 10.1, so the former line-overlap blocker is gone. The surrounding rules are still true: OpenAI remains the owner-selected chat model, chat has no runtime fallback, and `_BARE_OPENAI_PREFIXES` does not include `gpt-5`, so the `openai/` prefix is still required for configured endpoint resolution.
 - **Suggested direction:** Delete only the invalidated-key and superseded-default claims. Preserve the current OpenAI choice, no-fallback rule, and `openai/` prefix rationale.
+
+### Finding 4 — A bare binding can declare one provider and route to another (open — owner/spec decision)
+
+- **Location:** `server/meetingminer/config.py:215-237,356-395`; `server/meetingminer/adapters/llm/litellm.py:54-75`
+- **Severity:** High
+- **Finding:** An authored prefix-less binding may explicitly declare any configured provider, but the runtime independently routes recognized bare spellings. The catalog can therefore promise one endpoint and call another.
+- **Evidence:** A real `Settings` validation of `model: gpt-4o`, catalog entry `{binding: gpt-4o, provider: ollama}`, and `default: gpt-4o` succeeds. The resulting entry reports `ollama`, while `resolve_api_base('gpt-4o', providers)` resolves `https://api.openai.com/v1`. A future picker/health surface could show a local Ollama provider while the call reaches paid OpenAI. The same class of mismatch exists for bare `claude-*`. `_provider_prefix` intentionally cannot detect it because it is narrower than the runtime rule.
+- **Suggested direction:** Owner/spec decision required. Either make catalog provider identity the single call-time routing fact in Story 8.2, move the shared spelling rule to a dependency-neutral module used by config and runtime, or amend the frozen prefix-less-entry rule to reject bare spellings whose routing cannot be verified here. Do not add a third hardcoded provider table to `config.py`.
