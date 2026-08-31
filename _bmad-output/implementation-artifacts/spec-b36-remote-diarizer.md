@@ -225,3 +225,80 @@ makes "finite" a validated property rather than a hope.
 - `make test-fast` -- expected: green
 - `make test` -- expected: green with the LAN host unreachable from the test process
 - `python3 _bmad/scripts/branch_conflicts.py --against story/b36-remote-diarizer` -- expected: clean apart from the known `config.py` proximity pair with `story/8-1`, which belongs to integrate
+
+## Auto Run Result
+
+Status: review (the review lane is dispatched separately and fixes what it
+finds; this run does not mark the item done, and B-36 stays open for its `Stt`
+half).
+
+**Implemented change.** A `remote-http` engine behind the unchanged `Diarizer`
+port: one streaming multipart POST to the LAN service's `/diarize` over the
+standard library, float seconds converted to integer milliseconds per boundary,
+turns validated, ordered, and relabelled into the recording-local `SPEAKER_NN`
+placeholder namespace. Every failure raises a named `DiarizerError` carrying the
+endpoint, the model when the host reported one, and the host's own `reason`
+verbatim; no failure is survivable and no other engine is ever substituted.
+`noop` remains the bound engine in the committed `config.yaml` — which engine
+becomes the default is the owner's call, pending the capacity measurement.
+
+**Files changed**
+- `server/meetingminer/adapters/diarize/remote_http.py` — new: the engine, its
+  multipart transport, the seconds-to-milliseconds rule, and one named error
+  per failure mode.
+- `server/meetingminer/adapters/diarize/__init__.py` — binds and exports it;
+  adds `ENGINE_CHOICES` so the unknown-engine diagnostic stays exhaustive.
+- `server/meetingminer/config.py` — `DiarizerConfig` only: the engine literal,
+  `base_url`, and `timeout_seconds` (`gt=0`, `allow_inf_nan=False`). Nothing
+  after the class is touched.
+- `config.yaml` — the `diarizer:` block only; `engine: noop` unchanged.
+- `server/tests/test_diarize_remote.py` — new: 36 offline tests against a local
+  scripted HTTP server, plus one env-flagged live test.
+- `_bmad-output/implementation-artifacts/` — this spec, sprint tracking, and
+  the review handoff.
+
+**Review findings breakdown.** No automated review layers were run in this
+session: this repository dispatches review as its own lane, in its own
+worktree, against `review-prompt-b36-remote-diarizer-2026-08-30.md`. Patches
+applied 0, deferred 0, rejected 0.
+
+**Follow-up review recommendation:** false. Patched findings this pass: high 0,
+medium 0, low 0; score `3 x 0 + 1 x 0 = 0`, below 5.
+
+**Verification performed** (every figure below was read from the command's own
+output, in the foreground, with the LAN host never contacted):
+- `uv run --project server pytest server/tests/test_diarize_remote.py -q`
+  → 36 passed, 1 skipped, 1.70s.
+- `uv run --project server pytest server/tests/test_diarize_pyannote.py
+  server/tests/test_stt_adapter.py server/tests/test_config.py -q`
+  → 180 passed, 1 skipped.
+- `make lint` → All checks passed. `make typecheck` → no issues in 13 files.
+- `make test-fast` → 1963 passed, 3 skipped, 378 deselected, 64.76s.
+- `make test` → **2341 passed, 3 skipped, 673.08s**, then the web build; exit 0.
+- `make check-client puller-test web-test evals-test diarize-extra-test`
+  re-run alone → green (evals 643 passed; the diarize-extra suite, which
+  installs the gated extra, 92 passed).
+- Mutation check of the finished engine, run independently of the
+  implementation: truncating instead of rounding, silently returning no turns
+  when the host is unreachable, swallowing the host's `reason`, and labelling
+  in host order instead of timeline order. Each was caught by the test that
+  claims it, and the file was restored clean after each.
+- `python3 _bmad/scripts/branch_conflicts.py --against story/b36-remote-diarizer`
+  → the only conflict involving this branch is
+  `_bmad-output/implementation-artifacts/sprint-notes.md`, the shared tracking
+  file the wave rules require every builder to append to; it conflicts
+  `main x story/10-2` and `main x story/10-2-review` independently of this
+  branch. `config.py` merges clean against `main`.
+
+**Residual risks**
+- The `config.py` proximity pair with `story/8-1` that the build prompt
+  expected did not appear: `main` advanced 50 commits during this build and 8.1
+  landed, so that branch no longer exists. This branch has not been rebased
+  onto the new `main` — that is integrate's operation, not the builder's.
+- Nothing here has spoken to the live host. The env-flagged live test exists
+  and has not been run; VM120 is started by hand.
+- Turn quality is unmeasured against ground truth, and no end-to-end
+  `transcribe` run was made with the remote engine bound, because `config.yaml`
+  deliberately still binds `noop`.
+- B-36's `Stt`-over-HTTP half is untouched and stays open in `docs/backlog.md`,
+  which this branch does not edit (wave rules bar it).

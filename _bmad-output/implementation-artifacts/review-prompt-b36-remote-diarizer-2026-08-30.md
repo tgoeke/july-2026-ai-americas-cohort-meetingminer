@@ -141,12 +141,14 @@ At `7c2c294`, in the builder's worktree (which has its own compose stack under
 story 11.2, so no cross-worktree store contention):
 
 - `uv run --project server pytest server/tests/test_diarize_remote.py -q`
-  → 36 passed, 1 deselected, 1.22s.
+  → 36 passed, 1 skipped, 1.70s. The skip is the env-flagged live test; it
+  is a skip, not a deselection.
 - `make lint` → clean. `make typecheck` → 13 source files, clean.
 - `make test-fast` → 1963 passed, 3 skipped (the live diarizer test naming
   `MM_DIARIZE_REMOTE_NETWORK_TEST`, the yt-dlp network test, the extra-gated
-  pyannote signature pin), 378 deselected, 66.55s.
-- `make test` → recorded in the builder's final report.
+  pyannote signature pin), 378 deselected, 64.76s.
+- `make test` → **2341 passed, 3 skipped, 673.08s (11m13s)**, then the web
+  build; exit 0. The LAN host was never contacted.
 - Every test in the new module was observed red before the engine existed
   (`ImportError: cannot import name 'REMOTE_HTTP_ENGINE'`), and eight mutations
   of the finished engine were each caught by the test that claims them:
@@ -167,3 +169,21 @@ story 11.2, so no cross-worktree store contention):
   review; do not let a passing test read as a quality claim.
 - **No end-to-end run through `transcribe`** with the remote engine bound —
   `config.yaml` still binds `noop`, deliberately.
+
+## Branch state the reviewer must not misread
+
+`main` advanced 50 commits while this was built, and **story 8.1 landed**. Two
+consequences:
+
+- The `config.py` proximity pair with `story/8-1` that the build prompt told
+  the builder to expect does **not** appear — that branch is gone. `config.py`
+  merges clean against current `main`.
+- `branch_conflicts.py --against story/b36-remote-diarizer` reports exactly one
+  conflict for this branch: `sprint-notes.md`, the shared tracking file the
+  wave rules require every builder to append to. It conflicts
+  `main x story/10-2` and `main x story/10-2-review` independently of this
+  branch, so it is the wave's tracking-file seam that integrate unions — not a
+  defect in this change, and not something narrowing this branch's edit fixes.
+
+This branch has **not** been rebased onto the new `main`. Rebasing is
+integrate's operation; review the range as it stands.
