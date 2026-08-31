@@ -735,6 +735,134 @@ export type ExtractionPromptsResponse = {
 };
 
 /**
+ * FeedItem
+ *
+ * One ranked moment, exactly the fields the story's AC enumerates.
+ *
+ * Deliberately no `score`: the acceptance criteria enumerate the card's
+ * fields, and a number the client cannot explain is not one of them. The
+ * ordered ``reasons`` are the explanation, and they are what story 10.5
+ * renders.
+ */
+export type FeedItem = {
+    /**
+     * Momentid
+     */
+    momentId: string;
+    /**
+     * Meetingid
+     */
+    meetingId: string;
+    /**
+     * Meetingtitle
+     */
+    meetingTitle?: string | null;
+    /**
+     * Startedat
+     */
+    startedAt: string;
+    /**
+     * Startedatprecision
+     */
+    startedAtPrecision: string;
+    /**
+     * Startms
+     */
+    startMs: number;
+    /**
+     * Endms
+     */
+    endMs: number;
+    /**
+     * Corpus
+     */
+    corpus: string;
+    /**
+     * Hasrecording
+     */
+    hasRecording: boolean;
+    /**
+     * Sourcedeeplink
+     */
+    sourceDeepLink?: string | null;
+    /**
+     * Screenshotid
+     */
+    screenshotId?: string | null;
+    /**
+     * Viewtype
+     */
+    viewType?: 'slide' | 'ui-screen' | 'participant-gallery' | null;
+    /**
+     * Preview
+     */
+    preview?: string | null;
+    /**
+     * Threads
+     */
+    threads: Array<FeedThread>;
+    /**
+     * Reasons
+     */
+    reasons: Array<FeedReason>;
+};
+
+/**
+ * FeedReason
+ *
+ * Why this moment is on the feed, in the order that decided its score.
+ *
+ * ``ref`` is the id of the row the reason came from — an artifact, a ranking
+ * signal, a thread — so a card can link to its own evidence. ``at`` is the
+ * time the reason is about (a due date, a meeting start, a publication),
+ * never "now". Both are optional because not every reason has one.
+ */
+export type FeedReason = {
+    /**
+     * Kind
+     */
+    kind: 'action-item' | 'adr' | 'decision' | 'story' | 'requirement' | 'bug-fix' | 'change-request' | 'due' | 'risk' | 'question' | 'recency' | 'published' | 'thread';
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Ref
+     */
+    ref?: string | null;
+    /**
+     * At
+     */
+    at?: string | null;
+};
+
+/**
+ * FeedThread
+ *
+ * One thread chip on the card.
+ *
+ * ``color_ordinal`` is the server-owned immutable ordinal story 10.3
+ * allocates; the client maps it to a hue and never invents one. Migration
+ * 0017 now guarantees a positive bigint for every persisted thread. The
+ * optional type preserves the scorer's plain-fact boundary for malformed or
+ * legacy input; the running schema's query-to-wire path is non-null.
+ */
+export type FeedThread = {
+    /**
+     * Threadid
+     */
+    threadId: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Colorordinal
+     */
+    colorOrdinal?: number | null;
+};
+
+/**
  * FramesView
  */
 export type FramesView = {
@@ -1475,6 +1603,43 @@ export type MomentSegment = {
      * Text
      */
     text: string;
+};
+
+/**
+ * MomentsFeedResponse
+ *
+ * The page, its filtered size, and its selected-corpus denominator.
+ *
+ * ``total`` counts the rows that survived reason validation — never the raw
+ * candidate scan — and all item filters. ``corpus_total`` counts the same
+ * validated selected corpus before the meeting, thread, and kind filters, so
+ * the client never derives that denominator or makes another HTTP request.
+ *
+ * Every request is a live ranking, not a snapshot shared with another page.
+ * The route clamps an offset beyond the filtered set to its end, so the
+ * in-response invariant `offset + len(items) <= total` always holds.
+ */
+export type MomentsFeedResponse = {
+    /**
+     * Items
+     */
+    items: Array<FeedItem>;
+    /**
+     * Total
+     */
+    total: number;
+    /**
+     * Corpustotal
+     */
+    corpusTotal: number;
+    /**
+     * Limit
+     */
+    limit: number;
+    /**
+     * Offset
+     */
+    offset: number;
 };
 
 /**
@@ -2806,6 +2971,68 @@ export type ListMeetingsResponses = {
 };
 
 export type ListMeetingsResponse = ListMeetingsResponses[keyof ListMeetingsResponses];
+
+export type GetMomentsFeedData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Corpus
+         *
+         * Scope the feed to one corpus.
+         */
+        corpus?: 'scripted' | 'real' | null;
+        /**
+         * Thread
+         *
+         * Only moments belonging to this thread.
+         */
+        thread?: string | null;
+        /**
+         * Meeting
+         *
+         * Only moments of this meeting.
+         */
+        meeting?: string | null;
+        /**
+         * Kind
+         *
+         * Keep only items carrying a valid reason of this kind — an artifact kind or one of due/risk/question/recency/published/thread. Applied with reason validation, before pagination.
+         */
+        kind?: string | null;
+        /**
+         * Limit
+         */
+        limit?: number | null;
+        /**
+         * Offset
+         */
+        offset?: number;
+    };
+    url: '/moments/feed';
+};
+
+export type GetMomentsFeedErrors = {
+    /**
+     * `invalid-request` — a filter is not the declared type.
+     */
+    422: ProblemDetails;
+    /**
+     * `internal-error` — unexpected failure.
+     */
+    500: unknown;
+};
+
+export type GetMomentsFeedError = GetMomentsFeedErrors[keyof GetMomentsFeedErrors];
+
+export type GetMomentsFeedResponses = {
+    /**
+     * Successful Response
+     */
+    200: MomentsFeedResponse;
+};
+
+export type GetMomentsFeedResponse = GetMomentsFeedResponses[keyof GetMomentsFeedResponses];
 
 export type ListMeetingMomentsData = {
     body?: never;
