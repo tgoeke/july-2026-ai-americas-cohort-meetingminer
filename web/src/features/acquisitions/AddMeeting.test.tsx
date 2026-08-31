@@ -386,6 +386,22 @@ describe('Add-meeting, the pre-flight probe', () => {
 })
 
 describe('Add-meeting, submitting', () => {
+  it('submits with Enter from the URL field after pre-flight succeeds', async () => {
+    sdk.probeAcquisition.mockResolvedValue({ data: probeResult(), error: undefined })
+    sdk.startAcquisition.mockResolvedValue({
+      data: { acquisitionId: ACQUISITION, sourceId: 'youtube:dQw4w9WgXcQ', status: 'queued' },
+      error: undefined,
+    })
+    queueStatuses(acquisition({ status: 'queued' }))
+    render(<AddMeeting />)
+    await typeUrl(VIDEO_URL)
+
+    screen.getByTestId('youtube-url').focus()
+    await user.keyboard('{Enter}')
+
+    expect(sdk.startAcquisition).toHaveBeenCalledTimes(1)
+  })
+
   it('locks the form and shows the stepper once the api accepts', async () => {
     await launch(acquisition({ status: 'queued' }))
 
