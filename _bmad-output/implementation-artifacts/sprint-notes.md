@@ -3872,3 +3872,10 @@ that route will take and never a path, and the route itself remains unbuilt.
 deselected, with ruff and mypy clean. `branch_conflicts.py --against
 story/10-3`: 15 clean pairs, 0 conflicting. Full `make test` result recorded
 with the story's SHAs.
+
+**`make client` is owed at integration.** The generated TS client does not
+carry `/threads` or `/threads/{threadId}/timeline`: regenerating it needs a
+running api and `web/`, both outside this footprint. `make check-client` only
+asserts the three generated files exist, not that they are current, so the
+gate stays green either way. Story 10.6 builds against fixtures by its own
+prompt, so nothing is blocked today.

@@ -110,6 +110,13 @@ most. They are stated as questions, not as claims to confirm.
   new router module must edit it; `threads.py` was deliberately left at default
   `ROUTER_ORDER` so the addition lands at the end of the list rather than
   mid-list, keeping it away from where story 10.4's `moments_feed` will land.
+- **The generated TS client does not carry these routes.** `make client`
+  regenerates `web/src/client/` from a running api, and both `web/` and
+  starting the api were outside this footprint, so it was not run. `make
+  check-client` only asserts the three generated files exist, not that they
+  are current, which is why the gate is green regardless. Story 10.6 was told
+  to build against fixtures, so this blocks nothing today, but it is owed at
+  integration — the same debt story 6.4 left and integration paid.
 - **Story 10.2a's merge and split are not implemented**, so the ordinal
   behaviour a merge and a split depend on is proven at the record (an `UPDATE`
   refused, a second row taking a new value) rather than through curation
