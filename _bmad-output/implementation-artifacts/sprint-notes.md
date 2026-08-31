@@ -4123,3 +4123,22 @@ clamped span at the canvas edge instead of its middle.
 levels (the acceptance criteria fix the field names, not the envelopes) — it is
 the one file to reconcile. `Threads.route.tsx` may collide with story 10.5's
 Threads placeholder; this file is the resolution. B-41, B-42 and B-43 filed.
+
+## Story 10.6 review — red-first remediation (2026-08-31)
+
+The review froze 18 findings before reading the implementation in depth, then
+fixed every patchable one red-first on `story/10-6-review`. Four commits carry
+the finding numbers: Story 10.3 wire reconciliation and strict complete-body
+parsing (`4210665`); timeline geometry, focus, keyboard/pointer interaction,
+real-width clustering and visible density (`1acb509`); request-generation and
+payload/thread ownership, common ordering, short-corpus bands fit and route
+sync (`6eebbd3`); and an inert 160ms outgoing/incoming tier cross-fade
+(`b06a8aa`). The feature test count is now 84 across nine files, including a
+rapid-gesture rAF test and literal/param/splat route-ranking test.
+
+Two decisions remain open, so the story returns to `in-progress`: the lane
+could not repeat the Chrome geometry measurement because the Chrome connection
+was unavailable and no browser-test harness exists inside the frozen footprint;
+and `/threads/:threadId` carries no moment/window anchor even though the UX
+calls for meetings around the calling moment. The owner must select the harness
+and the deep-link time semantics. No backlog id was filed.

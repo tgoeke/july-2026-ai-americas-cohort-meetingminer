@@ -3,9 +3,9 @@ title: 'Story 10.6: Threads Zoomable Timeline'
 type: 'feature'
 created: '2026-08-31'
 baseline_revision: '3211a7f96b86d7df496cefa451b2cbd431e6d8b4'
-status: 'review'
-review_loop_iteration: 0
-followup_review_recommended: false
+status: 'in-progress'
+review_loop_iteration: 1
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-10-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/build-prompt-story-10-6-2026-08-31.md'
@@ -166,6 +166,17 @@ All paths under `web/src/features/threads/`, all new.
   (6), `Threads.test.tsx` (20) — 61 in all.
 
 ## Change Log
+
+- **Review remediation (`story/10-6-review`).** The adversarial review recorded
+  18 findings before remediation, then fixed all 16 patchable findings
+  red-first in four commits. The API now matches Story 10.3's implemented wire
+  contract; request generations own both their desired key and payload/thread
+  context; list and canvas share ordering; short corpora retain the bands-floor
+  opening; keyboard, pointer, focus, density, clustering and track geometry are
+  pinned by new regression files; and tier replacement is a real cross-fade.
+  Two decisions remain open: a durable real-browser geometry harness/Chrome
+  connection, and the time-anchor semantics absent from `/threads/:threadId`.
+  See `review-story-10-6-2026-08-31.md`.
 
 - **Footprint kept.** Only `web/src/features/threads/` (new) and an append to
   `docs/backlog.md`, which the build prompt names explicitly.
