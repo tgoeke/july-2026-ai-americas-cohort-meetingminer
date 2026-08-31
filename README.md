@@ -124,6 +124,15 @@ you before the relevant stage fails:
 - **An `OPENAI_API_KEY`** for cited Q&A and the LLM judge — see
   [Models and cost](#models-and-cost).
 
+Speaker attribution is the one capability a stock clone does **not** get. The
+committed `diarizer.engine` is `noop`, which returns no speaker turns, so
+transcripts ingest unattributed unless the source itself carries speaker labels.
+The project binds an optional LAN GPU host for that work — nothing here requires
+you to build one, but
+[`docs/asr-diarization-host.md`](docs/asr-diarization-host.md) specifies the
+machine, the HTTP contract and the measured throughput so the deployment shape
+is legible.
+
 **Platform.** The stack is developed and run on a single Apple-silicon Mac.
 Speech recognition ships only MLX engines and OCR defaults to Apple Vision, all
 macOS-only and all imported lazily: on Linux or Windows the adapters report
@@ -423,14 +432,21 @@ none of it — the worker projects as it goes.
 | [`project-context.md`](project-context.md) | The condensed version of those rules: policy, where things are, how to run and verify. |
 | [`docs/README.md`](docs/README.md) | Bringing your own recording — the `mint-drop` procedure end to end. |
 | [`docs/agent-kickoff-prompt.md`](docs/agent-kickoff-prompt.md) | The prompt used to start an agent on this repository, with its reviewer clauses. |
+| [`docs/asr-diarization-host.md`](docs/asr-diarization-host.md) | The optional LAN GPU host for transcription and diarization: hardware, the HTTP contract its engines are held to, measured throughput, and how `config.yaml` binds it. Not required to run MeetingMiner. |
 | [`evals/README.md`](evals/README.md) / [`evals/RUNBOOK.md`](evals/RUNBOOK.md) | The eval harness reference and the operator runbook; documented-only check designs live in [`evals/designs/`](evals/designs/). |
 
 ## Project status
 
 MeetingMiner is a solo-developer capstone for the InfoQ AI Engineering program,
-built against a real corpus of recorded meetings. All five epics — evidence
-ingestion, the evidence UI, search and cited Q&A, extraction and publishing, and
-the eval harness — are complete; per-story status lives in
+built against a real corpus of recorded meetings. The five epics that define
+the product — evidence ingestion, the evidence UI, search and cited Q&A,
+extraction and publishing, and the eval harness — are complete. Six later epics
+extend it: bringing any meeting in, speaker attribution, model selection, cohort
+close-out, moments and threads, and the test suite's own parallelism.
+Per-story status lives in
+`_bmad-output/implementation-artifacts/sprint-status.yaml`, and
+[`docs/project-record.md`](docs/project-record.md) records what each epic
+delivered and what it deliberately does not do.
 
 It runs local-first and single-user with **no authentication**. Auth, enterprise
 integration, Microsoft Graph, and outbound routing to live systems (GitHub,
