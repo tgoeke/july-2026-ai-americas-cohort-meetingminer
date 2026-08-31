@@ -85,11 +85,6 @@ export function Threads() {
   const [tierFailure, setTierFailure] = useState<ThreadsFailure | null>(null)
   const [retryVersion, setRetryVersion] = useState(0)
   const [listRetryVersion, setListRetryVersion] = useState(0)
-  // Story 10.2a: a landed curation re-reads `GET /threads` through the same
-  // version the retry button bumps. The list is the authority on the grouping
-  // — a client that patched its own copy would drift from the api the moment
-  // a merge changed anyone else's row.
-  const reReadThreads = useCallback(() => setListRetryVersion((v) => v + 1), [])
 
   const corpusSpan = useMemo<Span | null>(() => corpusSpanOf(threads), [threads])
 
@@ -112,6 +107,18 @@ export function Threads() {
   const meetingsRef = useRef(new Map<string, Array<TimelineMeeting>>())
   const listGenerationRef = useRef(0)
   const routeOwner = `${location.key}:${routeThreadId ?? ''}:${location.search}`
+
+  // A landed curation invalidates both representations on this screen. The
+  // outgoing tier stays drawn while the authoritative list and timeline are
+  // fetched again, avoiding flicker without showing cached membership as if
+  // it reflected the correction.
+  const reReadThreads = useCallback(() => {
+    cacheRef.current.clear()
+    meetingsRef.current.clear()
+    requestedKeyRef.current = null
+    setRetryVersion((version) => version + 1)
+    setListRetryVersion((version) => version + 1)
+  }, [])
 
   useEffect(() => {
     setFocusedThreadId(routeThreadId ?? null)
