@@ -1080,8 +1080,8 @@ def _complete(llm: Any, prompt: str, *, purpose: str, binding: Any = None) -> st
             role="chat",
             provider=exc.provider,
             binding=exc.model,
-            config_path="llm.roles.chat",
-            upstream_status=exc.upstream_status,
+            configPath="llm.roles.chat",
+            upstreamStatus=exc.upstream_status,
         ) from exc
     except LlmUnavailableError as exc:
         raise Problem(

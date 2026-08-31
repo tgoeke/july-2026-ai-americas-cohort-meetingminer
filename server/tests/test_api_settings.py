@@ -405,6 +405,10 @@ def test_a_binding_the_provider_does_not_serve_surfaces_as_binding_failed(
     assert body["provider"] == "openai"
     assert body["binding"] == "openai/withdrawn"
     assert body["role"] == "chat"
+    assert body["configPath"] == "llm.roles.chat"
+    assert body["upstreamStatus"] == 404
+    assert "config_path" not in body
+    assert "upstream_status" not in body
     # The upstream status is represented in `detail`, not only as an extension.
     assert "404" in body["detail"]
 
