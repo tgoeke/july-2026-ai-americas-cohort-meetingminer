@@ -253,6 +253,24 @@ describe('the three assignment paths', () => {
     })
   })
 
+  it('shows the response-confirmed identity on the row while its rerun is queued', async () => {
+    answers()
+    sdk.assignMeetingSpeaker.mockResolvedValue({
+      data: assignment({ displayName: 'Priya Natarajan-Renamed' }),
+      error: undefined,
+    })
+    const user = userEvent.setup()
+    await loaded()
+
+    await user.type(screen.getByRole('combobox'), 'pri')
+    await user.click(await screen.findByRole('option', { name: 'Priya Natarajan' }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    const row = screen.getByTestId('speaker-row-SPEAKER_00')
+    expect(await within(row).findByText('Priya Natarajan-Renamed')).toBeInTheDocument()
+    expect(within(row).getByText('rerun · queued')).toBeInTheDocument()
+  })
+
   it('keeps a picked participant through harmless surrounding whitespace', async () => {
     answers()
     sdk.assignMeetingSpeaker.mockResolvedValue({ data: assignment(), error: undefined })
@@ -480,6 +498,58 @@ describe('the rerun a naming starts', () => {
 
     await waitFor(() => expect(sdk.listMeetingSpeakers).toHaveBeenCalledTimes(2))
     expect(sdk.getMeetingDrilldown).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows the guarded resolved name in the transcript after the landed reread', async () => {
+    answers()
+    sdk.assignMeetingSpeaker.mockResolvedValue({ data: assignment(), error: undefined })
+    const user = userEvent.setup()
+    await loaded()
+
+    await user.type(screen.getByRole('combobox'), 'Priya Natarajan')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByTestId('rerun-strip')
+
+    sdk.listMeetingSpeakers.mockResolvedValue({
+      data: {
+        meetingId: MEETING,
+        speakers: [
+          tag({
+            speakerResolution: 'resolved',
+            participantId: 'p-1',
+            displayName: 'Priya Natarajan',
+          }),
+        ],
+      },
+      error: undefined,
+    })
+    sdk.getMeetingDrilldown.mockResolvedValue({
+      data: {
+        meetingId: MEETING,
+        title: 'Weekly community sync',
+        hasRecording: true,
+        corpus: 'real',
+        startedAt: '2026-08-21T09:00:00Z',
+        startedAtPrecision: 'exact',
+        sourceDeepLink: null,
+        screenshots: [],
+        segments: [
+          segment({ speakerResolution: 'resolved', participantId: 'p-1' }),
+        ],
+      },
+      error: undefined,
+    })
+
+    emit({ event: 'job.done', jobId: 'job-1', jobStatus: 'done', viewable: true })
+
+    const transcript = await screen.findByRole('region', {
+      name: 'Transcript filtered to SPEAKER_00',
+    })
+    await waitFor(() =>
+      expect(within(transcript).getByRole('heading', { level: 3 })).toHaveTextContent(
+        'Transcript · SPEAKER_00 · Priya Natarajan',
+      ),
+    )
   })
 
   it('names the stage a failed rerun broke at, and keeps the names saved', async () => {
