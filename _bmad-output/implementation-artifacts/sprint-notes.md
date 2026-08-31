@@ -3199,3 +3199,41 @@ review branch: `make test-fast` 1,944 passed / 2 named skips / 378 deselected;
 `make test` 2,322 server tests passed / 2 named skips plus puller, evals,
 diarization-extra, web tests, and production build. Report:
 `review-story-7-2-2026-08-30.md`.
+
+## 7-2 landed, 2026-08-30 ~20:40 — speaker tags reach the wire
+
+`main` at `d825769`. `GET /meetings/{meetingId}/speakers` is one read-only
+aggregation over the transcript segments story 7.1 already tags: one row per
+voice with `speakerLabel`, `speakerResolution`, nullable
+`participantId`/`displayName`, `talkTimeMs`, `segmentCount`, and
+`sampleOffsetsMs` — the `startMs` of the tag's three longest segments, never
+padded. No migration; every column already existed. Registration is the file
+itself, so `api/main.py` was untouched (story 2.8's discovery still holds).
+
+**The generated TS client is regenerated and committed on this branch** —
+`index.ts`, `sdk.gen.ts`, `types.gen.ts` — reproducibly from an in-process
+`app.openapi()` dump with no api started. So `make client` is NOT owed at
+integration; the committed client already matches the api.
+
+**Review found one and fixed it red-first:** `participantId` and `displayName`
+were optional in the OpenAPI schema and the generated client, rather than
+required-but-nullable. A consumer could not tell "no participant resolved"
+from "the field was omitted" — which for this route is the whole point, since
+an unresolved tag is a first-class answer.
+
+**The one-shape criterion was proved by construction, not asserted.** The
+diarized meeting and the name-carrying meeting are seeded from a single timing
+table, so "identical talk time and sample offsets" is checked by comparing two
+live payloads rather than two hand-written expectations. Story 6.3 landing
+mid-build made the Zoom half real: a converted Zoom name reaches
+`transcript_segment` by the same path a Teams label takes, and this route reads
+the columns without caring about lineage.
+
+**AD-13 held under attack.** Reverting `displayName`'s fallback so it returns
+the raw `SPEAKER_NN` label turns three tests red, including the one-shape
+criterion — a tag resolves to a person only when the source or an alias says
+so, never by guessing.
+
+**Unblocks 7-3** (speaker assignment), which writes `PUT
+/meetings/{id}/speakers/{tag}` into this same route file and was held for
+exactly that reason.
