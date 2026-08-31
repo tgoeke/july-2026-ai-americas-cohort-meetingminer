@@ -25,7 +25,13 @@ FFMPEG = "ffmpeg"
 # ffprobe reads headers only; a hang here means something is badly wrong.
 # ffmpeg deliberately gets no timeout: sampling a multi-hour recording is
 # legitimate work and a wall-clock cap would fail long meetings at random.
-FFPROBE_TIMEOUT_SECONDS = 120
+# Measured 2026-08-31 against the demo corpus: `-show_frames` on a 96-minute
+# committee recording took 164s and emitted 4.7M lines of JSON, so 120s failed
+# every long meeting at the `frames` stage. This is a guard against a wedged
+# process, not a performance budget, so it is set well clear of the longest
+# recording the 180-minute acquisition cap allows. `youtube.py` already used
+# 300s for its own probe; this was the inconsistent one.
+FFPROBE_TIMEOUT_SECONDS = 600
 
 FRAME_FILENAME_TEMPLATE = "frame-%06d.jpg"
 FRAME_FILENAME_GLOB = "frame-*.jpg"
