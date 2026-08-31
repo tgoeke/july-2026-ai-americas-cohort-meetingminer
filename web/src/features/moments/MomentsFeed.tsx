@@ -235,7 +235,12 @@ export function MomentsFeed({ onOpenMoment, onOpenMeeting, onOpenThread }: Momen
 
       {items !== null && items.length > 0 && (
         <>
-          <div className="mt-3 grid grid-cols-1 gap-5 xl:grid-cols-2 2xl:grid-cols-3">
+          {/* DESIGN.md · Layout & Spacing owns these numbers: three columns at
+              >=1440px, two at 1280-1439, one below. Written as explicit
+              min-widths rather than Tailwind's xl/2xl, whose 1280/1536
+              breakpoints would give the 1280x800 recording target one
+              column fewer than the design states. */}
+          <div className="mt-3 grid grid-cols-1 gap-5 min-[1280px]:grid-cols-2 min-[1440px]:grid-cols-3">
             {items.map((item) => (
               <MomentCard
                 key={item.momentId}
