@@ -327,12 +327,13 @@ def test_a_selection_never_mutates_the_configured_role(
     capture_chat_binding: list[Any],
 ) -> None:
     """The loaded config is process-wide; one request's choice is not another's."""
+    configured_model = _roles(app_config).chat.model
     client.put(
         "/settings/roles/chat", json={"binding": _alternative(app_config, "chat")}
     )
     client.post("/chat", json={"question": "what happened?"})
 
-    assert _roles(app_config).chat.model == _roles(app_config).chat.model
+    assert _roles(app_config).chat.model == configured_model
     assert capture_chat_binding[0] is not _roles(app_config).chat
 
 
