@@ -116,6 +116,26 @@ INSERT INTO topic_mention (topic_id, moment_id, meeting_id, anchor_ms)
 VALUES (%(topic_id)s, %(moment_id)s, %(meeting_id)s, %(anchor_ms)s)
 """
 
+# Story 10.4: rerun replaces, exactly as it does for topics. Ranking signals
+# are machine-derived rows with no lifecycle — no human ever approved one, so
+# a rerun cannot destroy anything somebody chose — and the feed must never
+# rank a meeting on a risk that a re-extraction no longer finds. Run before
+# the early exit for the reason `_DELETE_TOPICS` is: a meeting that lost its
+# transcript must not keep last run's signals.
+_DELETE_RANKING_SIGNALS = "DELETE FROM ranking_signal WHERE meeting_id = %s"
+
+# No `state` column exists to write (migration 0018): a ranking signal never
+# enters the artifact approval lifecycle, so unlike `_INSERT_ARTIFACT` below
+# there is not even a default for this stage to lean on.
+_INSERT_RANKING_SIGNAL = """
+INSERT INTO ranking_signal (
+    meeting_id, moment_id, kind, label, detail, anchor_ms, item_id, provenance
+) VALUES (
+    %(meeting_id)s, %(moment_id)s, %(kind)s, %(label)s, %(detail)s,
+    %(anchor_ms)s, %(item_id)s, %(provenance)s
+)
+"""
+
 # `state` is deliberately absent: it lands as the column default 'extracted',
 # which is the whole of this stage's contact with the lifecycle column (AD-5).
 _INSERT_ARTIFACT = """
@@ -339,6 +359,10 @@ def run(ctx: StageContext) -> None:
     # Before the early exit, deliberately: a meeting that lost its
     # transcript must not keep last run's topics any more than its sources.
     deleted_topics = ctx.conn.execute(_DELETE_TOPICS, (ctx.meeting_id,)).rowcount
+    # Same rule, same reason, one story later (10.4).
+    deleted_signals = ctx.conn.execute(
+        _DELETE_RANKING_SIGNALS, (ctx.meeting_id,)
+    ).rowcount
 
     artifact_counts: dict[str, int] = {kind: 0 for kind in sorted(core.KNOWN_KINDS)}
     documents: dict[str, dict[str, object]] = {}
@@ -367,6 +391,8 @@ def run(ctx: StageContext) -> None:
             topics=0,
             topic_mentions=0,
             topics_replaced=deleted_topics,
+            ranking_signals={"risk": 0, "question": 0},
+            ranking_signals_replaced=deleted_signals,
             models=[],
             fallback_engaged=False,
             prompt_version=core.PROMPT_VERSION,
@@ -624,6 +650,129 @@ def run(ctx: StageContext) -> None:
         "artifacts": topics_inserted,
     }
 
+    # --- the ranking-signals pass (story 10.4) -------------------------------
+    # Risks and open questions, through the same `Llm(extraction)` port, the
+    # same strict parser and the same one-retry discipline as everything
+    # above. Always generated, never adopted: no drop declares one.
+    #
+    # What makes these rows different from the artifacts fifty lines up is
+    # the whole point of the story, so it is written here rather than left to
+    # be inferred: they are ranking signals, not artifacts. There is no
+    # `state` to set, no approve route that can reach them, no export to
+    # `MM_PUBLISH_ROOT`, and a rerun replaced them outright before the early
+    # exit above. They exist so `GET /moments/feed` can rank without calling
+    # a model at request time.
+    #
+    # The prompt is `ranking.signals_prompt` rather than a field on the
+    # extraction role binding; `config.yaml` records why (B-41).
+    signals_template = ctx.config.settings.ranking.signals_prompt
+    parsed_signals, signals_reply = _generate(
+        llm,
+        core.build_prompt(
+            core.DOC_RANKING_SIGNALS,
+            transcript,
+            template=signals_template,
+            meeting_title=bundle.title,
+            meeting_date=_meeting_date(bundle),
+        ),
+        options,
+        core.DOC_RANKING_SIGNALS,
+    )
+    models_used.add(signals_reply.model)
+    fallback_engaged = fallback_engaged or signals_reply.fallback_engaged
+    signals_prompt_hash = hashlib.sha256(signals_template.encode()).hexdigest()[:16]
+    signals_digest, signals_byte_size = _digest_of(signals_reply.text)
+
+    signal_counts: dict[str, int] = {
+        kind: 0 for kind in sorted(core.RANKING_SIGNAL_KINDS)
+    }
+    for proposal in parsed_signals.artifacts:
+        try:
+            moment_id = core.resolve_anchor(proposal.anchor_ms, bundle.moments)
+        except core.AnchorResolutionError as exc:
+            raise StageError(
+                f"ranking signal {proposal.item_id} ({proposal.title!r}) from the"
+                f" {core.DOC_RANKING_SIGNALS} document cannot be anchored: {exc}"
+            ) from exc
+        # Approved moments are NOT skipped, for the reason topics are not:
+        # these rows are outside the artifact lifecycle, so what a human did
+        # to a moment's artifact set says nothing about whether the meeting
+        # raised a risk there. A superseded moment is still a ghost no reader
+        # is shown, and the skip is named rather than merely counted.
+        if moment_id in superseded:
+            ctx.log(
+                "stage.extract.ranking_signal_discarded",
+                meeting_id=ctx.meeting_id,
+                item_id=proposal.item_id,
+                kind=proposal.kind,
+                label=proposal.title,
+                moment_id=moment_id,
+                anchor_ms=proposal.anchor_ms,
+                reason="superseded-moment",
+            )
+            continue
+        ctx.conn.execute(
+            _INSERT_RANKING_SIGNAL,
+            {
+                "meeting_id": ctx.meeting_id,
+                "moment_id": moment_id,
+                "kind": proposal.kind,
+                "label": proposal.title,
+                "detail": core.signal_detail(proposal),
+                "anchor_ms": proposal.anchor_ms,
+                "item_id": proposal.item_id,
+                "provenance": Jsonb(
+                    {
+                        "role": "extraction",
+                        "source": ORIGIN_GENERATED,
+                        "model": signals_reply.model,
+                        "fallback_engaged": signals_reply.fallback_engaged,
+                        "prompt_version": core.PROMPT_VERSION,
+                        "prompt_hash": signals_prompt_hash,
+                        "document_kind": core.DOC_RANKING_SIGNALS,
+                        "layout": proposal.layout,
+                        "item_id": proposal.item_id,
+                    }
+                ),
+            },
+        )
+        signal_counts[proposal.kind] += 1
+
+    signals_inserted = sum(signal_counts.values())
+    ctx.conn.execute(
+        _UPSERT_EXTRACTION_SOURCE,
+        {
+            "meeting_id": ctx.meeting_id,
+            "kind": core.DOC_RANKING_SIGNALS,
+            "origin": ORIGIN_GENERATED,
+            "drop_relative_path": None,
+            "sha256": signals_digest,
+            "byte_size": signals_byte_size,
+            "layout": parsed_signals.layout,
+            "item_count": len(parsed_signals.artifacts),
+            "artifact_count": signals_inserted,
+            "model": signals_reply.model,
+            "prompt_version": core.PROMPT_VERSION,
+            "prompt_hash": signals_prompt_hash,
+        },
+    )
+    documents[core.DOC_RANKING_SIGNALS] = {
+        "origin": ORIGIN_GENERATED,
+        "layout": parsed_signals.layout,
+        "items": len(parsed_signals.artifacts),
+        "artifacts": signals_inserted,
+    }
+    if not parsed_signals.artifacts and parsed_signals.populated_target_sections:
+        # The same §8 check the two artifact documents get. Deliberately keyed
+        # on *populated sections* rather than on meeting content, unlike the
+        # zero-topics signal below: a meeting genuinely may raise no risks and
+        # no open questions, and logging every such meeting as a signal would
+        # train an operator to ignore the line. A populated Risks table that
+        # parsed to nothing is a different thing entirely.
+        zero_signals.append(
+            (core.DOC_RANKING_SIGNALS, parsed_signals.populated_target_sections)
+        )
+
     ctx.log(
         "stage.extract.summary",
         meeting_id=ctx.meeting_id,
@@ -644,6 +793,8 @@ def run(ctx: StageContext) -> None:
         topics=topics_inserted,
         topic_mentions=mentions_inserted,
         topics_replaced=deleted_topics,
+        ranking_signals=signal_counts,
+        ranking_signals_replaced=deleted_signals,
         models=sorted(models_used),
         fallback_engaged=fallback_engaged,
         prompt_version=core.PROMPT_VERSION,
