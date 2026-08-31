@@ -74,7 +74,7 @@ describe('review F6 — adopted card and control treatments', () => {
       vi.fn(() =>
         Promise.resolve(
           new Response(
-            JSON.stringify({ items: [item()], total: 1, limit: 24, offset: 0 }),
+            JSON.stringify({ items: [item()], total: 1, unfilteredTotal: 1, limit: 24, offset: 0 }),
             { status: 200, headers: { 'Content-Type': 'application/json' } },
           ),
         ),

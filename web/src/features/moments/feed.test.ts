@@ -91,7 +91,13 @@ describe('hasActiveFilters', () => {
 
 describe('parseFeedResponse', () => {
   it('reads the envelope and its items', () => {
-    const page = parseFeedResponse({ items: [item()], total: 24, limit: 24, offset: 0 })
+    const page = parseFeedResponse({
+      items: [item()],
+      total: 24,
+      unfilteredTotal: 24,
+      limit: 24,
+      offset: 0,
+    })
     expect(page.total).toBe(24)
     expect(page.items[0].momentId).toBe('moment-1')
     expect(page.items[0].threads[0].colorOrdinal).toBe(1)
@@ -101,17 +107,17 @@ describe('parseFeedResponse', () => {
   it('refuses an item with no reason rather than rendering an unexplained card', () => {
     // Story 10.4 drops these before pagination. One that escapes would make
     // the header count a lie, so it is a page-level error, not a quiet card.
-    expect(() => parseFeedResponse({ items: [item({ reasons: [] })], total: 1 })).toThrow(
+    expect(() => parseFeedResponse({ items: [item({ reasons: [] })], total: 1, unfilteredTotal: 1 })).toThrow(
       FeedContractError,
     )
-    expect(() => parseFeedResponse({ items: [item({ reasons: [] })], total: 1 })).toThrow(
+    expect(() => parseFeedResponse({ items: [item({ reasons: [] })], total: 1, unfilteredTotal: 1 })).toThrow(
       /items\[0\]: reasons\[\] must be non-empty/,
     )
   })
 
   it('names the field and the item when a required value is missing', () => {
     expect(() =>
-      parseFeedResponse({ items: [{ ...item(), momentId: undefined }], total: 1 }),
+      parseFeedResponse({ items: [{ ...item(), momentId: undefined }], total: 1, unfilteredTotal: 1 }),
     ).toThrow(/items\[0\]: momentId/)
   })
 
@@ -121,7 +127,7 @@ describe('parseFeedResponse', () => {
   })
 
   it('refuses an envelope that omits its required paging fields', () => {
-    expect(() => parseFeedResponse({ items: [item()] })).toThrow(/total/)
+    expect(() => parseFeedResponse({ items: [item()], unfilteredTotal: 1 })).toThrow(/total/)
   })
 })
 

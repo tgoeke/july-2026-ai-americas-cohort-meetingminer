@@ -11,7 +11,7 @@ describe('review F14 — url filter visibility', () => {
       'fetch',
       vi.fn(() =>
         Promise.resolve(
-          new Response(JSON.stringify({ items: [], total: 0, limit: 24, offset: 0 }), {
+          new Response(JSON.stringify({ items: [], total: 0, unfilteredTotal: 0, limit: 24, offset: 0 }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
           }),

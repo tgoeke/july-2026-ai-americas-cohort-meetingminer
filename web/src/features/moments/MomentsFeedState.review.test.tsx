@@ -25,7 +25,7 @@ function item(momentId: string) {
 }
 
 function response(items: Array<ReturnType<typeof item>>, total: number, offset = 0) {
-  return new Response(JSON.stringify({ items, total, limit: 24, offset }), {
+  return new Response(JSON.stringify({ items, total, unfilteredTotal: total, limit: 24, offset }), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   })

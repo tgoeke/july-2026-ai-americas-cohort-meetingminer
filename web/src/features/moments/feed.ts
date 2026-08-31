@@ -80,10 +80,12 @@ export interface MomentFeedItem {
   reasons: Array<FeedReason>
 }
 
-/** The paged envelope: `{items, total, limit, offset}`. */
+/** The paged envelope. `total` is filtered; `unfilteredTotal` is the same
+ * eligible set before any optional feed filter is applied. */
 export interface MomentFeedResponse {
   items: Array<MomentFeedItem>
   total: number
+  unfilteredTotal: number
   limit: number
   offset: number
 }
@@ -278,12 +280,16 @@ export function parseFeedResponse(body: unknown): MomentFeedResponse {
   }
   const items = row.items.map(itemOf)
   const total = requirePageInteger(row, 'total', 0)
+  const unfilteredTotal = requirePageInteger(row, 'unfilteredTotal', 0)
   const limit = requirePageInteger(row, 'limit', 1)
   const offset = requirePageInteger(row, 'offset', 0)
   if (offset + items.length > total) {
     throw new FeedContractError('the feed response: offset + items.length must not exceed total')
   }
-  return { items, total, limit, offset }
+  if (total > unfilteredTotal) {
+    throw new FeedContractError('the feed response: total must not exceed unfilteredTotal')
+  }
+  return { items, total, unfilteredTotal, limit, offset }
 }
 
 /**
@@ -331,8 +337,14 @@ export function screenshotUrl(screenshotId: string): string {
  * The counted section header (`DESIGN.md` · Section header): `Moments 24`
  * unfiltered, `Moments 6 of 24` once a filter narrows it.
  */
-export function momentsHeaderCount(shown: number, total: number, filtered: boolean): string {
-  return filtered && shown !== total ? `${shown} of ${total}` : String(total)
+export function momentsHeaderCount(
+  total: number,
+  unfilteredTotal: number,
+  filtered: boolean,
+): string {
+  return filtered && total !== unfilteredTotal
+    ? `${total} of ${unfilteredTotal}`
+    : String(unfilteredTotal)
 }
 
 /** The ISO date a moment is dated by — `2026-08-14` — or `null` when the api

@@ -27,7 +27,7 @@ function item(momentId: string, overrides: Partial<MomentFeedItem> = {}): Moment
 }
 
 function response(items: Array<MomentFeedItem>, total: number, offset = 0) {
-  return new Response(JSON.stringify({ items, total, limit: 24, offset }), {
+  return new Response(JSON.stringify({ items, total, unfilteredTotal: total, limit: 24, offset }), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   })
