@@ -259,6 +259,21 @@ describe('Add-meeting, the pre-flight probe', () => {
     expect(sdk.startAcquisition).not.toHaveBeenCalled()
   })
 
+  it('disables Submit immediately when an answered URL is replaced', async () => {
+    sdk.probeAcquisition.mockResolvedValue({ data: probeResult(), error: undefined })
+    render(<AddMeeting />)
+    await typeUrl(VIDEO_URL)
+    expect(screen.getByTestId('submit-acquisition')).toBeEnabled()
+
+    fireEvent.change(screen.getByTestId('youtube-url'), {
+      target: { value: 'https://youtu.be/aaaaaaaaaaa' },
+    })
+
+    expect(screen.getByTestId('submit-acquisition')).toBeDisabled()
+    expect(screen.getByText('Waiting for the pre-flight check.')).toBeInTheDocument()
+    expect(sdk.probeAcquisition).toHaveBeenCalledTimes(1)
+  })
+
   it('reports a video with no captions as a fact, not a refusal', async () => {
     sdk.probeAcquisition.mockResolvedValue({
       data: probeResult({ captions: null }),
