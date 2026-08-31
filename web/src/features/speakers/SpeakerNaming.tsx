@@ -82,7 +82,14 @@ function stampNow(): string {
  * take the screen away at exactly the moment story 7.3 built an exception to
  * keep it.
  */
-export function SpeakerNaming({ meetingId, onBack }: SpeakerNamingProps) {
+export function SpeakerNaming(props: SpeakerNamingProps) {
+  // React Router reuses a route element when only a path parameter changes.
+  // Key the stateful screen by the meeting identity so the old meeting's rows
+  // cannot survive even one render with the new request path.
+  return <SpeakerNamingForMeeting key={props.meetingId} {...props} />
+}
+
+function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
   // `null` is "never answered". Once a read has answered, its rows survive a
   // later refusal — see the class comment.
   const [speakers, setSpeakers] = useState<Array<SpeakerTag> | null>(null)
