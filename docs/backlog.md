@@ -239,6 +239,57 @@ without editing `config.yaml`, the report and snapshot record that exact
 binding, and paired tests fail if either the settings surface or judge harness
 can drift from the other.
 
+### B-42 · Serve provider health per provider, not per role — M
+
+The model picker (story 8.3) shows each catalog entry's provider health, and
+the only place the api reports key state today is `GET /status.llmRoles[]` —
+one row per configured role, carrying that role's `provider`, `keyState`,
+`state` and remediation. `providerHealthIndex`
+(`web/src/features/settings/models.ts`) therefore joins by exact provider id
+and keeps the worst row for a provider.
+
+For a credential that is exactly right: `OPENAI_API_KEY` being missing is a
+fact about the provider, true for every option on it. Endpoint reachability is
+not. `llm.roles.extraction` has its own `base_url` (a different Ollama host
+from `providers.ollama`), so an unreachable extraction host makes every
+`ollama/…` option read `unreachable`, including one whose call would resolve
+through the provider endpoint that is answering. The remediation sentence names
+the host, so a reader can see which machine is meant, but the word beside the
+option is broader than the evidence behind it.
+
+**Do:** story 8.2a's `GET /status.providers[]` — health per provider id, probed
+once per provider rather than once per role. `providerHealthIndex` then reads
+it directly and the role rows stop standing in for it.
+
+**Done when:** an option's health word comes from a probe of the endpoint that
+option's call would actually use, and a role-specific `base_url` outage no
+longer colours options bound to a different endpoint.
+
+### B-43 · Render a failed binding as its own refusal beside the answer — S
+
+Story 8.3's clause is that a failed binding surfaces where it happens. In the
+picker it does: the entry is muted and carries its remediation. At the ask, a
+`urn:meetingminer:problem:binding-failed` 502 reaches `ChatPanel` through
+`classifyFailure`'s generic `problem` kind and renders as "The api at … could
+not answer that question: `<detail>`" — the api's own sentence, naming the
+provider, the binding and the upstream status, so nothing is hidden or
+misattributed.
+
+What the design asks for and this does not do (EXPERIENCE.md § Ask box) is
+render it as a refusal box in the answer region *without clearing the previous
+answer*: today every failure clears the answer, so a binding change that fails
+costs the reader the answer they were reading. Story 8.3 left it alone
+deliberately — its footprint is a minimal insertion into the ask box, and the
+clearing rule is shared by all five failure kinds, so changing it is a change
+to chat's failure taxonomy rather than to the picker.
+
+**Do:** give `binding-failed` its own kind in `features/chat/chat.ts`, render it
+as a refusal box, and leave `answer`/`citations`/`route` untouched when it
+arrives.
+
+**Done when:** a binding failure on a re-ask leaves the previous cited answer on
+screen with the refusal beneath it, and no other failure kind changes behaviour.
+
 ## Robustness and hygiene
 
 ### B-15 · Stop embed-only projection from opening Neo4j — S

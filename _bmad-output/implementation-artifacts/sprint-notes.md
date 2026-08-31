@@ -3836,3 +3836,46 @@ the api's own resolution word instead.
 Gates: `make test-fast` 2173 passed, 3 skipped (pre-existing, named); lint,
 typecheck and check-client clean; web suite 365 across 20 files with story
 2.2's own tests untouched.
+
+## Story 8.3 — Model Picker UI (2026-08-31)
+
+Built into `review`. The picker mounts twice — a popover in the ask box's
+header row bound to `chat`, and a per-role list on Settings — over one hook
+that owns both reads and the one write.
+
+**The screen's job is to keep a promise about what is being called.** Nothing
+beside a binding is authored: the provider comes from `GET /settings/models`,
+which the server derived with `domain/model_providers.provider_for_model`, and
+locality and cost are keyed on that provider id. `ollama` is local and free;
+`openai`, `anthropic` and `openrouter` are remote and paid. A provider the
+table does not classify says so instead of guessing — a wrong claim about cost
+is worse than an absent one, and a catalog label that disagreed with its
+provider changes nothing.
+
+**Health came from the role rows, not a provider array.** EXPERIENCE.md joins
+each option to `GET /status.providers[]`, which story 8.2a has not built. The
+only key state the api reports today is per role, so the join is by provider id
+across `llmRoles[]`, worst row winning. A missing key is genuinely
+provider-wide; endpoint reachability is not, because extraction has its own
+`base_url` — filed as **B-42** with the exact shape of the overstatement.
+
+**What "surfaces where it happens" meant in practice.** A muted option is still
+selectable, never `aria-disabled`, never filtered out — choosing a broken
+binding has to fail at the ask. At the ask itself, the `binding-failed` 502
+already renders the api's own sentence (provider, binding, upstream status)
+through chat's existing `problem` kind. What the design also wants — a refusal
+box that does not clear the previous answer — is a change to chat's five-kind
+failure taxonomy rather than to the picker, so it is **B-43** rather than a
+quiet widening of a minimal insertion.
+
+**Two corrections to the surrounding copy, both forced by the change.** The
+Settings page's "there is no edit control and never will be" is now false, so
+it names its one exception. And per the coordinator's mid-build note: a
+selection is a Postgres row read per request, so no copy on that path mentions
+a restart; the catalog is the api's startup snapshot of `config.yaml`, and the
+Settings surface says that once. `source` is rendered honestly — an inherited
+file default is never dressed up as a deliberate pick.
+
+`make test-fast` had one failure and it was not this story's: a frame-image
+test blew the 2.00s fast-set budget at 2.15s under six concurrent worktree
+builds, and runs in 0.01s alone.

@@ -119,7 +119,7 @@ development_status:
   8-1-ad-10-amendment-and-binding-catalog: done
   8-2-persisted-selection: done
   8-2a-provider-health-on-the-status-surface: backlog
-  8-3-model-picker-ui: backlog
+  8-3-model-picker-ui: review
   epic-8-retrospective: optional
 
   epic-9: backlog
