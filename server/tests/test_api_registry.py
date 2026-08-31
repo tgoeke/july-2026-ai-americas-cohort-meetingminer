@@ -82,11 +82,22 @@ BASELINE_ROUTER_ORDER = [
     # by name. `/structure` has no parameterized sibling anywhere, so its
     # position carries no matching hazard.
     "structure",
-    # Story 10.3: `threads.py` is default-order too, sorting after `structure`
-    # by name. Its literal `/threads` and parameterized
+    # Story 10.2a: `thread_curation.py` is default-order too, sorting between
+    # `structure` and `threads` by name — so it is now a second module
+    # claiming a `/threads` prefix, which the note below no longer gets to
+    # assume away. Its position still carries no matching hazard, and the
+    # reason is shape rather than order: its routes are `PATCH
+    # /threads/{thread_id}`, `POST /threads/{thread_id}/merge` and `POST
+    # /threads/{thread_id}/split`, against `threads.py`'s `GET /threads` and
+    # `GET /threads/{thread_id}/timeline`. No parameterized route here can
+    # swallow a literal there — `/threads/{thread_id}` cannot match the
+    # one-segment `/threads` at all, and every three-segment route ends in a
+    # literal that differs.
+    "thread_curation",
+    # Story 10.3: `threads.py` is default-order too, sorting after
+    # `thread_curation` by name. Its literal `/threads` and parameterized
     # `/threads/{thread_id}/timeline` are declared literal-first inside the one
-    # router (the `media.py` way) and no other module claims a `/threads`
-    # prefix, so its position carries no matching hazard.
+    # router (the `media.py` way).
     "threads",
 ]
 

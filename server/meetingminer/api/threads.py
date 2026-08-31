@@ -57,6 +57,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
 from meetingminer.api.problems import Problem, ProblemDetails
+from meetingminer.domain.thread_curation import (
+    CURATED_NAME_EXPR,
+    CURATED_NAME_IS_CURATED_EXPR,
+    CURATED_NAME_JOIN,
+    EFFECTIVE_MEMBERSHIP,
+)
 from meetingminer.domain.thread_timeline import (
     LEVELS,
     Level,
@@ -86,6 +92,28 @@ EXCERPT_MAX_CHARS = 300
 # than was served, so a caller narrows the window rather than believing a
 # short list.
 MOMENT_LEVEL_LIMIT = 500
+
+# **This module never reads `topic_thread` directly** (story 10.2a). Every
+# query below reads it through `domain/thread_curation.EFFECTIVE_MEMBERSHIP`
+# instead: the stored derivation with the human's merges and splits applied.
+# Substituted for the table name, so each query's existing `tt.` references
+# are unchanged and the conversion is one token per site rather than a rewrite.
+#
+# Two consequences worth stating, because both are contracts of this route:
+#
+# * A curation is visible on the **very next request**, not at the next
+#   derivation. A user who merges two threads and is then shown the two
+#   unchanged bands has been told their correction did not take, and no later
+#   explanation undoes that.
+# * A thread merged away has no effective memberships, so the INNER JOIN in
+#   `_THREAD_LIST` drops it from the list while its row — and its
+#   `color_ordinal` — survives untouched, exactly as the derivation's own
+#   emptied identity rows do.
+#
+# The same fragment resolves the derivation's writes and the graph
+# projection's reads, so the three cannot disagree about which thread holds a
+# topic.
+_MEMBERSHIP = f"({EFFECTIVE_MEMBERSHIP})"
 
 
 def _occurred_at_sql(offset_column: str, meeting_alias: str = "mt") -> str:
@@ -117,28 +145,42 @@ def _occurred_at_sql(offset_column: str, meeting_alias: str = "mt") -> str:
 # two threads whose last mention is the same instant do not swap places
 # between requests; the view sorts by activity or recency itself, from the two
 # counts and the two instants served here.
+#
+# `name` is the curated name where one exists and the derived name otherwise,
+# with `nameIsCurated` saying which — a reader must be able to tell a human
+# name from a machine one, and a route that served only the winner would make
+# that undecidable from the response.
 _THREAD_LIST = (
-    "SELECT th.id, th.name, th.color_ordinal, COUNT(*),"
+    f"SELECT th.id, {CURATED_NAME_EXPR}, th.color_ordinal, COUNT(*),"
     " COUNT(DISTINCT tm.meeting_id),"
     f" MIN({_occurred_at_sql('tm.anchor_ms')}),"
-    f" MAX({_occurred_at_sql('tm.anchor_ms')})"
+    f" MAX({_occurred_at_sql('tm.anchor_ms')}),"
+    f" {CURATED_NAME_IS_CURATED_EXPR}"
     " FROM thread th"
-    " JOIN topic_thread tt ON tt.thread_id = th.id"
+    f"{CURATED_NAME_JOIN}"
+    f" JOIN {_MEMBERSHIP} tt ON tt.thread_id = th.id"
     " JOIN topic_mention tm ON tm.topic_id = tt.topic_id"
     " JOIN meeting mt ON mt.id = tm.meeting_id"
-    " GROUP BY th.id, th.name, th.color_ordinal"
+    f" GROUP BY th.id, {CURATED_NAME_EXPR}, th.color_ordinal,"
+    f" {CURATED_NAME_IS_CURATED_EXPR}"
     " ORDER BY MAX("
     f"{_occurred_at_sql('tm.anchor_ms')}) DESC, th.id"
 )
 
-_THREAD_ROW = "SELECT id, name, color_ordinal FROM thread WHERE id = %(thread_id)s"
+_THREAD_ROW = (
+    f"SELECT th.id, {CURATED_NAME_EXPR}, th.color_ordinal,"
+    f" {CURATED_NAME_IS_CURATED_EXPR}"
+    " FROM thread th"
+    f"{CURATED_NAME_JOIN}"
+    " WHERE th.id = %(thread_id)s"
+)
 
 # The thread's own span, which is the default window: a client that names no
 # `from`/`to` gets the whole history rather than an arbitrary recent slice.
 _THREAD_SPAN = (
     f"SELECT MIN({_occurred_at_sql('tm.anchor_ms')}),"
     f" MAX({_occurred_at_sql('tm.anchor_ms')})"
-    " FROM topic_thread tt"
+    f" FROM {_MEMBERSHIP} tt"
     " JOIN topic_mention tm ON tm.topic_id = tt.topic_id"
     " JOIN meeting mt ON mt.id = tm.meeting_id"
     " WHERE tt.thread_id = %(thread_id)s"
@@ -156,7 +198,7 @@ _THREAD_MENTIONS = (
     " mt.title AS meeting_title, mt.corpus, mt.has_recording,"
     " mt.started_at_precision AS precision,"
     f" {_occurred_at_sql('tm.anchor_ms')} AS occurred_at"
-    " FROM topic_thread tt"
+    f" FROM {_MEMBERSHIP} tt"
     " JOIN topic_mention tm ON tm.topic_id = tt.topic_id"
     " JOIN meeting mt ON mt.id = tm.meeting_id"
     " WHERE tt.thread_id = %(thread_id)s"
@@ -193,7 +235,7 @@ _MEETING_TOPICS = (
     "SELECT m.meeting_id, m.topic_id, t.name, tt.linked_by"
     f" FROM ({_THREAD_MENTIONS}) m"
     " JOIN topic t ON t.id = m.topic_id"
-    " JOIN topic_thread tt ON tt.topic_id = m.topic_id"
+    f" JOIN {_MEMBERSHIP} tt ON tt.topic_id = m.topic_id"
     " WHERE m.occurred_at >= %(window_from)s AND m.occurred_at <= %(window_to)s"
     " GROUP BY m.meeting_id, m.topic_id, t.name, tt.linked_by"
     " ORDER BY m.meeting_id, t.name, m.topic_id"
@@ -226,7 +268,7 @@ _MOMENTS_LEVEL = (
     " mt.has_recording, mt.started_at_precision AS precision,"
     f" {_occurred_at_sql('mo.start_ms')} AS occurred_at"
     " FROM moment mo JOIN meeting mt ON mt.id = mo.meeting_id"
-    " WHERE mo.id IN (SELECT tm.moment_id FROM topic_thread tt"
+    f" WHERE mo.id IN (SELECT tm.moment_id FROM {_MEMBERSHIP} tt"
     " JOIN topic_mention tm ON tm.topic_id = tt.topic_id"
     " JOIN meeting anchor_mt ON anchor_mt.id = tm.meeting_id"
     " WHERE tt.thread_id = %(thread_id)s"
@@ -246,7 +288,7 @@ _MOMENTS_LEVEL = (
 # so the label is stable across requests.
 _MOMENT_TITLES = (
     "SELECT DISTINCT ON (tm.moment_id) tm.moment_id, t.name"
-    " FROM topic_thread tt"
+    f" FROM {_MEMBERSHIP} tt"
     " JOIN topic_mention tm ON tm.topic_id = tt.topic_id"
     " JOIN topic t ON t.id = tt.topic_id"
     " WHERE tt.thread_id = %(thread_id)s AND tm.moment_id = ANY(%(moment_ids)s)"
@@ -312,6 +354,12 @@ class ThreadSummary(_Camel):
     # Allocated once by migration 0017's sequence and immutable afterwards, so
     # a colour derived from it survives re-sorting, renaming and merging.
     color_ordinal: int
+    # Whether `name` came from a human (story 10.2a's `thread_curation`) or
+    # from the derivation's seed topic. Served on every row, defaulting to
+    # false, so a client can label a curated band without a second request and
+    # an un-curated corpus is unchanged on the wire in everything but this one
+    # boolean.
+    name_is_curated: bool = False
 
 
 class ThreadsResponse(_Camel):
@@ -520,6 +568,7 @@ def list_threads(request: Request) -> ThreadsResponse:
                 first_mention_at=format_rfc3339(first_at),
                 last_mention_at=format_rfc3339(last_at),
                 color_ordinal=color_ordinal,
+                name_is_curated=name_is_curated,
             )
             for (
                 thread_id,
@@ -529,6 +578,7 @@ def list_threads(request: Request) -> ThreadsResponse:
                 meeting_count,
                 first_at,
                 last_at,
+                name_is_curated,
             ) in rows
         ]
     )
@@ -564,7 +614,10 @@ def get_thread_timeline(
         thread = conn.execute(_THREAD_ROW, {"thread_id": thread_id}).fetchone()
         if thread is None:
             raise Problem(404, "not-found", f"no thread with id {thread_id}")
-        _, name, color_ordinal = thread
+        # The curated name where there is one: the timeline header must call
+        # the thread what the list called it, or a user who renamed a thread
+        # would find the old machine name waiting inside it.
+        _, name, color_ordinal, _name_is_curated = thread
 
         span_from, span_to = conn.execute(
             _THREAD_SPAN, {"thread_id": thread_id}
