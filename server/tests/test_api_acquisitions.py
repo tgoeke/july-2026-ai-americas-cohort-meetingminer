@@ -835,7 +835,7 @@ def test_an_intake_failure_is_failed_and_names_the_repost_command(
     assert final.status == "failed"
 
     body = client.get(f"/acquisitions/{record.acquisition_id}").json()
-    assert body["refusal"]["rule"] == "unclassified"
+    assert body["refusal"]["rule"] == "intake-failed"
     assert "is the api running?" in body["refusal"]["detail"]
     remediation = body["refusal"]["remediation"]
     assert "/ingests" in remediation
@@ -940,6 +940,7 @@ def test_the_status_buckets_pin_the_complete_rule_partition() -> None:
         "existing-drop-incomplete",
         "playlist-unreadable",
         "mint-refused",
+        "intake-failed",
         "config",
         "unclassified",
     }
@@ -980,6 +981,7 @@ def test_every_remediation_keeps_its_rule_specific_action() -> None:
         "playlist-empty": "no entries",
         "entry-not-a-video": "no YouTube video",
         "mint-refused": "could not be assembled",
+        "intake-failed": "finalized drop",
         "config": "configuration refused",
         "unclassified": "cannot classify",
     }
