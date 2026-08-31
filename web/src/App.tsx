@@ -17,6 +17,7 @@ import { CorpusStats } from '@/features/home/CorpusStats'
 import { MeetingsList } from '@/features/meetings/MeetingsList'
 import { MomentsFeed } from '@/features/moments/MomentsFeed'
 import { CorpusSearch } from '@/features/search/CorpusSearch'
+import { areSingleKeyShortcutsEnabled } from '@/features/settings/singleKeyShortcuts'
 import { StatusIndicator } from '@/features/status/StatusIndicator'
 import { API_BASE } from '@/lib/api'
 import { useOpenPath } from '@/routes/navigation'
@@ -133,6 +134,7 @@ function Shell() {
   const { pathname } = useLocation()
   const navigate = useNavigate()
   const openPath = useOpenPath()
+  const chordArmed = useRef(false)
   // A child screen is open when a discovered route matches. The unknown-path
   // catch-all is deliberately not a discovered route, so a stray URL shows the
   // front door rather than a blank shell with a Back control.
@@ -150,6 +152,52 @@ function Shell() {
   useEffect(() => {
     document.documentElement.classList.add('dark')
   }, [])
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target
+      const editable =
+        target instanceof HTMLElement &&
+        (target.matches('input, textarea, select') || target.isContentEditable)
+      if (
+        !areSingleKeyShortcutsEnabled() ||
+        editable ||
+        event.defaultPrevented ||
+        event.repeat ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey
+      ) {
+        chordArmed.current = false
+        return
+      }
+
+      const key = event.key.toLocaleLowerCase()
+      if (chordArmed.current) {
+        chordArmed.current = false
+        const destination = key === 'm' ? '/' : key === 't' ? '/threads' : key === 'e' ? '/meetings' : null
+        if (destination !== null) {
+          event.preventDefault()
+          void navigate(destination)
+        }
+        return
+      }
+      if (key === 'g') {
+        chordArmed.current = true
+      } else if (key === '/') {
+        event.preventDefault()
+        document.querySelector<HTMLInputElement>('[data-testid="search-input"]')?.focus()
+      } else if (key === 'a') {
+        event.preventDefault()
+        document.querySelector<HTMLTextAreaElement>('[data-testid="chat-question-input"]')?.focus()
+      } else if (key === 'n') {
+        event.preventDefault()
+        void navigate('/add')
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [navigate])
 
   // The child screen is placed above the chrome (see the `<Outlet />` block
   // below), which is what actually fixes "Open moment does nothing". This

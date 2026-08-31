@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button'
 import { BAR_CLASS, LABEL_CLASS, asStageStatus } from '@/features/meetings/stageStyles'
 import { useJobEvents } from '@/features/meetings/useJobEvents'
 import { ReplayPlayer } from '@/features/replay/ReplayPlayer'
+import { useSingleKeyShortcutsEnabled } from '@/features/settings/singleKeyShortcuts'
 import { offsetLabel } from '@/lib/affordance'
 import { API_BASE } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -92,6 +93,7 @@ export function SpeakerNaming(props: SpeakerNamingProps) {
 }
 
 function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
+  const shortcutsEnabled = useSingleKeyShortcutsEnabled()
   // `null` is "never answered". Once a read has answered, its rows survive a
   // later refusal — see the class comment.
   const [speakers, setSpeakers] = useState<Array<SpeakerTag> | null>(null)
@@ -400,6 +402,7 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
    */
   const onPanelKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
+      if (!shortcutsEnabled) return
       const target = event.target as HTMLElement
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return
       if (selected === null) return
@@ -416,7 +419,7 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
         playClip(selected.speakerLabel, index, offset)
       }
     },
-    [playClip, save, selected],
+    [playClip, save, selected, shortcutsEnabled],
   )
 
   /** The speakers rail is a roving group: `↑` `↓` walk the tags. */
