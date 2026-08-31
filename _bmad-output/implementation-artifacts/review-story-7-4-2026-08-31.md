@@ -54,3 +54,12 @@ Adversarial review of the Story 7.4 web implementation, with emphasis on unsettl
 - **Evidence:** The suggestion click stores the exact `ParticipantRow`; the next `onChange` drops it before `choiceOf()` can apply its equality boundary. The API's exactly-one-field contract is still met, but the wrong assignment path is chosen and may mint or reuse a different participant.
 - **Suggested direction:** Retain the picked row as selection provenance while the field is edited and let `choiceOf()` decide whether the current text still represents it. Verify whitespace, edit-away-and-restore, and duplicate-display-name selections.
 - **Red/green evidence:** All three new boundary cases first sent `{displayName}`; after retaining selection provenance, whitespace, restored text, and a duplicate-name second-row pick all send the exact selected `participantId`. Four targeted assignment tests pass, including the existing type-over case.
+
+### F5 — A successful assignment has no authoritative visible identity
+
+- **Location:** `web/src/features/speakers/SpeakerNaming.tsx:282`; `web/src/features/speakers/SpeakerNaming.tsx:523`; `web/src/features/speakers/SpeakerNaming.tsx:769`
+- **Severity:** High
+- **Status:** Confirmed — patch required
+- **Finding:** After a successful assignment, the screen clears the field and creates a global rerun strip but does not show the saved choice or `rerun · queued` on its row. It also records `choice.displayName` rather than the authoritative `SpeakerAssignmentResponse.displayName`, so a participant renamed since roster load produces a stale landed sentence. After the landed reread, the transcript column still renders only tag, offsets, and text, making the assigned identity visually absent there.
+- **Evidence:** Row rendering is exclusively from the pre-PUT `speakers` array until a later read; the success response's participant/name fields are ignored. The landed effect rereads both sources, but the transcript header/body never calls `resolvedName()`. This violates the matrix requirements that the row show the choice immediately and the change be visible in the transcript when the rerun lands.
+- **Suggested direction:** Store the response-confirmed pending choice per tag and label it as awaiting rerun without claiming resolution; derive rerun copy from the response. On a successful settled reread, clear pending choices and render only `resolvedName(selected)` in the transcript heading, preserving AD-13.
