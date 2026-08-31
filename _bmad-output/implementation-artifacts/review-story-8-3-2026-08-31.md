@@ -261,6 +261,13 @@ All commands ran in the foreground and their full output was read.
   **0.06s**; the file is unrelated and unchanged.
 - `make check-reviews` — every dispatched review has a committed report.
 - `git diff --check` — clean.
+- `python3 _bmad/scripts/branch_conflicts.py --against story/8-3-review` —
+  clean against `main`, `story/8-3`, and all main/sibling pairs. Ten
+  review/sibling pairs report only files inherited from the builder branch:
+  the wave-sanctioned `sprint-notes.md` union, plus the raced `docs/backlog.md`
+  edits against 10-4/10-4-review. The review-only range
+  `story/8-3...story/8-3-review` touches neither file; per owner direction no
+  sibling entry was renumbered or rewritten.
 
 ## Open decision
 
