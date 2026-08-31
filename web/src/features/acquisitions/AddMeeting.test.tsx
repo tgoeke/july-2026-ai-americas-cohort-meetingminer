@@ -495,6 +495,9 @@ describe('Add-meeting, progress', () => {
     await settlePoll()
     expect(sdk.getAcquisition).toHaveBeenCalledTimes(2)
     expect(screen.getByTestId('step-posted')).toHaveAttribute('data-status', 'done')
+    expect(screen.getByTestId('acquisition-announcement')).toHaveTextContent(
+      'posted — job 8f3c1a2b…',
+    )
 
     // Terminal: no further polls, whatever time passes.
     await settlePoll()
@@ -530,6 +533,7 @@ describe('Add-meeting, progress', () => {
     await waitFor(() =>
       expect(screen.getByTestId('stage-frames')).toHaveAttribute('data-status', 'done'),
     )
+    expect(screen.getByTestId('ingestion-announcement')).toHaveTextContent('frames done')
     // The gate is the api's: still not viewable, so Open is still refused and
     // says why.
     expect(screen.getByRole('button', { name: /^Open/ })).toBeDisabled()
