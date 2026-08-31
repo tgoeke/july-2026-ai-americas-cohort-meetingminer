@@ -253,6 +253,64 @@ describe('the three assignment paths', () => {
     })
   })
 
+  it('keeps a picked participant through harmless surrounding whitespace', async () => {
+    answers()
+    sdk.assignMeetingSpeaker.mockResolvedValue({ data: assignment(), error: undefined })
+    const user = userEvent.setup()
+    await loaded()
+
+    const field = screen.getByRole('combobox')
+    await user.type(field, 'pri')
+    await user.click(await screen.findByRole('option', { name: 'Priya Natarajan' }))
+    await user.type(field, '  ')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(sdk.assignMeetingSpeaker).toHaveBeenCalledTimes(1))
+    expect(sdk.assignMeetingSpeaker.mock.calls[0][0].body).toEqual({ participantId: 'p-1' })
+  })
+
+  it('restores the picked participant when edited text returns to its name', async () => {
+    answers()
+    sdk.assignMeetingSpeaker.mockResolvedValue({ data: assignment(), error: undefined })
+    const user = userEvent.setup()
+    await loaded()
+
+    const field = screen.getByRole('combobox')
+    await user.type(field, 'pri')
+    await user.click(await screen.findByRole('option', { name: 'Priya Natarajan' }))
+    await user.clear(field)
+    await user.type(field, 'Priya Natarajan')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(sdk.assignMeetingSpeaker).toHaveBeenCalledTimes(1))
+    expect(sdk.assignMeetingSpeaker.mock.calls[0][0].body).toEqual({ participantId: 'p-1' })
+  })
+
+  it('keeps the selected id when two participants have the same display name', async () => {
+    answers({
+      roster: [
+        participant(),
+        participant({ id: 'p-2', displayName: 'Priya Natarajan' }),
+      ],
+    })
+    sdk.assignMeetingSpeaker.mockResolvedValue({
+      data: assignment({ participantId: 'p-2' }),
+      error: undefined,
+    })
+    const user = userEvent.setup()
+    await loaded()
+
+    const field = screen.getByRole('combobox')
+    await user.type(field, 'pri')
+    const options = await screen.findAllByRole('option', { name: 'Priya Natarajan' })
+    await user.click(options[1])
+    await user.type(field, ' ')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(sdk.assignMeetingSpeaker).toHaveBeenCalledTimes(1))
+    expect(sdk.assignMeetingSpeaker.mock.calls[0][0].body).toEqual({ participantId: 'p-2' })
+  })
+
   it('assigns a typed new name', async () => {
     answers()
     sdk.assignMeetingSpeaker.mockResolvedValue({
