@@ -45,6 +45,12 @@ BASELINE_ROUTER_ORDER = [
     "config_view",
     "extraction",
     "participants",
+    # Story 8.2: `settings.py` is default-order too, sorting between
+    # `participants` and `speakers` by name. `/settings/models` is a literal
+    # sibling of `/settings/roles/{role}`, but they diverge at the segment
+    # after `/settings`, so neither can swallow the other and the two live in
+    # one router regardless of position.
+    "settings",
     # Story 7.2: `speakers.py` is default-order too, sorting between
     # `participants` and `stats` by name. `/meetings/{meeting_id}/speakers`
     # is a literal leaf under a parameterized meeting id — the same shape the
