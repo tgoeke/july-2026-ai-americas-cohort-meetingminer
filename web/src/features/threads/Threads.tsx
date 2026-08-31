@@ -13,6 +13,7 @@ import {
   visibleSpan,
   type Span,
   type Tier,
+  type View,
 } from './timeline'
 import {
   fetchTimeline,
@@ -25,7 +26,7 @@ import {
   type TimelinePayload,
 } from './threadsApi'
 import { useTimelineView } from './useTimelineView'
-import { threadTimelineAnchor } from './threadTimelinePath'
+import { threadTimelineAnchor, threadTimelineThreadIdFailure } from './threadTimelinePath'
 
 /**
  * The Threads screen (story 10.6).
@@ -63,8 +64,11 @@ export function Threads() {
   const { threadId: routeThreadId } = useParams()
   const location = useLocation()
   const routeAnchor = useMemo(() => threadTimelineAnchor(location.search), [location.search])
+  const routeThreadIdFailure = threadTimelineThreadIdFailure(routeThreadId)
   const routeAnchorFailure =
-    routeAnchor.kind === 'invalid'
+    routeThreadIdFailure !== null
+      ? `threads: invalid thread id — ${routeThreadIdFailure}; received \`${routeThreadId}\`.`
+      : routeAnchor.kind === 'invalid'
       ? `threads: invalid \`at\` — ${routeAnchor.reason}; received \`${routeAnchor.source}\`.`
       : routeAnchor.kind === 'valid' && routeThreadId === undefined
         ? 'threads: invalid `at` — a moment anchor requires `/threads/:threadId`.'
@@ -80,6 +84,7 @@ export function Threads() {
   const [pending, setPending] = useState(false)
   const [tierFailure, setTierFailure] = useState<ThreadsFailure | null>(null)
   const [retryVersion, setRetryVersion] = useState(0)
+  const [listRetryVersion, setListRetryVersion] = useState(0)
 
   const corpusSpan = useMemo<Span | null>(() => corpusSpanOf(threads), [threads])
 
@@ -100,6 +105,8 @@ export function Threads() {
   const generationRef = useRef(0)
   const requestedKeyRef = useRef<string | null>(null)
   const meetingsRef = useRef(new Map<string, Array<TimelineMeeting>>())
+  const listGenerationRef = useRef(0)
+  const routeOwner = `${location.key}:${routeThreadId ?? ''}:${location.search}`
 
   useEffect(() => {
     setFocusedThreadId(routeThreadId ?? null)
@@ -107,61 +114,81 @@ export function Threads() {
 
   // --- the thread list ------------------------------------------------------
 
-  const loadThreads = useCallback(async () => {
-    setListFailure(null)
-    const { data, error } = await listThreads()
-    if (error !== undefined) {
-      setListFailure(error)
-      return
-    }
-    if (data !== undefined) setThreads(data)
-  }, [])
-
   useEffect(() => {
+    const generation = listGenerationRef.current + 1
+    listGenerationRef.current = generation
     if (routeAnchorFailure !== null) return
-    void loadThreads()
-  }, [loadThreads, routeAnchorFailure])
+
+    const controller = new AbortController()
+    setListFailure(null)
+    void (async () => {
+      const { data, error } = await listThreads(controller.signal)
+      if (listGenerationRef.current !== generation) return
+      if (error !== undefined) {
+        setListFailure(error)
+        return
+      }
+      if (data !== undefined) setThreads(data)
+    })()
+    return () => controller.abort()
+  }, [listRetryVersion, routeAnchorFailure])
 
   // Route defaults are applied only after the served extents exist. The
   // location key makes navigation back to an already visited URL a fresh
   // default, while ordinary zoom and pan leave the reader's view alone.
-  const appliedRouteRef = useRef<string | null>(null)
+  const appliedRouteRef = useRef<{
+    routeKey: string
+    mountRevision: number
+    width: number
+    fitted: View
+  } | null>(null)
   useEffect(() => {
     if (threads === null || routeAnchorFailure !== null || !view.measured) return
-    const routeKey = `${location.key}:${routeThreadId ?? ''}:${location.search}`
-    if (appliedRouteRef.current === routeKey) return
-
+    let span: Span
+    let minimumScale: number
     if (routeThreadId === undefined) {
       if (corpusSpan === null) return
-      tierRef.current = 'bands'
-      view.fitTo(corpusSpan, TIER_MIN_SCALE.bands)
-      appliedRouteRef.current = routeKey
-      return
-    }
-
-    const selected = threads.find((thread) => thread.threadId === routeThreadId)
-    if (selected === undefined) return
-    tierRef.current = 'bands'
-    if (routeAnchor.kind === 'valid') {
+      span = corpusSpan
+      minimumScale = TIER_MIN_SCALE.bands
+    } else if (routeAnchor.kind === 'valid') {
       // A zero-length fit is widened symmetrically by `fitView`; the meetings
       // floor therefore centres the calling instant in a meetings-tier window.
-      view.fitTo({ from: routeAnchor.epochMs, to: routeAnchor.epochMs }, TIER_MIN_SCALE.meetings)
+      span = { from: routeAnchor.epochMs, to: routeAnchor.epochMs }
+      minimumScale = TIER_MIN_SCALE.meetings
     } else {
-      view.fitTo(
-        {
-          from: Date.parse(selected.firstMentionAt),
-          to: Date.parse(selected.lastMentionAt),
-        },
-        TIER_MIN_SCALE.bands,
-      )
+      const selected = threads.find((thread) => thread.threadId === routeThreadId)
+      if (selected === undefined) return
+      span = {
+        from: Date.parse(selected.firstMentionAt),
+        to: Date.parse(selected.lastMentionAt),
+      }
+      minimumScale = TIER_MIN_SCALE.bands
     }
-    appliedRouteRef.current = routeKey
+
+    const prior = appliedRouteRef.current
+    const newRoute = prior?.routeKey !== routeOwner
+    const remounted = prior?.mountRevision !== view.mountRevision
+    const resized = prior?.width !== view.width
+    const untouched =
+      prior !== null &&
+      view.view.from === prior.fitted.from &&
+      view.view.scale === prior.fitted.scale
+    if (!newRoute && !remounted && (!resized || !untouched)) return
+
+    const fitted = fitView(span, view.width, minimumScale)
+    tierRef.current = 'bands'
+    appliedRouteRef.current = {
+      routeKey: routeOwner,
+      mountRevision: view.mountRevision,
+      width: view.width,
+      fitted,
+    }
+    view.fitTo(span, minimumScale)
   }, [
     corpusSpan,
-    location.key,
-    location.search,
     routeAnchor,
     routeAnchorFailure,
+    routeOwner,
     routeThreadId,
     threads,
     view,
@@ -171,6 +198,9 @@ export function Threads() {
 
   const wanted = useMemo(() => {
     if (threads === null || routeAnchorFailure !== null) return null
+    if (routeThreadId !== undefined && !threads.some((thread) => thread.threadId === routeThreadId)) {
+      return null
+    }
     const span = fetchSpan(view.view, view.width)
     const ids =
       tier === 'bands'
@@ -180,7 +210,14 @@ export function Threads() {
           : [focusedThreadId]
     if (ids.length === 0) return null
     return { ids, span, key: cacheKey(ids, tier, span) }
-  }, [threads, tier, focusedThreadId, view.view, view.width, routeAnchorFailure])
+  }, [threads, tier, focusedThreadId, view.view, view.width, routeAnchorFailure, routeThreadId])
+
+  useEffect(() => {
+    generationRef.current += 1
+    requestedKeyRef.current = null
+    setPending(false)
+    setTierFailure(null)
+  }, [routeOwner])
 
   useEffect(() => {
     const generation = generationRef.current + 1
@@ -190,18 +227,19 @@ export function Threads() {
       setPending(false)
       return
     }
-    if (requestedKeyRef.current === wanted.key) return
+    const requestKey = `${routeOwner}:${wanted.key}`
+    if (requestedKeyRef.current === requestKey) return
 
     const cached = cacheRef.current.get(wanted.key)
     if (cached !== undefined) {
-      requestedKeyRef.current = wanted.key
+      requestedKeyRef.current = requestKey
       setDrawn(cached)
       setTierFailure(null)
       setPending(false)
       return
     }
 
-    requestedKeyRef.current = wanted.key
+    requestedKeyRef.current = requestKey
     setPending(true)
 
     const controller = new AbortController()
@@ -219,7 +257,7 @@ export function Threads() {
         // Asynchronous ownership: a response may only touch visible state when
         // its generation is still the current one. A late success is discarded
         // exactly as a late failure is.
-        if (generationRef.current !== generation || requestedKeyRef.current !== wanted.key) return
+        if (generationRef.current !== generation || requestedKeyRef.current !== requestKey) return
         const failed = results.find((r) => r.error !== undefined)
         if (failed?.error !== undefined) {
           setPending(false)
@@ -244,8 +282,12 @@ export function Threads() {
     return () => {
       clearTimeout(timer)
       controller.abort()
+      // Cleanup may run before a replacement effect whose snapped cache key is
+      // identical (route default first renders at the old view, then refits).
+      // Release only this attempt's ownership so that replacement can start.
+      if (requestedKeyRef.current === requestKey) requestedKeyRef.current = null
     }
-  }, [wanted, tier, retryVersion])
+  }, [wanted, tier, retryVersion, routeOwner])
 
   // --- interaction ----------------------------------------------------------
 
@@ -331,7 +373,10 @@ export function Threads() {
     return (
       <main className="mx-auto w-full max-w-[1600px] p-8">
         <h1 className="text-3xl font-semibold tracking-tight">Threads</h1>
-        <Refusal failure={listFailure} onRetry={() => void loadThreads()} />
+        <Refusal
+          failure={listFailure}
+          onRetry={() => setListRetryVersion((version) => version + 1)}
+        />
       </main>
     )
   }

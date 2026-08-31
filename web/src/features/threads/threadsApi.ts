@@ -166,14 +166,24 @@ export function parseThreads(body: unknown): Array<ThreadSummary> {
   return rows.map((entry, i) => {
     const where = `GET /threads[${i}]`
     const row = requireRow(entry, where)
+    const threadId = requireString(row, 'threadId', where)
+    const name = requireString(row, 'name', where)
+    const mentionCount = requireNumber(row, 'mentionCount', where)
+    const meetingCount = requireNumber(row, 'meetingCount', where)
+    const firstMentionAt = requireInstant(row, 'firstMentionAt', where)
+    const lastMentionAt = requireInstant(row, 'lastMentionAt', where)
+    const colorOrdinal = requireNumber(row, 'colorOrdinal', where)
+    if (Date.parse(lastMentionAt) < Date.parse(firstMentionAt)) {
+      throw new ThreadsContractError(`${where}: lastMentionAt is before firstMentionAt`)
+    }
     return {
-      threadId: requireString(row, 'threadId', where),
-      name: requireString(row, 'name', where),
-      mentionCount: requireNumber(row, 'mentionCount', where),
-      meetingCount: requireNumber(row, 'meetingCount', where),
-      firstMentionAt: requireInstant(row, 'firstMentionAt', where),
-      lastMentionAt: requireInstant(row, 'lastMentionAt', where),
-      colorOrdinal: requireNumber(row, 'colorOrdinal', where),
+      threadId,
+      name,
+      mentionCount,
+      meetingCount,
+      firstMentionAt,
+      lastMentionAt,
+      colorOrdinal,
     }
   })
 }

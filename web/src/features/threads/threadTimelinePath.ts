@@ -20,8 +20,18 @@ function daysInMonth(year: number, month: number): number {
 function epochOf(source: string): number | null {
   const match = RFC3339_INSTANT.exec(source)
   if (match === null) return null
-  const [, yearText, monthText, dayText, hourText, minuteText, secondText, , offsetHourText, offsetMinuteText] =
-    match
+  const [
+    ,
+    yearText,
+    monthText,
+    dayText,
+    hourText,
+    minuteText,
+    secondText,
+    offsetSign,
+    offsetHourText,
+    offsetMinuteText,
+  ] = match
   const year = Number(yearText)
   const month = Number(monthText)
   const day = Number(dayText)
@@ -40,12 +50,21 @@ function epochOf(source: string): number | null {
     minute > 59 ||
     second > 59 ||
     offsetHour > 23 ||
-    offsetMinute > 59
+    offsetMinute > 59 ||
+    (offsetSign === '-' && offsetHour === 0 && offsetMinute === 0)
   ) {
     return null
   }
   const epochMs = Date.parse(source)
   return Number.isNaN(epochMs) ? null : epochMs
+}
+
+/** Refuse ids whose encoded route would be empty or normalize outside `/threads/:threadId`. */
+export function threadTimelineThreadIdFailure(threadId: string | undefined): string | null {
+  if (threadId === undefined) return null
+  if (threadId.trim().length === 0) return 'thread id must not be empty'
+  if (threadId === '.' || threadId === '..') return 'thread id must not be a dot segment'
+  return null
 }
 
 /**
@@ -55,7 +74,8 @@ function epochOf(source: string): number | null {
  * only know the thread get the bare path and therefore the thread-span default.
  */
 export function threadTimelinePath(threadId: string, occurredAt?: string | null): string {
-  if (threadId.trim().length === 0) throw new Error('thread timeline requires a non-empty thread id')
+  const threadIdFailure = threadTimelineThreadIdFailure(threadId)
+  if (threadIdFailure !== null) throw new Error(`thread timeline ${threadIdFailure}`)
   const path = `/threads/${encodeURIComponent(threadId)}`
   if (occurredAt === undefined || occurredAt === null) return path
   if (epochOf(occurredAt) === null) {

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -11,6 +12,22 @@ function Harness({ onRender }: { onRender: () => void }) {
       <div ref={timeline.rootRef} data-testid="timeline-root" data-target={timeline.view.scale} />
       <button type="button" onClick={() => timeline.zoomAt(0.5, 100)}>
         zoom
+      </button>
+    </>
+  )
+}
+
+function RemountHarness() {
+  const [shown, setShown] = useState(true)
+  const timeline = useTimelineView({ from: 1_000, scale: 8_000 }, 0)
+  return (
+    <>
+      {shown ? <div ref={timeline.rootRef} data-testid="remount-root" /> : null}
+      <output data-testid="mount-revision">{timeline.mountRevision}</output>
+      <output data-testid="measured">{String(timeline.measured)}</output>
+      <output data-testid="width">{timeline.width}</output>
+      <button type="button" onClick={() => setShown((value) => !value)}>
+        toggle root
       </button>
     </>
   )
@@ -75,5 +92,25 @@ describe('reviewed animation ownership', () => {
     await user.click(screen.getByRole('button', { name: 'zoom' }))
     expect(screen.getByTestId('timeline-root').style.getPropertyValue('--mm-scale')).toBe('4000')
     expect(frames.size).toBe(0)
+  })
+
+  it('publishes fresh measurement ownership when the same canvas root remounts', async () => {
+    let rootWidth = 1162
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => rootWidth)
+    const user = userEvent.setup()
+    render(<RemountHarness />)
+
+    expect(screen.getByTestId('mount-revision')).toHaveTextContent('1')
+    expect(screen.getByTestId('measured')).toHaveTextContent('true')
+    expect(screen.getByTestId('width')).toHaveTextContent('1000')
+
+    await user.click(screen.getByRole('button', { name: 'toggle root' }))
+    expect(screen.getByTestId('measured')).toHaveTextContent('false')
+    rootWidth = 1362
+    await user.click(screen.getByRole('button', { name: 'toggle root' }))
+
+    expect(screen.getByTestId('mount-revision')).toHaveTextContent('2')
+    expect(screen.getByTestId('measured')).toHaveTextContent('true')
+    expect(screen.getByTestId('width')).toHaveTextContent('1200')
   })
 })

@@ -44,6 +44,8 @@ export interface TimelineViewApi {
   width: number
   /** True once the mounted canvas has supplied either its width or the jsdom fallback. */
   measured: boolean
+  /** Increments whenever a canvas node mounts and takes fresh measurement ownership. */
+  mountRevision: number
   /** Zoom by `factor` (>1 zooms out) keeping `focusX` fixed on screen. */
   zoomAt: (factor: number, focusX: number) => void
   /** Zoom about the centre of the canvas. */
@@ -75,6 +77,7 @@ export function useTimelineView(initial: View, epochMs: number): TimelineViewApi
   const [view, setView] = useState<View>(initial)
   const [width, setWidth] = useState<number>(FALLBACK_WIDTH)
   const [measured, setMeasured] = useState(false)
+  const [mountRevision, setMountRevision] = useState(0)
 
   const nodeRef = useRef<HTMLDivElement | null>(null)
   const targetRef = useRef<View>(initial)
@@ -155,6 +158,7 @@ export function useTimelineView(initial: View, epochMs: number): TimelineViewApi
         setMeasured(false)
         return
       }
+      setMountRevision((revision) => revision + 1)
       paint(drawnRef.current)
       const measure = () => {
         const measured = node.clientWidth - TIMELINE_GUTTER_PX
@@ -204,7 +208,7 @@ export function useTimelineView(initial: View, epochMs: number): TimelineViewApi
   )
 
   return useMemo(
-    () => ({ view, rootRef, width, measured, zoomAt, zoom, pan, panPixels, fitTo }),
-    [view, rootRef, width, measured, zoomAt, zoom, pan, panPixels, fitTo],
+    () => ({ view, rootRef, width, measured, mountRevision, zoomAt, zoom, pan, panPixels, fitTo }),
+    [view, rootRef, width, measured, mountRevision, zoomAt, zoom, pan, panPixels, fitTo],
   )
 }

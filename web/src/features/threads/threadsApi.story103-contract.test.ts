@@ -2,7 +2,7 @@ import { createElement } from 'react'
 import { render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TimelineCanvas } from './TimelineCanvas'
-import { fetchTimeline, listThreads, parseTimeline } from './threadsApi'
+import { fetchTimeline, listThreads, parseThreads, parseTimeline } from './threadsApi'
 
 const THREAD_ID = '018f8f4c-3a53-7c11-8f6c-1a2b3c4d5e6f'
 const MEETING_ID = '018f8f4c-3a53-7c11-8f6c-1a2b3c4d5e70'
@@ -217,6 +217,22 @@ describe('Story 10.3 wire contract', () => {
     const result = await listThreads()
     expect(result.error).toMatchObject({ kind: 'problem' })
     expect(result.error?.message).toMatch(/GET \/threads\[0\].*name/s)
+  })
+
+  it('refuses a thread summary whose served mention extents are reversed', () => {
+    expect(() =>
+      parseThreads([
+        {
+          threadId: THREAD_ID,
+          name: 'reversed extents',
+          mentionCount: 2,
+          meetingCount: 1,
+          firstMentionAt: '2026-06-01T00:00:00Z',
+          lastMentionAt: '2026-05-01T00:00:00Z',
+          colorOrdinal: 1,
+        },
+      ]),
+    ).toThrow(/GET \/threads\[0\].*lastMentionAt.*before.*firstMentionAt/s)
   })
 
   it('uses the live bands envelope through fetchTimeline', async () => {
