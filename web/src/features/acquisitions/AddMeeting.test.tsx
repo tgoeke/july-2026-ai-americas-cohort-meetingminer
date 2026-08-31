@@ -681,6 +681,29 @@ describe('Add-meeting, progress', () => {
     )
     expect(screen.queryByTestId('poll-transport')).not.toBeInTheDocument()
   })
+
+  it('keeps the last state and retries when a poll returns Problem Details', async () => {
+    await launch(acquisition({ status: 'running' }))
+    sdk.getAcquisition.mockResolvedValueOnce({
+      data: undefined,
+      error: {
+        type: 'urn:meetingminer:problem:acquisition-state-unreadable',
+        title: 'Acquisition state unreadable',
+        detail: 'The status file could not be read.',
+        remediation: 'Retry after the api host recovers.',
+      },
+    })
+    await settlePoll()
+
+    expect(screen.getByTestId('poll-refusal')).toHaveTextContent('Acquisition state unreadable')
+    expect(screen.getByTestId('step-running')).toHaveAttribute('data-status', 'running')
+
+    queueStatuses(acquisition({ status: 'posted', result: 'created', jobId: JOB }))
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('step-posted')).toHaveAttribute('data-status', 'done'),
+    )
+  })
 })
 
 describe('Add-meeting, the source tabs', () => {

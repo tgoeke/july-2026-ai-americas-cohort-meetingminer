@@ -82,7 +82,7 @@ Date: 2026-08-31
 - **Finding** — When `GET /acquisitions/{id}` answers with Problem Details, polling stops and the problem renders without Retry. Only thrown transport errors receive the recovery control, even though both paths leave a nonterminal acquisition with no scheduled next poll.
 - **Evidence** — `useAcquisitionStatus.ts:69-71` sets `failure` and returns for every generated-client error, scheduling no timer. `AddMeeting.tsx:389-398` gives `retry` only to `TransportNotice`; the RFC problem branch is a bare `RefusalBox`. The frozen poll-failure requirement says the last stepper state stays visible and Retry resumes polling; it does not permit an HTTP failure to strand the flow.
 - **Suggested direction** — Preserve the parsed problem fields, but offer the same explicit retry action and verify that it starts a new poll without clearing the last known acquisition state.
-- **Disposition** — patchable; remediation in progress.
+- **Disposition** — fixed red-first. The HTTP-poll regression found no accessible Retry control against the original branch; it passed after the parsed problem box gained an explicit retry action wired to the polling hook.
 
 ## Disposition
 

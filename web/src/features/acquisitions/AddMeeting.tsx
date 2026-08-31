@@ -397,7 +397,15 @@ export function AddMeeting({ onOpenMeeting }: AddMeetingProps = {}) {
               />
             )}
             {pollFailure !== null && pollFailure.kind === 'refusal' && (
-              <RefusalBox testId="poll-refusal" refusal={pollFailure.refusal} />
+              <RefusalBox
+                testId="poll-refusal"
+                refusal={pollFailure.refusal}
+                action={
+                  <Button size="sm" variant="outline" onClick={retry}>
+                    Retry
+                  </Button>
+                }
+              />
             )}
 
             {statusRefusal !== null && (
