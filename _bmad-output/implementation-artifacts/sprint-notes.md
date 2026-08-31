@@ -4387,3 +4387,48 @@ nothing, and three agents landed in that directory this afternoon.
 `config.yaml` has it on paid `openai/gpt-5.2` for the demo-corpus ingest, by
 owner decision, with a revert owed when the ingest is done. Nothing in this
 change touches it; the worker gate is unaffected either way.
+
+## The model select's help text stopped covering its own catalog — 2026-08-31
+
+Not a story: a UI defect reported from a screenshot while walking the app
+before the recording. Opening the ask box's model select drew the "Inherited
+from the file default in config.yaml…" sentence on top of the catalog the
+reader had just opened. Landed in `f8843c47`.
+
+The cause was two absolutely positioned layers anchored to the same corner of
+the trigger — the catalog panel at `top-full right-0 z-50` and the notices box
+at `top-[calc(100%+0.25rem)] right-0 z-50`, in `ModelSelect.tsx`. The source
+notice renders only while the popover is open, so the two always collided;
+`model-select-stale` and `model-select-refusal` could collide the same way.
+
+In the compact ask box the panel and the notices are now siblings of one
+positioned column, catalog first, so overlap is a structural impossibility
+rather than a matter of offsets. `panel` therefore carries `absolute top-full
+right-0 z-50 mt-1` only when `compact` is false. The notices box is mounted
+whatever the popover is doing.
+
+**Why the notices are not inside the panel**, which is the obvious first fix
+and is wrong three ways: the panel is guarded by `options.length > 0`, so a
+catalog emptied under an open popover — reachable, because `useModelSettings`'s
+`selectionListeners` broadcast the api's authoritative role including its
+catalog — silences every notice; the `role="alert"` refusal remounts on each
+toggle and is re-announced; and the panel is `overflow-y-auto max-h-[min(24rem,
+70vh)]`, so a catalog longer than two entries scrolls that alert out of view.
+All three were caught in review before landing.
+
+**What will bite the next person.** The full (non-compact) view still has the
+original defect — its notices are `contents` in normal flow and the panel
+overlays them. That is filed in `deferred-work.md` with the reason it was not
+fixed here: positioning the full view's notices changes `ChatPanel.tsx:237`'s
+flex-wrap header layout, which is more than this report was about. Three other
+a11y gaps on this component predating story 8.3 are filed alongside it.
+
+Not verified in a browser — the stack was down. Three tests pin the structural
+property instead, because jsdom computes no geometry and a containment
+assertion would pass on a clipped or under-painted layer.
+
+**Owed but not by this change:** `483bcb43` added `GET /media/files/{media_id}`
+(`getMediaFileById`) and the committed TS client does not carry it, so
+`make client` is owed on that landing. Nothing is broken meanwhile —
+`web/src/features/moments/feed.ts` builds that URL by hand rather than through
+the generated sdk.
