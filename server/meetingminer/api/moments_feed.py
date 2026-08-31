@@ -101,10 +101,10 @@ class FeedThread(BaseModel):
     """One thread chip on the card.
 
     ``color_ordinal`` is the server-owned immutable ordinal story 10.3
-    allocates; the client maps it to a hue and never invents one. It is
-    ``None`` on this branch, and only on this branch, because the column
-    lands with story 10.3's migration 0017 — see the module the query lives
-    in for how it is read without depending on the column's existence.
+    allocates; the client maps it to a hue and never invents one. Migration
+    0017 now guarantees a positive bigint for every persisted thread. The
+    optional type preserves the scorer's plain-fact boundary for malformed or
+    legacy input; the running schema's query-to-wire path is non-null.
     """
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
@@ -758,14 +758,10 @@ def to_item(scored: ScoredCandidate, max_thread_reasons: int) -> FeedItem:
 # moments` excludes them: the id still resolves as a citation, but a ghost is
 # not evidence a front door presents as live.
 #
-# `thread.color_ordinal` is read as `to_jsonb(t) ->> 'color_ordinal'` rather
-# than as a column, and that is deliberate, not a trick: story 10.3 adds the
-# column in migration 0017 and is building in parallel: naming the column
-# directly would make this query a syntax error until that story lands, and
-# duplicating its DDL here would put two definitions of one corpus sequence in
-# the tree. `to_jsonb` of the row yields no key when the column does not
-# exist, so this serves `null` today and the real ordinal the moment 0017 is
-# applied — with no edit here.
+# `thread.color_ordinal` stays read as `to_jsonb(t) ->> 'color_ordinal'`: that
+# let this branch coexist with story 10.3 before migration 0017 landed. The
+# migration is now on main; the text extraction and Python `int` conversion
+# are retained and tested end to end with a bigint beyond 32 bits.
 _FEED_CANDIDATES = f"""
 SELECT
     m.id,

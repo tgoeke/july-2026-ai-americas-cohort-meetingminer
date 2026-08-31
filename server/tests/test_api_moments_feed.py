@@ -84,6 +84,7 @@ def _thread(
     *,
     name: str = "data hub",
     moment_index: int = 0,
+    color_ordinal: int | None = None,
 ) -> UUID:
     """A topic on one moment, unioned into one thread — the 10.1/10.2 chain."""
     with pool.connection() as conn:
@@ -98,10 +99,10 @@ def _thread(
             (topic_id, seeded.moment_ids[moment_index], seeded.meeting_id, 2_000),
         )
         thread_id = conn.execute(
-            "INSERT INTO thread (identity_key, name, link_rule)"
-            " VALUES (%s, %s, 'normalized-name-or-embedding-similarity')"
+            "INSERT INTO thread (identity_key, name, link_rule, color_ordinal)"
+            " VALUES (%s, %s, 'normalized-name-or-embedding-similarity', %s)"
             " RETURNING id",
-            (f"{name}:{uuid4()}", name),
+            (f"{name}:{uuid4()}", name, color_ordinal),
         ).fetchone()[0]
         conn.execute(
             "INSERT INTO topic_thread (topic_id, thread_id, linked_by)"
@@ -436,7 +437,10 @@ def test_the_thread_filter_selects_only_members_of_that_thread(
 ) -> None:
     seeded = _seed(test_pool, source_id="feed-thread", started_at=NOW)
     other = _seed(test_pool, source_id="feed-thread-other", started_at=NOW)
-    thread_id = _thread(test_pool, seeded, name="data hub")
+    ordinal = 2**40 + 17
+    thread_id = _thread(
+        test_pool, seeded, name="data hub", color_ordinal=ordinal
+    )
     _signal(test_pool, other)
 
     body = client.get(f"/moments/feed?thread={thread_id}").json()
@@ -448,9 +452,9 @@ def test_the_thread_filter_selects_only_members_of_that_thread(
     chips = body["items"][0]["threads"]
     assert [chip["threadId"] for chip in chips] == [str(thread_id)]
     assert chips[0]["name"] == "data hub"
-    # Story 10.3's migration 0017 allocates the ordinal; until it lands the
-    # field is served as null rather than invented here.
-    assert "colorOrdinal" in chips[0]
+    # Migration 0017's bigint survives Postgres -> JSON text -> Python int ->
+    # the camelCase wire without narrowing to 32 bits.
+    assert chips[0]["colorOrdinal"] == ordinal
 
 
 def test_thread_chips_are_bounded_by_the_ranking_config(client, test_pool) -> None:
