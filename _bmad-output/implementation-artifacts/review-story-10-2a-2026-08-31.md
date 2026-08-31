@@ -65,6 +65,14 @@ The review branch must be rebased onto the then-current `origin/main` before clo
 - **Suggested direction:** Treat successful curation as invalidating both list and timeline data. Clear the timeline cache/request guard and advance the timeline retry generation while retaining the currently drawn tier until the replacement fetch resolves, matching the screen's existing anti-flicker behavior.
 - **Remediation:** Successful curation now clears the timeline and meeting caches, releases the request-key guard, and advances both timeline and list retry generations. The outgoing drawing remains visible only while the authoritative replacement request is pending. The focused red integration regression is green (**1 passed**).
 
+### F7 — Confirmed, remediation in progress: re-extracted split membership lost its curated provenance
+
+- **Location:** `server/meetingminer/domain/threads.py` (`derive_threads`, `_upsert_membership`); `server/meetingminer/domain/thread_curation.py` (`EFFECTIVE_MEMBERSHIP` and its stale-hint argument); `server/meetingminer/migrations/0015_threads_and_index.sql` / `0021_thread_curation.sql`
+- **Severity:** Major
+- **Finding:** A same-name re-extraction correctly matches the durable split pin and moves the replacement topic to the curated thread, but the derivation writes the cluster's machine `linked_by` leg into `topic_thread`. The pin's old `topic_id` hint no longer joins the replacement row, so every SQL reader reports the human-decided membership as `seed`, `normalized-name`, or `embedding-similarity`. The documented claim that `topic_thread` carries the complete pinned answer after a pass is therefore false: it carries the target UUID but not the required human provenance (and can retain an irrelevant similarity score).
+- **Evidence:** The existing re-extraction regression proves the replacement UUID differs and lands in the curated thread, but does not inspect the stored/effective linkage leg. A strengthened assertion is being run against the unchanged implementation to pin the disagreement red.
+- **Suggested direction:** Make curated provenance part of the derived output: permit `curated` in the membership constraint, and when `ThreadCuration.thread_for` says a pin fired, upsert `linked_by = 'curated'` with no similarity. Keep the API-owned durable pin immutable; derivation should derive its output from that input rather than mutate the UUID hint.
+
 ## Verification
 
 Pending.

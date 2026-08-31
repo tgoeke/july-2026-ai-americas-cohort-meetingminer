@@ -586,6 +586,10 @@ def test_a_split_survives_a_re_extraction_that_replaces_every_topic_row(
         assert report.curated_links == 1
         assert report.unmatched_pins == ()
         assert thread_of(conn, replacement) == curated_id
+        assert conn.execute(
+            "SELECT linked_by, similarity FROM topic_thread WHERE topic_id = %s",
+            (replacement,),
+        ).fetchone() == (CURATED_LINK_RULE, None)
 
     assert listed(client)[str(curated_id)]["mentionCount"] == 1
 
