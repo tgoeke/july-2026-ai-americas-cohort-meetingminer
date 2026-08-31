@@ -443,6 +443,73 @@ def test_a_rerun_over_unchanged_topics_yields_the_same_threads(
     )
 
 
+def test_an_earlier_embedding_linked_backfill_keeps_the_existing_thread_id(
+    pool: ConnectionPool, app_config: AppConfig
+) -> None:
+    """Chronology may change cluster presentation, never durable identity."""
+    vectors = {
+        "Vendor feed": (1.0, 0.0, 0.0),
+        "Purchase order approvals": (0.95, 0.3122499, 0.0),
+    }
+    with pool.connection() as conn:
+        later = seed_meeting(conn, "threads-backfill-later", offset_days=5)
+        original_topic = add_topic(conn, later, "Vendor feed")
+
+    with pool.connection() as conn:
+        derive_threads(conn, app_config, embedder=StubEmbedder(vectors))
+        original_thread = conn.execute(
+            "SELECT thread_id FROM topic_thread WHERE topic_id = %s",
+            (original_topic,),
+        ).fetchone()[0]
+
+    with pool.connection() as conn:
+        earlier = seed_meeting(conn, "threads-backfill-earlier")
+        backfilled_topic = add_topic(conn, earlier, "Purchase order approvals")
+
+    with pool.connection() as conn:
+        derive_threads(conn, app_config, embedder=StubEmbedder(vectors))
+        memberships = conn.execute(
+            "SELECT topic_id, thread_id FROM topic_thread"
+            " WHERE topic_id = ANY(%s) ORDER BY topic_id",
+            ([original_topic, backfilled_topic],),
+        ).fetchall()
+
+    assert {row[1] for row in memberships} == {original_thread}
+
+
+def test_replace_all_topic_rerun_keeps_an_unchanged_singleton_thread_id(
+    pool: ConnectionPool, app_config: AppConfig
+) -> None:
+    """Story 10.1 replaces every topic row even when one topic is unchanged.
+
+    The ordinary unchanged-rerun test never deletes and reinserts topic rows,
+    so it cannot expose identity loss across this production boundary.
+    """
+    with pool.connection() as conn:
+        meeting_id = seed_meeting(conn, "threads-replace-all")
+        add_topic(conn, meeting_id, "Vendor feed")
+        add_topic(conn, meeting_id, "Budget review", start_ms=20_000)
+
+    with pool.connection() as conn:
+        derive_threads(conn, app_config, embedder=StubEmbedder(ORTHOGONAL))
+        original_thread = conn.execute(
+            "SELECT id FROM thread WHERE identity_key = 'vendor feed'"
+        ).fetchone()[0]
+
+    with pool.connection() as conn:
+        conn.execute("DELETE FROM topic WHERE meeting_id = %s", (meeting_id,))
+        add_topic(conn, meeting_id, "Vendor feed", start_ms=40_000)
+        add_topic(conn, meeting_id, "Release plan", start_ms=60_000)
+
+    with pool.connection() as conn:
+        derive_threads(conn, app_config, embedder=StubEmbedder(ORTHOGONAL))
+        replacement_thread = conn.execute(
+            "SELECT id FROM thread WHERE identity_key = 'vendor feed'"
+        ).fetchone()[0]
+
+    assert replacement_thread == original_thread
+
+
 def test_a_rerun_after_a_topic_moves_empties_and_removes_its_old_thread(
     pool: ConnectionPool, app_config: AppConfig
 ) -> None:
