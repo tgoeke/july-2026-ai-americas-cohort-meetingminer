@@ -3,7 +3,7 @@ title: 'Story 10.6: Threads Zoomable Timeline'
 type: 'feature'
 created: '2026-08-31'
 baseline_revision: '3211a7f96b86d7df496cefa451b2cbd431e6d8b4'
-baseline_commit: '1e3728ac3a307ac8bff92027c75631ade10ebd4f'
+baseline_commit: '86b7bbedc912169e01b0ac9e9149fab154967023'
 status: 'done'
 review_loop_iteration: 1
 followup_review_recommended: true
@@ -17,7 +17,7 @@ warnings: []
 deferred:
   - 'B-44 — the bands tier issues one request per thread; a corpus-wide bands level is an api change'
   - 'B-45 — timeline pins (`p`, up to three, in the URL)'
-  - 'B-51 — add a standing browser-layout harness for CSS geometry that jsdom cannot execute'
+  - 'B-52 — add a standing browser-layout harness for CSS geometry that jsdom cannot execute'
 ---
 
 <intent-contract>
@@ -128,7 +128,7 @@ scale so equal ratios take equal time.
   assertion found; do not clamp or discard the row.
 - [x] **F17 — accept the one-off browser measurement and file the harness.**
   Keep the Chrome 151 probe result as the present evidence, explicitly state
-  that jsdom cannot execute the CSS layout, and file B-51. Do not build browser
+  that jsdom cannot execute the CSS layout, and file B-52. Do not build browser
   tooling in Story 10.6.
 
 Acceptance:
@@ -209,7 +209,7 @@ All paths under `web/src/features/threads/`, all new.
   links centre the calling instant at meetings detail, while a bare deep link
   fits the thread's own complete span at bands detail. F17 is accepted on the
   builder's one-off Chrome 151 probe and the absence of executable layout in
-  jsdom; the missing standing browser harness is filed as B-51 rather than
+  jsdom; the missing standing browser harness is filed as B-52 rather than
   built inside this footprint. Story 10.3 review F2 is adopted: mention anchors
   select window membership, so fine-row `occurredAt` may lie outside the
   requested window and must remain unchanged.
@@ -222,9 +222,9 @@ All paths under `web/src/features/threads/`, all new.
   opening; keyboard, pointer, focus, density, clustering and track geometry are
   pinned by new regression files; and tier replacement is a real cross-fade.
   The owner subsequently accepted the recorded Chrome measurement and filed
-  the standing harness as B-51, then ruled optional `at` plus the bare
+  the standing harness as B-52, then ruled optional `at` plus the bare
   thread-span default. Those semantics and their request/measurement ownership
-  are fixed red-first in `edc63178`, `a8af8e04`, and `6c2496dc`. See
+  are fixed red-first in `35e0bfad`, `8dacb866`, and `af63badb`. See
   `review-story-10-6-2026-08-31.md`.
 
 - **Footprint kept.** Only `web/src/features/threads/` (new) and an append to
@@ -262,13 +262,13 @@ All paths under `web/src/features/threads/`, all new.
 
 ## Verification
 
-- Owner-ruling implementation and adversarial remediation (`edc63178`,
-  `a8af8e04`): targeted owner-ruling and Story 10.3 contract tests — 19 passed;
+- Owner-ruling implementation and adversarial remediation (`35e0bfad`,
+  `8dacb866`): targeted owner-ruling and Story 10.3 contract tests — 19 passed;
   all Threads tests — 99 passed; `pnpm --dir web exec tsc -b --force` — exit 0;
   `make test-fast` — ruff and mypy green, puller 128 passed, web 540 passed,
   evals 655 passed, server 2178 passed / 3 standing named skips / 411 slow
   tests deselected.
-- Final step-4 remediation (`6c2496dc`): 11 targeted tests red before the fix;
+- Final step-4 remediation (`af63badb`): 11 targeted tests red before the fix;
   33 targeted tests green after it. Final foreground rerun:
   `pnpm --dir web exec vitest run src/features/threads` — 111 passed across 10
   files; forced TypeScript build — exit 0; `make test-fast` — ruff and mypy
@@ -327,5 +327,5 @@ evidence tier and inline replay are story 10.6a. Curation is story 10.2a.
 
 **Deferred boundary**
 
-- Keep the accepted browser-layout harness gap visible as B-51.
+- Keep the accepted browser-layout harness gap visible as B-52.
   [`backlog.md:740`](../../docs/backlog.md#L740)

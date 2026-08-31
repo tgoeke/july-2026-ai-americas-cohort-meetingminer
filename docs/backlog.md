@@ -792,7 +792,7 @@ full-height band at the meetings and moments tiers.
 
 ---
 
-### B-51 · Give browser-only layout contracts a standing test harness — M
+### B-52 · Give browser-only layout contracts a standing test harness — M
 
 Story 10.6's central geometry is native CSS: `.mm-at` and `.mm-span` position
 items with `calc((t - from) / scale)`. jsdom does not perform layout, so the

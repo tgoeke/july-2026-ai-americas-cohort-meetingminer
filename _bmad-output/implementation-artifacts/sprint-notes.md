@@ -4129,11 +4129,11 @@ Threads placeholder; this file is the resolution. B-41, B-42 and B-43 filed.
 The review froze 18 findings before reading the implementation in depth, then
 fixed every patchable one red-first on `story/10-6-review`. Four commits carry
 the finding numbers: Story 10.3 wire reconciliation and strict complete-body
-parsing (`4210665`); timeline geometry, focus, keyboard/pointer interaction,
-real-width clustering and visible density (`1acb509`); request-generation and
+parsing (`2c1ec676`); timeline geometry, focus, keyboard/pointer interaction,
+real-width clustering and visible density (`3368c3d7`); request-generation and
 payload/thread ownership, common ordering, short-corpus bands fit and route
-sync (`6eebbd3`); and an inert 160ms outgoing/incoming tier cross-fade
-(`b06a8aa`). The feature test count is now 84 across nine files, including a
+sync (`e42c6510`); and an inert 160ms outgoing/incoming tier cross-fade
+(`347a2a22`). The feature test count is now 84 across nine files, including a
 rapid-gesture rAF test and literal/param/splat route-ranking test.
 
 Two decisions remain open, so the story returns to `in-progress`: the lane
@@ -4146,15 +4146,15 @@ and the deep-link time semantics. No backlog id was filed.
 ## Story 10.6 review — owner rulings completed (2026-08-31)
 
 The owner accepted the builder's one-off Chrome 151 CSS-geometry measurement
-and filed the missing standing browser harness as B-51. F18 now has explicit
+and filed the missing standing browser harness as B-52. F18 now has explicit
 semantics: `/threads/:threadId?at=<RFC3339>` opens meetings centred on the
 calling instant, while a bare link fits the selected thread's served
 first-to-last extent at bands detail without inventing a latest or fixed
 window. The shared URL decision is ready for Story 10.5's unlanded moment-card
 producer.
 
-The implementation and two adversarial hardening passes are `edc63178`,
-`a8af8e04`, and `6c2496dc`. They also pin Story 10.3 F2: a fine row's served
+The implementation and two adversarial hardening passes are `35e0bfad`,
+`8dacb866`, and `af63badb`. They also pin Story 10.3 F2: a fine row's served
 `occurredAt` remains valid outside the requested envelope because the mention
 anchor owns membership. Final foreground gates: Threads 111 passed, forced
 TypeScript build passed, and `make test-fast` passed with ruff/mypy green,
