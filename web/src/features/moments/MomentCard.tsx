@@ -236,7 +236,7 @@ export function MomentCard({
           src={screenshotUrl(item.screenshotId!)}
           alt={screenshotAlt(item)}
           onError={() => setShotFailed(true)}
-          className="h-full w-full object-cover"
+          className="h-full w-full object-contain"
         />
       ) : (
         <p className="px-5 text-center text-xs text-muted-foreground">{NO_SCREENSHOT}</p>
@@ -249,7 +249,14 @@ export function MomentCard({
 
   const media = (
     <div className="flex flex-col gap-2.5">
-      {frame}
+      <button
+        type="button"
+        aria-label={`Open screenshot for ${title}`}
+        className="block w-full cursor-pointer text-left"
+        onClick={openMoment}
+      >
+        {frame}
+      </button>
       {expanded && affordance.kind === 'replay' && (
         <ReplayPlayer
           meetingId={item.meetingId}
@@ -285,7 +292,7 @@ export function MomentCard({
         />
       </div>
       {item.preview?.trim() && (
-        <p className="mb-3.5 text-sm leading-relaxed text-foreground/90">
+        <p className="mb-3.5 line-clamp-2 text-sm leading-relaxed text-foreground/90">
           “{item.preview.trim()}”
         </p>
       )}
