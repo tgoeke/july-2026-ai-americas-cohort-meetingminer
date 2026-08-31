@@ -129,14 +129,47 @@ def artifact_document(artifact: Artifact) -> dict[str, Any]:
 # The projection read. `corpus` lives on `meeting`, so it joins in; the state
 # filter is structural rather than advisory — a caller cannot ask this
 # statement for a draft. `moment_id` is a single column today and maps 1:1
-# onto the dataclass's `moment_ids` tuple.
+# onto the dataclass's `moment_ids` tuple, and the `IS NOT NULL` below is what
+# keeps that mapping total.
+#
+# `a.moment_id IS NOT NULL` excludes meeting-scoped artifacts (story 12.2,
+# migration 0022), and the reason is the citation contract rather than
+# tidiness. Both stores' artifact records are citation-bearing — Meilisearch's
+# carries `momentIds`, Neo4j's is an `Artifact` node with `CITES` edges — and
+# there is no non-citable artifact record shape in either. A meeting-scoped
+# artifact has no moment, so projecting one could only put an entry with no
+# resolvable moment in front of the web app's replay links, the eval checks and
+# search: a citation that cannot open the recording at the second, which is the
+# silent degradation AD-18 forbids. `meeting_id` is scope and provenance, never
+# a citation (AD-6). The filter is on the observable `moment_id IS NULL`, never
+# on a kind name, so it is not a second copy of migration 0022's declaration of
+# which kinds are meeting-scoped.
+#
+# Nothing is lost to retrieval by this: the summary's prose is the executive
+# summary of an extraction document, and story 12.4 indexes every extraction
+# document — labelled unreviewed, and explicitly not a citation target.
+#
+# It lives here, in the statement, rather than at the two call sites, because
+# this function is the one Postgres read that feeds artifact projection: the
+# approve route and `rebuild` both come through it, so one filter covers both
+# and there is no second place for the rule to drift to.
 _PUBLISHED_ARTIFACTS = (
     "SELECT a.id, a.meeting_id, mt.corpus, a.kind, a.state, a.title, a.body,"
     " a.moment_id"
     " FROM artifact a JOIN meeting mt ON mt.id = a.meeting_id"
-    " WHERE a.state = %s"
+    " WHERE a.state = %s AND a.moment_id IS NOT NULL"
 )
 _ORDERED = " ORDER BY a.created_at, a.id"
+
+# Which of these ids are published but meeting-scoped — the rows
+# `_PUBLISHED_ARTIFACTS` deliberately did not return. Read so the caller can
+# say *why* it skipped one instead of reporting the untrue
+# "not found in state 'published'": a publish that quietly projects nothing,
+# for a reason nobody states, is the shape AD-18 exists to prevent.
+_MEETING_SCOPED_PUBLISHED = (
+    "SELECT a.id FROM artifact a"
+    " WHERE a.id = ANY(%s) AND a.state = %s AND a.moment_id IS NULL"
+)
 
 
 def published_artifacts(
@@ -179,7 +212,29 @@ def published_artifacts(
             state=row[4],
             title=row[5],
             body=row[6],
+            # Never `(None,)`: the statement's `moment_id IS NOT NULL` is what
+            # makes this one-element tuple a real moment id rather than a
+            # placeholder that would reach both stores as the string "None".
             moment_ids=(row[7],),
         )
         for row in rows
     )
+
+
+def meeting_scoped_published(
+    conn: Connection, artifact_ids: Sequence[UUID]
+) -> frozenset[UUID]:
+    """Which of these ids are published and scoped to a meeting, not a moment.
+
+    Only so a caller can name its reason for skipping one. Nothing decides
+    projection policy from this — :func:`published_artifacts` has already done
+    that in its own statement — and nothing here reads a kind: a meeting-scoped
+    row is one whose ``moment_id`` is NULL, which is the single fact migration
+    0022's CHECK ties to the kind list.
+    """
+    if not artifact_ids:
+        return frozenset()
+    rows = conn.execute(
+        _MEETING_SCOPED_PUBLISHED, (list(artifact_ids), PUBLISHED_STATE)
+    ).fetchall()
+    return frozenset(row[0] for row in rows)

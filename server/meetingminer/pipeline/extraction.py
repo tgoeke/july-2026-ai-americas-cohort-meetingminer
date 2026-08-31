@@ -33,6 +33,17 @@ two are what the scan keys on. Heading *text* is read only to tell the action
 document's two explicitly non-action sections apart; heading *numbering* is
 never depended on.
 
+**The executive summary is kept, not only its decision rows** (story 12.2).
+The architecture summary is a whole-meeting analysis, and until now only the
+rows under its decisions heading survived parsing while its executive-summary
+prose was read and dropped. :attr:`ParsedDocument.summary` carries that prose
+verbatim, and the stage stores it as an artifact scoped to the *meeting*
+rather than to a moment. Nothing about citation changes: a summary has no
+`[m:ss]` anchor and never becomes one, so it is readable as stored artifact
+state and reaches an answer only through the moments its individual claims
+anchor to (AD-6, AD-15). A document carrying no such section yields no summary
+— the parser never manufactures one.
+
 This is the `retrieval-prior-art.md` §8 lesson made actionable rather than a
 promise to be careful. Upstream's indexer understood one of two layouts,
 contributed zero decisions for every meeting that used the other, and reported
@@ -58,11 +69,32 @@ from meetingminer.pipeline.transcripts import TranscriptParseError, parse_timest
 # rework: story 4.1's version 1 was per-moment and JSON-shaped.
 PROMPT_VERSION = 2
 
-# The two artifact kinds this story extracts, exactly as the `artifact` table's
+# The artifact kinds extraction produces, exactly as the `artifact` table's
 # CHECK constraint and `projections/publish_gate.py` spell them.
 KIND_ADR = "adr"
 KIND_ACTION_ITEM = "action-item"
-KNOWN_KINDS: frozenset[str] = frozenset({KIND_ADR, KIND_ACTION_ITEM})
+
+# Story 12.2: the whole-meeting analysis the architecture summary already
+# performs. It is an artifact like the two above — same table, same
+# `extracted -> approved -> published` lifecycle — and differs only in scope:
+# it hangs from the meeting rather than from a moment, so its row carries no
+# `moment_id`. Which kinds are meeting-scoped is declared by migration 0022's
+# `artifact_scope_matches_kind` CHECK and nowhere else; this constant is the
+# kind's spelling, not a second copy of that list, and nothing anywhere reads
+# it to decide whether a row is meeting-scoped — `moment_id IS NULL` is the
+# observable fact readers branch on.
+KIND_SUMMARY = "summary"
+
+# The title every summary artifact carries. `artifact.title` is NOT NULL and
+# the heading it would otherwise come from is drifting boilerplate: the same
+# section is spelled `# 1 Executive Summary`, `# 1️⃣ Executive Summary` and
+# `## 1. Header & Executive Summary` across sampled real documents, so a
+# heading-derived title would carry section numbering and emoji into a column
+# readers scan. The document's own prose is stored verbatim in `body`, so
+# nothing is paraphrased and a constant label invents nothing.
+SUMMARY_TITLE = "Executive summary"
+
+KNOWN_KINDS: frozenset[str] = frozenset({KIND_ADR, KIND_ACTION_ITEM, KIND_SUMMARY})
 
 # The two source documents, exactly as `extraction_source.kind` spells them.
 DOC_ARCH_SUMMARY = "arch-summary"
@@ -444,6 +476,16 @@ _EXCLUDED_ACTION_SECTIONS = ("reported done", "watch item")
 # above is a target, because its section headings are owner names.
 _ARCH_TARGET_HEADINGS = ("decision", "summary")
 
+# The architecture summary's executive-summary section, whose prose becomes the
+# meeting's `summary` artifact (story 12.2). Matched on the two-word phrase and
+# never on numbering, the same rule the rest of this parser follows: the three
+# sampled spellings — ``# 1️⃣ Executive Summary``,
+# ``## 1. Header & Executive Summary`` and ``# 1 Executive Summary`` — share
+# exactly this substring and nothing else. A bare ``summary`` would also match
+# ``Rebuilt meeting summary``, which is a different section reporting what
+# happened in meeting order.
+_EXECUTIVE_SUMMARY_HEADING = "executive summary"
+
 # A topics response may drift in wording, but it must still identify itself as
 # topical either in the section heading or through the configured table shape.
 # This keeps useful headings such as "Discussion themes" while refusing a
@@ -534,12 +576,23 @@ class ParsedDocument:
     content — table rows or bullets under a decisions/actions heading. A
     document with a populated target section and no artifacts is the
     `retrieval-prior-art.md` §8 shape, and the stage logs it by name.
+
+    ``summary`` is the architecture summary's executive-summary prose, verbatim
+    (story 12.2), or ``None`` for every other document kind and for an
+    architecture summary that carries no such section — including one whose
+    section is present but empty. It is deliberately **not** a
+    :class:`ProposedArtifact`: every one of those carries an ``anchor_ms``, and
+    the parser raises when an item has none, because an unanchored item could
+    never be cited. A summary has no anchor by definition, so giving it one
+    would mean either a fabricated citation or an invariant that no longer
+    means anything. A separate field keeps both true.
     """
 
     kind: str
     artifacts: tuple[ProposedArtifact, ...]
     layout: str
     populated_target_sections: tuple[str, ...]
+    summary: str | None = None
 
 
 def _clean(cell: str) -> str:
@@ -1039,13 +1092,34 @@ def parse_extraction_document(text: str, document_kind: str) -> ParsedDocument:
     # successful empty parse.  Action-item owner headings deliberately remain
     # free-form through ``_section_is_target``.
     target_structure_seen = False
+    # Story 12.2: the executive-summary section's own lines, collected as they
+    # are read. The section runs from its heading to the NEXT HEADING OF ANY
+    # LEVEL — not to the next heading of the same or shallower level — because
+    # real documents mix levels across sections (`# 1️⃣ Executive Summary` is
+    # followed by `## 3. Decisions made`), so a same-or-shallower rule would
+    # swallow the decisions table into the summary body.
+    summary_lines: list[str] = []
+    in_summary = False
 
     for raw_line in normalized.splitlines():
         heading = _HEADING.match(raw_line)
         if heading is not None:
             section = _clean(heading.group(2))
             headers = None
+            in_summary = document_kind == DOC_ARCH_SUMMARY and (
+                _EXECUTIVE_SUMMARY_HEADING in section.casefold()
+            )
             continue
+        # Collected IN ADDITION TO the per-line handling below, never instead
+        # of it. `_ARCH_TARGET_HEADINGS` contains "summary", so this section is
+        # already a *target*: its bullets mark it populated and feed the
+        # no-silent-zero signal, and a stray `D1` row inside it already becomes
+        # an ADR. Consuming the section as prose and skipping the rest of the
+        # loop would change both of those quietly. Appending here and then
+        # falling through means the only observable difference this story makes
+        # to a parse is a field that used to be absent.
+        if in_summary:
+            summary_lines.append(raw_line)
         if not raw_line.strip():
             continue
 
@@ -1207,6 +1281,12 @@ def parse_extraction_document(text: str, document_kind: str) -> ParsedDocument:
         artifacts=tuple(artifacts),
         layout=resolved_layout,
         populated_target_sections=tuple(populated),
+        # Stripped only at the ends, so the prose keeps its own paragraph
+        # breaks and bullet shape. A section that carried nothing but blank
+        # lines collapses to `""` and becomes `None`: a document that plainly
+        # has no executive summary must yield no summary artifact, and an empty
+        # one is that case rather than an empty summary worth storing.
+        summary=("\n".join(summary_lines).strip() or None),
     )
 
 

@@ -29,10 +29,23 @@ extraction-content columns; the lifecycle column ``state`` is written only as
 the insert default — no code path here ever updates it.
 
 Idempotence (AD-11) is delete-and-re-propose scoped to *drafts*: a rerun deletes
-only this meeting's ``state = 'extracted'`` rows on moments no human has acted
-on, and never proposes onto a moment already carrying an ``approved`` or
-``published`` artifact — such a moment's whole artifact set, sibling drafts
-included, stays exactly as the human last saw it.
+only this meeting's ``state = 'extracted'`` rows in scopes no human has acted
+on, and never proposes into a scope already carrying an ``approved`` or
+``published`` artifact — such a scope's whole artifact set, sibling drafts
+included, stays exactly as the human last saw it. A **scope** is a moment for
+an anchored artifact and the meeting itself for a meeting-scoped one, and both
+are handled by the same NULL-safe statement.
+
+**Not every artifact hangs from a moment** (story 12.2, migration 0022). The
+architecture summary's executive-summary prose is a whole-meeting analysis with
+no single moment to hang from, so it is stored as an artifact whose
+``moment_id`` is NULL. Which kinds are meeting-scoped is declared by the
+``artifact_scope_matches_kind`` CHECK and by nothing in this module: the stage
+writes NULL because the parser found no anchor, not because it consults a list.
+Widening the scope does not widen the citation contract — ``meeting_id`` is
+scope and provenance, never a citation (AD-6, AD-15) — and a summary enters the
+same ``extracted -> approved -> published`` lifecycle as every other artifact
+(AD-6), published by the same function the per-moment gesture calls.
 
 The whole stage runs inside the runner's open transaction (stage.py), so a
 mid-meeting failure rolls back every draft and a retry never sees half a
@@ -87,26 +100,46 @@ SELECT id FROM moment
 WHERE meeting_id = %s AND provenance @> '{"superseded": true}'
 """
 
-# Moments whose artifact set a human has already acted on. Their drafts were
-# deleted or promoted by the API; proposing onto them would sit machine output
+# The scopes whose artifact set a human has already acted on. Their drafts were
+# deleted or promoted by the API; proposing into them would sit machine output
 # beside approved judgment as if the approval had not happened.
-_SELECT_APPROVED_MOMENTS = """
+#
+# A *scope* is a moment id, or `NULL` for the meeting scope itself (story
+# 12.2): a meeting-scoped artifact carries no `moment_id`, so an approved
+# summary comes back from this statement as a NULL row. The caller reads that
+# row as "the meeting scope is settled" rather than filtering it out, which is
+# why one statement still answers for both scopes.
+_SELECT_APPROVED_SCOPES = """
 SELECT DISTINCT moment_id FROM artifact
 WHERE meeting_id = %s AND state IN ('approved', 'published')
 """
 
 # The one artifact deletion this stage may perform (AD-11): its own drafts,
 # never an approved or published row, never another meeting's — and never a
-# draft on a moment a human has already acted on. Such a moment is skipped
-# below and so would not be re-proposed; deleting its sibling draft here would
-# destroy it permanently. The whole artifact set of an approved moment —
-# drafts included — is left exactly as the human last saw it.
+# draft in a scope a human has already acted on. Such a scope is skipped below
+# and so would not be re-proposed; deleting its sibling draft here would
+# destroy it permanently. The whole artifact set of an approved scope — drafts
+# included — is left exactly as the human last saw it.
+#
+# `NOT EXISTS` with `IS NOT DISTINCT FROM`, not `moment_id NOT IN (...)`, and
+# the difference is not cosmetic (story 12.2). `moment_id` became nullable, so
+# the old subquery returns a NULL row the moment a meeting-scoped artifact is
+# approved — and `x NOT IN (a, NULL)` evaluates to NULL, never TRUE, for
+# *every* row. One approved summary would therefore have stopped this statement
+# from replacing any draft, in any scope, for that meeting, forever: an
+# idempotence failure that deletes nothing, raises nothing and logs a
+# `drafts_replaced` of 0 that reads exactly like a meeting with no drafts.
+# `IS NOT DISTINCT FROM` is NULL-safe equality, so the rule is stated once for
+# both scopes — a draft survives only when a human has acted in its OWN scope —
+# and no three-valued logic can reappear if another meeting-scoped kind is
+# added later.
 _DELETE_DRAFTS = """
-DELETE FROM artifact
-WHERE meeting_id = %s AND state = 'extracted'
-  AND moment_id NOT IN (
-    SELECT moment_id FROM artifact
-    WHERE meeting_id = %s AND state IN ('approved', 'published')
+DELETE FROM artifact d
+WHERE d.meeting_id = %s AND d.state = 'extracted'
+  AND NOT EXISTS (
+    SELECT 1 FROM artifact a
+    WHERE a.meeting_id = %s AND a.state IN ('approved', 'published')
+      AND a.moment_id IS NOT DISTINCT FROM d.moment_id
   )
 """
 
@@ -388,10 +421,15 @@ def run(ctx: StageContext) -> None:
         row[0]
         for row in ctx.conn.execute(_SELECT_SUPERSEDED, (ctx.meeting_id,)).fetchall()
     }
-    approved_moments = {
+    # Moment ids, plus `None` for the meeting scope itself when a
+    # meeting-scoped artifact of this meeting is already approved or published
+    # (story 12.2). `None` is a member of this set exactly as a moment id is,
+    # so the two scopes are checked the same way below and neither needs a
+    # kind list to identify itself.
+    approved_scopes = {
         row[0]
         for row in ctx.conn.execute(
-            _SELECT_APPROVED_MOMENTS, (ctx.meeting_id,)
+            _SELECT_APPROVED_SCOPES, (ctx.meeting_id,)
         ).fetchall()
     }
     deleted_drafts = ctx.conn.execute(
@@ -505,7 +543,7 @@ def run(ctx: StageContext) -> None:
             # being thrown away because its timestamp landed in a settled span
             # — an operator deciding whether to re-open a moment needs to know
             # which item, not just how many.
-            if moment_id in approved_moments:
+            if moment_id in approved_scopes:
                 # A human has acted on this moment's artifact set; re-proposing
                 # onto it would sit machine output beside approved judgment.
                 skipped_approved += 1
@@ -546,6 +584,81 @@ def run(ctx: StageContext) -> None:
             artifact_counts[proposal.kind] += 1
             inserted += 1
 
+        # --- the meeting summary (story 12.2) ------------------------------
+        # The architecture summary's executive-summary prose, stored as an
+        # artifact scoped to the MEETING: `moment_id` is NULL, and migration
+        # 0022's `artifact_scope_matches_kind` CHECK is what makes that scope
+        # a checked fact rather than this call site's convention. Nothing here
+        # consults a list of meeting-scoped kinds; the row has no anchor
+        # because the parser found none, which is the same reason it is not a
+        # `ProposedArtifact`.
+        #
+        # `parsed.summary is None` for every other document kind and for an
+        # architecture summary carrying no such section, so a document that
+        # has no executive summary produces no summary artifact. Nothing is
+        # fabricated.
+        summary_captured = parsed.summary is not None
+        summary_inserted = False
+        if parsed.summary is not None:
+            if None in approved_scopes:
+                # A human has acted on this meeting's meeting-scoped artifact
+                # set; re-proposing into it would sit machine output beside
+                # approved judgment, exactly as it would on a settled moment.
+                # Named rather than merely counted, for the same reason.
+                skipped_approved += 1
+                ctx.log(
+                    "stage.extract.artifact_discarded",
+                    meeting_id=ctx.meeting_id,
+                    document=document_kind,
+                    # No `item_id` and no `anchor_ms`: the document numbers no
+                    # row for its executive summary and the summary has no
+                    # anchor. `moment_id` is None because that IS its scope,
+                    # not because one could not be resolved.
+                    item_id=None,
+                    title=core.SUMMARY_TITLE,
+                    moment_id=None,
+                    anchor_ms=None,
+                    kind=core.KIND_SUMMARY,
+                    reason="approved-meeting-scope",
+                )
+            else:
+                ctx.conn.execute(
+                    _INSERT_ARTIFACT,
+                    {
+                        "moment_id": None,
+                        "meeting_id": ctx.meeting_id,
+                        "kind": core.KIND_SUMMARY,
+                        "title": core.SUMMARY_TITLE,
+                        "body": parsed.summary,
+                        "provenance": Jsonb(
+                            {
+                                "role": "extraction",
+                                "source": origin,
+                                "model": model,
+                                "fallback_engaged": document_fallback,
+                                "prompt_version": prompt_version,
+                                "prompt_hash": prompt_hash,
+                                # No `anchor_ms` and no `item_id`: this
+                                # artifact analyses the whole meeting and the
+                                # document numbers no row for it. Writing a
+                                # placeholder for either would be provenance
+                                # that reads like an anchor.
+                                "document_kind": document_kind,
+                                "scope": "meeting",
+                            }
+                        ),
+                    },
+                )
+                artifact_counts[core.KIND_SUMMARY] += 1
+                # Counted in `artifact_count` but not in `item_count`: the two
+                # already differ whenever a proposal is skipped, because
+                # `item_count` counts the ID-keyed rows the document carried
+                # and `artifact_count` counts the `artifact` rows this run
+                # actually wrote. The summary is one of the latter and none of
+                # the former.
+                inserted += 1
+                summary_inserted = True
+
         ctx.conn.execute(
             _UPSERT_EXTRACTION_SOURCE,
             {
@@ -571,6 +684,13 @@ def run(ctx: StageContext) -> None:
             "layout": parsed.layout,
             "items": len(parsed.artifacts),
             "artifacts": inserted,
+            # Whether this document carried an executive summary, and whether
+            # it became a row. The two differ exactly when the meeting scope
+            # was already settled by a human, which is the case an operator
+            # reading this line needs to be able to tell from "the document
+            # had none".
+            "summary_captured": summary_captured,
+            "summary_stored": summary_inserted,
         }
         if not parsed.artifacts and parsed.populated_target_sections:
             zero_signals.append((document_kind, parsed.populated_target_sections))
