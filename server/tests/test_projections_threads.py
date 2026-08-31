@@ -459,6 +459,42 @@ def test_reprojecting_a_meeting_leaves_the_counts_unchanged(
     assert counts(driver) == before
 
 
+def test_reprojecting_a_merge_removes_the_absorbed_orphan_thread_node(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    projection_stores: Any,
+    fake_embedder: FakeEmbedder,
+) -> None:
+    """Cross-meeting identity survives a per-meeting delete only while used.
+
+    Once curation redirects the absorbed thread's last topic, the next scoped
+    projection must retire the now-orphaned graph node as well as move the
+    `INCLUDES` edge.
+    """
+    driver, _client = projection_stores
+    first, second = seed_two_threaded_meetings(pool, app_config)
+    project(pool, app_config, first, fake_embedder)
+    project(pool, app_config, second, fake_embedder)
+    survivor = thread_id_of(pool, "vendor feed")
+    absorbed = thread_id_of(pool, "budget review")
+
+    with pool.connection() as conn:
+        conn.execute(
+            "INSERT INTO thread_alias (thread_id, merged_into_id) VALUES (%s, %s)",
+            (absorbed, survivor),
+        )
+        conn.execute("DELETE FROM meeting_projection WHERE meeting_id = %s", (second,))
+        conn.commit()
+
+    project(pool, app_config, second, fake_embedder)
+
+    assert query(
+        driver,
+        "MATCH (th:Thread {id: $id}) RETURN th.id AS id",
+        id=str(absorbed),
+    ) == []
+
+
 def test_unprojecting_a_meeting_removes_its_topics_and_keeps_the_thread(
     pool: ConnectionPool, app_config: AppConfig, projection_stores: Any, fake_embedder: FakeEmbedder
 ) -> None:

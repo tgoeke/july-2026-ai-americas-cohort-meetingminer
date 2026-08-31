@@ -47,6 +47,14 @@ The review branch must be rebased onto the then-current `origin/main` before clo
 - **Suggested direction:** In the same transaction as each curation write, delete `meeting_projection` for every meeting whose effective thread identity or name changed: all meetings currently in a renamed thread, both effective sides of a merge, and every meeting containing a split pin. Do not call the existing helper that commits internally; curation must remain atomic with its invalidation.
 - **Remediation:** Each route now resolves its affected meetings before changing membership/name and deletes their projection-state rows in the same transaction. Rename invalidates all meetings in the thread, merge invalidates both effective sides, and split invalidates only meetings whose topics moved. Three focused regressions and the complete curation module are green (**26 passed**).
 
+### F5 — Open for remediation: merge leaves an obsolete Thread node in Neo4j
+
+- **Location:** `server/meetingminer/projections/graph.py` (`delete_meeting` preserves every cross-meeting `Thread`; `_write_topics` only `MERGE`s current identities)
+- **Severity:** Major
+- **Finding:** After a merge is reprojected, the absorbed meeting's `Topic` node and old `INCLUDES` edge are replaced, but the absorbed cross-meeting `Thread` node is deliberately outside the per-meeting delete and no later statement removes it. The graph therefore contains a thread identity the API has hidden and the human explicitly merged away. F4 is necessary to schedule projection but does not make its result equivalent to effective Postgres membership.
+- **Evidence:** Added twin-backed `test_reprojecting_a_merge_removes_the_absorbed_orphan_thread_node`. It projected two machine threads, recorded an alias, invalidated/reprojected the affected meeting, and queried Neo4j for the absorbed id. Against the unfixed branch it failed red: the obsolete `Thread` node was still returned after the successful projection.
+- **Suggested direction:** Inside the same Neo4j transaction as the scoped delete/write, retire only `Thread` nodes with no remaining `INCLUDES` edge after current topics have been written. Do not delete a cross-meeting thread merely because one meeting stopped using it; orphanhood must be evaluated graph-wide after the replacement.
+
 ## Verification
 
 Pending.
