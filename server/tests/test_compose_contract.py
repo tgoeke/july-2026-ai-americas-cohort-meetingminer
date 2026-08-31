@@ -604,6 +604,7 @@ SLOW_TESTS = (
     # stubbed one, on an mp4 the session fixture builds with ffmpeg. Its cost is
     # two subprocesses, not test logic.
     "test_api_uploads::test_a_real_recording_passes_the_video_and_duration_checks",
+    "test_api_uploads::test_upload_first_pins_timestamp_identity_for_recording_primary",
     "test_api_speaker_assignment::TestRerun",
     "test_artifact_publish::test_approve_projects_into_both_stores",
     "test_worker_extract::test_search_never_returns_an_extracted_artifacts_content",
