@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { searchCorpus } from '@/client/sdk.gen'
-import type { SearchHit, SearchResponse } from '@/client/types.gen'
+import type { DocumentHitModel, SearchHit, SearchResponse } from '@/client/types.gen'
 import { SourceLinkAnchor } from '@/components/SourceLinkAnchor'
 import { Button } from '@/components/ui/button'
 import { ReplayPlayer } from '@/features/replay/ReplayPlayer'
@@ -9,6 +9,9 @@ import {
   affordanceOf,
   artifactBadge,
   DEBOUNCE_MS,
+  documentKindLabel,
+  documentProvenance,
+  documentYield,
   hitKey,
   hitLabel,
   offsetLabel,
@@ -78,6 +81,13 @@ export function CorpusSearch({
   // True when the moments index does not exist yet. A different sentence from
   // "nothing matched", because it asks for a different action.
   const [indexMissing, setIndexMissing] = useState(false)
+  // Extraction documents (story 12.4), held apart from `rows` because they are
+  // apart on the wire and apart in kind: a moment is citable evidence, a
+  // document is unreviewed machine-written analysis *about* evidence. Merging
+  // the two lists here would be the first step towards a UI that presents them
+  // as the same thing, which is what AD-18 forbids.
+  const [documents, setDocuments] = useState<Array<DocumentHitModel>>([])
+  const [documentsTotal, setDocumentsTotal] = useState(0)
   const [failure, setFailure] = useState<SearchFailure | null>(null)
   const [busy, setBusy] = useState(false)
   const [openReplay, setOpenReplay] = useState<string | null>(null)
@@ -134,6 +144,8 @@ export function CorpusSearch({
       setRanking(data.ranking)
       setEstimatedTotal(data.estimatedTotal)
       setIndexMissing(data.indexMissing ?? false)
+      setDocuments(data.documents ?? [])
+      setDocumentsTotal(data.documentsTotal ?? 0)
       setFailure(null)
       setOpenReplay(null)
     } catch (err) {
@@ -172,6 +184,8 @@ export function CorpusSearch({
       setRanking(null)
       setEstimatedTotal(0)
       setIndexMissing(false)
+      setDocuments([])
+      setDocumentsTotal(0)
       setFailure(null)
       setBusy(false)
       setOpenReplay(null)
@@ -191,6 +205,7 @@ export function CorpusSearch({
 
   const searching = trimmed !== '' && rows === null
   const shown = rows?.length ?? 0
+  const documentsShown = documents.length
   const truncated = rows !== null && shown > 0 && estimatedTotal > shown
   const compact = presentation === 'chrome'
 
@@ -295,7 +310,13 @@ export function CorpusSearch({
             >
               {indexMissing
                 ? 'Nothing has been indexed yet, so there is nothing to search. Ingest a meeting, then search again.'
-                : 'No moments match that search.'}
+                : documentsShown > 0
+                  ? // Precise, because the difference matters here: no moment
+                    // matched, and the analysis below still did. Saying only
+                    // "no results" would hide exactly what story 12.4 exists
+                    // to surface — the run that yielded nothing citable.
+                    'No moments match that search. The unreviewed analysis below mentions it.'
+                  : 'No moments match that search.'}
             </p>
           )
         ) : (
@@ -494,6 +515,114 @@ export function CorpusSearch({
               })}
             </ul>
           </>
+        )}
+
+        {/* Extraction documents (story 12.4). Rendered outside the
+            moment-results branch on purpose: a document matching when no
+            moment does is the case this whole feature exists for — the run
+            that yielded nothing worth approving is the run whose text somebody
+            needs to read.
+
+            A separate region, never interleaved with the hits above. The two
+            are different kinds of thing: a moment is citable evidence, a
+            document is unreviewed machine-written analysis *about* evidence,
+            and a list that mixed them would present the second as the first
+            (AD-18). Every card states its status from the api's own
+            `reviewLabel` rather than from a sentence written here, so what the
+            reader sees is what the indexed record says. */}
+        {!searching && trimmed !== '' && documentsShown > 0 && (
+          <section
+            data-testid="search-documents"
+            aria-label="Unreviewed extraction documents"
+            className="flex flex-col gap-3 border-t pt-4"
+          >
+            <header className="flex flex-wrap items-baseline justify-between gap-2">
+              <h3 className="text-sm font-semibold tracking-tight">
+                Extraction documents
+              </h3>
+              <span
+                data-testid="search-documents-caveat"
+                className="text-xs text-muted-foreground"
+              >
+                Unreviewed machine-written analysis — not citable evidence
+              </span>
+            </header>
+            {documentsTotal > documentsShown && (
+              <p
+                data-testid="search-documents-truncated"
+                className="text-xs text-muted-foreground"
+              >
+                Showing {documentsShown} of {documentsTotal} documents — narrow
+                the search to see the rest.
+              </p>
+            )}
+            <ul className="flex flex-col gap-3">
+              {documents.map((document) => (
+                <li
+                  key={document.documentId}
+                  data-testid={`document-${document.documentId}`}
+                  className="flex flex-col gap-2 rounded-lg border border-dashed p-4"
+                >
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="flex min-w-0 items-baseline gap-2">
+                      <span
+                        data-testid={`document-badge-${document.documentId}`}
+                        className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground"
+                      >
+                        Unreviewed
+                      </span>
+                      <span className="truncate font-medium">
+                        {documentKindLabel(document)}
+                      </span>
+                    </span>
+                  </div>
+                  <p
+                    data-testid={`document-source-${document.documentId}`}
+                    className="text-xs text-muted-foreground"
+                  >
+                    {documentProvenance(document)}
+                  </p>
+                  <p
+                    data-testid={`document-snippet-${document.documentId}`}
+                    className="text-sm text-muted-foreground"
+                    title={snippetText(document.snippet)}
+                  >
+                    {document.snippet.length === 0 ? (
+                      <span className="italic">No preview for this document.</span>
+                    ) : (
+                      document.snippet.map((run, index) =>
+                        run.highlighted ? (
+                          // eslint-disable-next-line react/no-array-index-key -- runs have no id; their order is their identity
+                          <mark key={index} className="bg-yellow-200 dark:bg-yellow-900">
+                            {run.text}
+                          </mark>
+                        ) : (
+                          // eslint-disable-next-line react/no-array-index-key -- same
+                          <span key={index}>{run.text}</span>
+                        ),
+                      )
+                    )}
+                  </p>
+                  <p
+                    data-testid={`document-yield-${document.documentId}`}
+                    className="text-xs text-muted-foreground"
+                  >
+                    {documentYield(document)}
+                  </p>
+                  {/* Straight from the indexed record. Not a sentence this
+                      component composed: the label was written into the record
+                      so it could not be lost between the store and a reader,
+                      and regenerating it here would defeat that (AD-18). */}
+                  <p
+                    data-testid={`document-label-${document.documentId}`}
+                    className="text-xs italic text-muted-foreground"
+                  >
+                    {document.reviewLabel}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
         </div>
       </div>

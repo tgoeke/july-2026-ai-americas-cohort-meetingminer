@@ -548,6 +548,99 @@ export type DiarizerView = {
 };
 
 /**
+ * DocumentHitModel
+ *
+ * One ranked extraction document (story 12.4). **Not a citation.**
+ *
+ * Deliberately missing every field `SearchHit` carries a citation in — no
+ * `momentId`, no `startMs`, no `screenshotId`, no `sourceDeepLink`. That
+ * absence is the mechanism, not an omission: a document is a claim *about*
+ * evidence, and a consumer must not be able to assemble a citation out of one
+ * (AD-6). Its content reaches an answer only through the moments its
+ * individual claims anchor to — which is the published-artifact path, already
+ * gated and already citable.
+ *
+ * Reachable without approval, and labelled because of it: AD-4's exception is
+ * to *reach*, never to legibility, so `reviewState`, `authorship`,
+ * `reviewLabel` and `citable` come off the indexed record and every surface
+ * that renders one renders them too (AD-18).
+ */
+export type DocumentHitModel = {
+    /**
+     * Documentid
+     */
+    documentId: string;
+    /**
+     * Meetingid
+     */
+    meetingId: string;
+    /**
+     * Meetingtitle
+     */
+    meetingTitle?: string | null;
+    /**
+     * Corpus
+     */
+    corpus: string;
+    /**
+     * Kind
+     */
+    kind: string;
+    /**
+     * Origin
+     */
+    origin: string;
+    /**
+     * Model
+     */
+    model?: string | null;
+    /**
+     * Prompthash
+     */
+    promptHash?: string | null;
+    /**
+     * Layout
+     */
+    layout: string;
+    /**
+     * Itemcount
+     */
+    itemCount: number;
+    /**
+     * Artifactcount
+     */
+    artifactCount: number;
+    /**
+     * Bytesize
+     */
+    byteSize: number;
+    /**
+     * Reviewstate
+     */
+    reviewState: string;
+    /**
+     * Authorship
+     */
+    authorship: string;
+    /**
+     * Reviewlabel
+     */
+    reviewLabel: string;
+    /**
+     * Citable
+     */
+    citable?: boolean;
+    /**
+     * Snippet
+     */
+    snippet: Array<SnippetRunModel>;
+    /**
+     * Score
+     */
+    score?: number | null;
+};
+
+/**
  * DrilldownScreenshot
  *
  * One capture in the meeting's screenshot series, in `ordinal` order.
@@ -762,6 +855,22 @@ export type ExtractionDocument = {
      * Documenttext
      */
     documentText: string | null;
+    /**
+     * Reviewstate
+     */
+    reviewState?: string;
+    /**
+     * Authorship
+     */
+    authorship?: string;
+    /**
+     * Reviewlabel
+     */
+    reviewLabel?: string;
+    /**
+     * Citable
+     */
+    citable?: boolean;
     /**
      * Createdat
      */
@@ -2511,9 +2620,21 @@ export type SearchResponse = {
      */
     offset: number;
     /**
+     * Documents
+     */
+    documents?: Array<DocumentHitModel>;
+    /**
+     * Documentstotal
+     */
+    documentsTotal?: number;
+    /**
      * Indexmissing
      */
     indexMissing?: boolean;
+    /**
+     * Documentsindexmissing
+     */
+    documentsIndexMissing?: boolean;
 };
 
 /**
