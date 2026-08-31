@@ -71,3 +71,23 @@ implementation through the builder's closing documentation commit.
   writes. This makes a claimant wait when the route saw a settled job and makes
   the route wait and observe `running` when a claimant won first. Keep READ
   COMMITTED so a lock wait sees the claimant's committed status.
+
+### F-3 — Source labels containing `/` cannot be assigned
+
+- Location: `server/meetingminer/api/speakers.py:405-411`
+- Severity: Medium
+- Finding: The tag is opaque source evidence and the read route returns it
+  verbatim, but the PUT route uses FastAPI's default single-segment path
+  converter. A source-attributed label containing `/` is therefore visible and
+  correctable in `GET /meetings/{id}/speakers` but can never reach the
+  assignment handler. Percent-encoding does not help because the ASGI path is
+  decoded before route matching.
+- Evidence: Added `test_a_source_label_containing_a_slash_is_assignable` with
+  the stored label `Platform / Operations` and sent the tag with `/` encoded as
+  `%2F`. Against the unfixed route, the red assertion at
+  `server/tests/test_api_speaker_assignment.py:377` expected 200 and observed
+  the router's 404 before the handler ran.
+- Suggested direction: Declare the final tag parameter with Starlette's
+  `path` converter so it consumes the remaining decoded path verbatim, retain
+  the existing exact database label check, and pin both routing and generated
+  OpenAPI/client behavior with the slash regression test.
