@@ -59,6 +59,7 @@ dependencies = [
     # A lower floor would resolve, type-check, and then fail at runtime
     # against a live store, so it is pinned to what is actually verified.
     "meilisearch>=0.43,<1",
+    "python-multipart>=0.0.20",
 ]
 
 [project.optional-dependencies]
