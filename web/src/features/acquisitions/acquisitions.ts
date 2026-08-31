@@ -100,6 +100,10 @@ export function failureOf(error: unknown): Failure {
   if (refusal !== null) return { kind: 'refusal', refusal, body: error as Record<string, unknown> }
   if (error instanceof Error) return transportFailure(error.message)
   if (typeof error === 'string') return transportFailure(error)
+  if (isRecord(error)) {
+    const message = nonEmptyString(error.message)
+    if (message !== null) return transportFailure(message)
+  }
   return transportFailure('the api answered with a body this client cannot read')
 }
 

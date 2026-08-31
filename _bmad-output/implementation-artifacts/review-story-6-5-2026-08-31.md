@@ -154,7 +154,7 @@ Date: 2026-08-31
 - **Finding** — A probe rejected with the platform's `DOMException` timeout remains on the transport component, but its actual message is discarded and replaced with `the api answered with a body this client cannot read`. The UI therefore hides that the request timed out.
 - **Evidence** — `failureOf` preserves a message only for `error instanceof Error` or a string. In the web test environment, `new DOMException('The operation timed out', 'TimeoutError')` is not an `Error` instance, even though it is the standard exception shape used by abort/timeout APIs and exposes a string `message`. The focused delayed-rejection test observed the generic unreadable-body sentence. AD-18 requires failures to surface visibly *and by name*; the review contract specifically requires scrutiny of a probe timing out mid-debounce.
 - **Suggested direction** — After ruling out a parsed Problem Details refusal, preserve a non-empty `message` from an error-like object (including `DOMException`) as a transport failure; keep the Retry path and continue to ensure it never renders as a source refusal.
-- **Disposition** — confirmed; remediation in progress.
+- **Disposition** — fixed red-first. The delayed probe test first received the generic unreadable-body sentence. After the classifier learned the platform's error-like `{message}` shape, the same `DOMException` is still transport, visibly says it timed out, and Retry successfully obtains the next probe answer; a pure unit test pins the classifier boundary too.
 
 ## Disposition
 
