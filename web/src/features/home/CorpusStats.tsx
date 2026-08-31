@@ -34,7 +34,7 @@ function describe(error: unknown): string {
  * is decorative. When the endpoint cannot be reached the strip says so in one
  * sentence rather than rendering zeros it did not observe.
  */
-export function CorpusStats() {
+export function CorpusStats({ compact = false }: { compact?: boolean } = {}) {
   const [state, setState] = useState<StatsState>({ kind: 'loading' })
   // Held across renders so a re-fetch aborts the in-flight one — an older
   // response must never overwrite a newer result (story 1.10, finding 22).
@@ -96,6 +96,23 @@ export function CorpusStats() {
     ['participants', stats.participants],
     ['published docs', stats.publishedDocuments],
   ]
+
+  if (compact) {
+    return (
+      <section
+        data-testid="corpus-stats"
+        aria-label="Corpus statistics"
+        className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-muted-foreground"
+      >
+        {items.map(([label, value]) => (
+          <span key={label} className="whitespace-nowrap">
+            <span className="font-mono tabular-nums text-foreground">{value}</span>{' '}
+            {label}
+          </span>
+        ))}
+      </section>
+    )
+  }
 
   return (
     <section data-testid="corpus-stats" aria-label="Corpus statistics">

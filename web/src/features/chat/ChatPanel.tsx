@@ -166,6 +166,30 @@ export function ChatPanel({
 
   useEffect(() => () => controllerRef.current?.abort(), [])
 
+  // Example questions, drawn from subjects the corpus actually holds rather
+  // than invented. An empty ask box asks the reader to guess what a corpus they
+  // have never seen contains; the prototype answered that with one-click
+  // examples, and grounding them in real subjects keeps every one answerable.
+  const [examples, setExamples] = useState<string[]>([])
+  useEffect(() => {
+    let live = true
+    void fetch(`${API_BASE}/threads/suggestions`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!live || d == null) return
+        const subjects: string[] = (d.subjects ?? [])
+          .map((s: { name?: string }) => s.name)
+          .filter((n: unknown): n is string => typeof n === 'string')
+        setExamples(
+          subjects.slice(0, 4).map((name) => `What did we decide about ${name}?`),
+        )
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [])
+
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     // Not gated on `busy`: a re-submit while a question is still in flight is
@@ -186,8 +210,30 @@ export function ChatPanel({
       data-testid={compact ? 'chrome-ask-surface' : undefined}
       aria-expanded={compact ? expanded : undefined}
     >
-      <header className={compact ? 'sr-only' : 'flex flex-wrap items-center justify-between gap-3'}>
-        <h2 className="text-lg font-semibold tracking-tight">Ask</h2>
+      <header
+        className={
+          compact
+            ? 'mb-1 flex items-baseline gap-2'
+            : 'flex flex-wrap items-center justify-between gap-3'
+        }
+      >
+        {/* The compact control used to carry only a placeholder, so two
+            unlabelled boxes sat side by side and a reader could not tell which
+            searched and which asked. */}
+        <h2
+          className={
+            compact
+              ? 'text-xs font-semibold tracking-wide text-muted-foreground uppercase'
+              : 'text-lg font-semibold tracking-tight'
+          }
+        >
+          Ask
+        </h2>
+        {compact && (
+          <span className="text-xs text-muted-foreground">
+            answers are cited to the moment they came from
+          </span>
+        )}
         {!compact && <ModelSelect />}
       </header>
 
@@ -244,6 +290,23 @@ export function ChatPanel({
           )}
         </div>
       </form>
+      {compact && !showAnswer && !busy && examples.length > 0 && (
+        <div data-testid="ask-examples" className="mt-2 flex flex-wrap gap-1.5">
+          {examples.map((example) => (
+            <button
+              key={example}
+              type="button"
+              className="rounded-full border px-2.5 py-1 text-left text-xs text-muted-foreground hover:border-primary hover:text-foreground"
+              onClick={() => {
+                setQuestion(example)
+                void ask(example)
+              }}
+            >
+              {example}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div
         id={compact ? 'chrome-ask-results' : undefined}

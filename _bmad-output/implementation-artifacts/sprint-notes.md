@@ -4351,3 +4351,84 @@ and a later commit would sweep the paid extraction binding into main. Story
 
 **Unblocks story 6.5a** — the local-files, Zoom-export and Teams-export tabs of
 Add-meeting now have both halves they need: 6.5's flow and this upload path.
+
+## The moment view can reach its meeting — 2026-08-31
+
+Not a story: a UI gap found while walking the app before the recording. A
+moment named its meeting in the heading and offered no way to it, and the
+shell's `← Back` does not fill that gap — a moment is reached from the feed, a
+search hit, a thread or a pasted link, so Back returns to one of those. Landed
+in `4dafcfcb`.
+
+`MomentView` now takes an optional `onOpenMeeting?: (meetingId: string) =>
+void` and `MomentView.route.tsx` composes `/meetings/${meetingId}` through
+`useOpenPath`. The meeting id is an argument rather than something the route
+closes over, because the route knows only the moment id.
+
+**What will bite the next person touching this view.** `MomentView.test.tsx`
+renders the component 35 times with no router, which is why the control is a
+`Button` behind a callback and not a react-router `Link` — mounting a `Link`
+in `MomentView` breaks that whole suite. The cost is real and is filed in
+`deferred-work.md`: the control has no URL behind it, so no cmd-click, no
+open-in-new-tab, no copy-link. Fixing it properly means `asChild` on
+`components/ui/button.tsx` or an optional href, plus wrapping that suite.
+
+The route seam is pinned by `MomentMeetingRoute.test.tsx`, which mounts the
+real shell at `/moments/:momentId` and follows the control to the meeting
+drill-down. It exists because the component tests pass their own handler: a
+typo'd path or a route that stopped supplying the prop would otherwise ship
+green. Verified by mutation — breaking the path fails that test and only that
+test. Two other UI-adjacent notes for anyone in `web/src/features/moments/`
+today: the moment suites are the untouched check that an insertion moved
+nothing, and three agents landed in that directory this afternoon.
+
+`ops-order.md` is stale on one point worth knowing at merge time: it says
+`llm.roles.extraction` binds local `ollama/gpt-oss:120b`, but as of today
+`config.yaml` has it on paid `openai/gpt-5.2` for the demo-corpus ingest, by
+owner decision, with a revert owed when the ingest is done. Nothing in this
+change touches it; the worker gate is unaffected either way.
+
+## The model select's help text stopped covering its own catalog — 2026-08-31
+
+Not a story: a UI defect reported from a screenshot while walking the app
+before the recording. Opening the ask box's model select drew the "Inherited
+from the file default in config.yaml…" sentence on top of the catalog the
+reader had just opened. Landed in `f8843c47`.
+
+The cause was two absolutely positioned layers anchored to the same corner of
+the trigger — the catalog panel at `top-full right-0 z-50` and the notices box
+at `top-[calc(100%+0.25rem)] right-0 z-50`, in `ModelSelect.tsx`. The source
+notice renders only while the popover is open, so the two always collided;
+`model-select-stale` and `model-select-refusal` could collide the same way.
+
+In the compact ask box the panel and the notices are now siblings of one
+positioned column, catalog first, so overlap is a structural impossibility
+rather than a matter of offsets. `panel` therefore carries `absolute top-full
+right-0 z-50 mt-1` only when `compact` is false. The notices box is mounted
+whatever the popover is doing.
+
+**Why the notices are not inside the panel**, which is the obvious first fix
+and is wrong three ways: the panel is guarded by `options.length > 0`, so a
+catalog emptied under an open popover — reachable, because `useModelSettings`'s
+`selectionListeners` broadcast the api's authoritative role including its
+catalog — silences every notice; the `role="alert"` refusal remounts on each
+toggle and is re-announced; and the panel is `overflow-y-auto max-h-[min(24rem,
+70vh)]`, so a catalog longer than two entries scrolls that alert out of view.
+All three were caught in review before landing.
+
+**What will bite the next person.** The full (non-compact) view still has the
+original defect — its notices are `contents` in normal flow and the panel
+overlays them. That is filed in `deferred-work.md` with the reason it was not
+fixed here: positioning the full view's notices changes `ChatPanel.tsx:237`'s
+flex-wrap header layout, which is more than this report was about. Three other
+a11y gaps on this component predating story 8.3 are filed alongside it.
+
+Not verified in a browser — the stack was down. Three tests pin the structural
+property instead, because jsdom computes no geometry and a containment
+assertion would pass on a clipped or under-painted layer.
+
+**Owed but not by this change:** `483bcb43` added `GET /media/files/{media_id}`
+(`getMediaFileById`) and the committed TS client does not carry it, so
+`make client` is owed on that landing. Nothing is broken meanwhile —
+`web/src/features/moments/feed.ts` builds that URL by hand rather than through
+the generated sdk.

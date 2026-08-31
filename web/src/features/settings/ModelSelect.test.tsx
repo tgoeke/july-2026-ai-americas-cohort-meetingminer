@@ -492,4 +492,73 @@ describe('ModelSelect', () => {
     expect(stale).toHaveTextContent('no longer in the catalog')
     expect(stale).toHaveTextContent('file default openai/gpt-5.2')
   })
+
+  it('stacks the notices under the open catalog rather than over it', async () => {
+    stubApi({
+      models: () =>
+        json({
+          roles: [
+            chatRole({
+              staleSelection: 'openai/gpt-4o',
+              staleReason: 'it is no longer in the catalog for this role',
+            }),
+          ],
+        }),
+    })
+    render(<ModelSelect compact />)
+    await openPicker()
+
+    // jsdom computes no geometry, so the guarantee asserted here is the
+    // structural one that makes overlap impossible: the catalog and the
+    // notices are laid out as siblings of one positioned column, in that
+    // order — not two layers anchored separately to the same corner.
+    const popover = screen.getByTestId('model-select-popover')
+    const source = screen.getByTestId('model-select-source')
+    const notices = source.parentElement
+    expect(popover).not.toContainElement(source)
+    expect(notices?.parentElement).toBe(popover.parentElement)
+    expect(popover.compareDocumentPosition(notices as Node)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+    expect(notices).toContainElement(screen.getByTestId('model-select-stale'))
+    expect(popover.className).not.toContain('absolute')
+  })
+
+  it('shows where the binding came from only while the popover is open', async () => {
+    stubApi()
+    render(<ModelSelect compact />)
+    const user = await openPicker()
+    expect(screen.getByTestId('model-select-source')).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+
+    await waitFor(() => expect(screen.queryByTestId('model-select-popover')).toBeNull())
+    expect(screen.queryByTestId('model-select-source')).toBeNull()
+    expect(screen.getByTestId('model-select-trigger')).toHaveFocus()
+  })
+
+  it('leaves the full view notices in the flow, on one node, across a toggle', async () => {
+    stubApi({
+      models: () =>
+        json({
+          roles: [
+            chatRole({
+              staleSelection: 'openai/gpt-4o',
+              staleReason: 'it is no longer in the catalog for this role',
+            }),
+          ],
+        }),
+    })
+    render(<ModelSelect />)
+
+    const stale = await screen.findByTestId('model-select-stale')
+    const before = stale.parentElement
+    await openPicker()
+
+    // The same node, not a remount: a `role="alert"` refusal beside it must be
+    // announced once, not again on every toggle of the popover.
+    expect(screen.getByTestId('model-select-stale')).toBe(stale)
+    expect(stale.parentElement).toBe(before)
+    expect(screen.getByTestId('model-select-popover')).not.toContainElement(stale)
+  })
 })

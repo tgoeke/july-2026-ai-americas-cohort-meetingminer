@@ -1,3 +1,4 @@
+import { MeetingDocuments } from './MeetingDocuments'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getMeetingDrilldown, getMoment, listMeetingMoments } from '@/client/sdk.gen'
 import type {
@@ -547,6 +548,11 @@ export function MeetingMoments({
               aria-label="Extracted evidence"
               className="flex flex-col gap-5 lg:order-3 lg:max-h-[75vh] lg:overflow-y-auto lg:pr-1"
             >
+              {/* The markdown the extraction produced, first in the rail:
+                  it is the artifact in the owner's sense — the document you
+                  merge, publish or hand to someone — and it belongs to the
+                  meeting rather than to any one moment. */}
+              <MeetingDocuments meetingId={meetingId} />
               <section data-testid="meeting-artifacts" className="flex flex-col gap-2">
                 <h3 className="text-sm font-medium text-muted-foreground">
                   Extracted{rail.kind === 'ready' ? ` ${rail.entries.length}` : ''}

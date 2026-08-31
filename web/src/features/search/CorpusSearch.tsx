@@ -217,8 +217,27 @@ export function CorpusSearch({
       data-testid={compact ? 'chrome-search-surface' : undefined}
       aria-expanded={compact ? expanded : undefined}
     >
-      <header className={compact ? 'sr-only' : 'flex items-baseline justify-between gap-4'}>
-        <h2 className="text-lg font-semibold tracking-tight">Search</h2>
+      <header
+        className={
+          compact
+            ? 'mb-1 flex items-baseline gap-2'
+            : 'flex items-baseline justify-between gap-4'
+        }
+      >
+        {/* Labelled rather than left to a placeholder: two unlabelled boxes in
+            the chrome gave a reader no way to tell searching from asking. */}
+        <h2
+          className={
+            compact
+              ? 'text-xs font-semibold tracking-wide text-muted-foreground uppercase'
+              : 'text-lg font-semibold tracking-tight'
+          }
+        >
+          Search
+        </h2>
+        {compact && (
+          <span className="text-xs text-muted-foreground">finds the exact words</span>
+        )}
         {ranking === 'keyword' && !compact && (
           <span
             data-testid="ranking-degraded"
@@ -241,7 +260,7 @@ export function CorpusSearch({
           data-testid="search-input"
           type="search"
           value={term}
-          placeholder="purchase order"
+          placeholder="Search for a phrase someone said"
           onChange={(event) => setTerm(event.target.value)}
           aria-expanded={compact ? expanded : undefined}
           aria-controls={compact ? 'chrome-search-results' : undefined}

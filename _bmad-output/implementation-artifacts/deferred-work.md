@@ -336,3 +336,33 @@ also edits the pinned sets in `server/tests/test_lint_contract.py`.
   summary: DEFERRED — transcript-only identity can ignore corrected speaker attribution. Do not amend the identity contract and do not change code unless the observed trigger occurs.
   evidence: Exact reproduction: the two exports `Alice: identical words` and `Bob: identical words` produce the identical `sha256:d53bde...` identity. `transcript.vtt` sorts before `transcript.txt` in `_digest_supplied(classify_supplied(...))`, so the speaker-less artifact determines the identity; `_evidence_not_in()` cannot warn because the existing drop already carries the canonical filename. Preserve both candidate fixes for a future decision: derive identity from the operator's original supplied file, or derive a deterministic digest over both converted artifacts.
   revisit_trigger: An operator re-mints a corrected Zoom export and the system reports `exists` while keeping the old attribution.
+
+## Deferred from: model select notices overlap (2026-08-31, one-shot review)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-model-select-notices-overlap-the-popover.md`
+  summary: In the full (non-compact) `ModelSelect`, the popover is absolutely positioned and still overlays the notices that flow beneath the trigger.
+  evidence: `web/src/features/settings/ModelSelect.tsx` — with `compact === false` the notices layer is `contents` (normal flow) and the panel keeps `absolute top-full right-0 z-50`. Pre-existing; the compact ask box was the reported surface and is the only one this change re-laid out. Fixing the full view means positioning its notices too, which changes `ChatPanel.tsx:237`'s header layout.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-model-select-notices-overlap-the-popover.md`
+  summary: A model-binding write in flight is never announced — `model-select-pending` sits in no live region, and the `aria-busy` that would cover it is unmounted before the PUT is awaited.
+  evidence: `aria-busy={busyBinding !== undefined}` is on the listbox, but `choose()` calls `close()` before awaiting `select()`, so the listbox is gone by the time `busyBinding` is set. Pre-existing since story 8.3. A `role="status"` on the notices layer would announce it, but it would then wrap the refusal's `role="alert"`, so the nesting needs a decision.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-model-select-notices-overlap-the-popover.md`
+  summary: Someone arrowing through the catalog never hears which binding is in force or that a stored choice was discarded — the listbox does not `aria-describedby` the source and stale notices.
+  evidence: `model-select-source` and `model-select-stale` render outside `role="listbox"` and carry no ids. Pre-existing since story 8.3; both notices were outside the listbox before this change too.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-model-select-notices-overlap-the-popover.md`
+  summary: `.gitignore` has no `~$*` rule, so an Office lock file in the tree is one `git add <dir>` away from being committed.
+  evidence: `docs/~$MeetingMiner-15-minute-capstone.pptx` is untracked in the working tree and matches no ignore rule. Unrelated to this change and `.gitignore` is shared, so it is not staged here.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-moment-back-to-meeting.md`
+  summary: The moment view's "Open the meeting" control is a `Button`, so there is no URL behind it — no cmd/middle-click, no open-in-new-tab, no copy-link.
+  evidence: `MomentView.tsx` cannot mount a react-router `Link` because `MomentView.test.tsx` renders the component 35 times with no router, and `components/ui/button.tsx` has no `asChild` escape hatch. The project's own mockup for the sibling affordance uses an anchor (`mockups/speaker-naming.html:210`). Fixing it properly means either `asChild` on the button or an optional `meetingHref`, plus wrapping that suite.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-moment-back-to-meeting.md`
+  summary: Two hand-copied back/up affordances now share byte-identical classes with different words and different a11y — a shared component would settle it and give `SpeakerNaming`'s control the accessible name it lacks.
+  evidence: `SpeakerNaming.tsx:484-492` renders `variant="ghost" size="sm" className="self-start px-0 text-muted-foreground"` reading "← Back" with no `aria-label` and no `data-testid`; `MomentView.tsx`'s new control repeats the same classes with both. Pre-existing duplication surfaced by this change, not caused by it.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-moment-back-to-meeting.md`
+  summary: Nothing moves focus or announces the change when the app navigates between screens, so a keyboard or screen-reader user is left on `document.body` and restarts from the top of the shell.
+  evidence: `App.tsx` has no route announcer and no focus reset on `pathname` change — only the two `focus()` calls for the search and chat shortcuts. App-wide and pre-existing; surfaced because this change adds a control whose whole purpose is that move.

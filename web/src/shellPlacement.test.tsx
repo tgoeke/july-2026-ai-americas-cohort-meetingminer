@@ -131,7 +131,7 @@ describe('shell placement', () => {
   })
 
   it.each(childRoutes.map((route) => route.path))(
-    'renders %s beside the standing search and ask controls',
+    'renders %s below the standing search and ask bar',
     (pattern) => {
       window.history.replaceState(null, '', concretePath(pattern))
       render(<App />)
@@ -153,18 +153,30 @@ describe('shell placement', () => {
       expect(rail).not.toBeNull()
       expect(rail).toContainElement(screen.getByTestId('search-input'))
       expect(rail).toContainElement(screen.getByTestId('chat-question-input'))
-      // The rail is a left column on most routes and collapses to the
-      // horizontal strip on `/threads`, where the timeline is a map that needs
-      // the full width (owner, 2026-08-31). What this test guards either way is
-      // that the controls stand on every route and never occupy a growing
-      // flow-height block above the opened screen — so it asserts the column
-      // class only where the column is what renders.
-      if (!pattern.startsWith('/threads')) {
-        expect(rail).toHaveClass('min-[1400px]:sticky')
+      // Owner revision 2026-08-31, taken from the working prototype: Search
+      // and Ask are ONE full-width bar under the chrome, not a left column. A
+      // 24rem rail took a third of the screen from the timeline that needed it
+      // most, and the prototype has no left card on any view.
+      //
+      // Threads is the exception, and deliberately: that view owns its own
+      // input — "name a subject to trace" — and its own suggestions, so the
+      // bar would stack a second input area above it. Each view gets one
+      // input, which is what the prototype does.
+      expect(rail).toHaveClass('w-full')
+      if (pattern.startsWith('/threads')) {
+        expect(rail).toHaveAttribute('hidden')
+      } else {
+        expect(rail).not.toHaveAttribute('hidden')
       }
       expect(child.compareDocumentPosition(chrome)).toBe(Node.DOCUMENT_POSITION_PRECEDING)
-      // The Back control belongs to an open child screen.
-      expect(child.previousElementSibling).toHaveTextContent('← Back')
+      // Back belongs to a screen opened OUT of something. Threads is a
+      // standing destination in the nav, so it has nothing to go back to and
+      // renders no Back control.
+      if (pattern.startsWith('/threads')) {
+        expect(child.previousElementSibling).toBeNull()
+      } else {
+        expect(child.previousElementSibling).toHaveTextContent('← Back')
+      }
     },
   )
 

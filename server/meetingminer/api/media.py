@@ -445,6 +445,44 @@ def get_recording(meeting_id: UUID, request: Request) -> Response:
     return _stream_file(request, recording, missing)
 
 
+_SCREENSHOT_PATH = "SELECT path FROM screenshot WHERE id = %s"
+
+
+# Declared before `{path:path}` for the same reason the recordings route is:
+# a greedy path parameter would otherwise swallow `files/<uuid>`.
+@router.get(
+    "/media/files/{media_id}",
+    operation_id="getMediaFileById",
+    response_class=Response,
+    responses=_MEDIA_RESPONSES,
+)
+def get_media_file_by_id(media_id: UUID, request: Request) -> Response:
+    """Stream one screenshot by its id (AD-17: media is ID-addressed).
+
+    Every caller that shows a screenshot holds an id, not a path — the moments
+    feed, the moment card and the thread timeline all serve `screenshotId` and
+    nothing else. Until this route existed they built a URL against it anyway
+    and every card rendered "no screenshot" while 3,107 screens sat on disk,
+    because the only file route took a content-root-relative path the client
+    was never given. Story 10.3's review filed the gap; this closes it.
+
+    The path stays server-side, which is the point of addressing by id: a
+    client that cannot name a path cannot walk the content root, and the
+    stored layout stays free to change without breaking a client.
+    """
+    pool = request.app.state.pool
+    with pool.connection() as conn:
+        row = conn.execute(_SCREENSHOT_PATH, (media_id,)).fetchone()
+    if row is None or row[0] is None:
+        raise Problem(
+            404,
+            "not-found",
+            f"no media file with id {media_id}",
+        )
+    target = _resolve_under_root(_content_root(request), row[0])
+    return _stream_file(request, target, "the media file's bytes are missing")
+
+
 # Declared after the recordings route on purpose — see the registration
 # comment in api/main.py; `{path:path}` would otherwise swallow it.
 @router.get(
