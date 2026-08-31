@@ -133,3 +133,23 @@ Adversarial review of the Story 7.4 web implementation, with emphasis on unsettl
 - **Evidence:** The two reads settle independently. Only a successful drilldown sets `hasRecording`; every pending and failure path retains the false default. The speakers failure box owns the screen's only Retry button, while the independent transcript failure branch renders plain text.
 - **Suggested direction:** Model recording availability as unknown until drilldown succeeds, say that it is loading/unavailable without claiming absence, and place Retry with the independent transcript failure as well. Verify both a pending drilldown and a drilldown-only refusal.
 - **Red/green evidence:** With speakers loaded and drilldown unresolved, the screen first rendered the false `Transcript only — no recording` sentence; a drilldown-only 409 exposed no Retry. Recording availability is now tri-state and stays explicitly loading until a successful answer, while the independent transcript failure carries its own Retry. Both regressions pass.
+
+## Outcome
+
+- 12 findings confirmed: 10 fixed red-first on `story/7-4-review`; 2 remain open because their root cause is the frozen Story 7.4 contract.
+- Open owner items: F2 (`job.done` cannot prove extraction landed) and F11 (the all-rows-tabbable deviation is not a roving group).
+- B-41 is closed here under the owner ruling carried by `7d8d93e`: the speakers recovery read is route-local and narrow; drilldown and unrelated operations remain gated.
+- No Story 10.5 or 10.6 changes were pulled into the review branch.
+
+## Verification
+
+- `make bootstrap` — passed.
+- `uv sync --project server` — passed.
+- F1 adjacent API suites — 45 passed, 6 slow tests deselected.
+- Speakers suite, three consecutive foreground runs — 78 passed each run.
+- Full web suite — 381 passed across 20 files.
+- `make test-fast` — 2,173 passed, 3 named skips, 411 slow tests deselected. The first run had one unrelated 2.12s fast-budget overrun in `test_frame_image`; that test passed alone in 0.36s and the complete foreground rerun passed.
+- `make lint` — passed.
+- `make typecheck` — passed, 13 source files checked.
+- `make check-client` — passed.
+- `make check-reviews` — passed: every dispatched review has a committed report.
