@@ -129,6 +129,15 @@ Date: 2026-08-31
 - **Suggested direction** — For a newly created acquisition whose served probe kind was `auto`, carry that fact into the finished card and render `Name speakers` only after `transcribe` is `done` and a real meeting id exists; navigate to the existing speakers route. Do not infer the same for `result: exists`, where names may already have been assigned.
 - **Disposition** — fixed red-first. The focused auto-caption completion test could not find the action against the original card; it passed after the parent carried the served probe fact into the card and the route wired the existing speakers destination. The manual-caption handoff pins that the action is not guessed, and `result: exists` is deliberately excluded because a prior naming state is not served here.
 
+### F14 — An unrecognised acquisition status silently unlocks the form
+
+- **Location** — `web/src/features/acquisitions/AddMeeting.tsx:187`
+- **Severity** — medium
+- **Finding** — If the api returns any status outside this client's four known values, polling stops, the running step is drawn as queued, and the URL field unlocks with no explanation. A state the client cannot interpret is therefore presented as if the acquisition were no longer active.
+- **Evidence** — The generated `AcquisitionStatus.status` is an open `string`. `useAcquisitionStatus` intentionally stops when `isLive` is false, including an unknown value; `locked` uses the same live-only predicate, and `stepperSteps` falls through to queued bars. This conflicts with AD-18's named-failure rule and with the existing ingestion-stage convention in `stageStyles.ts`, where unknown served values render loudly as `unknown` instead of being disguised. It also violates the frozen lock boundary: the form unlocks before a served `posted | failed` terminal state.
+- **Suggested direction** — Keep the form locked unless the served value is exactly `posted` or `failed`, render the raw unknown value with the existing visual `unknown` state and a named compatibility notice, and offer an explicit poll Retry rather than inferring a terminal outcome.
+- **Disposition** — confirmed; remediation in progress.
+
 ## Disposition
 
 Review in progress. No pass/fail verdict has been assigned.
