@@ -377,6 +377,7 @@ def score_candidate(
     """
     weights = ranking.weights
     terms: list[_Term] = []
+    hidden_score = 0.0
 
     # --- artifacts ---------------------------------------------------------
     # Once per kind, never once per row: a moment carrying two ADRs is not
@@ -477,10 +478,11 @@ def score_candidate(
         factor = recency_factor(
             candidate.meeting_started_at, now, ranking.recency_half_life_days
         )
+        contribution = weights.meeting_recency * factor
         if factor >= 0.5:
             terms.append(
                 _Term(
-                    weights.meeting_recency * factor,
+                    contribution,
                     FeedReason(
                         kind="recency",
                         label=_days_ago_label(candidate.meeting_started_at, now),
@@ -488,6 +490,8 @@ def score_candidate(
                     ),
                 )
             )
+        else:
+            hidden_score += contribution
 
     # --- publication --------------------------------------------------------
     published = [
@@ -501,10 +505,11 @@ def score_candidate(
         factor = recency_factor(
             newest.published_at, now, ranking.recency_half_life_days
         )
+        contribution = weights.publication_recency * factor
         if factor >= 0.5:
             terms.append(
                 _Term(
-                    weights.publication_recency * factor,
+                    contribution,
                     FeedReason(
                         kind="published",
                         label=newest.title.strip(),
@@ -513,6 +518,8 @@ def score_candidate(
                     ),
                 )
             )
+        else:
+            hidden_score += contribution
 
     # --- thread membership --------------------------------------------------
     if candidate.threads:
@@ -533,7 +540,9 @@ def score_candidate(
 
     order = {kind: index for index, kind in enumerate(REASON_KINDS)}
     terms.sort(key=lambda term: (-term.score, order[term.reason.kind], term.reason.label))
-    return sum(term.score for term in terms), tuple(term.reason for term in terms)
+    return hidden_score + sum(term.score for term in terms), tuple(
+        term.reason for term in terms
+    )
 
 
 # --- validation, then pagination --------------------------------------------

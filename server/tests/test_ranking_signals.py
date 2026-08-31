@@ -393,6 +393,36 @@ def test_a_recency_reason_is_only_claimed_while_it_is_true(ranking) -> None:
     assert "recency" not in stale_kinds
 
 
+def test_recency_terms_keep_decaying_after_the_reason_window(ranking) -> None:
+    """F1: hiding a stale label must not turn exponential decay into a cliff."""
+    old = NOW - timedelta(days=28)
+    older = NOW - timedelta(days=56)
+
+    old_score, old_reasons = score_candidate(
+        candidate(meeting_started_at=old), ranking, NOW
+    )
+    older_score, older_reasons = score_candidate(
+        candidate(meeting_started_at=older), ranking, NOW
+    )
+
+    assert old_score == pytest.approx(ranking.weights.meeting_recency * 0.25)
+    assert old_score > older_score > 0
+    assert "recency" not in {reason.kind for reason in old_reasons + older_reasons}
+
+    published = artifact(
+        kind="adr", title="Published record", state="published", published_at=old
+    )
+    publication_score, publication_reasons = score_candidate(
+        candidate(meeting_started_at=older, artifacts=(published,)), ranking, NOW
+    )
+    assert publication_score == pytest.approx(
+        ranking.weights.adr
+        + ranking.weights.meeting_recency * 0.0625
+        + ranking.weights.publication_recency * 0.25
+    )
+    assert "published" not in {reason.kind for reason in publication_reasons}
+
+
 def test_a_titleless_artifact_contributes_no_reason(ranking) -> None:
     """A reason with no label is one a card cannot render."""
     old = NOW - timedelta(days=365)
