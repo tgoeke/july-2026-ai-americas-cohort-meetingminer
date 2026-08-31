@@ -109,7 +109,8 @@ Adversarial review of the Story 7.4 web implementation, with emphasis on unsettl
 
 - **Location:** `web/src/features/speakers/SpeakerNaming.tsx:500`; `web/src/features/speakers/SpeakerNaming.tsx:808`; `_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/EXPERIENCE.md:213`
 - **Severity:** Medium
-- **Status:** Confirmed — patch required
+- **Status:** Fixed on `story/7-4-review`
 - **Finding:** The rerun strip changes stage words, failure, and landed content without a live region, so a screen-reader user who remains in the naming controls receives no progress transition. In the same keyboard path, DOM order places Save before Unresolved even though the accessibility floor specifies name field → Unresolved → Save.
 - **Evidence:** The strip is a static `role="group"`; only the connection-lost paragraph has `role="status"`. Stage frames mutate descendant text without an announcement primitive. The JSX renders the primary Save button before Unresolved, reversing the spine's explicit tab order.
 - **Suggested direction:** Add one atomic polite status summary for the rerun (not one live region per stage), and render Unresolved before Save while retaining Save as the single filled primary action. Verify both the stage announcement and the tab sequence.
+- **Red/green evidence:** The new keyboard test first tabbed directly from the populated field to Save, and the progress test found no status role after `align` became running. The controls now render Unresolved before the still-primary Save button, and one screen-reader-only atomic status summarizes the current rerun stages or terminal result. Both regressions pass.
