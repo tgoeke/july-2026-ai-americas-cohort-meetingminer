@@ -118,7 +118,7 @@ development_status:
   epic-8: in-progress
   8-1-ad-10-amendment-and-binding-catalog: done
   8-2-persisted-selection: done
-  8-2a-provider-health-on-the-status-surface: backlog
+  8-2a-provider-health-on-the-status-surface: review
   8-3-model-picker-ui: done
   epic-8-retrospective: optional
 
