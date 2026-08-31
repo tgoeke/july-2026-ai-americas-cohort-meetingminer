@@ -39,7 +39,8 @@ Adversarial review of the Story 7.4 web implementation, with emphasis on unsettl
 
 - **Location:** `web/src/features/speakers/SpeakerNaming.tsx:116`; `web/src/features/speakers/SpeakerNaming.route.tsx:10`
 - **Severity:** High
-- **Status:** Confirmed — patch required
+- **Status:** Fixed on `story/7-4-review`
 - **Finding:** Changing `/meetings/:meetingId/speakers` can reuse the mounted component. Its effect starts new reads but does not invalidate old speakers, selection, draft, clip, transcript, failures, or rerun state. Until the new reads settle, an old row remains usable while `save()` already builds the request path from the new `meetingId`, allowing an old meeting's selected tag to be assigned on the new meeting.
 - **Evidence:** `load` closes over the new ID, but `selected` continues to resolve from the prior `speakers` array and `selectedTag`; the save path uses the new prop. `SPEAKER_00`-style tags commonly exist in more than one meeting, so this is reachable without any malformed data.
 - **Suggested direction:** Key the stateful screen by meeting identity so a parameter change synchronously remounts and clears all meeting-owned state before the new load. Preserve stale rows only across rereads of the same meeting.
+- **Red/green evidence:** The regression first retained the old `SPEAKER_00` row after rerendering with `meeting-2`; the keyed state boundary removes it synchronously and the targeted test passes.
