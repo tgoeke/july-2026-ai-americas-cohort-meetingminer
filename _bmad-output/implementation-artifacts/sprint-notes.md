@@ -3179,3 +3179,23 @@ pins `BASELINE_ROUTER_ORDER` with `==`, so any new router module must be added
 to that list — demonstrated by reverting the line and watching
 `test_existing_routers_keep_the_baseline_registration_order` fail. No other
 in-flight branch touches that file.
+
+## Story 7.2 review — 2026-08-30
+
+Review branch `story/7-2-review` rebased onto current `origin/main` and found one
+medium wire-contract defect: runtime responses always carried nullable
+`participantId` and `displayName`, but their Pydantic defaults made OpenAPI and
+the generated TypeScript client advertise both properties as optional. A new
+schema assertion failed against the original model; removing the defaults and
+regenerating the client made the fields required-but-nullable and the test
+green. No owner decision, deferred item, or open finding remains.
+
+The coordinator's claims were independently checked: registry-baseline removal
+failed its order test; the client reproduced from an in-process schema with no
+api running; the two source shapes really share one timing table; one/exactly
+three/tied/single-speaker sampling boundaries pass; and a raw-label display-name
+fallback makes all three identity-safety tests fail. Final gates on the rebased
+review branch: `make test-fast` 1,944 passed / 2 named skips / 378 deselected;
+`make test` 2,322 server tests passed / 2 named skips plus puller, evals,
+diarization-extra, web tests, and production build. Report:
+`review-story-7-2-2026-08-30.md`.

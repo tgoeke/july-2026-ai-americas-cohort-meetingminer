@@ -3,8 +3,8 @@ title: 'Story 7.2: Speaker Tags on the Wire'
 type: 'feature'
 created: '2026-08-30'
 baseline_revision: '8073a756589abeecf2981e0a5897ad7a2f0041f1'
-status: 'review'
-review_loop_iteration: 0
+status: 'done'
+review_loop_iteration: 1
 followup_review_recommended: false
 context: []
 warnings: ['oversized']
@@ -124,6 +124,11 @@ path (story 7.3); no UI (story 7.4); no hand-edit of `api/main.py`, a registry, 
   `transcript_segment.participant_id` does not already carry.
 - Given `make test-fast`, when it runs, then lint, typecheck and the fast set are green.
 
+### Review Findings
+
+- [x] [Review][Patch] F-1: nullable attribution fields were optional in the
+  published schema [`server/meetingminer/api/speakers.py:129`]
+
 ## Spec Change Log
 
 - 2026-08-30 (planning): story 7.1's spec frontmatter still reads `status: in-review`
@@ -170,6 +175,17 @@ path (story 7.3); no UI (story 7.4); no hand-edit of `api/main.py`, a registry, 
   (both entries appended at EOF, both kept whole) and re-ran the full gate.
 
 ## Review Triage Log
+
+### 2026-08-30 — Independent review
+
+The coordinator required all layers to run locally and sequentially, so no
+subagents were launched. Blind, edge-case, verification-gap, and acceptance
+passes converged on one patch finding: the runtime always emitted the two
+nullable attribution keys, but the OpenAPI schema and generated TypeScript
+client allowed consumers to omit them. The regression test was observed red
+against the original model, the model and generated client were fixed, and the
+full gate passed. Triage: decision 0; patch 1 (medium, resolved); defer 0; open
+0. Full evidence is in `review-story-7-2-2026-08-30.md`.
 
 ## Design Notes
 
