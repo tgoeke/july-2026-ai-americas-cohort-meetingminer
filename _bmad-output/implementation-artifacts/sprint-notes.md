@@ -4324,3 +4324,30 @@ meeting. It is corpus maintenance. And 10.2a is the only thing holding
 **When it is taken up again** it should be designed against 10.7's model rather
 than the catalogue, and F2's lineage problem is real design work whichever
 surface it lands on.
+
+## Story 6.4a landed — 2026-08-31
+
+Verdict **pass after remediation**: 29 findings closed, none open. Gate green
+(2445 fast / 2858 full). No migration — 0020 stays free. `POST /uploads` and
+`GET /uploads/{id}` are live; the regenerated client was byte-identical, which
+is the second time today a builder's schema-dump regeneration proved accurate.
+
+`POST /uploads` streams a multipart session into a dot-prefixed staging area on
+the evidence volume that never holds a `metadata.json`, so an abandoned session
+leaves nothing intake could read as a drop — a property of the shape rather
+than a cleanup that has to run. Finalizing is a rename. The parser is driven
+over the request stream rather than through `request.form()`, so a
+multi-gigabyte recording is never spooled through the boot volume and the size
+cap is enforced before the bytes land.
+
+**A merge-day caution that has now cost two aborted merges.** Any branch that
+edits `config.yaml` will refuse to fast-forward while the ingest bindings sit
+uncommitted in the main checkout — `git merge --ff-only` aborts rather than
+overwrite them. The working procedure: save `git diff config.yaml` as a patch,
+`git checkout HEAD -- config.yaml`, merge, `git apply --3way` the patch, then
+`git restore --staged config.yaml`, because `git apply --3way` STAGES the file
+and a later commit would sweep the paid extraction binding into main. Story
+12.2 and 10.2a both add config blocks, so this will recur.
+
+**Unblocks story 6.5a** — the local-files, Zoom-export and Teams-export tabs of
+Add-meeting now have both halves they need: 6.5's flow and this upload path.
