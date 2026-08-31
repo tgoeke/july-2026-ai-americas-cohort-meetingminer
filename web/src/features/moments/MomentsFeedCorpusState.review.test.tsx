@@ -69,7 +69,7 @@ describe('C2/C6 corpus-scoped feed state', () => {
     expect(screen.getByTestId('moments-count')).toHaveTextContent('1 of 24')
   })
 
-  it('omits an invalid URL-derived corpus from the generated query', async () => {
+  it('rejects an invalid URL-derived corpus before the generated request', async () => {
     const feedRequests: Array<URL> = []
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       const url = new URL(input instanceof Request ? input.url : String(input))
@@ -87,8 +87,9 @@ describe('C2/C6 corpus-scoped feed state', () => {
     }))
     renderFeed('/?corpus=unknown')
 
-    await screen.findByTestId('moments-empty')
-    await waitFor(() => expect(feedRequests).toHaveLength(1))
-    expect(feedRequests[0].searchParams.has('corpus')).toBe(false)
+    expect(await screen.findByTestId('moments-error')).toHaveTextContent(
+      'corpus must be real or scripted',
+    )
+    await waitFor(() => expect(feedRequests).toHaveLength(0))
   })
 })
