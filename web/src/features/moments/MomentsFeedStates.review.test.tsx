@@ -22,12 +22,14 @@ describe('review F8 — honest initial, error, and empty states', () => {
     let release!: (response: Response) => void
     vi.stubGlobal(
       'fetch',
-      vi.fn(
-        () =>
-          new Promise<Response>((resolve) => {
-            release = resolve
-          }),
-      ),
+      vi.fn((input: RequestInfo | URL) => {
+        if (new URL(String(input)).pathname.endsWith('/threads')) {
+          return Promise.resolve(new Response(JSON.stringify({ threads: [] })))
+        }
+        return new Promise<Response>((resolve) => {
+          release = resolve
+        })
+      }),
     )
     renderFeed()
 
@@ -44,7 +46,14 @@ describe('review F8 — honest initial, error, and empty states', () => {
   })
 
   it('exposes the initial read failure as an alert', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('fixture offline'))))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) =>
+        new URL(String(input)).pathname.endsWith('/threads')
+          ? Promise.resolve(new Response(JSON.stringify({ threads: [] })))
+          : Promise.reject(new Error('fixture offline')),
+      ),
+    )
     renderFeed()
 
     expect(await screen.findByRole('alert')).toHaveTextContent('fixture offline')
@@ -53,12 +62,20 @@ describe('review F8 — honest initial, error, and empty states', () => {
   it('offers the primary Add meeting recovery when the corpus is empty', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(() =>
+      vi.fn((input: RequestInfo | URL) =>
         Promise.resolve(
-          new Response(JSON.stringify({ items: [], total: 0, unfilteredTotal: 0, limit: 24, offset: 0 }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          }),
+          new URL(String(input)).pathname.endsWith('/threads')
+            ? new Response(JSON.stringify({ threads: [] }))
+            : new Response(
+                JSON.stringify({
+                  items: [],
+                  total: 0,
+                  unfilteredTotal: 0,
+                  limit: 24,
+                  offset: 0,
+                }),
+                { status: 200, headers: { 'Content-Type': 'application/json' } },
+              ),
         ),
       ),
     )
