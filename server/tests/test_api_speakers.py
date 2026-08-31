@@ -425,7 +425,7 @@ def test_the_route_is_registered_by_discovery_alone(client) -> None:
     # check: a third path appearing here should still have to be declared.
     assert {route.path for route in discovered["speakers"].routes} == {
         "/meetings/{meeting_id}/speakers",
-        "/meetings/{meeting_id}/speakers/{tag}",
+        "/meetings/{meeting_id}/speakers/{tag:path}",
     }
 
     # FastAPI keeps an included router as a nested entry, so walk the app's

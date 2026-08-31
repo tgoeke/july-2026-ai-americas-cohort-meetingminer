@@ -402,7 +402,7 @@ _ASSIGNMENT_PROBLEM_RESPONSES = {
 
 
 @router.put(
-    "/meetings/{meeting_id}/speakers/{tag}",
+    "/meetings/{meeting_id}/speakers/{tag:path}",
     operation_id="assignMeetingSpeaker",
     response_model=SpeakerAssignmentResponse,
     responses=_ASSIGNMENT_PROBLEM_RESPONSES,

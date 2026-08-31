@@ -23,6 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Sequence
+from urllib.parse import quote
 from uuid import UUID, uuid4
 
 import pytest
@@ -358,6 +359,24 @@ def test_a_named_tag_is_assignable_through_the_same_path(client, test_pool) -> N
     assert response.status_code == 200
     assert response.json()["speakerLabel"] == NAMED_TAG
     assert _alias_target(test_pool, seeded.meeting_id, NAMED_TAG) == target
+
+
+def test_a_source_label_containing_a_slash_is_assignable(client, test_pool) -> None:
+    """A source-owned label is opaque text even when it contains ``/``."""
+    seeded = _seed(pool=test_pool, source_id="assign-slash", turns=(), has_recording=False)
+    slash_tag = "Platform / Operations"
+    _seed_tagged_segments(test_pool, seeded, ((slash_tag, "resolved"),))
+    _settle_job(test_pool, seeded.job_id)
+    target = seeded.participant_ids[0]
+
+    response = client.put(
+        f"/meetings/{seeded.meeting_id}/speakers/{quote(slash_tag, safe='')}",
+        json={"participantId": str(target)},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["speakerLabel"] == slash_tag
+    assert _alias_target(test_pool, seeded.meeting_id, slash_tag) == target
 
 
 # --- the re-arm ------------------------------------------------------------
