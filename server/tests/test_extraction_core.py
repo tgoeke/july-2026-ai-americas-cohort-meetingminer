@@ -916,25 +916,56 @@ def test_a_role_that_declares_no_timeout_keeps_the_adapter_default() -> None:
     assert composed.primary.num_ctx is None
 
 
-def test_the_committed_extraction_binding_reaches_no_paid_provider(
+def test_the_committed_extraction_binding_degrades_to_a_free_model(
     app_config: Any,
 ) -> None:
     """AC 6, asserted against the real `config.yaml` rather than a fixture.
 
-    Story 4.1 defaulted extraction to `claude-sonnet-5` and the backfill cost
-    358 paid calls over 5 of 28 meetings before it was stopped. Whole-transcript
-    extraction is a local-model job, and *no configuration path in the committed
-    file reaches a paid provider* — primary, fallback, and endpoint alike.
+    **This test used to assert that no configuration path reached a paid
+    provider at all.** That premise was overturned by owner decision on
+    2026-08-31: extraction is bound to `openai/gpt-5.2` deliberately, for
+    SPEED. The embedder and a local 120B model contend for one machine that
+    also runs the api, the worker, OCR and the Docker stack, and extraction was
+    the slowest stage in the pipeline.
+
+    The history the old assertion came from is still worth keeping. Story 4.1
+    defaulted extraction to `claude-sonnet-5` and the backfill cost 358 paid
+    calls over 5 of 28 meetings before anyone stopped it. What made that
+    expensive was not that a paid model was reachable — it is now reachable on
+    purpose — but that nothing bounded the damage when the choice went
+    unnoticed.
+
+    So the guard moves rather than disappearing. The invariant now is that the
+    FALLBACK stays local and free: a missing, exhausted or revoked
+    `OPENAI_API_KEY` must degrade extraction to a working free model rather
+    than to nothing, and that substitution is reported and never silent
+    (AD-18). A clone with no key still ingests.
     """
     binding = app_config.settings.llm.roles.extraction
-    # Both models are Ollama-served. Asserted as a property rather than as
-    # literal host strings: the extraction host is a deployment detail that
-    # will move, and a suite that goes red on a clone behind a different
-    # network is a suite people learn to ignore.
-    assert binding.model.startswith("ollama/")
-    assert binding.fallback is not None and binding.fallback.startswith("ollama/")
+
+    # The primary may be paid, but only as a declared catalog entry — an
+    # arbitrary binding is how the 4.1 incident started.
+    assert binding.model in {entry.binding for entry in binding.catalog}, (
+        "the committed primary must be one of the catalog's declared bindings"
+    )
+
+    # The fallback is the bound that makes a paid primary safe. Asserted as a
+    # property rather than a literal host: the extraction host is a deployment
+    # detail that moves, and a suite that goes red on a clone behind a
+    # different network is a suite people learn to ignore.
+    assert binding.fallback is not None, (
+        "a paid primary with no fallback leaves 'both models failed' as the "
+        "only outcome when the key is missing"
+    )
+    assert binding.fallback.startswith("ollama/"), (
+        "the fallback must be local and free so a missing key degrades to a "
+        "working model rather than to nothing"
+    )
+
     # Correctness settings, not tuning: without `num_ctx` Ollama silently
     # truncates a long transcript, and 120s is short for a whole-meeting pass.
+    # Both still apply — they govern the local fallback, which is the path a
+    # keyless clone actually takes.
     assert binding.num_ctx is not None and binding.num_ctx >= 32768
     assert binding.timeout_seconds is not None and binding.timeout_seconds >= 300
 
@@ -944,13 +975,16 @@ def test_the_committed_extraction_binding_reaches_no_paid_provider(
         for name, provider in app_config.settings.providers.items()
         if name in ("anthropic", "openai", "openrouter")
     }
-    for completer in (composed.primary, composed.fallback):
-        assert completer is not None
-        assert completer.model.startswith("ollama/")
-        host = _host_of(completer.api_base)
-        assert host not in paid_hosts, "no configuration path reaches a paid provider"
-        assert _is_private_host(host), f"{host} is not a private or local host"
-
+    assert composed.fallback is not None
+    assert composed.fallback.model.startswith("ollama/")
+    fallback_host = _host_of(composed.fallback.api_base)
+    assert fallback_host not in paid_hosts, (
+        "the fallback resolved to a paid provider's host, so a missing key "
+        "would fail twice rather than degrading"
+    )
+    assert _is_private_host(fallback_host), (
+        f"{fallback_host} is not a private or local host"
+    )
 
 def _host_of(url: str | None) -> str:
     return urlsplit(url or "").hostname or ""
