@@ -243,6 +243,30 @@ run's config snapshot records the effective binding beside the file value.
 
 ## Spec Change Log
 
+**2026-08-30 — Owner ruling: judge is file-only until the harness adopts the
+persisted choice.** `GET /settings/models` excludes `judge`, and
+`PUT /settings/roles/judge` refuses with the named `role-file-only` problem.
+The exclusion is an exhaustive role policy, not an accidental omission: every
+new LLM role must be classified deliberately before the settings surface can
+serve it. This narrows the original per-role wording because the current eval
+harness binds `config.settings.llm.roles.judge` directly at
+`evals/harness/judge.py:499-500`; advertising a different effective binding
+would misstate which model is called. The paired regressions pin both sides:
+the API excludes/refuses judge, and `evals/tests/test_run_judge.py` asserts that
+the harness still passes the file role to `build_llm`. Follow-up B-41 owns
+genuine judge adoption rather than widening this story into the judge harness.
+
+**2026-08-30 — Owner ruling: every catalog binding, including a synthesized
+legacy entry, must resolve an explicit provider endpoint at load.** This amends
+story 8.1's frozen compatibility rule that a synthesized legacy entry may load
+without a matching `providers:` entry. An existing `config.yaml` relying on
+that exemption now fails to load; that compatibility break is intentional.
+The refusal names the binding, its derived provider prefix, the absence of an
+endpoint, and the exact `providers.<prefix>.base_url` declaration to add. This
+keeps B-38 true for every binding that does load: a model-not-served error can
+name the provider actually called, the configured endpoint URL, and the model,
+without guessing an SDK default.
+
 **2026-08-30 — Investigation run without subagents, deliberately.** Step-02 offers synchronous
 subagents for deep exploration. This run's dispatch forbids background agents outright, and
 this harness's Agent tool is background-only. The exploration this story needed was narrow and
