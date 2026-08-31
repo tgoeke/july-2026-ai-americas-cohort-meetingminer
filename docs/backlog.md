@@ -101,14 +101,22 @@ while the list silently stops updating.
 
 A re-submit aborts and clears in a way that loses the in-flight state.
 
-### B-13 · Pin the shell's child-screen placement with a test — M
+### B-13 · Pin the shell's child-screen placement with a test — CLOSED
 
-The `<Outlet />` sits above the persistent search chrome so an opened moment is
-not buried below a viewport-taller result list. Nothing pins that order, so a
-future edit can silently reintroduce "Open moment does nothing". Covering it
-means mocking the whole generated client surface plus every child route's
-fetches — which is why it was skipped under time pressure, not because it does
-not matter.
+**Closed 2026-08-31 by story 10.5.** The `<Outlet />` sits above the persistent
+search chrome so an opened moment is not buried below a viewport-taller result
+list. Nothing pinned that order, so a future edit could silently reintroduce
+"Open moment does nothing". Covering it meant mocking the whole generated client
+surface plus every child route's fetches, which is why it had been skipped under
+time pressure rather than because it did not matter.
+
+`web/src/shellPlacement.test.tsx` now writes that factory once and asserts the
+order with `compareDocumentPosition` — DOM order, which is also tab order and
+screen-reader order, not a scroll position. It runs over `childRoutes` from the
+auto-discovering registry rather than a hand-written list, so a screen added
+later is covered on the day its `*.route.tsx` lands; the front door's own
+hidden child container is asserted to sit ahead of the chrome too, so opening a
+screen never reorders the document.
 
 ---
 
