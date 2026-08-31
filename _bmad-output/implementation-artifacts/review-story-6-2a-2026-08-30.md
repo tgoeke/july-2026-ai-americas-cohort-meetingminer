@@ -60,7 +60,7 @@ Adversarial review of Story 6.2a across the implementation, tests, operator docu
 - `make test-fast` — 1927 passed, 2 skipped, 378 deselected; the skips are the named `pyannote` and YouTube network cases.
 - `make test` — 2305 server tests passed, 2 named skips; puller, web tests, 643 eval-harness tests, isolated diarization tests, store checks, and the web production build all passed.
 - `python3 _bmad/scripts/branch_conflicts.py --against story/6-2a-review` — `main × story/6-2a-review` is clean. The command exits 1 overall because the matrix also includes expected `sprint-notes.md` append conflicts with other in-flight branches and the intentional overlap with its source branch; the owner must union the notes during integration as already directed.
-- `make check-reviews` — pending the committed final report check.
+- `make check-reviews` — passed: `every dispatched review has a committed report`.
 
 ## Remediation commits
 
