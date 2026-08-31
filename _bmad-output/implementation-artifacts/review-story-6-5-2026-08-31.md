@@ -138,6 +138,15 @@ Date: 2026-08-31
 - **Suggested direction** — Keep the form locked unless the served value is exactly `posted` or `failed`, render the raw unknown value with the existing visual `unknown` state and a named compatibility notice, and offer an explicit poll Retry rather than inferring a terminal outcome.
 - **Disposition** — fixed red-first. The regressions observed both an unlocked field and a queued-looking bar against the original handling. After remediation, only explicit `posted | failed` unlocks the form; an open-string status outside the known vocabulary renders fuchsia `unknown`, preserves its raw value in a compatibility alert, and offers Retry to read the acquisition again.
 
+### F15 — A populated meeting card hides that its progress is stale
+
+- **Location** — `web/src/features/acquisitions/IngestingMeetingCard.tsx:177`
+- **Severity** — medium
+- **Finding** — Seed and stream failures are rendered only while `row === null`. Once a row has loaded, losing `/jobs/events` or failing a reseed leaves the old card and stage bars looking current with no stale label.
+- **Evidence** — Both `seedError` and `connection.kind === 'lost'` alerts live exclusively in the pending return at lines 177–190; the populated-card return never reads either value. `EXPERIENCE.md:158` requires every unreachable-api surface to keep stale content *and label it*, while AD-18 forbids silent fallback. This path is especially consequential here because the card is the handoff from acquisition polling to the job stream: after `posted`, no acquisition polling remains to expose the outage.
+- **Suggested direction** — Keep the last served card, but render the same named seed/stream alerts alongside it whenever either source is unavailable; add a regression with an existing row and a lost stream.
+- **Disposition** — confirmed; remediation in progress.
+
 ## Disposition
 
 Review in progress. No pass/fail verdict has been assigned.
