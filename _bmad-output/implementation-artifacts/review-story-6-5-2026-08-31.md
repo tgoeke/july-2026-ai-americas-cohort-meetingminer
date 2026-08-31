@@ -145,7 +145,7 @@ Date: 2026-08-31
 - **Finding** — Seed and stream failures are rendered only while `row === null`. Once a row has loaded, losing `/jobs/events` or failing a reseed leaves the old card and stage bars looking current with no stale label.
 - **Evidence** — Both `seedError` and `connection.kind === 'lost'` alerts live exclusively in the pending return at lines 177–190; the populated-card return never reads either value. `EXPERIENCE.md:158` requires every unreachable-api surface to keep stale content *and label it*, while AD-18 forbids silent fallback. This path is especially consequential here because the card is the handoff from acquisition polling to the job stream: after `posted`, no acquisition polling remains to expose the outage.
 - **Suggested direction** — Keep the last served card, but render the same named seed/stream alerts alongside it whenever either source is unavailable; add a regression with an existing row and a lost stream.
-- **Disposition** — confirmed; remediation in progress.
+- **Disposition** — fixed red-first. With a served meeting row and a mocked lost stream, the original card kept its bars but contained no outage text. The same regression passed after the populated branch retained the card and rendered both stream-loss and reseed-failure alerts beside it.
 
 ## Disposition
 
