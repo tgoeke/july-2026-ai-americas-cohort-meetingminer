@@ -281,7 +281,7 @@ without editing `config.yaml`, the report and snapshot record that exact
 binding, and paired tests fail if either the settings surface or judge harness
 can drift from the other.
 
-### B-42 · Serve provider health per provider, not per role — M
+### B-42 · Serve provider health per provider, not per role — CLOSED
 
 The model picker (story 8.3) shows each catalog entry's provider health, and
 the only place the api reports key state today is `GET /status.llmRoles[]` —
@@ -306,6 +306,22 @@ it directly and the role rows stop standing in for it.
 **Done when:** an option's health word comes from a probe of the endpoint that
 option's call would actually use, and a role-specific `base_url` outage no
 longer colours options bound to a different endpoint.
+
+**Closed 2026-08-31 by story 8.2a.** `GET /status` serves
+`providers[]{provider, keyState, detail, remediation, state, observedBy}` — one
+row per provider `config.yaml` declares, probed once behind the existing 60s
+cache. `providerHealthIndex` reads it for the credential verdict, which is
+provider-wide; the role rows now supply only per-endpoint reachability, keyed
+by role plus provider, and `healthFor` prefers a role's own endpoint over the
+provider's default one. A configured provider no role binds today is covered
+for the first time.
+
+*Numbering note:* two entries in this file carry the id `B-42` — this one
+(added by story 8.3) and "AD-17's id-addressed media route does not exist"
+above it. They were filed in parallel branches on the same day. Renumbering
+either would break references already written into landed story specs, so the
+collision is recorded here rather than resolved; a reference to B-42 must name
+its subject.
 
 ### B-43 · Render a failed binding as its own refusal beside the answer — S
 
@@ -816,3 +832,30 @@ negative offset, a fractional scale, and an epoch re-anchor. The test must run
 the checked-in CSS in a browser rather than comparing `xOf` with itself. This is
 tooling work outside Story 10.6's frozen feature footprint; until it lands, the
 recorded Chrome 151 probe is the explicit one-off evidence, not a standing gate.
+
+### B-52 · Let the api report the worker's loaded binding, not only that it differs — M
+
+Story 8.2a made `GET /status` attribute every binding and key reading to the
+api process, because the api and the worker hold independent `config.yaml`
+snapshots (AD-10 as amended 2026-08-31) and the api cannot see the worker's.
+The extraction row therefore names the worker as the process that makes the
+call and says plainly that this row is the api's snapshot rather than the
+worker's. That is honest, and it is as far as the api can go on its own.
+
+What it still cannot do is *show* the worker's binding. The worker loads
+`config.yaml` in its own process and writes no record of what it loaded, so
+there is nothing for the api to read. The consequence is the 2026-08-31
+incident's residue: the surface can now say "the two may disagree" but cannot
+say "they do disagree, and here is how".
+
+**Do:** have the worker record, on a row the api can read, the binding it
+resolved for `llm.roles.extraction`, the provider that binding derives to, and
+the timestamp at which it loaded `config.yaml` — written at startup and on
+each job claim, alongside the advisory lock the status surface already reads.
+`api/status.py` then reports the worker's own reading beside the api's, still
+attributed to the worker, and marks the surface degraded when the two differ.
+
+**Done when:** with the api and the worker started from different `config.yaml`
+revisions, `GET /status` names both bindings, attributes each to the process
+that loaded it, and reads degraded — and with both restarted from one revision
+it reads healthy without either process asserting the other's state.
