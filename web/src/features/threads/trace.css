@@ -1,0 +1,468 @@
+/*
+ * Threads-as-a-query (story 10.7).
+ *
+ * Every size here is in real pixels and none of it scales with the zoom. The
+ * altitude changes WHAT is drawn — a bar, a dated bar, a card, its moments —
+ * and never how big the type is, the way a map keeps its place names legible
+ * at any altitude. A `transform: scale()` anywhere under `.mm-trace-view`
+ * would undo the whole design, so there is none.
+ *
+ * Colours come from the tokens in `index.css`, not from literals, so the view
+ * follows the shell's theme.
+ */
+
+.mm-trace-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem 1.25rem 2rem;
+  min-width: 0;
+}
+
+/* --- the box ------------------------------------------------------------ */
+
+.mm-trace-ask {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.mm-trace-ask input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 0.5rem);
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 0.95rem;
+}
+
+.mm-trace-ask input:focus-visible,
+.mm-trace-page button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.mm-trace-ask button {
+  padding: 0.6rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 0.5rem);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-weight: 600;
+}
+
+.mm-trace-ask button:disabled {
+  opacity: 0.5;
+}
+
+/* --- the empty state ---------------------------------------------------- */
+
+.mm-trace-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 1.5rem 0;
+  max-width: 62rem;
+}
+
+.mm-trace-empty h2 {
+  font-size: 1.4rem;
+  font-weight: 650;
+}
+
+.mm-trace-empty h3 {
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted-foreground);
+}
+
+.mm-trace-lede {
+  color: var(--muted-foreground);
+  max-width: 48rem;
+}
+
+.mm-trace-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  list-style: none;
+  padding: 0;
+}
+
+.mm-trace-suggestions button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 0.5rem);
+  background: var(--card);
+  color: var(--foreground);
+  text-align: left;
+}
+
+.mm-trace-suggestions button:hover {
+  border-color: var(--ring);
+}
+
+.mm-trace-suggestion-name {
+  font-weight: 600;
+}
+
+.mm-trace-suggestion-reach {
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.mm-trace-swatch {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+/* --- what is on screen, and how complete it is -------------------------- */
+
+.mm-trace-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.mm-trace-head h2 {
+  font-size: 1.25rem;
+  font-weight: 650;
+}
+
+/*
+ * Never quiet. The difference between "every mention" and "a sample" is the
+ * difference between a claim this view can back and one it cannot, so the
+ * sentence is a bordered block rather than a footnote.
+ */
+.mm-trace-completeness {
+  padding: 0.5rem 0.7rem;
+  border-left: 3px solid var(--border);
+  background: var(--muted);
+  color: var(--foreground);
+  font-size: 0.88rem;
+  border-radius: 0 var(--radius-sm, 0.3rem) var(--radius-sm, 0.3rem) 0;
+}
+
+.mm-trace-completeness[data-mode='sample'] {
+  border-left-color: #fe9a00;
+}
+
+.mm-trace-note,
+.mm-trace-refusal {
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
+}
+
+.mm-trace-refusal {
+  color: var(--destructive);
+}
+
+.mm-trace-candidates,
+.mm-trace-related {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.83rem;
+  color: var(--muted-foreground);
+}
+
+.mm-trace-candidates button,
+.mm-trace-related button {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--foreground);
+}
+
+/* --- the timeline ------------------------------------------------------- */
+
+.mm-trace {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.mm-trace-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.mm-trace-grow {
+  flex: 1 1 auto;
+}
+
+.mm-trace-span {
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.mm-trace-altitude {
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.mm-trace-bar button {
+  min-width: 2rem;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 0.3rem);
+  background: var(--card);
+  color: var(--foreground);
+}
+
+.mm-trace-view {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 0.5rem);
+  background: var(--card);
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+
+.mm-trace-view:active {
+  cursor: grabbing;
+}
+
+.mm-trace-axis {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2rem;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Constant size at every altitude — this is the whole point. */
+.mm-trace-tick {
+  position: absolute;
+  top: 0.5rem;
+  font-size: 0.72rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.mm-trace-bar-item {
+  position: absolute;
+  width: 14px;
+  border-radius: 2px 2px 0 0;
+  background: var(--muted-foreground);
+  opacity: 0.55;
+}
+
+.mm-trace-bar-item[data-screens='yes'] {
+  background: #fe9a00;
+  opacity: 0.85;
+}
+
+.mm-trace-bar-item:hover {
+  opacity: 1;
+}
+
+.mm-trace-bar-date {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding-top: 0.2rem;
+  font-size: 0.68rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+.mm-trace-card {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 0.5rem);
+  background: var(--background);
+  overflow: hidden;
+}
+
+.mm-trace-card[data-focused='yes'] {
+  border-color: var(--ring);
+}
+
+.mm-trace-card[data-screens='yes'] {
+  border-top: 2px solid #fe9a00;
+}
+
+.mm-trace-card-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  text-align: left;
+  color: var(--foreground);
+}
+
+.mm-trace-card-date {
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.mm-trace-card-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.mm-trace-card-meta,
+.mm-trace-absent {
+  font-size: 0.72rem;
+  color: var(--muted-foreground);
+}
+
+.mm-trace-strip {
+  display: flex;
+  gap: 0.2rem;
+  overflow: hidden;
+}
+
+.mm-trace-strip img {
+  width: 2.6rem;
+  height: 1.6rem;
+  object-fit: cover;
+  border-radius: 2px;
+}
+
+.mm-trace-noshot {
+  display: inline-block;
+  width: 2.6rem;
+  height: 1.6rem;
+  border: 1px dashed var(--border);
+  border-radius: 2px;
+}
+
+.mm-trace-noshot.big {
+  width: 4.4rem;
+  height: 2.6rem;
+}
+
+.mm-trace-moments {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 12.5rem;
+  overflow-y: auto;
+  list-style: none;
+  padding: 0;
+}
+
+.mm-trace-moments li {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.mm-trace-moments img {
+  width: 4.4rem;
+  height: 2.6rem;
+  object-fit: cover;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+
+.mm-trace-moment-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.mm-trace-moment-head {
+  display: flex;
+  gap: 0.4rem;
+  font-size: 0.68rem;
+  color: var(--muted-foreground);
+}
+
+.mm-trace-tc {
+  font-variant-numeric: tabular-nums;
+}
+
+.mm-trace-quote {
+  font-size: 0.74rem;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.mm-trace-open {
+  align-self: flex-start;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 0.3rem);
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 0.72rem;
+}
+
+/* --- the overview strip ------------------------------------------------- */
+
+.mm-trace-mini {
+  position: relative;
+  height: 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 0.3rem);
+  background: var(--muted);
+  cursor: pointer;
+}
+
+.mm-trace-mini-tick {
+  position: absolute;
+  top: 0.25rem;
+  width: 2px;
+  height: 0.6rem;
+  background: var(--muted-foreground);
+}
+
+.mm-trace-mini-tick[data-screens='yes'] {
+  background: #fe9a00;
+}
+
+.mm-trace-mini-window {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border: 1px solid var(--ring);
+  border-radius: var(--radius-sm, 0.3rem);
+  background: color-mix(in oklab, var(--ring) 12%, transparent);
+}
+
+.mm-trace-hint {
+  font-size: 0.72rem;
+  color: var(--muted-foreground);
+}
+
+.mm-trace-hint kbd {
+  padding: 0 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
