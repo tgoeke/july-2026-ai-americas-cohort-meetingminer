@@ -92,11 +92,19 @@ function ThreadChip({ thread, onOpen }: { thread: FeedThread; onOpen: () => void
 }
 
 /**
- * The reason line: the api's reasons, in the api's order, each label verbatim
- * (EXPERIENCE.md · Reason line). Artifact kinds become kind chips, `thread`
- * becomes a thread chip, and every ranking-signal kind — `due`, `risk`,
- * `question`, `recency`, `published` — is plain muted text. No reason is
- * composed here, and a kind outside the seven is never drawn as a kind chip.
+ * The reason line, followed by the card's remaining thread chips.
+ *
+ * The reasons come from the api, in the api's order, each label verbatim
+ * (EXPERIENCE.md · Reason line): artifact kinds become kind chips, a `thread`
+ * reason becomes a thread chip, and every ranking-signal kind — `due`,
+ * `risk`, `question`, `recency`, `published` — is plain muted text. No reason
+ * is composed here, and a kind outside the seven is never drawn as a kind
+ * chip.
+ *
+ * A moment's `threads[]` is a separate served fact from its reasons: a thread
+ * can hold a moment without being the reason it ranks. Every thread the item
+ * carries therefore gets a chip, and one a thread reason already named is not
+ * drawn twice.
  */
 function ReasonLine({
   reasons,
@@ -109,6 +117,12 @@ function ReasonLine({
   onSelectKind: (kind: string) => void
   onOpenThread: (threadId: string) => void
 }) {
+  const named = new Set(
+    reasons
+      .filter((reason) => reason.kind === 'thread' && typeof reason.ref === 'string')
+      .map((reason) => reason.ref as string),
+  )
+  const remaining = threads.filter((thread) => !named.has(thread.threadId))
   return (
     <div className="flex flex-wrap items-center gap-1.5" data-testid="reason-line">
       {reasons.map((reason, index) => {
@@ -141,6 +155,13 @@ function ReasonLine({
           </span>
         )
       })}
+      {remaining.map((thread) => (
+        <ThreadChip
+          key={thread.threadId}
+          thread={thread}
+          onOpen={() => onOpenThread(thread.threadId)}
+        />
+      ))}
     </div>
   )
 }
