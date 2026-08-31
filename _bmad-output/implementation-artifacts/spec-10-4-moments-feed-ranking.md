@@ -5,7 +5,7 @@ created: '2026-08-31'
 baseline_revision: '3211a7f96b86d7df496cefa451b2cbd431e6d8b4'
 status: 'review'
 review_loop_iteration: 1
-followup_review_recommended: true
+followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-10-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/build-prompt-story-10-4-2026-08-31.md'
@@ -13,8 +13,6 @@ context:
   - '{project-root}/_bmad-output/implementation-artifacts/spec-10-1-topic-extraction.md'
   - '{project-root}/_bmad-output/implementation-artifacts/spec-10-2-threads-and-the-graph-projection.md'
 warnings: []
-deferred:
-  - 'thread.colorOrdinal is served as null until story 10.3 migration 0017 lands'
 ---
 
 <intent-contract>
@@ -266,10 +264,10 @@ without a valid reason, and only then computes `total`, `offset` and the page.
 
 ### Review Findings — 2026-08-31
 
-- [ ] [Review][Decision] F9 — Offset pages have no stable ranking snapshot
-  across requests. Each request chooses a new `now`; fixing multi-request
-  duplicate/skip behavior requires an `asOf`, cursor, or an explicit contract
-  relaxation, all of which are frozen-wire decisions.
+- [x] [Review][Owner ruling] F9 — Offset pages have no stable ranking snapshot
+  across requests. The endpoint now states on the wire that pages are ranked
+  at request time and may repeat or skip a candidate as ranking moves; no
+  `asOf` or cursor was added. B-51 records both mechanisms for deep paging.
 - [x] [Review][Patch] F1 — Recency contributions disappear after one half-life
   instead of decaying. [`server/meetingminer/api/moments_feed.py:472`]
 - [x] [Review][Patch] F2 — Multiple timed action rows multiply a categorical
@@ -290,7 +288,7 @@ without a valid reason, and only then computes `total`, `offset` and the page.
 
 ### Remediation result — 2026-08-31
 
-- intent_gap: 1 (F9, open owner decision)
+- intent_gap: 0 (F9 resolved by owner ruling)
 - bad_spec: 0
 - patch: 8 (high 2, medium 6), all resolved red-first or as explicitly named
   coverage-only work
@@ -299,15 +297,20 @@ without a valid reason, and only then computes `total`, `offset` and the page.
 - addressed_findings:
   - F1-F8 are fixed on `story/10-4-review`; exact commits and red/green evidence
     are recorded in the review report.
+  - F9 is closed: the OpenAPI contract states the live cross-request
+    relaxation, offsets beyond the set clamp so the in-response invariant
+    holds, and B-51 records `asOf` and opaque-cursor options.
+  - `MomentsFeedResponse.corpusTotal` is computed server-side from the
+    validated selected corpus before `meeting`, `thread`, and `kind` filtering.
   - B-46 is closed: `ranking_signals_prompt` now lives on
     `llm.roles.extraction`, the stage reads it through `_PROMPT_FIELD`, and the
     backlog entry was removed.
-  - A thread-bearing feed item is the normal API test case. The bigint text
-    conversion is pinned beyond 32 bits; true migration 0017 integration still
-    waits for Story 10.3 to land on `main`.
+  - A thread-bearing feed item is the normal API test case. With migration 0017
+    now on `main`, `2**40 + 17` is pinned through Postgres, JSON text, Python
+    `int`, Pydantic, and the camelCase wire.
 
-Status remains `review`, not `done`: F9 is an unresolved frozen-wire decision,
-`make client` remains integration-owned, and this lane is forbidden to merge.
+Status remains `review`, not `done`: remediation passes, `make client` remains
+integration-owned, and this lane is forbidden to merge.
 
 ## Design Notes
 
@@ -354,7 +357,7 @@ whose label matches `timing|due|deadline|when|by`, which is what
   store-free suites and the server fast set.
 - `uv run --project server pytest server/tests/test_ranking_signals.py server/tests/test_api_moments_feed.py -q`
 - `make test` -- the full gate with the private stack up.
-- `python3 _bmad/scripts/branch_conflicts.py --against story/10-4`
+- `python3 _bmad/scripts/branch_conflicts.py --against story/10-4-review`
 
 ## Auto Run Result
 
