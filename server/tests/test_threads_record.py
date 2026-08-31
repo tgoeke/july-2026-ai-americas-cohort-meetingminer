@@ -305,6 +305,13 @@ def thread_rows(conn: Connection) -> list[tuple[UUID, str, str]]:
     )
 
 
+def membership_versions(conn: Connection) -> list[tuple[UUID, str, datetime]]:
+    """Stable row-version evidence for the no-op membership upsert clause."""
+    return conn.execute(
+        "SELECT topic_id, xmin::text, created_at FROM topic_thread ORDER BY topic_id"
+    ).fetchall()
+
+
 def test_topics_with_the_same_normalized_name_share_one_thread(
     pool: ConnectionPool, app_config: AppConfig
 ) -> None:
@@ -407,6 +414,7 @@ def test_a_rerun_over_unchanged_topics_yields_the_same_threads(
         stamps_first = conn.execute(
             "SELECT id, created_at, updated_at FROM thread ORDER BY id"
         ).fetchall()
+        memberships_first = membership_versions(conn)
 
     with pool.connection() as conn:
         second_report = derive_threads(conn, app_config, embedder=StubEmbedder(ORTHOGONAL))
@@ -416,6 +424,7 @@ def test_a_rerun_over_unchanged_topics_yields_the_same_threads(
         stamps_second = conn.execute(
             "SELECT id, created_at, updated_at FROM thread ORDER BY id"
         ).fetchall()
+        memberships_second = membership_versions(conn)
 
     assert after_second == after_first
     assert membership_second == membership_first
@@ -423,6 +432,10 @@ def test_a_rerun_over_unchanged_topics_yields_the_same_threads(
         "an unchanged rerun re-minted or rewrote thread rows: identical"
         " created_at AND updated_at is what makes 'the derivation changed"
         " nothing' observable rather than merely plausible"
+    )
+    assert memberships_second == memberships_first, (
+        "an unchanged rerun rewrote topic_thread rows: xmin and created_at"
+        " together observe the membership upsert's no-op WHERE clause"
     )
     assert (second_report.thread_count, second_report.topic_count) == (
         first_report.thread_count,
