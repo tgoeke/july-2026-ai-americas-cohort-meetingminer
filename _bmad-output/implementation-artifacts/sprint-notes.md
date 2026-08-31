@@ -3044,3 +3044,45 @@ hardened `provenance_extra` afterwards; that one mechanical conflict resolves
 by taking 6-2-review's block whole, executed and tested (103 green).
 
 Detail, mutation matrix and gate output: `spec-6-3-local-files-acquisition-with-transcript-dialect-conversion.md`.
+
+## 6-3 landed, 2026-08-30 ~19:40 — Zoom transcripts convert at acquisition
+
+`main` at `d29ed0f`. A Zoom `.vtt` (`Name: text` cues) becomes a trusted
+speaker-attributed `transcript.txt` plus a speaker-less `transcript.vtt` at
+mint time; `teams-vtt` is a pass-through declaration and `plain` is unchanged.
+A dialect is never inferred from content. `pipeline/transcripts.py` and the
+aligner are untouched, as the AC requires — Zoom names resolve through the
+roster exactly as Teams labels do.
+
+**Two findings deferred by owner decision, not fixed** (2026-08-30), both with
+their reproductions preserved verbatim in `deferred-work.md` so nobody
+re-derives them:
+
+- **F1** — a transcript-only Zoom drop takes its identity from the generated
+  speaker-less VTT, so two exports differing only in speaker labels collide:
+  re-minting a corrected export reports `exists` and keeps the old attribution.
+  Trigger for revisiting is exactly that. Both candidate fixes are recorded
+  (identity from the operator's original file, or a digest over both converted
+  artifacts).
+- **F6** — whole-second `MM:SS` truncation gives two speaker changes inside one
+  second the same start, collapsing the first turn to zero duration. Real
+  mechanism, unmeasured frequency; revisit when the new corpus shows sub-second
+  speaker changes.
+
+Owner's reasoning for both, given twice: do not design against issues we have
+not encountered. Recorded here because a future reader will otherwise read the
+open reproductions as neglect.
+
+**The rehearsed union worked.** 6-3's builder took story 6.2's
+`mint()`/`build_metadata()` override hunk **verbatim** from `7625b79` rather
+than re-typing it, so both branches carried one identical change. The only real
+conflict at integrate was 6-2-review's later `provenance_extra` hardening,
+which the builder had already executed and tested as a resolution rather than
+asserting — taking main's validated version whole was exactly right, and 224
+story tests passed after it. **This is the pattern to copy when two lanes must
+extend one signature.**
+
+**Its worktree predated 11.2** and `make test-fast` refused by name rather than
+running against the main checkout's stack — the guard working as designed.
+`make worktree-provision` wrote `.env.worktree`, started
+`meetingminer-6-3-review`, and the gate then passed: 1,880 tests, 2 named skips.
