@@ -37,3 +37,27 @@ the review handoff. Frozen intent defects will be reported but not patched.
   establishes `queued+pid` before the child can advance it. Add a deterministic
   concurrency regression that observes the child blocked until the parent
   releases the lock and proves a terminal transition is never overwritten.
+
+### F2 — Child config failure leaves a dead acquisition permanently `queued`
+
+- **Location:** `server/meetingminer/acquisitions.py:628-640,840-848`
+- **Severity:** Medium
+- **Finding:** The detached child reloads config before it can derive the
+  acquisition-state directory. If that load raises `ConfigError`, `main()`
+  only prints to the log and exits. The status file remains `queued` with a
+  dead pid and no `refusal`, contradicting the story's central contract that a
+  failed acquisition explains itself through fields rather than requiring log
+  parsing. This challenges deferred item 3: the API already knows the
+  validated state root, and passing that location to its own child is wholly
+  within the new launcher module's footprint.
+- **Evidence:** With a real queued record in an isolated acquisition root and
+  `_load_cli_config()` forced to raise `ConfigError("broken config")`, unfixed
+  `main()` returned 1 while the stored record remained
+  `status=queued, refusal=None`. No existing test invokes the CLI config-failure
+  path; runner tests begin after a usable `AppConfig` already exists.
+- **Suggested direction:** Include the already-resolved acquisition-state root
+  in the child argv. On pre-run config failure, use that explicit root to
+  atomically advance the existing record to `failed` with rule `config`, full
+  detail, and the table remediation, while retaining the log line as diagnostic
+  output. Validate the passed root as an absolute path owned by the parent, not
+  a request-derived value.
