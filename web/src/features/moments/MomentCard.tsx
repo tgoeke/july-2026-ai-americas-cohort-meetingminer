@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react'
 import { getMeetingDrilldown } from '@/client/sdk.gen'
 import { SourceLinkAnchor } from '@/components/SourceLinkAnchor'
 import { Button } from '@/components/ui/button'
-import { ReplayPlayer } from '@/features/replay/ReplayPlayer'
 import { webVttDataUrl } from '@/features/replay/captions'
 import { affordanceOf, offsetLabel } from '@/lib/affordance'
 import { cn } from '@/lib/utils'
+import { CaptionedReplayPlayer } from './CaptionedReplayPlayer'
 import { KindGlyph } from './KindGlyph'
 import {
   cardMetaLabel,
@@ -281,7 +281,7 @@ export function MomentCard({
         {frame}
       </button>
       {expanded && affordance.kind === 'replay' && (
-        <ReplayPlayer
+        <CaptionedReplayPlayer
           meetingId={item.meetingId}
           startMs={item.startMs}
           label={`Recording of ${title} at ${offset}`}
