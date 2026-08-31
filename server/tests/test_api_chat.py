@@ -1900,6 +1900,33 @@ def test_a_meetings_documents_are_given_once_not_once_per_moment() -> None:
     assert prompt.count("UNIQUE-DOCUMENT-SENTINEL") == 1
 
 
+def test_documents_follow_the_first_selected_moment_when_an_earlier_one_is_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Capacity selection must not strand context on a discarded candidate."""
+    from meetingminer.api import chat
+
+    meeting_id = uuid4()
+    first = _moment(meeting_id, text="x" * 4_000)
+    priority = _moment(uuid4(), text="short priority evidence")
+    surviving = _moment(meeting_id, text="short surviving evidence")
+    document = _document(meeting_id, text="SELECTED-DOCUMENT-SENTINEL")
+    # The priority block plus the later short block and document fit; the first
+    # long block does not. This forces assignment to happen after selection.
+    monkeypatch.setattr(chat, "PROMPT_MOMENTS_MAX_CHARS", 1_400)
+
+    prompt, prompted_ids = build_synthesis_prompt(
+        "What happened?",
+        (first, priority, surviving),
+        priority_moment_ids=(priority.citation.moment_id,),
+        documents_by_meeting={meeting_id: (document,)},
+    )
+
+    assert first.citation.moment_id not in prompted_ids
+    assert surviving.citation.moment_id in prompted_ids
+    assert prompt.count("SELECTED-DOCUMENT-SENTINEL") == 1
+
+
 def test_a_document_whose_meeting_has_no_retrieved_moment_reaches_nobody() -> None:
     """Correct rather than a gap: there would be nothing for it to cite.
 

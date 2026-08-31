@@ -1134,13 +1134,25 @@ def build_synthesis_prompt(
     """
     artifacts = artifacts_by_moment or {}
     documents = documents_by_meeting or {}
-    # A meeting's documents are appended to the *first* of its retrieved
-    # moments and to no other. Without this, a meeting with six retrieved
-    # moments would repeat the same document text six times: bounded by the
-    # overall prompt cap, so not a correctness bug, but it would crowd out
-    # citable moments from other meetings to say one thing six times.
-    meetings_already_given_documents: set[UUID] = set()
-    candidates: list[tuple[UUID, str]] = []
+    # Build each meeting's combined document block once. Assignment waits until
+    # after capacity selection: attaching it to the first candidate here can
+    # strand it on a block artifact-priority selection later drops.
+    document_texts: dict[UUID, str] = {}
+    cropped_document_meetings: set[UUID] = set()
+    for meeting_id, meeting_documents in documents.items():
+        combined = "".join(
+            f"\nUnreviewed extraction document ({document.kind},"
+            f" {document.model or 'model not recorded'}) — {document.review_label}"
+            f"\n{document.text}"
+            for document in meeting_documents
+        )
+        cropped, was_cropped = _crop(combined, DOCUMENTS_PER_MOMENT_MAX_CHARS)
+        if cropped:
+            document_texts[meeting_id] = cropped
+        if was_cropped:
+            cropped_document_meetings.add(meeting_id)
+
+    candidates: list[tuple[UUID, UUID, str]] = []
     cropped_moments = 0
     cropped_artifacts = 0
     cropped_documents = 0
@@ -1170,34 +1182,19 @@ def build_synthesis_prompt(
         )
         cropped_artifacts += int(artifact_was_cropped)
         body += artifact_text
-        # Uncitable context, under a heading rule 5 names. However many
-        # documents this meeting has, they share one budget, so an analysed
-        # meeting cannot make its blocks several times a plain moment's size.
         meeting_id = moment.citation.meeting_id
-        document_text = ""
-        if meeting_id not in meetings_already_given_documents:
-            document_text = "".join(
-                f"\nUnreviewed extraction document ({document.kind},"
-                f" {document.model or 'model not recorded'}) — {document.review_label}"
-                f"\n{document.text}"
-                for document in documents.get(meeting_id, ())
-            )
-            if document_text:
-                meetings_already_given_documents.add(meeting_id)
-        document_text, document_was_cropped = _crop(
-            document_text, DOCUMENTS_PER_MOMENT_MAX_CHARS
-        )
-        cropped_documents += int(document_was_cropped)
-        body += document_text
         block = f"{header} {title} — {when} at {_timestamp(moment.citation.start_ms)}\n{body}"
-        candidates.append((moment.citation.moment_id, block))
+        candidates.append((moment.citation.moment_id, meeting_id, block))
 
     # Capacity selection and presentation order are deliberately separate.
     # Published artifact sources reserve space in artifact relevance order,
     # but the blocks that survive are emitted in the caller's traversal-first
     # sequence. That keeps structural/chronological route semantics while
     # ordinary candidates cannot crowd approved knowledge out of the prompt.
-    by_id = {moment_id: index for index, (moment_id, _block) in enumerate(candidates)}
+    by_id = {
+        moment_id: index
+        for index, (moment_id, _meeting_id, _block) in enumerate(candidates)
+    }
     selection_order: list[int] = []
     for moment_id in priority_moment_ids:
         index = by_id.get(moment_id)
@@ -1207,22 +1204,51 @@ def build_synthesis_prompt(
         index for index in range(len(candidates)) if index not in selection_order
     )
     selected: set[int] = set()
+    selected_document_meetings: set[UUID] = set()
     used = 0
     for index in selection_order:
-        block = candidates[index][1]
-        if selected and used + len(block) > PROMPT_MOMENTS_MAX_CHARS:
+        _moment_id, meeting_id, block = candidates[index]
+        document_text = (
+            document_texts.get(meeting_id, "")
+            if meeting_id not in selected_document_meetings
+            else ""
+        )
+        if selected and used + len(block) + len(document_text) > PROMPT_MOMENTS_MAX_CHARS:
             continue
         selected.add(index)
-        used += len(block)
+        used += len(block) + len(document_text)
+        if document_text:
+            selected_document_meetings.add(meeting_id)
     dropped_moments = len(candidates) - len(selected)
+
+    # Presentation order decides what "first block" means. The capacity walk
+    # may have visited artifact-priority candidates in another order, but one
+    # fixed-size document block per selected meeting keeps the total unchanged
+    # when it moves to that meeting's first visible block.
+    document_target_by_meeting: dict[UUID, int] = {}
+    for index, (_moment_id, meeting_id, _block) in enumerate(candidates):
+        if (
+            index in selected
+            and meeting_id in selected_document_meetings
+            and meeting_id not in document_target_by_meeting
+        ):
+            document_target_by_meeting[meeting_id] = index
+    cropped_documents = len(
+        cropped_document_meetings & set(document_target_by_meeting)
+    )
     blocks = [
         block
-        for index, (_moment_id, block) in enumerate(candidates)
+        + (
+            document_texts.get(meeting_id, "")
+            if document_target_by_meeting.get(meeting_id) == index
+            else ""
+        )
+        for index, (_moment_id, meeting_id, block) in enumerate(candidates)
         if index in selected
     ]
     included_ids = [
         moment_id
-        for index, (moment_id, _block) in enumerate(candidates)
+        for index, (moment_id, _meeting_id, _block) in enumerate(candidates)
         if index in selected
     ]
     if cropped_moments or cropped_artifacts or cropped_documents or dropped_moments:
