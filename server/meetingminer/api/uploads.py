@@ -43,6 +43,9 @@ from meetingminer import uploads
 from meetingminer.api.problems import Problem, ProblemDetails
 from meetingminer.config import AppConfig
 
+#: Spelled once, so the declared schema and the check cannot disagree.
+UPLOAD_CORPUS_VALUE = uploads.UPLOAD_CORPUS
+
 router = APIRouter()
 
 #: Titles for the statuses an upload refusal maps to. `problems.Problem` knows
@@ -58,6 +61,73 @@ _REFUSAL_TITLES = {
 }
 
 _PROBLEM_RESPONSE = {"model": ProblemDetails, "content": {"application/problem+json": {}}}
+
+#: The request body, declared rather than derived. The handler takes the raw
+#: `Request` so it can stream the parts itself, which means FastAPI has no
+#: parameter model to generate a schema from — and a generated client with no
+#: body type is one story 6.5a would have to hand-write around. `openapi_extra`
+#: puts the shape back in the document without giving the parser the body.
+#: It is the same contract the module enforces: three required fields, an
+#: optional dialect and supplier, and the files themselves.
+_MULTIPART_BODY = {
+    "requestBody": {
+        "required": True,
+        "content": {
+            "multipart/form-data": {
+                "schema": {
+                    "type": "object",
+                    "title": "UploadSessionRequest",
+                    "properties": {
+                        "title": {
+                            "type": "string",
+                            "description": "The meeting's human label, shown in the app.",
+                        },
+                        "startedAt": {
+                            "type": "string",
+                            "description": (
+                                "When the meeting started: RFC 3339 with an"
+                                " offset (2026-08-05T12:00:19Z). A date alone is"
+                                " refused — an upload never records day precision."
+                            ),
+                        },
+                        "corpus": {
+                            "type": "string",
+                            "enum": [UPLOAD_CORPUS_VALUE],
+                            "description": (
+                                "Always 'real'. Scripted meetings are eval"
+                                " subjects and are minted on the api host."
+                            ),
+                        },
+                        "transcriptDialect": {
+                            "type": "string",
+                            "enum": list(uploads.dialects.DIALECTS),
+                            "description": (
+                                "Which export the transcript is. Required"
+                                " whenever a .vtt is attached; declared, never"
+                                " detected."
+                            ),
+                        },
+                        "suppliedBy": {
+                            "type": "string",
+                            "description": "Who supplied the files, recorded in provenance.",
+                        },
+                        "files": {
+                            "type": "array",
+                            "items": {"type": "string", "format": "binary"},
+                            "description": (
+                                "The recording and/or transcript. The role is"
+                                " decided by the file extension: .mp4 becomes"
+                                " recording.mp4, .vtt transcript.vtt, .txt"
+                                " transcript.txt."
+                            ),
+                        },
+                    },
+                    "required": ["title", "startedAt", "corpus", "files"],
+                }
+            }
+        },
+    }
+}
 
 
 class UploadedFileView(BaseModel):
@@ -174,6 +244,7 @@ def _root(request: Request) -> tuple[uploads.UploadLimits, Path]:
         500: _PROBLEM_RESPONSE,
         503: _PROBLEM_RESPONSE,
     },
+    openapi_extra=_MULTIPART_BODY,
 )
 async def create_upload_session(request: Request) -> UploadSessionView:
     try:
