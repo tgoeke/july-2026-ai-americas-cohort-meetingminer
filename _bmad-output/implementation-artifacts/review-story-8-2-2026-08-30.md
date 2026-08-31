@@ -37,3 +37,11 @@ Adversarial review of Story 8.2 implementation and its stated footprint against 
 - **Finding** — chat now emits `502 urn:meetingminer:problem:binding-failed`, but the route's declared OpenAPI responses still contain only 200, 422, and 503. The regenerated client therefore has no 502 member in `AskCorpusErrors`, so the story's new failure contract is invisible to generated consumers even though it exists at runtime.
 - **Evidence** — `app.openapi()["paths"]["/chat"]["post"]["responses"]` returned only `200`, `422`, and `503`; `web/src/client/types.gen.ts:2332-2341` likewise defines only 422 and 503 errors. The on-wire test checks the problem type and fields but does not assert `response.status_code == 502` or inspect OpenAPI.
 - **Suggested direction** — declare the 502 `ProblemDetails` response with `application/problem+json`, pin both the runtime status and schema entry in tests, then regenerate the committed client from the schema.
+
+### Finding 4 — the selection route's named refusals are absent or mis-typed in OpenAPI
+
+- **Location** — `server/meetingminer/api/settings.py:168`
+- **Severity** — medium
+- **Finding** — `PUT /settings/roles/{role}` emits a named 404 `unknown-role` and a named 422 `binding-not-in-catalog`, both as `ProblemDetails`, but the route declares neither. FastAPI consequently documents no 404 and documents 422 only as its default `HTTPValidationError`; the regenerated client's `SelectRoleBindingErrors` omits the unknown-role case and gives the catalog refusal the wrong body type.
+- **Evidence** — `app.openapi()["paths"]["/settings/roles/{role}"]["put"]["responses"]` returned only 200 and the default validation 422. `web/src/client/types.gen.ts:2608-2613` contains only `422: HttpValidationError`, while `server/tests/test_api_settings.py:174-201` proves the actual responses are RFC 9457 problem documents with story-specific slugs.
+- **Suggested direction** — explicitly declare 404 and 422 problem responses on the route, preserve the custom validation handler's same `ProblemDetails` wire shape, add schema assertions, and regenerate the client.
