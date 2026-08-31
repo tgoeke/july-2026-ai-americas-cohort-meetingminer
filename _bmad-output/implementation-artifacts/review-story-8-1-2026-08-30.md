@@ -102,6 +102,14 @@ Adversarial review of Story 8.1 on `story/8-1-review`, including the eight chang
 - **Evidence:** Repository-wide symbol tracing shows `status.provider_of` aliases `provider_for_model`, and `/config` imports that alias, so adoption is correct today. `test_known_bare_catalog_provider_matches_runtime_routing` checks catalog and adapter only; searches for `gpt-4o` and `claude-sonnet-5` in `test_api_status.py` return no cases. Replacing the status alias with a divergent bare-name rule could therefore leave the owner regression green.
 - **Suggested direction:** Extend the existing known-bare parametrized regression to assert `status.provider_of(model) == provider`, pinning config, runtime, and display in one case matrix.
 
+### Finding 12 — Eval bake-off fixtures use newly ambiguous bare bindings (patch)
+
+- **Location:** `evals/tests/test_bakeoff.py:459,524`
+- **Severity:** Medium
+- **Finding:** Two store-free eval tests construct `LlmRoleBinding` with fake bare model names whose provider cannot be determined under the owner-amended contract, so `make test-fast` fails before exercising the behavior those tests target.
+- **Evidence:** The first foreground `make test-fast` run passed lint, typecheck, puller, and web, then failed `test_run_bakeoff_excludes_a_candidate_that_fails_after_its_probe` on `model="x"` and `test_run_bakeoff_breaks_an_agreement_tie_by_consistency_end_to_end` on `model="flaky-model"`; both raise the new named ambiguous-routing validation error. The remaining eval suite reported 641 passed.
+- **Suggested direction:** Give the synthetic bindings an explicit `test/` provider prefix so the fixtures remain unmistakably fake and unambiguous without changing the bake-off behavior under test. Rerun the eval suite, then restart `make test-fast` from the beginning.
+
 ## Review-layer and triage summary
 
 All four configured layers ran locally and sequentially: Blind Hunter, Edge
