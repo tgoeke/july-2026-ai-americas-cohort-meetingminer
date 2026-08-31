@@ -82,6 +82,8 @@ export function MomentsFeed({
   const [state, setState] = useState<FeedState>({ kind: 'loading' })
   const stateRef = useRef<FeedState>(state)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [focusAfterAppend, setFocusAfterAppend] = useState<string | null>(null)
+  const [announcement, setAnnouncement] = useState('')
 
   // Asynchronous ownership (EXPERIENCE.md): every read carries a generation,
   // a newer read aborts the older one, and a late response for a superseded
@@ -120,6 +122,11 @@ export function MomentsFeed({
         }
         if (offset === 0) loadedFilterKey.current = filterKey
         publish(next)
+        if (offset > 0 && page.items.length > 0) {
+          setFocusAfterAppend(page.items[0].momentId)
+          const noun = page.items.length === 1 ? 'moment' : 'moments'
+          setAnnouncement(`${page.items.length} more ${noun} — ${next.items.length} of ${page.total}`)
+        }
       } catch (error) {
         if (mine !== generation.current) return
         if (own.signal.aborted && !timeout.aborted) return
@@ -191,6 +198,19 @@ export function MomentsFeed({
     return () => window.removeEventListener('keydown', onKey)
   }, [expanded])
 
+  // Explicit paging must not strand a keyboard user on the button that just
+  // disappeared. Once React has mounted the appended cards, put focus on the
+  // first new title; the adjacent status region carries the same result to a
+  // screen reader without moving visual focus for pointer users.
+  useEffect(() => {
+    if (focusAfterAppend === null) return
+    const title = [...document.querySelectorAll<HTMLElement>('[data-moment-title-id]')].find(
+      (candidate) => candidate.dataset.momentTitleId === focusAfterAppend,
+    )
+    title?.focus()
+    setFocusAfterAppend(null)
+  }, [focusAfterAppend])
+
   // Thread options come from the threads the served items actually carry.
   // `GET /threads` (story 10.3) is the designed source and becomes the source
   // once it lands; until then the client offers only threads it has observed
@@ -221,6 +241,9 @@ export function MomentsFeed({
 
   return (
     <section className="flex flex-col gap-2" data-testid="moments-feed" aria-label="Moments">
+      <p className="sr-only" role="status" aria-live="polite">
+        {announcement}
+      </p>
       <div className="flex flex-wrap items-baseline justify-between gap-4">
         <h2 className="text-sm font-medium text-muted-foreground">
           Moments{' '}

@@ -275,6 +275,7 @@ export function MomentCard({
           type="button"
           onClick={openMoment}
           data-testid={`moment-title-${item.momentId}`}
+          data-moment-title-id={item.momentId}
           className="cursor-pointer text-left text-[15px] leading-snug font-semibold hover:underline"
         >
           {title}
