@@ -897,6 +897,30 @@ class YoutubeAcquisitionConfig(_StrictModel):
     max_duration_minutes: int = Field(gt=0)
 
 
+class UploadAcquisitionConfig(_StrictModel):
+    """`POST /uploads` knobs (story 6.4a).
+
+    Four refusal boundaries, and every one of them is configuration for the
+    same reason the YouTube duration cap is (AD-10): the api refuses an upload
+    by name against these numbers, before a byte reaches a drop, and a boundary
+    that exists only as a Python constant is not one anybody can turn.
+
+    The two byte caps are separate because the two roles are not comparable: a
+    recording is media measured in gigabytes, a transcript is text measured in
+    megabytes, and one number covering both would either wave a 400 MB "VTT"
+    through or refuse an ordinary meeting recording.
+    """
+
+    max_recording_bytes: int = Field(gt=0)
+    max_transcript_bytes: int = Field(gt=0)
+    max_duration_minutes: int = Field(gt=0)
+    #: How long an unclaimed upload session's staging directory survives before
+    #: the next `POST /uploads` sweeps it. A session holds evidence bytes under
+    #: MM_DROPS_ROOT, so an abandoned one costs real disk on the evidence
+    #: volume; it is not a security boundary, it is a janitor's interval.
+    session_ttl_minutes: int = Field(gt=0)
+
+
 class AcquisitionConfig(_StrictModel):
     """Settings the acquisition commands own (epic 6).
 
@@ -905,6 +929,7 @@ class AcquisitionConfig(_StrictModel):
     """
 
     youtube: YoutubeAcquisitionConfig
+    upload: UploadAcquisitionConfig
 
 
 class ThreadsConfig(_StrictModel):

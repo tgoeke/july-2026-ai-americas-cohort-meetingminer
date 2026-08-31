@@ -37,8 +37,9 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
-from meetingminer import acquisitions, youtube
+from meetingminer import acquisitions, uploads, youtube
 from meetingminer.api.problems import Problem, ProblemDetails
+from meetingminer.api.uploads import refusal_problem as upload_refusal_problem
 from meetingminer.config import AppConfig, ConfigError
 
 router = APIRouter()
@@ -62,6 +63,23 @@ _PROBLEM_RESPONSE = {"model": ProblemDetails, "content": {"application/problem+j
 
 
 class AcquisitionRequest(BaseModel):
+    """One source, named exactly one way.
+
+    ``url`` for a published video, ``uploadSessionId`` for files already handed
+    to ``POST /uploads``. Both, or neither, is a refusal rather than a
+    precedence rule: a client that sent both does not know which one it meant,
+    and guessing would acquire the wrong meeting.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    url: str | None = None
+    upload_session_id: UUID | None = None
+
+
+class ProbeRequest(BaseModel):
+    """``POST /acquisitions/probe`` takes a URL and only a URL."""
+
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     url: str
@@ -71,8 +89,12 @@ class AcquisitionAccepted(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     acquisition_id: UUID
+    #: For an upload this is ``upload:<sessionId>`` until the drop is minted;
+    #: the content-derived id appears on ``GET`` once the status is ``posted``.
     source_id: str
     status: str
+    #: Which source this acquisition was started from — ``youtube`` or ``upload``.
+    kind: str
 
 
 class ProbeCaptions(BaseModel):
@@ -114,8 +136,17 @@ class AcquisitionStatus(BaseModel):
 
     acquisition_id: UUID
     source_id: str
+    #: A watch URL for a YouTube acquisition; ``upload:<sessionId>`` for an
+    #: upload, which has no page. Read ``kind`` before rendering it as a link.
     url: str
     status: str
+    #: One of ``youtube`` / ``upload``.
+    kind: str
+    #: Present exactly when ``kind`` is ``upload``. The session is gone by the
+    #: time the status is terminal — it is removed as soon as the drop is
+    #: finalized or the acquisition fails — so this identifies it, it does not
+    #: locate it.
+    upload_session_id: UUID | None = None
     created_at: str
     updated_at: str
     #: ``created`` or ``exists``, on ``posted`` only.
@@ -161,7 +192,7 @@ def _refusal_problem(error: Exception) -> Problem:
     four members are reserved (``problems.problem_response`` enforces that).
     """
     refusal = acquisitions.refusal_for(error)
-    status = acquisitions.PROBLEM_STATUS[refusal.rule]
+    status = acquisitions.problem_status(refusal.rule)
     return Problem(
         status,
         "acquisition-refused",
@@ -189,8 +220,38 @@ def start_acquisition(
     body: AcquisitionRequest, request: Request
 ) -> AcquisitionAccepted:
     config = _config(request)
+    if body.url is not None and body.upload_session_id is not None:
+        raise Problem(
+            400,
+            "acquisition-source-ambiguous",
+            "name either url or uploadSessionId, not both — an acquisition has"
+            " one source, and this server will not choose which one you meant",
+        )
+    if body.url is None and body.upload_session_id is None:
+        raise Problem(
+            400,
+            "acquisition-source-missing",
+            "name a source: url for a published video, or uploadSessionId for"
+            " files already sent to POST /uploads",
+        )
     try:
-        record = acquisitions.launch(config, body.url)
+        if body.upload_session_id is not None:
+            record = acquisitions.launch_upload(config, str(body.upload_session_id))
+        else:
+            record = acquisitions.launch(config, body.url or "")
+    except uploads.UploadSessionNotFound as exc:
+        rule = "upload-session-not-found"
+        raise Problem(
+            uploads.PROBLEM_STATUS[rule],
+            "upload-refused",
+            f"no upload session with id {body.upload_session_id}",
+            rule=rule,
+            remediation=uploads.REMEDIATIONS[rule],
+        ) from exc
+    except uploads.UploadRefused as exc:
+        raise upload_refusal_problem(exc) from exc
+    except uploads.UploadStateError as exc:
+        raise Problem(500, "upload-state-unreadable", str(exc)) from exc
     except youtube.YoutubeError as exc:
         raise _refusal_problem(exc) from exc
     except acquisitions.AcquisitionInProgress as exc:
@@ -209,6 +270,7 @@ def start_acquisition(
         acquisition_id=UUID(record.acquisition_id),
         source_id=record.source_id,
         status=record.status,
+        kind=record.kind,
     )
 
 
@@ -226,7 +288,7 @@ def start_acquisition(
         503: _PROBLEM_RESPONSE,
     },
 )
-def probe_acquisition(body: AcquisitionRequest, request: Request) -> ProbeResult:
+def probe_acquisition(body: ProbeRequest, request: Request) -> ProbeResult:
     config = _config(request)
     try:
         report = youtube.probe_only(
@@ -309,6 +371,16 @@ def get_acquisition(acquisition_id: UUID, request: Request) -> AcquisitionStatus
             remediation=record.refusal.remediation,
         )
 
+    upload_session_id: UUID | None = None
+    if record.upload_session_id:
+        try:
+            upload_session_id = UUID(record.upload_session_id)
+        except ValueError:
+            # Reported as absent rather than 500'd, for the same reason a
+            # malformed job id is: the acquisition's own state is still worth
+            # showing.
+            upload_session_id = None
+
     return AcquisitionStatus(
         # The validated path parameter, never the id inside the file: the log
         # path is built from it, and only a typed UUID may reach a filename.
@@ -316,6 +388,8 @@ def get_acquisition(acquisition_id: UUID, request: Request) -> AcquisitionStatus
         source_id=record.source_id,
         url=record.url,
         status=record.status,
+        kind=record.kind,
+        upload_session_id=upload_session_id,
         created_at=record.created_at,
         updated_at=record.updated_at,
         result=record.result,

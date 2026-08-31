@@ -59,19 +59,26 @@ from pathlib import Path
 from typing import Any, Iterator
 from uuid import uuid4
 
-from meetingminer import youtube
+from meetingminer import uploads, youtube
 from meetingminer.config import AppConfig, ConfigError
 from meetingminer.mintdrop import (
     IntakeError,
     MintError,
     _load_cli_config,
     ingest_command,
+    mint,
     post_ingest,
     resolve_api_url,
     resolve_drops_root,
 )
+from meetingminer.transcripts import dialects
 
 PROGRAM = "acquisitions"
+
+#: What an uploaded drop's provenance records as the tool that produced it.
+#: ``mint-drop`` names itself; an upload came through the api's own door, and
+#: the drop should say so rather than claiming a command nobody ran.
+PROGRAM_UPLOAD_TOOL = "upload-session"
 
 #: How the api spells the child on the command line, and how the child is
 #: reached by ``python -m``. One constant so the two cannot drift.
@@ -94,6 +101,20 @@ CLAIM_LOCK_FILENAME = ".claim.lock"
 
 #: The four states ``GET /acquisitions/{id}`` reports.
 STATUSES = ("queued", "running", "posted", "failed")
+
+#: What an acquisition was started from. The state machine above is the same
+#: for both — same file, same transitions, same fields — and this says which
+#: source produced them, so a client knows whether ``url`` names something it
+#: can link to (story 6.4a).
+KINDS = ("youtube", "upload")
+KIND_YOUTUBE, KIND_UPLOAD = KINDS
+
+#: The ``url`` an upload acquisition records. An upload has no page to link to,
+#: but ``url`` is a required field of the status file and of the response model
+#: story 6.5's generated client already consumes, so it carries the session
+#: reference rather than becoming nullable under a story being built in
+#: parallel. ``kind`` is what tells a client which it is looking at.
+UPLOAD_REF_PREFIX = "upload:"
 
 #: The two a launch may collide with. ``posted`` and ``failed`` are terminal,
 #: so a finished record never blocks a new acquisition of the same video.
@@ -356,15 +377,38 @@ def _one_line(text: str) -> str:
 
 
 def refusal_for(error: BaseException) -> Refusal:
-    """Classify any refusal through story 6.2a's vocabulary.
+    """Classify any refusal through the vocabulary that owns it.
 
-    :func:`~meetingminer.youtube.refusal_rule` is the only classifier; this
-    adds the remediation the closed set already has an entry for.
+    Two closed sets meet here and nowhere else: story 6.2a's
+    :func:`~meetingminer.youtube.refusal_rule` for a YouTube acquisition, and
+    :mod:`meetingminer.uploads`'s own rules for an upload. Both produce the same
+    three fields, so a web client renders either without knowing which ran.
     """
+    if isinstance(error, uploads.UploadRefused):
+        return Refusal(
+            rule=error.rule,
+            detail=_one_line(str(error)),
+            remediation=uploads.REMEDIATIONS[error.rule],
+        )
     rule = youtube.refusal_rule(error)
     return Refusal(
         rule=rule, detail=_one_line(str(error)), remediation=REMEDIATIONS[rule]
     )
+
+
+def problem_status(rule: str) -> int:
+    """The HTTP status for any rule either vocabulary can produce.
+
+    A lookup rather than one merged table: ``PROBLEM_STATUS`` is pinned to
+    ``youtube.REFUSAL_RULES`` exactly, and ``uploads.PROBLEM_STATUS`` to the
+    upload rules, so neither can grow an entry the other's tests would miss.
+    An unknown rule is a bug in the classifier, not a client error, so it
+    surfaces as 503 with the rest of the "this server cannot answer" bucket
+    rather than as a KeyError inside a request handler.
+    """
+    if rule in PROBLEM_STATUS:
+        return PROBLEM_STATUS[rule]
+    return uploads.PROBLEM_STATUS.get(rule, 503)
 
 
 # --- the status file ---------------------------------------------------------
@@ -379,11 +423,24 @@ class AcquisitionRecord:
     """One acquisition's whole state, as the child last wrote it."""
 
     acquisition_id: str
+    #: What this acquisition claims. For YouTube it is the drop's own
+    #: ``sourceId`` from the first moment, because a video id is known offline.
+    #: For an upload it is ``upload:<sessionId>`` until the mint resolves the
+    #: content digest that becomes the drop's identity, and the real id from
+    #: then on: an upload's identity is the bytes that enter the drop, and for a
+    #: converted dialect those are not the bytes that were uploaded.
     source_id: str
+    #: The source reference. A watch URL for YouTube; ``upload:<sessionId>`` for
+    #: an upload, which has no page. Read ``kind`` before treating it as a link.
     url: str
     status: str
     created_at: str
     updated_at: str
+    #: Which source produced this record — one of :data:`KINDS`. Defaulted to
+    #: ``youtube`` so every status file written before story 6.4a still reads.
+    kind: str = KIND_YOUTUBE
+    #: Set exactly when ``kind`` is ``upload``.
+    upload_session_id: str | None = None
     #: The detached child's pid, recorded by the api before it releases the
     #: claim lock. ``None`` only between the record's first write and the
     #: ``Popen`` returning — which a reader can only observe if the api died
@@ -403,6 +460,8 @@ class AcquisitionRecord:
             "sourceId": self.source_id,
             "url": self.url,
             "status": self.status,
+            "kind": self.kind,
+            "uploadSessionId": self.upload_session_id,
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
             "pid": self.pid,
@@ -428,6 +487,14 @@ class AcquisitionRecord:
             status=raw["status"],
             created_at=str(raw.get("createdAt", "")),
             updated_at=str(raw.get("updatedAt", "")),
+            # A record written before story 6.4a carries no kind, and there was
+            # only one kind then.
+            kind=raw["kind"] if raw.get("kind") in KINDS else KIND_YOUTUBE,
+            upload_session_id=(
+                raw.get("uploadSessionId")
+                if isinstance(raw.get("uploadSessionId"), str)
+                else None
+            ),
             pid=pid if isinstance(pid, int) and not isinstance(pid, bool) else None,
             result=raw.get("result") if isinstance(raw.get("result"), str) else None,
             job_id=raw.get("jobId") if isinstance(raw.get("jobId"), str) else None,
@@ -631,21 +698,34 @@ def claim_lock(root: Path) -> Iterator[None]:
 # --- launching the detached child --------------------------------------------
 
 
-def child_command(acquisition_id: str, url: str, state_root: Path) -> list[str]:
+def child_command(
+    acquisition_id: str,
+    url: str | None,
+    state_root: Path,
+    *,
+    upload_session_id: str | None = None,
+) -> list[str]:
     """The detached runner's argv. One function so a test can replace the
-    whole command rather than stub the process machinery around it."""
-    return [
+    whole command rather than stub the process machinery around it.
+
+    Exactly one source is named: ``--url`` for a YouTube acquisition,
+    ``--upload-session`` for an upload. The child's parser enforces the same
+    rule, so a malformed argv is a named refusal rather than an acquisition
+    that runs with no source.
+    """
+    argv = [
         sys.executable,
         "-m",
         MODULE_NAME,
         "--run",
         "--acquisition-id",
         acquisition_id,
-        "--url",
-        url,
-        "--state-root",
-        str(state_root),
     ]
+    if upload_session_id is not None:
+        argv += ["--upload-session", upload_session_id]
+    else:
+        argv += ["--url", url or ""]
+    return argv + ["--state-root", str(state_root)]
 
 
 def launch(config: AppConfig, url: str) -> AcquisitionRecord:
@@ -677,48 +757,114 @@ def launch(config: AppConfig, url: str) -> AcquisitionRecord:
             created_at=now,
             updated_at=now,
         )
-        write_record(root, record)
+        record = _start_child(config, root, record, child_command(
+            acquisition_id, canonical, root
+        ))
+    return record
 
-        try:
-            stream = log_path(root, acquisition_id).open("ab")
-        except OSError as exc:
-            raise AcquisitionStateError(
-                f"acquisition log could not be opened: {exc}"
-            ) from exc
-        try:
-            # The argv is built by `child_command` from constants, two
-            # already-validated values, and this parent-resolved state root;
-            # no shell is involved.
-            process = subprocess.Popen(
-                child_command(acquisition_id, canonical, root),
-                stdin=subprocess.DEVNULL,
-                stdout=stream,
-                stderr=subprocess.STDOUT,
-                # Detached: its own session, so an api restart (or the shell
-                # that started the api going away) does not take the download
-                # with it.
-                start_new_session=True,
-                close_fds=True,
-                cwd=str(config.config_path.parent),
-            )
-        except OSError as exc:
-            record = record.advanced(
-                status="failed",
-                refusal=Refusal(
-                    rule="unclassified",
-                    detail=_one_line(f"the acquisition process could not start: {exc}"),
-                    remediation=REMEDIATIONS["unclassified"],
-                ),
-            )
-            write_record(root, record)
-            raise AcquisitionStateError(
-                f"the acquisition process could not start: {exc}"
-            ) from exc
-        finally:
-            stream.close()
 
-        record = record.advanced(pid=process.pid)
+def _start_child(
+    config: AppConfig,
+    root: Path,
+    record: AcquisitionRecord,
+    argv: list[str],
+) -> AcquisitionRecord:
+    """Write the queued record, start the detached child, record its pid.
+
+    Called holding :func:`claim_lock` — the pid must be on disk before another
+    claimant can scan — and shared by both launch paths so the two kinds cannot
+    drift into two process-start disciplines.
+    """
+    write_record(root, record)
+    try:
+        stream = log_path(root, record.acquisition_id).open("ab")
+    except OSError as exc:
+        raise AcquisitionStateError(
+            f"acquisition log could not be opened: {exc}"
+        ) from exc
+    try:
+        # The argv is built by `child_command` from constants, already-validated
+        # values, and this parent-resolved state root; no shell is involved.
+        process = subprocess.Popen(
+            argv,
+            stdin=subprocess.DEVNULL,
+            stdout=stream,
+            stderr=subprocess.STDOUT,
+            # Detached: its own session, so an api restart (or the shell
+            # that started the api going away) does not take the download
+            # with it.
+            start_new_session=True,
+            close_fds=True,
+            cwd=str(config.config_path.parent),
+        )
+    except OSError as exc:
+        record = record.advanced(
+            status="failed",
+            refusal=Refusal(
+                rule="unclassified",
+                detail=_one_line(f"the acquisition process could not start: {exc}"),
+                remediation=REMEDIATIONS["unclassified"],
+            ),
+        )
         write_record(root, record)
+        raise AcquisitionStateError(
+            f"the acquisition process could not start: {exc}"
+        ) from exc
+    finally:
+        stream.close()
+
+    record = record.advanced(pid=process.pid)
+    write_record(root, record)
+    return record
+
+
+def launch_upload(config: AppConfig, session_id: str) -> AcquisitionRecord:
+    """Claim one upload session and start the detached child that mints it.
+
+    The session is read first, so a request naming an expired, discarded or
+    already-consumed session is a 404 before any state exists — and so the
+    child is never started against a directory that is not there.
+
+    The claim is on ``upload:<sessionId>`` rather than on the drop's eventual
+    ``sourceId``, which is not knowable here: identity is the digest of the
+    bytes that *enter* the drop, and a ``zoom`` transcript is converted on the
+    way in, so the uploaded file's digest is not the drop's. What this claim
+    prevents is the collision that can actually happen — two acquisitions
+    consuming one session directory. Two uploads of the same recording are
+    resolved where every other producer's duplicate is: ``mint()`` reports
+    ``exists`` and intake answers its duplicate-source conflict (AD-14).
+    """
+    root = acquisitions_root(config)
+    sessions = uploads.sessions_root(config)
+    # Raises UploadSessionNotFound / UploadStateError, which the api turns into
+    # a 404 or a 500. Reading it here also means the child inherits a session
+    # that was complete at claim time.
+    uploads.read_session(sessions, session_id)
+    source_ref = f"{UPLOAD_REF_PREFIX}{session_id}"
+
+    with claim_lock(root):
+        live = live_record_for_source(root, source_ref)
+        if live is not None:
+            raise AcquisitionInProgress(live)
+
+        acquisition_id = str(uuid4())
+        now = _now()
+        record = AcquisitionRecord(
+            acquisition_id=acquisition_id,
+            source_id=source_ref,
+            url=source_ref,
+            status="queued",
+            created_at=now,
+            updated_at=now,
+            kind=KIND_UPLOAD,
+            upload_session_id=session_id,
+        )
+        record = _start_child(
+            config,
+            root,
+            record,
+            child_command(acquisition_id, None, root, upload_session_id=session_id),
+        )
     return record
 
 
@@ -817,6 +963,154 @@ def run_acquisition(
     return record
 
 
+def upload_provenance(
+    session: uploads.UploadSession, dialect_extra: dict[str, Any] | None
+) -> dict[str, Any]:
+    """What the drop records about how these bytes reached it.
+
+    ``mint()`` owns the evidence manifest — ``files``, ``mintedAt``,
+    ``suppliedBy``, ``startedAtSource``, ``title`` — and refuses a producer that
+    tries to replace any of them, so this adds only source facts. It matters
+    because ``provenance.files[].sourcePath`` will name the staging directory,
+    which is deleted moments later: the original filenames the person chose
+    exist nowhere else once this drop is written.
+    """
+    extra: dict[str, Any] = {
+        "tool": PROGRAM_UPLOAD_TOOL,
+        "uploadSession": {
+            "uploadSessionId": session.session_id,
+            "receivedAt": session.created_at,
+            "files": [
+                {
+                    "dropFilename": staged.canonical,
+                    "originalFilename": staged.original_filename,
+                    "sha256": staged.sha256,
+                    "byteSize": staged.byte_size,
+                }
+                for staged in session.files
+            ],
+        },
+    }
+    if dialect_extra:
+        extra.update(dialect_extra)
+    return extra
+
+
+def run_upload_acquisition(
+    config: AppConfig,
+    acquisition_id: str,
+    session_id: str,
+    *,
+    state_root: Path | None = None,
+) -> AcquisitionRecord:
+    """One upload acquisition, start to finish, writing every transition.
+
+    The mint is ``mintdrop.main()``'s own call order, reproduced exactly:
+    ``dialects.convert_supplied()`` first, then ``mintdrop.mint()`` with the
+    session's declared title and timestamp. That is what makes the meeting the
+    *same* meeting whichever door it came through — ``sourceId`` is the digest
+    of the primary file that enters the drop and ``startedAt`` is whatever
+    ``started_at_from_argument`` makes of the declared stamp, in both paths —
+    and it is why nothing here re-implements staging, validation or the
+    finalizing rename. Intake is reached only through ``POST /ingests`` (AD-14).
+
+    The session directory is removed once this returns, whichever way it went:
+    a finalized drop no longer needs it, and a failed acquisition must not leave
+    evidence bytes under the drops root for something later to find.
+    """
+    root = state_root if state_root is not None else acquisitions_root(config)
+    # Same handshake as `run_acquisition`: the parent holds the claim lock
+    # through its pid write, so waiting for it here orders queued+pid -> running.
+    with claim_lock(root):
+        record = read_record(root, acquisition_id).advanced(
+            status="running", pid=os.getpid()
+        )
+        write_record(root, record)
+    print(f"acquiring  upload session {session_id}", flush=True)
+
+    sessions: Path | None = None
+    try:
+        try:
+            # Resolved before the mint, as `mint-drop`'s own CLI does: an
+            # unusable api url must not first cost a finalized drop.
+            api_url = resolve_api_url(None)
+            drops_root = resolve_drops_root(None, config)
+            sessions = uploads.sessions_root(config)
+            session = uploads.read_session(sessions, session_id)
+            with dialects.workspace() as workspace:
+                conversion = dialects.convert_supplied(
+                    session.staged_paths(),
+                    dialect=session.transcript_dialect,
+                    into=workspace,
+                )
+                result = mint(
+                    supplied=conversion.supplied,
+                    corpus=session.corpus,
+                    drops_root=drops_root,
+                    config_path=config.config_path,
+                    title=session.title,
+                    started_at_argument=session.started_at,
+                    supplied_by=session.supplied_by,
+                    # An upload is placed in the configured root, and all of
+                    # MM_DROPS_ROOT shares one source-identity namespace.
+                    identity_root=config.secrets.mm_drops_root,
+                    provenance_extra=upload_provenance(
+                        session, conversion.provenance_extra
+                    ),
+                )
+        except (
+            ConfigError,
+            MintError,
+            dialects.DialectError,
+            uploads.UploadError,
+        ) as exc:
+            print(f"refused    {exc}", file=sys.stderr, flush=True)
+            record = record.advanced(status="failed", refusal=refusal_for(exc))
+            write_record(root, record)
+            return record
+
+        print(f"{result.status:<10} {result.path}", flush=True)
+        try:
+            intake, http_status, job_id = post_ingest(api_url, result.path)
+        except IntakeError as exc:
+            print(f"intake     FAILED: {exc}", file=sys.stderr, flush=True)
+            record = record.advanced(
+                status="failed",
+                # The drop is finalized by now, so the remediation names the
+                # exact safe re-POST rather than suggesting a second upload.
+                source_id=result.source_id,
+                refusal=Refusal(
+                    rule=youtube.refusal_rule(exc),
+                    detail=_one_line(str(exc)),
+                    remediation=(
+                        "The drop is finalized; re-POST this exact drop rather"
+                        " than uploading the files again:"
+                        f" {ingest_command(api_url, result.path)}"
+                    ),
+                ),
+            )
+            write_record(root, record)
+            return record
+
+        print(
+            f"intake     {intake} ({http_status}) jobId {job_id or '(none)'}", flush=True
+        )
+        record = record.advanced(
+            status="posted",
+            # From here the record names the drop's own content-derived
+            # identity rather than the session it came from.
+            source_id=result.source_id,
+            result=result.status,
+            job_id=job_id,
+            tool=PROGRAM_UPLOAD_TOOL,
+        )
+        write_record(root, record)
+        return record
+    finally:
+        if sessions is not None:
+            uploads.discard_session(sessions, session_id)
+
+
 # --- CLI ---------------------------------------------------------------------
 
 
@@ -845,11 +1139,21 @@ def _parser() -> argparse.ArgumentParser:
         metavar="UUID",
         help="the acquisition whose status file this run writes.",
     )
-    parser.add_argument(
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument(
         "--url",
-        required=True,
         metavar="URL",
         help="the canonical watch URL to acquire.",
+    )
+    source.add_argument(
+        "--upload-session",
+        dest="upload_session",
+        metavar="UUID",
+        help=(
+            "the upload session to mint a drop from, instead of --url. Its"
+            " staging directory is removed once the drop is finalized or this"
+            " run fails."
+        ),
     )
     parser.add_argument(
         "--state-root",
@@ -892,12 +1196,20 @@ def main(argv: list[str] | None = None) -> int:
             )
         return 1
     try:
-        record = run_acquisition(
-            config,
-            args.acquisition_id,
-            args.url,
-            state_root=state_root,
-        )
+        if args.upload_session is not None:
+            record = run_upload_acquisition(
+                config,
+                args.acquisition_id,
+                args.upload_session,
+                state_root=state_root,
+            )
+        else:
+            record = run_acquisition(
+                config,
+                args.acquisition_id,
+                args.url,
+                state_root=state_root,
+            )
     except AcquisitionError as exc:
         print(f"fatal: {PROGRAM} refused: {exc}", file=sys.stderr, flush=True)
         return 1
