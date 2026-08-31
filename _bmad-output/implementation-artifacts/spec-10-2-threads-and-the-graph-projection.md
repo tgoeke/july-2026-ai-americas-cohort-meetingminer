@@ -3,7 +3,7 @@ title: 'Story 10.2: Threads and the Graph Projection'
 type: 'feature'
 created: '2026-08-30'
 baseline_revision: '4a111b8a981f3b5001e81f4bcbca54a2bdf28b42'
-status: 'in-progress'
+status: 'review'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -115,6 +115,8 @@ deferred: []
 - **2026-08-30, planning — footprint widened inside `projections/`, deliberately and on the record.** The build-prompt footprint names `projections/graph.py` and `projections/traversals.py` but no way for the graph to *learn* about topics: `graph.project_meeting` takes a `neo4j.Driver` and a `MeetingEvidence`, never a Postgres connection, and `evidence.py` is by design "the projection module's whole input surface". Delivering AC2 without touching `evidence.py` is not possible, and `Topic`'s per-meeting deletion and unique-id constraint key off tuples in `stores.py`. Two files are therefore edited beyond the table — `server/meetingminer/projections/evidence.py` and `server/meetingminer/projections/stores.py` — both additive, both inside `projections/`, and both untouched by every branch in flight (`story/6-2a`, `story/6-3`, `story/7-2`, `story/8-1`, plus the two `-review` branches), so `branch_conflicts.py` stays clean. `projections/__init__.py` is NOT touched: routing topics through `MeetingEvidence` is what keeps the orchestration unchanged. One test assertion in `server/tests/test_projections_traversals.py` is edited because it pins the registry's exact membership.
 - **2026-08-30, planning — deferred: nothing calls `derive_threads` in production yet.** Wiring it into the worker's settle point is an edit to `pipeline/stages/extract.py` and/or `domain/jobs.py`, which story 10.1 owns and the footprint marks "not yours". The function, its config and its record are complete and tested; the trigger is a named gap, filed as **B-38**.
 - **2026-08-30, planning — deferred: `thread.color_ordinal`.** The epic requires a server-owned, never-recycled, per-*corpus* colour ordinal. `thread` has no corpus column and a thread may span corpora; scoping that is a 10.3/10.6 decision. Filed as **B-39** rather than guessed at here.
+- **2026-08-30, implementation — two further forced edits, both discovered by a failing gate rather than by planning.** (a) `server/tests/conftest.py`'s `EVIDENCE_TABLES` gains `thread` and `topic_thread`: `topic_thread` references `topic`, so `TRUNCATE` is refused outright without them and **every** DB-backed test in the suite fails. Not optional and not avoidable in a private module. (b) `server/meetingminer/api/chat_router.py` and its test: registering a third traversal tripped the router's rule that `TEMPLATE_ANCHORS` covers the whole registry. Wiring anchors would have been a live `AttributeError` — `_traversal_leg` in `chat.py` reads `result.rows` and `result.screen`/`result.participant`, none of which `ThreadTimelineResult` has — and adapting the orchestrator is story 10.2b. Resolved with a declared `DEFERRED_TEMPLATES` map so an omission and a decision stay distinguishable, and the tripwire keeps catching the omission. Neither file is touched by any in-flight branch. Also three forced one-liners in shared test modules: `test_config.py`'s `VALID_CONFIG` (a required config field, as 10.1 did for `topics_prompt`), `test_compose_contract.py`'s `SLOW_MODULES` (a store-backed module must be `slow`-marked, pinned in both places by design), and `test_projections_traversals.py`'s registry assertion.
+- **2026-08-30, implementation — deferred: `domain/threads.py` is not in `[tool.mypy] files`.** Its pure clustering half is a decision core and arguably belongs there, but widening the scope is an edit of `server/pyproject.toml` **and** `test_lint_contract.py`'s `DECISION_CORE_FILES`, both outside the footprint. A one-line follow-up at integrate; ruff covers the file today.
 
 ## Review Triage Log
 
@@ -136,3 +138,37 @@ deferred: []
 - `uv run --project server pytest -m "" server/tests/test_projections_threads.py server/tests/test_projections_traversals.py server/tests/test_projections_graph.py -q` -- expected: all pass against the worktree's Neo4j twin.
 - `make test` -- expected: the full gate green (all four suites plus the web build) with the private stack up.
 - `python3 _bmad/scripts/branch_conflicts.py --against story/10-2` -- expected: `clean` against `main` and every other `story/*` branch.
+
+## Auto Run Result
+
+Status: **review** (2026-08-30, at `34b1461` plus the tracking commit).
+
+Verification actually run, in the foreground, with the worktree's private stack
+(`meetingminer-10-2`, ports 20071–20077) up:
+
+| Command | Result |
+|---|---|
+| `make test` (the full gate) | **2287 passed, 2 skipped**, exit 0, web build succeeded, 643s |
+| `make test-fast` (includes `make lint` + `make typecheck`) | **1883 passed, 2 skipped, 404 deselected**, 56s |
+| `pytest server/tests/test_threads_derivation.py` | **30 passed** |
+| `pytest server/tests/test_threads_record.py` | **20 passed** |
+| `pytest -m "" server/tests/test_projections_threads.py` | **26 passed**, 46s |
+| `pytest -m "" test_projections_traversals + graph + single_writer + compose_contract + lint_contract` | **125 passed**, 107s |
+| `branch_conflicts.py --against story/10-2` | `main × story/10-2` **clean** |
+
+The two skips are pre-existing and named: `pyannote.audio` is not installed,
+and the real-network yt-dlp test needs `MM_YOUTUBE_NETWORK_TEST=1`.
+
+Every I/O matrix row is covered by a test that ran and passed. Each clause the
+acceptance criteria hinge on was additionally mutation-checked — the
+implementation was deliberately broken and the suite observed failing — with
+ten caught mutations and **two equivalent mutants reported rather than
+inflated** (`min(members)` → `members[0]`, and dropping the internal sort; the
+partition is order-independent through both the union-find and the explicit
+`min`, so the order-independence test cannot fail against the current code and
+earns its place only as protection against a future greedy refactor). That
+limitation is stated in the review prompt for the reviewer to rule on.
+
+Not done, deliberately, and named rather than implied: nothing calls
+`derive_threads` in production yet (B-38 — the worker settle point is story
+10.1's file), and `thread.color_ordinal` is not added (B-39).

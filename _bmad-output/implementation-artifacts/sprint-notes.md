@@ -3025,7 +3025,6 @@ This is the third shared-file lesson from this wave, alongside `sprint-notes.md`
 having no driver at all and backlog ids being an uncoordinated counter. All
 three belong in `conflict-playbook.md`.
 
-
 ## Story 6.3 — local files with transcript dialect conversion — 2026-08-30
 
 `mint-drop --transcript-dialect {plain,teams-vtt,zoom}`. A Zoom `.vtt` whose
@@ -3467,3 +3466,36 @@ an optimisation rather than an unblock.
 57.5s on the LAN GPU versus 35m51s in-process on this Mac, CPU-only with MPS
 unused — 37.4x apart. The Mac is a viable fallback for unattended work but the
 substitution must be explicitly configured, never automatic.
+
+## Story 10.2 — Threads and the Graph Projection (2026-08-30)
+
+Landed to `review` on `story/10-2`. Migration 0015 (`thread`, `topic_thread`),
+`domain/threads.py`, `Topic`/`Thread` nodes with `MENTIONS`/`INCLUDES` edges,
+and the `thread-timeline` traversal template. Full gate green: 2287 passed,
+2 skipped. Took backlog ids **B-38** and **B-39** (highest previously B-37).
+
+**A footprint table can be under-specified without being wrong.** The build
+prompt named `graph.py` for the graph write but no way for the graph to *learn*
+about topics: `graph.project_meeting` takes a driver and a `MeetingEvidence`,
+never a connection. Four files outside the table were required and are recorded
+in the spec's change log — `projections/evidence.py`, `projections/stores.py`,
+`tests/conftest.py` (without which `TRUNCATE` is refused and *every* DB-backed
+test in the suite fails), and `api/chat_router.py`. Each was checked against
+every in-flight branch first; `main × story/10-2` is clean. Worth adding to the
+dispatch checklist: when a footprint names a writer, check it also names the
+writer's input surface.
+
+**A registry with a completeness tripwire needs a way to say "deliberately not
+yet".** Registering a third traversal broke the chat router's rule that
+`TEMPLATE_ANCHORS` covers the whole registry — correctly, since that rule exists
+so a template cannot be registered and never dispatched. But wiring it would
+have been a live `AttributeError` (the orchestrator reads `result.rows`, which
+`ThreadTimelineResult` does not have), and adapting it is story 10.2b's job.
+Resolved with a declared `DEFERRED_TEMPLATES` map naming the template and the
+story that frees it, so an omission and a decision stay distinguishable.
+
+**Two mutants were equivalent, and are reported as such rather than counted.**
+`test_the_partition_does_not_depend_on_the_order_topics_arrive_in` cannot fail
+against the current implementation, because the partition is order-independent
+through both the union-find and an explicit `min`. Named in the review prompt
+so the reviewer decides whether that is protection or decoration.
