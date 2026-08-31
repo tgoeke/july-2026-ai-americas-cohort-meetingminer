@@ -208,6 +208,30 @@ def test_a_blank_binding_is_refused(client: TestClient) -> None:
     assert response.headers["content-type"].startswith(PROBLEM_JSON)
 
 
+def test_every_valid_catalog_binding_is_writable_even_when_long(
+    client: TestClient,
+    app_config: AppConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configured = _roles(app_config).chat
+    long_binding = "openai/" + ("model-segment-" * 16)
+    assert len(long_binding) > 200
+    entry_type = type(configured.catalog[0])
+    long_role = configured.model_copy(
+        update={
+            "model": long_binding,
+            "default": long_binding,
+            "catalog": [entry_type(binding=long_binding)],
+        }
+    )
+    monkeypatch.setattr(_roles(app_config), "chat", long_role)
+
+    response = client.put("/settings/roles/chat", json={"binding": long_binding})
+
+    assert response.status_code == 200
+    assert response.json()["effectiveBinding"] == long_binding
+
+
 def test_selection_refusals_are_declared_as_problems_in_openapi(
     client: TestClient,
 ) -> None:

@@ -36,11 +36,11 @@ from meetingminer.domain import model_selection
 
 router = APIRouter()
 
-# A binding is a model tag, not prose: stripped, non-empty, and short enough
-# that a pasted document cannot become a settings row. The longest tag in any
-# shipped catalog is far under this.
+# A binding is a model tag, not prose: stripped and non-empty. Its upper bound
+# is the catalog itself; imposing a second length domain here could make a
+# valid entry served by GET impossible to send back to PUT.
 SelectedBinding = Annotated[
-    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)
+    str, StringConstraints(strip_whitespace=True, min_length=1)
 ]
 
 
