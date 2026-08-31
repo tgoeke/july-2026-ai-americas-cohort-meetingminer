@@ -37,7 +37,7 @@ Date: 2026-08-31
 - **Finding** — The failed-acquisition surface always states `Nothing was downloaded, nothing minted, no meeting row exists.`, but `intake-failed` is recorded only after download and drop finalization. In that real failure path the screen contradicts both the server state and its own remediation.
 - **Evidence** — `server/meetingminer/acquisitions.py:782-802` calls `post_ingest` after `youtube.acquire` returns a finalized drop, then writes `status="failed"` with rule `intake-failed` and remediation beginning `The drop is finalized`. `AddMeeting.tsx` renders the unconditional no-download/no-mint sentence for any served `status.refusal`. The frozen contract requires every rendered claim to be backed by served data and forbids invented state.
 - **Suggested direction** — Remove the unconditional lifecycle claim (or make any phase-specific claim derive from an explicit served field). Preserve the api's refusal detail and remediation as the authoritative explanation.
-- **Disposition** — patchable; remediation in progress.
+- **Disposition** — fixed red-first. The intake-failure regression failed because the unconditional no-finalization sentence was present; it passed after the UI left lifecycle facts to the served refusal detail/remediation.
 
 ## Disposition
 

@@ -397,12 +397,7 @@ export function AddMeeting({ onOpenMeeting }: AddMeetingProps = {}) {
             )}
 
             {statusRefusal !== null && (
-              <>
-                <RefusalBox testId="acquisition-refusal" refusal={statusRefusal} />
-                <p className="text-xs text-muted-foreground">
-                  Nothing was downloaded, nothing minted, no meeting row exists.
-                </p>
-              </>
+              <RefusalBox testId="acquisition-refusal" refusal={statusRefusal} />
             )}
 
             {posted && status?.result === 'exists' && (
