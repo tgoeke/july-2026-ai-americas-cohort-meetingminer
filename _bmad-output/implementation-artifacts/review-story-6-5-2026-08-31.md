@@ -84,6 +84,15 @@ Date: 2026-08-31
 - **Suggested direction** — Preserve the parsed problem fields, but offer the same explicit retry action and verify that it starts a new poll without clearing the last known acquisition state.
 - **Disposition** — fixed red-first. The HTTP-poll regression found no accessible Retry control against the original branch; it passed after the parsed problem box gained an explicit retry action wired to the polling hook.
 
+### F9 — Enter in the URL field does not submit
+
+- **Location** — `web/src/features/acquisitions/AddMeeting.tsx:268`
+- **Severity** — medium
+- **Finding** — After a successful probe, pressing Enter in the focused URL field does nothing; only pointer activation of Submit starts the acquisition.
+- **Evidence** — The URL control and click-handled button are not inside a form and the input has no key handler. The adopted UX Flow 1 explicitly specifies `Enter. POST /acquisitions answers 202` (`EXPERIENCE.md:371`), and the field is the initial focus target, so this is the documented keyboard path rather than an optional shortcut.
+- **Suggested direction** — Give the YouTube panel native form submission semantics, keep non-submit actions as buttons, and test Enter after the current probe has answered.
+- **Disposition** — patchable; remediation in progress.
+
 ## Disposition
 
 Review in progress. No pass/fail verdict has been assigned.
