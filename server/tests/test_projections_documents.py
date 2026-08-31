@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from dataclasses import fields as dataclass_fields
 from pathlib import Path
+from unittest.mock import MagicMock
 from uuid import UUID
 
 import pytest
@@ -34,6 +35,7 @@ import yaml
 from meetingminer.api.search import DocumentHitModel, SearchResponse
 from meetingminer.config import AppConfig, ConfigError, load_config
 from meetingminer.projections import documents as document_module
+from meetingminer.projections import search as search_projection
 from meetingminer.projections.documents import (
     AUTHORSHIP,
     DOCUMENTS_INDEX,
@@ -206,6 +208,34 @@ def test_a_record_claiming_to_be_citable_is_refused() -> None:
     built["citable"] = True
     with pytest.raises(DocumentRecordRefused, match="citable"):
         assert_carries_review_label(built)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda built: built.pop("reviewLabel"),
+        lambda built: built.__setitem__("momentId", str(MEETING)),
+    ],
+    ids=("missing-review-label", "citation-field"),
+)
+def test_the_public_projection_writer_refuses_unguarded_records(
+    mutation: object,
+) -> None:
+    """The last public boundary before Meilisearch repeats both guards.
+
+    A caller must not be able to bypass ``document_record`` by supplying a raw
+    mapping directly to ``project_documents``. Refusal happens before the
+    client is touched, so even a batch whose later record is malformed cannot
+    be partially written.
+    """
+    built = record()
+    mutation(built)  # type: ignore[operator]
+    client = MagicMock()
+
+    with pytest.raises(DocumentRecordRefused):
+        search_projection.project_documents(client, [built])
+
+    client.assert_not_called()
 
 
 # --- AD-6: never a citation target -----------------------------------------
