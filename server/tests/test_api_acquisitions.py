@@ -30,6 +30,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -369,6 +370,59 @@ def test_the_child_is_detached_with_the_log_open_and_no_stdin(
     assert WATCH_URL in seen["argv"]
 
 
+def test_the_runner_waits_for_the_launch_claim_before_advancing_state(
+    env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F1: the parent owns the first post-Popen write.
+
+    A real child may begin running before ``Popen`` returns in the parent. Its
+    first status transition must therefore wait for the parent's claim lock;
+    otherwise a fast terminal child write can be overwritten by stale
+    ``queued+pid`` state.
+    """
+    record = env.record()
+    acquisition_started = threading.Event()
+    finished: list[acquisitions.AcquisitionRecord] = []
+    drop = env.drops / "drop"
+    drop.mkdir()
+
+    def _acquire(url: str, **kwargs: Any) -> mintdrop.MintResult:
+        acquisition_started.set()
+        return mint_result(drop, status="exists")
+
+    monkeypatch.setattr(youtube, "acquire", _acquire)
+    monkeypatch.setattr(
+        acquisitions,
+        "post_ingest",
+        lambda api_url, path: (
+            "duplicate",
+            409,
+            "00000000-0000-0000-0000-000000000001",
+        ),
+    )
+
+    runner = threading.Thread(
+        target=lambda: finished.append(
+            acquisitions.run_acquisition(
+                env.config, record.acquisition_id, record.url
+            )
+        )
+    )
+    with acquisitions.claim_lock(env.root):
+        runner.start()
+        assert not acquisition_started.wait(timeout=0.1)
+        assert acquisitions.read_record(env.root, record.acquisition_id).status == (
+            "queued"
+        )
+    runner.join(timeout=2)
+
+    assert not runner.is_alive()
+    assert finished[0].status == "posted"
+    assert acquisitions.read_record(env.root, record.acquisition_id).status == (
+        "posted"
+    )
+
+
 def test_a_second_launch_for_the_same_source_is_refused_by_conflict(
     client: Any, env: Env, sleeping_children: list[Any]
 ) -> None:
@@ -472,6 +526,30 @@ def test_a_probe_falls_back_to_the_video_id_when_the_title_is_blank(
     response = client.post("/acquisitions/probe", json={"url": WATCH_URL})
     assert response.status_code == 200, response.text
     assert response.json()["title"] == VALID_ID
+
+
+@pytest.mark.parametrize("missing", ["publication-time", "publisher"])
+def test_a_probe_does_not_require_acquisition_provenance_fields(
+    client: Any,
+    env: Env,
+    tools_present: None,
+    monkeypatch: pytest.MonkeyPatch,
+    missing: str,
+) -> None:
+    """F3: the frozen probe boundary stops before provenance validation."""
+    info = info_fixture("full")
+    if missing == "publication-time":
+        info.pop("release_timestamp", None)
+        info.pop("upload_date", None)
+    else:
+        info.pop("channel", None)
+        info.pop("uploader", None)
+    monkeypatch.setattr(youtube, "probe", lambda url: info)
+
+    response = client.post("/acquisitions/probe", json={"url": WATCH_URL})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["sourceId"] == SOURCE_ID
 
 
 def test_a_probe_over_the_duration_cap_names_the_config_key(
@@ -762,6 +840,39 @@ def test_an_intake_failure_is_failed_and_names_the_repost_command(
     assert "re-POST" in remediation
 
 
+def test_child_config_failure_writes_a_structured_failed_record(
+    env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F2: even failure before config load is fields, never log-only prose."""
+    record = env.record(pid=os.getpid())
+    monkeypatch.setattr(
+        acquisitions,
+        "_load_cli_config",
+        lambda: (_ for _ in ()).throw(acquisitions.ConfigError("broken config")),
+    )
+
+    code = acquisitions.main(
+        [
+            "--run",
+            "--acquisition-id",
+            record.acquisition_id,
+            "--url",
+            record.url,
+            "--state-root",
+            str(env.root),
+        ]
+    )
+
+    assert code == 1
+    stored = acquisitions.read_record(env.root, record.acquisition_id)
+    assert stored.status == "failed"
+    assert stored.refusal == acquisitions.Refusal(
+        rule="config",
+        detail="broken config",
+        remediation=acquisitions.REMEDIATIONS["config"],
+    )
+
+
 def test_the_log_tail_is_bounded_and_reports_the_end_of_the_run(
     client: Any, env: Env
 ) -> None:
@@ -806,20 +917,72 @@ def test_both_refusal_tables_cover_exactly_the_closed_vocabulary() -> None:
     assert set(acquisitions.PROBLEM_STATUS.values()) == {400, 422, 503}
 
 
-def test_the_status_buckets_are_the_declared_three() -> None:
-    """A host-side refusal says nothing about the URL and must never be
-    reported as the client's fault."""
-    assert acquisitions.PROBLEM_STATUS["not-a-video-url"] == 400
-    for rule in (
+def test_the_status_buckets_pin_the_complete_rule_partition() -> None:
+    """F5/F6: every rule's category is contract, not only table membership."""
+    host_rules = {
         "tool-missing",
         "tool-unrunnable",
         "tool-timeout",
         "version-failed",
         "version-empty",
+        "probe-unreadable",
+        "format-id-missing",
+        "identity-mismatch",
+        "download-failed",
+        "download-incomplete",
+        "captions-missing-vtt",
+        "captions-changed",
+        "tool-version-missing",
+        "drops-root-changed",
+        "existing-drop-incomplete",
+        "playlist-unreadable",
+        "mint-refused",
         "config",
-    ):
-        assert acquisitions.PROBLEM_STATUS[rule] == 503, rule
-    assert acquisitions.PROBLEM_STATUS["duration-cap"] == 422
+        "unclassified",
+    }
+    expected = {rule: 422 for rule in youtube.REFUSAL_RULES}
+    expected["not-a-video-url"] = 400
+    expected.update(dict.fromkeys(host_rules, 503))
+    assert acquisitions.PROBLEM_STATUS == expected
+
+
+def test_every_remediation_keeps_its_rule_specific_action() -> None:
+    """F5: non-empty text alone cannot detect two remediations being swapped."""
+    anchors = {
+        "not-a-video-url": "one YouTube video",
+        "tool-missing": "Install the missing tool",
+        "tool-unrunnable": "permissions",
+        "tool-timeout": "network",
+        "version-failed": "--version' failed",
+        "version-empty": "printed nothing",
+        "probe-failed": "publicly playable",
+        "probe-unreadable": "output this server could not parse",
+        "duration-unknown": "no usable duration",
+        "duration-cap": youtube.MAX_DURATION_CONFIG_KEY,
+        "no-video-stream": "recording.mp4",
+        "channel-missing": "publisher",
+        "format-id-missing": "format it downloaded",
+        "identity-mismatch": "different video",
+        "started-at-unknown": "--started-at",
+        "download-failed": "while downloading",
+        "download-incomplete": "no usable media",
+        "captions-missing-vtt": "no VTT",
+        "captions-changed": "availability changed",
+        "tool-version-missing": "version could not be recorded",
+        "drops-root-changed": "MM_DROPS_ROOT",
+        "existing-drop-incomplete": "Quarantine",
+        "not-a-playlist-url": "Playlists are not acquired",
+        "playlist-failed": "could not list",
+        "playlist-unreadable": "playlist listing",
+        "playlist-empty": "no entries",
+        "entry-not-a-video": "no YouTube video",
+        "mint-refused": "could not be assembled",
+        "config": "configuration refused",
+        "unclassified": "cannot classify",
+    }
+    assert set(anchors) == set(youtube.REFUSAL_RULES)
+    for rule, anchor in anchors.items():
+        assert anchor in acquisitions.REMEDIATIONS[rule], rule
 
 
 def test_every_refusal_rule_maps_to_a_titled_problem_status() -> None:
