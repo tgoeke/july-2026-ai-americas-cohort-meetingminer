@@ -214,6 +214,8 @@ class DocumentHit:
 
     document_id: UUID
     meeting_id: UUID
+    corpus: str
+    sha256: str
     kind: str
     review_state: str
     authorship: str
@@ -944,6 +946,8 @@ def build_document_search_parameters(
         "attributesToRetrieve": [
             "id",
             "meetingId",
+            "corpus",
+            "sha256",
             "kind",
             "reviewState",
             "authorship",
@@ -1000,6 +1004,21 @@ def _document_hits_of(response: Any) -> tuple[DocumentHit, ...]:
                 f" ({raw_meeting!r}) — a document is scoped to the meeting it"
                 " analyses, and the api re-reads it from Postgres by that id"
             ) from exc
+        corpus = str(hit.get("corpus") or "").strip()
+        if not corpus:
+            raise ProjectionError(
+                f"a {DOCUMENTS_INDEX!r} hit carried no corpus — the API must"
+                " compare indexed scope with Postgres before returning it"
+            )
+        sha256 = str(hit.get("sha256") or "")
+        if len(sha256) != 64 or any(
+            character not in "0123456789abcdef" for character in sha256.lower()
+        ):
+            raise ProjectionError(
+                f"a {DOCUMENTS_INDEX!r} hit carried unusable sha256"
+                f" {sha256!r} — a stable row id cannot reveal that a rerun"
+                " replaced the indexed text"
+            )
         review_state = hit.get("reviewState")
         authorship = hit.get("authorship")
         review_label = hit.get("reviewLabel")
@@ -1030,6 +1049,8 @@ def _document_hits_of(response: Any) -> tuple[DocumentHit, ...]:
             DocumentHit(
                 document_id=document_id,
                 meeting_id=meeting_id,
+                corpus=corpus,
+                sha256=sha256,
                 kind=str(hit.get("kind") or ""),
                 review_state=str(review_state),
                 authorship=str(authorship),

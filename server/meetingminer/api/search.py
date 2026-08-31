@@ -137,7 +137,7 @@ _RESOLVE_ARTIFACTS = (
 _RESOLVE_DOCUMENTS = (
     "SELECT es.id, es.meeting_id, es.kind, es.origin, es.model,"
     " es.prompt_hash, es.layout, es.item_count, es.artifact_count,"
-    " es.byte_size, mt.title, mt.corpus, mt.has_recording"
+    " es.byte_size, es.sha256, mt.title, mt.corpus, mt.has_recording"
     " FROM extraction_source es JOIN meeting mt ON mt.id = es.meeting_id"
     " WHERE es.id = ANY(%s) AND es.document_text IS NOT NULL"
 )
@@ -482,6 +482,24 @@ def _resolve_documents(pool: Any, hits: tuple[DocumentHit, ...]) -> list[Documen
         if row is None:
             logs.log_event("search.stale_document_hit", document_id=hit.document_id)
             continue
+        if row[1] != hit.meeting_id or row[12] != hit.corpus:
+            logs.log_event(
+                "search.stale_document_scope",
+                document_id=hit.document_id,
+                indexed_meeting_id=hit.meeting_id,
+                postgres_meeting_id=row[1],
+                indexed_corpus=hit.corpus,
+                postgres_corpus=row[12],
+            )
+            continue
+        if row[10] != hit.sha256:
+            logs.log_event(
+                "search.stale_document_version",
+                document_id=hit.document_id,
+                indexed_sha256=hit.sha256,
+                postgres_sha256=row[10],
+            )
+            continue
         resolved.append(
             DocumentHitModel(
                 document_id=row[0],
@@ -494,8 +512,8 @@ def _resolve_documents(pool: Any, hits: tuple[DocumentHit, ...]) -> list[Documen
                 item_count=row[7],
                 artifact_count=row[8],
                 byte_size=row[9],
-                meeting_title=row[10],
-                corpus=row[11],
+                meeting_title=row[11],
+                corpus=row[12],
                 review_state=hit.review_state,
                 authorship=hit.authorship,
                 review_label=hit.review_label,
@@ -638,6 +656,14 @@ def search_corpus(
         logs.log_event("search.documents_index_missing", query=q)
     artifact_hits = _resolve_artifacts(request.app.state.pool, artifact_result.hits)
     document_hits = _resolve_documents(request.app.state.pool, document_result.hits)
+    document_stale_dropped = len(document_result.hits) - len(document_hits)
+    # Meilisearch's exhaustive count includes rows Postgres just proved stale.
+    # Subtract the stale rows observed on this page so a sole corrupt match is
+    # not reported as "1 document" beside an empty document list.
+    live_documents_total = max(
+        document_result.total - document_stale_dropped,
+        len(document_hits),
+    )
 
     moment_hits = _resolve(request.app.state.pool, result.hits)
     stale_dropped = len(result.hits) - len(moment_hits)
@@ -674,7 +700,8 @@ def search_corpus(
         # the exception saying nothing about it (AD-4).
         documents_ranked=len(document_result.hits),
         documents_returned=len(document_hits),
-        documents_total=document_result.total,
+        documents_dropped=document_stale_dropped,
+        documents_total=live_documents_total,
         total_returned=len(hits),
         below_floor=result.below_floor,
         meeting_id=meeting_id,
@@ -685,7 +712,7 @@ def search_corpus(
         ranking=ranking,
         hits=hits,
         documents=document_hits,
-        documents_total=document_result.total,
+        documents_total=live_documents_total,
         estimated_total=artifact_result.total + result.estimated_total,
         limit=effective_limit,
         offset=offset,
