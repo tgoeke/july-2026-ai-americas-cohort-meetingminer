@@ -149,6 +149,13 @@ def test_concurrent_creates_allocate_distinct_ordinals(pool: ConnectionPool) -> 
     derivation. `nextval` is exempt from transaction visibility, so it cannot.
     """
     with pool.connection() as first_conn, pool.connection() as second_conn:
+        # A bounded wait, so a *wrong* allocator fails this test instead of
+        # hanging it. `max(color_ordinal) + 1` hands both sessions the same
+        # number, and the second insert then blocks on the UNIQUE index until
+        # the first transaction ends rather than raising — an unbounded wait
+        # that would look like a hung suite rather than a caught defect.
+        for conn in (first_conn, second_conn):
+            conn.execute("SET lock_timeout = '5s'")
         first_conn.execute("BEGIN")
         second_conn.execute("BEGIN")
         first = add_thread(first_conn, identity_key="concurrent-a")
