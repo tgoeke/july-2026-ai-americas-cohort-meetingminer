@@ -3714,7 +3714,7 @@ an in-process `app.openapi()` dump on the rebased tree, so it now carries both
 host. That was caught by reading the diff rather than trusting the tool.
 ## Story 6.4 — Acquisition Launch Surface, 2026-08-30 (review)
 
-Branch `story/6-4`, cut at `1c10ecd`. Three routes in one new auto-discovered
+Branch `story/6-4`, rebased onto `main` at `e5e0ff9`. Three routes in one new auto-discovered
 router, and the api performs no acquisition: `POST /acquisitions` classifies
 the URL offline, claims the source id under one `fcntl.flock`, writes a status
 file under `.logs/acquisitions/`, starts `python -m meetingminer.acquisitions

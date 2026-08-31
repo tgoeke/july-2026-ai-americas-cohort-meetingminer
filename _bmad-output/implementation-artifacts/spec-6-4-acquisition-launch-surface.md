@@ -3,8 +3,8 @@ title: 'Story 6.4: Acquisition Launch Surface'
 type: 'feature'
 created: '2026-08-30'
 status: 'review'
-baseline_revision: '1c10ecd566adb543569ba64b5dbbab9d7f65586a'
-baseline_commit: 'ea0c113e90883ebdb5cc150536b2f260dd6326fb'
+baseline_revision: '7a20f3547aa02f846838a07ff29f8b612cad9b32'
+baseline_commit: 'e5e0ff9c6e0f52492ee26be0f5f985109da9efe0'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -303,6 +303,33 @@ not start — recorded below as a named gap for integration).
   acquisition. All four are in the spec's Never list. The growth cost of the
   unreaped directory is filed as deferred because the claim-lock scan reads
   it on every launch.
+
+- **2026-08-30, verification.** Three records corrected or added after the
+  build, none of them a code change:
+  - **Rebase.** The branch was rebased onto `origin/main` at `e5e0ff9` and
+    force-pushed, so the SHAs this file was first written with (`1c10ecd` and
+    its two successors) are no longer ancestors of `HEAD` and cannot be
+    resolved from a fresh clone. `baseline_revision` and `baseline_commit`
+    above now name the post-rebase spec commit and the `main` tip the branch
+    sits on.
+  - **Matrix audit, row "Status, non-UUID id".** The row predicts 422 for
+    `/acquisitions/..%2F..%2Fetc%2Fpasswd`. The ASGI scope carries the
+    *decoded* path, so that request matches no route and is refused one step
+    earlier, as 404; a non-UUID segment carrying no separator (`not-a-uuid`)
+    is the 422 the row names. The row's substance — problem+json, and nothing
+    read — holds in both cases, and
+    `test_a_path_that_is_not_a_uuid_never_becomes_a_filename` pins both. The
+    code was **not** weakened to match the row, and the row (frozen intent)
+    was not edited to match the code; the difference is recorded here and as a
+    `deferred` item.
+  - **Red-first, honestly.** The build wrote the tests after the code, so no
+    test was observed failing against unfixed code in the usual order. Coverage
+    was instead demonstrated by sixteen single-edit mutations across the three
+    source files and the registry baseline, of which fifteen turned a test red.
+    The one that did not is the status route's log-path hardening, which the
+    `read_record` id guard makes equivalent — defence in depth rather than
+    uncovered behaviour. This is a deviation from the build prompt's stated
+    discipline and is named here rather than in the report only.
 
 ## Review Triage Log
 

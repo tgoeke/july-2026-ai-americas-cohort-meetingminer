@@ -39,10 +39,12 @@ terminal but not filed does not exist.
 - Worktree: `/Users/devopsterus/current/cohort/meetingminer-wt/6-4`
   (never edit `/Users/devopsterus/current/cohort/meetingminer`)
 - Branch under review: `story/6-4` (pushed to `origin`)
-- Review range: `e5e0ff9..HEAD` — five commits, all story 6.4:
+- Review range: `e5e0ff9..HEAD` — seven commits, all story 6.4:
   `7a20f35` the spec, `c0f6fad` the implementation, `32aef24` the tracking and
   this handoff, `cbf2ffd` the status-file id guard, `0cf3d7e` two unused test
-  helpers removed. The branch was **rebased onto `origin/main` at `e5e0ff9`**
+  helpers removed, `18bf8ed` the recorded gate output, and a final tracking
+  commit correcting the post-rebase baseline SHAs and recording the matrix-row
+  and red-first audit outcomes in the spec's Change Log. The branch was **rebased onto `origin/main` at `e5e0ff9`**
   after the build, so the pre-rebase SHAs (`1c10ecd`, `a5adfb1`, `e53d21c`) are
   gone; use the new ones.
 
