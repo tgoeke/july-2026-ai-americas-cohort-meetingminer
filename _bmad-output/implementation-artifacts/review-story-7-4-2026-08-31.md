@@ -89,7 +89,8 @@ Adversarial review of the Story 7.4 web implementation, with emphasis on unsettl
 
 - **Location:** `web/src/features/speakers/SpeakerNaming.tsx:295`; `web/src/features/speakers/SpeakerNaming.tsx:399`; `web/src/features/speakers/SpeakerNaming.tsx:800`
 - **Severity:** High
-- **Status:** Confirmed — patch required
+- **Status:** Fixed on `story/7-4-review`
 - **Finding:** `saving` disables the visible buttons, but `save()` itself has no in-flight guard and the panel's `u` shortcut calls it directly. Pressing `u` while a name assignment is pending aborts that request and immediately submits `{unresolved: true}`. The first request may already have committed server-side, so the screen can create two re-arms while displaying only the second result.
 - **Evidence:** Every call to `save()` aborts `saveControllerRef.current` before installing a new controller. React state does not protect imperative callers, and `onPanelKeyDown` does not inspect `saving`; focus on any non-input control inside the naming panel makes the shortcut reachable while both assignment buttons are disabled.
 - **Suggested direction:** Put a synchronous single-flight guard inside `save()` itself, release it only for the request that owns it, and leave disabled controls as presentation rather than the concurrency boundary. Verify that a pending Save followed by `u` issues exactly one PUT.
+- **Red/green evidence:** A deferred PUT followed by the scoped `u` shortcut first produced two assignment calls, with the second carrying `{unresolved: true}`. A synchronous in-function guard now rejects every second entry path until the owning request releases it; the regression passes with exactly one PUT.

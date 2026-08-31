@@ -127,6 +127,7 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
 
   const readControllerRef = useRef<AbortController | null>(null)
   const saveControllerRef = useRef<AbortController | null>(null)
+  const saveInFlightRef = useRef(false)
   const nameInputRef = useRef<HTMLInputElement>(null)
   const rowRefs = useRef(new Map<string, HTMLButtonElement>())
   const clipSequenceRef = useRef(0)
@@ -311,6 +312,11 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
             ? null
             : assignmentBody(choice)
       if (body === null) return
+      // Keyboard shortcuts call this function directly, so disabled buttons
+      // cannot be the concurrency boundary. One assignment may re-arm this
+      // meeting's reused job at a time.
+      if (saveInFlightRef.current) return
+      saveInFlightRef.current = true
       saveControllerRef.current?.abort()
       const controller = new AbortController()
       saveControllerRef.current = controller
@@ -366,7 +372,10 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
         )
       } finally {
         clearTimeout(timer)
-        setSaving(false)
+        if (saveControllerRef.current === controller) {
+          saveInFlightRef.current = false
+          setSaving(false)
+        }
       }
     },
     [choice, installRerun, meetingId, reconcileRerun, selected],
