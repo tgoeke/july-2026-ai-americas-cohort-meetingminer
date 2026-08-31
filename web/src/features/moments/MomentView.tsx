@@ -26,11 +26,22 @@ import {
 export interface MomentViewProps {
   /** The moment to render — a citation id, straight from a hit or a list. */
   momentId: string
+  /**
+   * Opening the parent meeting is the shell's navigation to make, the way
+   * `MeetingMoments` hands back `onOpenMoment`. The meeting id is an argument
+   * rather than something the route can close over: the route knows only the
+   * moment id, and which meeting a moment belongs to arrives with the loaded
+   * detail.
+   */
+  onOpenMeeting?: (meetingId: string) => void
 }
 
 /**
  * One moment, in CAP-4's anatomy: still screenshot on top, covering
- * transcript below, right rail of extracted artifacts, replay button.
+ * transcript below, right rail of extracted artifacts, replay button. The
+ * header carries one control above its heading — the way up to the whole
+ * meeting this moment came from, which the shell's own `← Back` does not
+ * provide because a moment is usually reached from somewhere else entirely.
  *
  * The degraded shape is the same view minus what does not exist: a
  * transcript-only meeting renders no screenshot and mounts no player —
@@ -39,7 +50,7 @@ export interface MomentViewProps {
  * the replay button would be, through the same `affordanceOf` decision search
  * already litigated (UX-DR11).
  */
-export function MomentView({ momentId }: MomentViewProps) {
+export function MomentView({ momentId, onOpenMeeting }: MomentViewProps) {
   // `null` is "never answered": a moment that answers always has a detail.
   const [detail, setDetail] = useState<MomentDetail | null>(null)
   const [failure, setFailure] = useState<MomentLoadFailure | null>(null)
@@ -221,6 +232,29 @@ export function MomentView({ momentId }: MomentViewProps) {
   return (
     <section className="flex w-full flex-col gap-4">
       <header className="flex flex-col gap-1">
+        {/* The way up to the whole meeting. A moment is reached from a feed
+            card, a search hit, a thread or a pasted link, so the shell's
+            `← Back` returns to whichever of those it was — never to the
+            meeting, which the reader may never have been on. "Open", not
+            "Back", for that reason: this is a move to the parent, and it
+            pushes a history entry like any other open, so the shell's Back
+            still unwinds the path the reader actually took.
+
+            Rendered only once the read has answered, because the meeting id
+            arrives with the detail, and only when the shell supplied
+            somewhere to go (`SpeakerNaming`'s `onBack` idiom). */}
+        {detail !== null && onOpenMeeting !== undefined && (
+          <Button
+            variant="ghost"
+            size="sm"
+            data-testid="moment-open-meeting"
+            className="self-start px-0 text-muted-foreground"
+            aria-label={`Open the meeting: ${meetingLabelOf(detail.meetingTitle, detail.meetingId)}`}
+            onClick={() => onOpenMeeting(detail.meetingId)}
+          >
+            Open the meeting
+          </Button>
+        )}
         <h2 className="text-lg font-semibold tracking-tight">
           {detail === null
             ? 'Moment'

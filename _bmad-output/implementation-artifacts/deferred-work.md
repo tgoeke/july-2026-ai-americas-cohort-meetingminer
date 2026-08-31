@@ -354,3 +354,15 @@ also edits the pinned sets in `server/tests/test_lint_contract.py`.
 - source_spec: `_bmad-output/implementation-artifacts/spec-model-select-notices-overlap-the-popover.md`
   summary: `.gitignore` has no `~$*` rule, so an Office lock file in the tree is one `git add <dir>` away from being committed.
   evidence: `docs/~$MeetingMiner-15-minute-capstone.pptx` is untracked in the working tree and matches no ignore rule. Unrelated to this change and `.gitignore` is shared, so it is not staged here.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-moment-back-to-meeting.md`
+  summary: The moment view's "Open the meeting" control is a `Button`, so there is no URL behind it — no cmd/middle-click, no open-in-new-tab, no copy-link.
+  evidence: `MomentView.tsx` cannot mount a react-router `Link` because `MomentView.test.tsx` renders the component 35 times with no router, and `components/ui/button.tsx` has no `asChild` escape hatch. The project's own mockup for the sibling affordance uses an anchor (`mockups/speaker-naming.html:210`). Fixing it properly means either `asChild` on the button or an optional `meetingHref`, plus wrapping that suite.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-moment-back-to-meeting.md`
+  summary: Two hand-copied back/up affordances now share byte-identical classes with different words and different a11y — a shared component would settle it and give `SpeakerNaming`'s control the accessible name it lacks.
+  evidence: `SpeakerNaming.tsx:484-492` renders `variant="ghost" size="sm" className="self-start px-0 text-muted-foreground"` reading "← Back" with no `aria-label` and no `data-testid`; `MomentView.tsx`'s new control repeats the same classes with both. Pre-existing duplication surfaced by this change, not caused by it.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-moment-back-to-meeting.md`
+  summary: Nothing moves focus or announces the change when the app navigates between screens, so a keyboard or screen-reader user is left on `document.body` and restarts from the top of the shell.
+  evidence: `App.tsx` has no route announcer and no focus reset on `pathname` change — only the two `focus()` calls for the search and chat shortcuts. App-wide and pre-existing; surfaced because this change adds a control whose whole purpose is that move.
