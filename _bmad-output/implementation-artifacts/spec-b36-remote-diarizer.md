@@ -185,6 +185,11 @@ a timestamp field would otherwise become 1.0 seconds.
 
 ## Review Triage Log
 
+- [ ] [Review][Patch][F1] Reject non-finite and oversized remote timestamps through `DiarizerError` [`server/meetingminer/adapters/diarize/remote_http.py:109`]
+- [ ] [Review][Patch][F2] Classify truncated success/error response bodies as `DiarizerError` [`server/meetingminer/adapters/diarize/remote_http.py:178`]
+- [ ] [Review][Patch][F3] Enforce `timeout_seconds` as one finite request deadline [`server/meetingminer/adapters/diarize/remote_http.py:165`]
+- [ ] [Review][Patch][F4] Size multipart uploads from the opened file descriptor [`server/meetingminer/adapters/diarize/remote_http.py:156`]
+
 ## Design Notes
 
 **Why not `ENGINES`.** The build prompt says "register the engine in `ENGINES`".
