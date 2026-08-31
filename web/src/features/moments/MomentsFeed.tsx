@@ -471,7 +471,7 @@ function ThreadFilter({
       </select>
       {unavailable !== null && (
         <span
-          role="status"
+          role="alert"
           aria-label="Thread catalog unavailable"
           data-testid="thread-filter-unavailable"
           className="inline-flex items-center gap-1 text-muted-foreground"
