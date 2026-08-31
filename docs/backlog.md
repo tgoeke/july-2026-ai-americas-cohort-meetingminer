@@ -175,8 +175,12 @@ keep today's fallback behaviour, unchanged.
 
 Pinned by `server/tests/test_settings_resolution.py`: the adapter mapping, the
 provider derivation (the SDK is deliberately handed a *different* provider name),
-the endpoint-less message, a configured primary whose missing model never calls
-its fallback, and the unchanged outage fallback beside it.
+a configured primary whose missing model never calls its fallback, and the
+unchanged outage fallback beside it. The 2026-08-30 owner ruling also makes
+endpoint provenance a load-time invariant: `test_config_catalog.py` refuses
+authored and synthesized catalog bindings whose provider prefix has no matching
+`providers.<prefix>.base_url`, so every binding that reaches this runtime path
+has an endpoint URL the error can name.
 
 ### B-39 · Invoke thread derivation from the worker settle point — M
 
@@ -210,6 +214,30 @@ a split product receives a new one, and deleted ordinals are never reused.
 **Done when:** the API serves a stable per-corpus ordinal for every thread and
 concurrent allocation, merge, split, rename, and deletion tests prove uniqueness
 and non-reuse.
+
+### B-41 · Adopt persisted judge selection in the eval harness — M
+
+Story 8.2 persists per-role choices, but the manual judge still binds
+`config.settings.llm.roles.judge` directly and passes that file role to
+`build_llm` (`evals/harness/judge.py:499-500`). Advertising a persisted judge
+choice as effective while this call ignores it would misreport which paid model
+was used, so the owner excluded `judge` from `GET /settings/models` and made
+`PUT /settings/roles/judge` a named file-only refusal until adoption is real.
+The gap went undetected because `evals/tests/test_run_judge.py` replaced
+`build_llm` without asserting which binding was passed; Story 8.2 now pins that
+file-role behavior explicitly.
+
+**Do:** wire judge selection through `evals/harness/judge.py` using the public
+settings boundary appropriate to the AD-16 client rule, then deliberately add
+`judge` to the selectable settings policy. Ensure the binding used by
+`build_llm`, the judge report, and the eval config snapshot all name the same
+effective choice; never guess or fall back to the file value if selection
+provenance is unavailable.
+
+**Done when:** changing the persisted judge choice changes the next judge call
+without editing `config.yaml`, the report and snapshot record that exact
+binding, and paired tests fail if either the settings surface or judge harness
+can drift from the other.
 
 ## Robustness and hygiene
 
