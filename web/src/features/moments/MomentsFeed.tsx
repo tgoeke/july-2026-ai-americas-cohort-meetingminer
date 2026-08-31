@@ -36,6 +36,8 @@ function filtersFromParams(params: URLSearchParams): FeedFilters {
 }
 
 export interface MomentsFeedProps {
+  /** Hidden child routes keep this feed mounted; inactive feeds keep their page. */
+  active?: boolean
   /** Opening a moment is the shell's navigation to make (story 2.2's rule). */
   onOpenMoment: (momentId: string) => void
   onOpenMeeting: (meetingId: string) => void
@@ -45,7 +47,12 @@ export interface MomentsFeedProps {
 type FeedState =
   | { kind: 'loading' }
   | { kind: 'ready'; items: Array<MomentFeedItem>; total: number }
-  | { kind: 'error'; message: string; stale: Array<MomentFeedItem> | null }
+  | {
+      kind: 'error'
+      message: string
+      stale: { items: Array<MomentFeedItem>; total: number } | null
+      retry: { offset: number; previous: Array<MomentFeedItem> | null }
+    }
 
 /**
  * The front door (story 10.5, FR40, UX-DR16/17): the most pressing moments
@@ -61,10 +68,19 @@ type FeedState =
  * restores it. Paging is an explicit `Show 24 more` button rather than
  * infinite scroll (EXPERIENCE.md · Interaction Primitives).
  */
-export function MomentsFeed({ onOpenMoment, onOpenMeeting, onOpenThread }: MomentsFeedProps) {
+export function MomentsFeed({
+  active = true,
+  onOpenMoment,
+  onOpenMeeting,
+  onOpenThread,
+}: MomentsFeedProps) {
   const [params, setParams] = useSearchParams()
-  const filters = useMemo(() => filtersFromParams(params), [params])
+  const routeFilters = useMemo(() => filtersFromParams(params), [params])
+  const activeFilters = useRef(routeFilters)
+  if (active) activeFilters.current = routeFilters
+  const filters = activeFilters.current
   const [state, setState] = useState<FeedState>({ kind: 'loading' })
+  const stateRef = useRef<FeedState>(state)
   const [expanded, setExpanded] = useState<string | null>(null)
 
   // Asynchronous ownership (EXPERIENCE.md): every read carries a generation,
@@ -72,26 +88,38 @@ export function MomentsFeed({ onOpenMoment, onOpenMeeting, onOpenThread }: Momen
   // generation is discarded rather than allowed to overwrite the visible feed.
   const generation = useRef(0)
   const controller = useRef<AbortController | null>(null)
+  const loadedFilterKey = useRef<string | null>(null)
 
-  const filterKey = `${filters.corpus ?? ''}|${filters.thread ?? ''}|${filters.kind ?? ''}|${filters.meeting ?? ''}`
+  const filterKey = JSON.stringify(filters)
+
+  const publish = useCallback((next: FeedState) => {
+    stateRef.current = next
+    setState(next)
+  }, [])
 
   const read = useCallback(
-    async (offset: number, previous: Array<MomentFeedItem> | null) => {
+    async (
+      offset: number,
+      previous: Array<MomentFeedItem> | null,
+      fallback: { items: Array<MomentFeedItem>; total: number } | null,
+    ) => {
       controller.current?.abort()
       const own = new AbortController()
       controller.current = own
       const mine = (generation.current += 1)
       const timeout = AbortSignal.timeout(FEED_TIMEOUT_MS)
       const signal = AbortSignal.any([own.signal, timeout])
-      if (previous === null) setState({ kind: 'loading' })
+      if (previous === null && fallback === null) publish({ kind: 'loading' })
       try {
         const page = await fetchMomentsFeed(filters, FEED_PAGE_SIZE, offset, signal)
         if (mine !== generation.current) return
-        setState({
+        const next: FeedState = {
           kind: 'ready',
           items: previous === null ? page.items : [...previous, ...page.items],
           total: page.total,
-        })
+        }
+        if (offset === 0) loadedFilterKey.current = filterKey
+        publish(next)
       } catch (error) {
         if (mine !== generation.current) return
         if (own.signal.aborted && !timeout.aborted) return
@@ -100,20 +128,29 @@ export function MomentsFeed({ onOpenMoment, onOpenMeeting, onOpenThread }: Momen
         const message = timeout.aborted
           ? `timed out after ${FEED_TIMEOUT_MS}ms`
           : (named ?? (error instanceof Error ? error.message : String(error)))
-        setState({ kind: 'error', message, stale: previous })
+        publish({ kind: 'error', message, stale: fallback, retry: { offset, previous } })
       }
     },
-    [filters],
+    [filterKey, filters, publish],
   )
 
   useEffect(() => {
-    void read(0, null)
+    if (!active) return
+    const current = stateRef.current
+    const fallback =
+      current.kind === 'ready'
+        ? { items: current.items, total: current.total }
+        : current.kind === 'error'
+          ? current.stale
+          : null
+    if (loadedFilterKey.current === filterKey && fallback !== null) return
+    void read(0, null, fallback)
     return () => controller.current?.abort()
     // `filterKey` rather than `filters`: the object is rebuilt on every
     // `useSearchParams` render, and re-reading the feed on an unrelated
     // re-render would restart paging under the reader.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterKey])
+  }, [active, filterKey])
 
   const setFilter = useCallback(
     (name: keyof FeedFilters, value: string | null) => {
@@ -132,7 +169,12 @@ export function MomentsFeed({ onOpenMoment, onOpenMeeting, onOpenThread }: Momen
     setParams(next)
   }, [params, setParams])
 
-  const items = state.kind === 'ready' ? state.items : (state.kind === 'error' ? state.stale : null)
+  const items =
+    state.kind === 'ready'
+      ? state.items
+      : state.kind === 'error'
+        ? (state.stale?.items ?? null)
+        : null
 
   // Esc collapses the expanded card and returns focus to its Replay button —
   // the card is the topmost open thing on this screen.
@@ -168,7 +210,12 @@ export function MomentsFeed({ onOpenMoment, onOpenMeeting, onOpenThread }: Momen
   }, [items])
 
   const filtered = hasActiveFilters(filters)
-  const total = state.kind === 'ready' ? state.total : (items?.length ?? 0)
+  const total =
+    state.kind === 'ready'
+      ? state.total
+      : state.kind === 'error'
+        ? (state.stale?.total ?? 0)
+        : 0
   const shown = items?.length ?? 0
   const threadName = threadOptions.find(([id]) => id === filters.thread)?.[1] ?? null
 
@@ -214,7 +261,13 @@ export function MomentsFeed({ onOpenMoment, onOpenMeeting, onOpenThread }: Momen
         <p className="mt-4 text-sm text-destructive" data-testid="moments-error">
           Cannot reach the api at {API_BASE}: {state.message}.
           {state.stale !== null && ' The cards below may be stale.'}{' '}
-          <Button size="sm" variant="outline" onClick={() => void read(0, null)}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() =>
+              void read(state.retry.offset, state.retry.previous, state.stale)
+            }
+          >
             Retry
           </Button>
         </p>
@@ -261,7 +314,7 @@ export function MomentsFeed({ onOpenMoment, onOpenMeeting, onOpenThread }: Momen
               <Button
                 variant="outline"
                 data-testid="moments-show-more"
-                onClick={() => void read(items.length, items)}
+                onClick={() => void read(items.length, items, { items, total })}
               >
                 Show {Math.min(FEED_PAGE_SIZE, total - items.length)} more
               </Button>
