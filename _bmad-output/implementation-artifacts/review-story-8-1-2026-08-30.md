@@ -19,3 +19,11 @@ Adversarial review of Story 8.1 on `story/8-1-review`, including the eight chang
 - **Finding:** A legacy role whose `model` has a `<provider>/` prefix is synthesized with `provider: None`. This contradicts the frozen I/O matrix, which requires `model: openai/gpt-5.2` to produce a one-entry catalog whose provider is `openai`.
 - **Evidence:** `_catalog_from_model` creates `{"binding": tag, "label": tag}` without deriving the prefix, and `test_legacy_prefixed_model_becomes_a_one_entry_catalog` explicitly asserts `entry.provider is None`. Backward compatibility requires a synthesized entry to bypass the new undeclared-provider refusal; it does not require throwing away derivable provider metadata. The current representation also leaves a legacy prefixed entry without the provider identity later catalog and health consumers need.
 - **Suggested direction:** Preserve an explicit internal authored/synthesized distinction. Derive the provider for a synthesized prefixed binding as the frozen matrix requires, but skip the catalog×providers refusal for entries marked synthesized so pre-catalog files with undeclared prefixes still load.
+
+### Finding 2 — The active `model` can sit outside its allowed catalog (patch)
+
+- **Location:** `server/meetingminer/config.py:397-419`
+- **Severity:** High
+- **Finding:** An authored role can declare `catalog: [a, b]`, `default: a`, and `model: z`; the file loads while `z` remains the binding every current call path uses. The system therefore runs a binding outside the catalog AD-10 calls allowed.
+- **Evidence:** `_default_is_a_catalog_binding` validates only `default in catalog` and then leaves `model` untouched. The frozen intent says the catalog contains bindings the role may be served by and simultaneously says `model` remains the active field until Story 8.2. This is not an 8.2 selection question: before 8.2, the active binding must still be inside the boundary the new catalog declares. Legacy roles remain compatible because their synthesized one-entry catalog already contains their model.
+- **Suggested direction:** Refuse an authored catalog whose active `model` is absent, with a named error listing the catalog bindings. Keep synthesized legacy roles exempt from any new spelling/normalization rule beyond their existing one-entry projection.
