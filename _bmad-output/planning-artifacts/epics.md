@@ -1909,3 +1909,93 @@ So that the fast loop catches the errors a test never would. (backlog B-4)
 **Given** `make lint` and `make typecheck`,
 **When** they run,
 **Then** `ruff` passes on `server/` with a committed configuration, `mypy` runs on the decision-core modules with a committed baseline, both are part of `make test-fast`, and the `.gitignore` entries that anticipated them are now real.
+
+## Epic 12: Meeting-Level Analysis
+
+Extraction already runs whole-transcript — story 4.1's per-moment granularity was
+replaced precisely because a decision emerges across minutes of discussion. But
+everything it produces is then stored and shown per moment, and the document it
+produced is discarded. Measured on the live corpus 2026-08-31: 15 meetings, 45
+extraction runs, 193 artifacts, and **zero retained documents**; the moment view
+of a meeting holding 16 artifacts reports "Nothing extracted yet" because that
+moment carries none of them. This epic keeps what the model wrote, gives a
+meeting its summary, and shows a meeting's analysis at the meeting.
+
+Owner direction 2026-08-31: "The generated markdown isn't retained — this is a
+huge miss. Artifacts must be visible and at the meeting level."
+
+### Story 12.1: Retain the Extraction Documents
+
+As an owner,
+I want the document each extraction run produced kept and readable,
+So that what the model actually wrote is evidence rather than a discarded intermediate.
+
+**Acceptance Criteria:**
+
+**Given** the extract stage,
+**When** an extraction document is produced or parsed,
+**Then** its full text is persisted with the `extraction_source` row that already records the run's kind, model, prompt hash, sha256 and byte size; both paths store it — the document generated through the `Llm(extraction)` port and the one a drop already carried — and the stored bytes are the exact bytes the parser read, so the `sha256` already recorded verifies against them.
+
+**Given** a rerun,
+**When** a meeting is extracted again,
+**Then** the document is replaced wholesale alongside the artifacts derived from it, so a stored document is never a stale record of a run whose artifacts have since changed.
+
+**Given** the api,
+**When** a meeting's extraction runs are requested,
+**Then** an endpoint serves each run's document text with its kind, model, prompt hash and item count; the document is served as the markdown it is, not re-rendered, so the reader sees what the model emitted including anything the parser ignored.
+
+**Given** a document that parsed to zero items while plainly carrying content,
+**When** it is stored,
+**Then** the existing named signal still fires and the document is retained regardless — a run that yielded nothing is exactly the run whose text someone needs to read.
+
+### Story 12.2: The Meeting Summary
+
+As a user,
+I want each meeting's summary kept as a first-class artifact,
+So that the whole-meeting analysis the extraction already performs is not thrown away.
+
+**Acceptance Criteria:**
+
+**Given** the architecture-summary document,
+**When** it is parsed,
+**Then** its executive-summary prose is captured as an artifact of a new `summary` kind, scoped to the meeting rather than to a moment; only the decision rows continue to become `adr` artifacts, and no summary is fabricated for a document that carries none.
+
+**Given** the artifact schema,
+**When** a meeting-scoped artifact is stored,
+**Then** `artifact.moment_id` is nullable and a constraint requires it null for meeting-scoped kinds and present for moment-anchored kinds, so the two scopes cannot be confused by a reader or a query; `meeting_id` stays required for both.
+
+**Given** the approval lifecycle,
+**When** a summary is created,
+**Then** it enters the same `extracted → approved → published` lifecycle as every other artifact and is published by the same gesture — a meeting-level artifact is not an exception to human-approved publishing (AD-6), and the per-moment approval path keeps working unchanged for moment-anchored kinds.
+
+**Given** "no citation, no answer",
+**When** a summary is rendered or cited,
+**Then** it carries the meeting it summarises as its citation and the moments its constituent claims anchor to where the document supplies them; a summary never presents itself as anchored to one moment.
+
+### Story 12.3: The Meeting Analysis Panel
+
+As a user,
+I want a meeting's analysis visible when I open the meeting,
+So that I read what the meeting produced without hunting through moments that mostly hold nothing.
+
+**Acceptance Criteria:**
+
+**Given** the api,
+**When** a meeting's artifacts are requested,
+**Then** one endpoint returns every artifact for that meeting — summary, ADRs and action items — with each one's moment anchor where it has one; the meeting view no longer assembles its rail by fanning out one `getMoment` call per moment.
+
+**Given** the meeting view,
+**When** a meeting is opened,
+**Then** the summary is shown first, then ADRs and action items grouped by kind, each item stating its timestamp and linking to the moment it anchors to; a meeting with artifacts never reports "Nothing extracted yet".
+
+**Given** the artifact kind list,
+**When** the rail renders,
+**Then** only kinds the pipeline can actually produce are listed — the five kinds that render a permanent `0` today are removed, so a zero means "none found in this meeting" rather than "this kind is never produced".
+
+**Given** story 12.1's retained documents,
+**When** a meeting's analysis is shown,
+**Then** each extraction run is reachable from the meeting as its source document, labelled with the model and prompt that produced it, so a reader can compare an artifact against the text it came from.
+
+**Given** the moment view,
+**When** a moment is opened,
+**Then** its existing per-moment rail is unchanged for the artifacts anchored to that moment — this story adds the meeting scope rather than moving the moment one.
