@@ -30,10 +30,11 @@ that meeting is viewable.
 
 from __future__ import annotations
 
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
 from meetingminer import logs
@@ -371,11 +372,15 @@ class SpeakerAssignmentResponse(BaseModel):
     # a failed assignment rerun must be correctable by the action that caused
     # it. Surface that exceptional acceptance instead of making it look like
     # an ordinary assignment against settled evidence.
-    accepted_while_unviewable: bool
+    accepted_while_unviewable: bool = Field(
+        description="Whether this PUT was accepted while meeting evidence was unviewable."
+    )
     # The rearm changes the persisted job status to `queued`; preserve the
     # status it replaced so a caller can distinguish recovery from `failed`
     # from an edit made while an earlier rerun was merely queued.
-    previous_job_status: str
+    previous_job_status: Literal["queued", "done", "failed"] = Field(
+        description="The job status observed before this assignment re-armed it."
+    )
 
 
 _ASSIGNMENT_PROBLEM_RESPONSES = {
@@ -507,6 +512,8 @@ def assign_meeting_speaker(
         participant_id=participant_id,
         unresolved=body.unresolved,
         job_id=job_id,
+        accepted_while_unviewable=accepted_while_unviewable,
+        previous_job_status=job_status,
     )
     return SpeakerAssignmentResponse(
         meeting_id=meeting_id,

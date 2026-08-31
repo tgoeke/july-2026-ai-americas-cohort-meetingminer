@@ -98,9 +98,9 @@ def _settle_rerun(pool: ConnectionPool, job_id: UUID) -> None:
 
     An accepted assignment puts `align` and `moments` back to `queued`, which
     makes the meeting not viewable — correctly, and the UX design names that
-    state. A second assignment therefore has to wait for the rerun, so a test
-    that makes two of them settles the stages in between rather than
-    pretending the first re-arm did not happen.
+    state. Tests that need their second assignment to model the ordinary
+    settled path finish those stages explicitly; queued-state correction has
+    its own recovery regression below.
     """
     with pool.connection() as conn:
         conn.execute(
@@ -168,6 +168,19 @@ def _stage_statuses(pool: ConnectionPool, job_id: UUID) -> dict[str, str]:
         name: status
         for name, status in _rows(
             pool, "SELECT name, status FROM job_stage WHERE job_id = %s", job_id
+        )
+    }
+
+
+def _stage_states(
+    pool: ConnectionPool, job_id: UUID
+) -> dict[str, tuple[str, str | None]]:
+    return {
+        name: (status, error)
+        for name, status, error in _rows(
+            pool,
+            "SELECT name, status, error FROM job_stage WHERE job_id = %s",
+            job_id,
         )
     }
 
@@ -484,11 +497,16 @@ def test_an_unknown_meeting_is_refused(client) -> None:
     assert response.json()["type"] == "urn:meetingminer:problem:not-found"
 
 
-def test_a_failed_speaker_rerun_can_be_corrected_and_rearmed(
-    client, test_pool
+@pytest.mark.parametrize("correction", ["unresolved", "participant", "display-name"])
+def test_a_failed_speaker_rerun_can_be_corrected_or_reverted_and_rearmed(
+    client, test_pool, correction
 ) -> None:
-    """The curator action that caused the lockout is also its recovery path."""
-    seeded = _seed(test_pool, source_id="assign-failed-rerun", has_recording=False)
+    """Every curator choice can repair the failed rerun that caused lockout."""
+    seeded = _seed(
+        test_pool,
+        source_id=f"assign-failed-rerun-{correction}",
+        has_recording=False,
+    )
     _settle_job(test_pool, seeded.job_id)
     first = _put(
         client,
@@ -498,20 +516,66 @@ def test_a_failed_speaker_rerun_can_be_corrected_and_rearmed(
     )
     assert first.status_code == 200
     _fail_speaker_rerun(test_pool, seeded.job_id)
+    before = _stage_states(test_pool, seeded.job_id)
 
-    response = _put(client, seeded.meeting_id, PLACEHOLDER_TAG, {"unresolved": True})
+    if correction == "unresolved":
+        body = {"unresolved": True}
+        expected_target = None
+    elif correction == "participant":
+        expected_target = seeded.participant_ids[1]
+        body = {"participantId": str(expected_target)}
+    else:
+        body = {"displayName": "Corrected Speaker"}
+        expected_target = None
+
+    response = _put(client, seeded.meeting_id, PLACEHOLDER_TAG, body)
 
     assert response.status_code == 200
     assert response.json()["acceptedWhileUnviewable"] is True
     assert response.json()["previousJobStatus"] == "failed"
-    assert _alias_target(test_pool, seeded.meeting_id, PLACEHOLDER_TAG) is None
+    if correction == "display-name":
+        expected_target = UUID(response.json()["participantId"])
+        assert response.json()["displayName"] == "Corrected Speaker"
+    assert (
+        _alias_target(test_pool, seeded.meeting_id, PLACEHOLDER_TAG)
+        == expected_target
+    )
     assert _rows(
         test_pool, "SELECT status, error FROM job WHERE id = %s", seeded.job_id
     ) == [("queued", None)]
-    assert {
-        name: _stage_statuses(test_pool, seeded.job_id)[name]
-        for name in SPEAKER_ASSIGNMENT_STAGES
-    } == {name: "queued" for name in SPEAKER_ASSIGNMENT_STAGES}
+    after = _stage_states(test_pool, seeded.job_id)
+    for name in SPEAKER_ASSIGNMENT_STAGES:
+        assert after[name] == ("queued", None)
+    for name in STAGE_NAMES:
+        if name not in SPEAKER_ASSIGNMENT_STAGES:
+            assert after[name] == before[name]
+
+
+def test_a_queued_speaker_rerun_can_be_corrected_before_the_worker_claims_it(
+    client, test_pool
+) -> None:
+    seeded = _assignable_meeting(test_pool, "assign-queued-correction")
+    first = _put(
+        client,
+        seeded.meeting_id,
+        PLACEHOLDER_TAG,
+        {"participantId": str(seeded.participant_ids[0])},
+    )
+    assert first.status_code == 200
+
+    response = _put(
+        client,
+        seeded.meeting_id,
+        PLACEHOLDER_TAG,
+        {"participantId": str(seeded.participant_ids[1])},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["acceptedWhileUnviewable"] is True
+    assert response.json()["previousJobStatus"] == "queued"
+    assert _alias_target(test_pool, seeded.meeting_id, PLACEHOLDER_TAG) == (
+        seeded.participant_ids[1]
+    )
 
 
 def test_only_speaker_put_bypasses_the_failed_evidence_gate(client, test_pool) -> None:
