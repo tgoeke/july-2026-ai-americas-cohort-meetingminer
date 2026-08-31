@@ -38,13 +38,13 @@ Adversarial review of Story 8.1 on `story/8-1-review`, including the eight chang
 - **Evidence:** Both statements remain verbatim after rebasing onto the main that contains Story 10.1, so the former line-overlap blocker is gone. The surrounding rules are still true: OpenAI remains the owner-selected chat model, chat has no runtime fallback, and `_BARE_OPENAI_PREFIXES` does not include `gpt-5`, so the `openai/` prefix is still required for configured endpoint resolution.
 - **Suggested direction:** Delete only the invalidated-key and superseded-default claims. Preserve the current OpenAI choice, no-fallback rule, and `openai/` prefix rationale.
 
-### Finding 4 — A bare binding can declare one provider and route to another (open — owner/spec decision)
+### Finding 4 — A bare binding can declare one provider and route to another (patch — owner ruling received)
 
 - **Location:** `server/meetingminer/config.py:215-237,356-395`; `server/meetingminer/adapters/llm/litellm.py:54-75`
 - **Severity:** High
 - **Finding:** An authored prefix-less binding may explicitly declare any configured provider, but the runtime independently routes recognized bare spellings. The catalog can therefore promise one endpoint and call another.
 - **Evidence:** A real `Settings` validation of `model: gpt-4o`, catalog entry `{binding: gpt-4o, provider: ollama}`, and `default: gpt-4o` succeeds. The resulting entry reports `ollama`, while `resolve_api_base('gpt-4o', providers)` resolves `https://api.openai.com/v1`. A future picker/health surface could show a local Ollama provider while the call reaches paid OpenAI. The same class of mismatch exists for bare `claude-*`. `_provider_prefix` intentionally cannot detect it because it is narrower than the runtime rule.
-- **Suggested direction:** Owner/spec decision required. Either make catalog provider identity the single call-time routing fact in Story 8.2, move the shared spelling rule to a dependency-neutral module used by config and runtime, or amend the frozen prefix-less-entry rule to reject bare spellings whose routing cannot be verified here. Do not add a third hardcoded provider table to `config.py`.
+- **Suggested direction:** Apply the owner ruling dated 2026-08-30: move the one model-spelling rule into a dependency-neutral module used by config, runtime, and status; derive catalog provider metadata from it; forbid authored `provider` input; and refuse any ambiguous bare spelling at load by name. This intentionally amends the frozen prefix-less-entry rule because an unverified declared provider is a label, not a fact, and the project does not mislead silently.
 
 ### Finding 5 — AD-10 omits the owner-approved selection half of the amendment (patch)
 
@@ -77,6 +77,14 @@ Adversarial review of Story 8.1 on `story/8-1-review`, including the eight chang
 - **Finding:** The review handoff's zero-skip baseline no longer reproduces after rebasing onto current main: `make test-fast` skips the optional pyannote import case and the explicitly opt-in real YouTube network acquisition case.
 - **Evidence:** The final post-rebase fast server run reported 1,893 passed, 2 skipped, and 378 deselected. The named reasons were `No module named 'pyannote'` and `set MM_YOUTUBE_NETWORK_TEST=1 to run it`. Both tests landed on main after the original Story 8.1 baseline and neither is reached by the catalog change.
 - **Suggested direction:** No Story 8.1 patch. Treat the fast result as qualified by these two intentional current-main environment gates; use the dedicated diarize-extra gate when validating pyannote and the explicit environment flag only when a real network acquisition run is intended.
+
+### Finding 9 — A missing model loses its endpoint identity and may engage fallback (defer — B-38)
+
+- **Location:** `server/meetingminer/adapters/llm/litellm.py:155-179`; `server/meetingminer/adapters/llm/__init__.py:66-91`
+- **Severity:** High
+- **Finding:** A provider response saying the configured model does not exist falls through the adapter's generic SDK-error mapping. The resulting `LlmError` names the model but not the endpoint or provider actually called, and `FallbackLlm` catches every `LlmError`, so the configuration mistake can silently answer from a different model.
+- **Evidence:** `LiteLlmCompleter.complete` maps connection, timeout, service, rate-limit, authentication, and permission errors to `LlmUnavailableError` with `model` and `api_base`. Every other SDK exception, including LiteLLM's installed `NotFoundError`/`BadRequestError` missing-model shapes, becomes `LlmError("model ... failed")` without `api_base`. `FallbackLlm.complete` catches the base `LlmError` and engages its configured fallback; the existing test `test_a_plain_llm_error_from_the_primary_also_engages_the_fallback` pins that broad behavior. This confirms the owner-provided operating risk.
+- **Suggested direction:** This changes call-time adapter and fallback semantics, while Story 8.1's frozen boundary says it changes no call path and names `litellm.py` read-only. File B-38 with the exact required failure template `provider {provider!r} at {api_base!r} does not serve model {model!r}`; map model-not-found to its own configuration-shaped port error; exclude that error from fallback; and retain `LlmUnavailableError` fallback for genuine outages.
 
 ## Review-layer and triage summary
 

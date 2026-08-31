@@ -252,6 +252,32 @@ story stops at the config contract: it changes no call path.
 
 ## Spec Change Log
 
+**2026-08-30 — Owner decision: provider identity is derived from one rule, never
+declared beside a binding.** Finding 4 demonstrated that an authored bare
+`gpt-4o` entry could declare `provider: ollama` while the runtime routed that
+same spelling through OpenAI; bare `claude-*` had the same class of defect.
+The owner rejected choosing one of those competing declarations as
+authoritative. There must be exactly one dependency-neutral model-spelling
+rule, shared by the loader, runtime adapter, and status surface; catalog
+provider metadata is derived from that rule, authored `provider` input is
+forbidden, and a bare spelling the rule cannot identify is refused at load by
+name. This intentionally amends the frozen legacy-bare and prefix-less-entry
+rules. Reason: a declared provider that nothing verifies is a label, not a
+fact, and this project's standing rule is that nothing misleads silently.
+
+**2026-08-30 — Owner decision: a provider missing the requested model must fail
+loudly and must not engage fallback.** Verification on the rebased branch
+confirmed that `LiteLlmCompleter` maps missing-model SDK errors through a
+generic `LlmError` that omits the endpoint, while `FallbackLlm` catches every
+`LlmError` and substitutes another model. The required eventual failure is
+`provider {provider!r} at {api_base!r} does not serve model {model!r}`; it must
+be its own configuration-shaped port error excluded from fallback, while
+genuine `LlmUnavailableError` outages retain today's fallback behavior. That
+change belongs to call-time adapter/fallback behavior, but this story's frozen
+boundary says it changes no call path and marks `litellm.py` read-only. Per the
+owner's scope ruling it is therefore filed as backlog B-38 rather than
+stretched into Story 8.1.
+
 **2026-08-30 — `make test` caught a back-compat break the fast set could not.**
 The first implementation derived a provider for the *synthesized* one-entry
 catalog and then checked it against `providers:`. That made every pre-catalog
