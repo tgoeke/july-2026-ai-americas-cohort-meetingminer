@@ -393,6 +393,63 @@ describe('the timeline', () => {
     )
   })
 
+  it('renders the opaque screenshot carried by a stop', async () => {
+    served.trace = {
+      ...EXHAUSTIVE,
+      span: { fromAt: '2026-04-01T00:00:00Z', toAt: '2026-04-01T00:00:00Z', days: 0, meetings: 1 },
+      counts: { stops: 1, momentsQuoted: 1, mentionTotal: 1, meetingsMentioning: 1, withScreen: 1 },
+      stops: [
+        stop({
+          screenCount: 1,
+          mentionCount: 1,
+          momentCount: 1,
+          quotedCount: 1,
+          moments: [
+            {
+              momentId: 'moment-screen',
+              startMs: 95_000,
+              occurredAt: '2026-04-01T00:01:35Z',
+              occurredAtPrecision: 'second',
+              speakers: ['Dana Whitfield'],
+              excerpt: 'The culvert is visible on screen.',
+              screenshotId: 'screenshot-1',
+            },
+          ],
+        }),
+      ],
+    }
+    const user = userEvent.setup()
+    mount()
+    await user.click(await screen.findByRole('button', { name: /Cedar Lake Trail closure/ }))
+
+    const image = await waitFor(() => {
+      const element = document.querySelector('.mm-trace-moments img')
+      expect(element).not.toBeNull()
+      return element as HTMLImageElement
+    })
+    expect(image.src).toContain('/media/files/screenshot-1')
+  })
+
+  it('labels day-precision stops as date only', async () => {
+    served.trace = {
+      ...EXHAUSTIVE,
+      span: { fromAt: '2026-04-01T00:15:00Z', toAt: '2026-04-01T00:15:00Z', days: 0, meetings: 1 },
+      counts: { stops: 1, momentsQuoted: 1, mentionTotal: 1, meetingsMentioning: 1, withScreen: 0 },
+      stops: [
+        stop({
+          occurredAt: '2026-04-01T00:15:00Z',
+          lastOccurredAt: '2026-04-01T00:15:00Z',
+          occurredAtPrecision: 'day',
+        }),
+      ],
+    }
+    const user = userEvent.setup()
+    mount()
+    await user.click(await screen.findByRole('button', { name: /Cedar Lake Trail closure/ }))
+
+    expect(await screen.findByText(/date only/)).toBeInTheDocument()
+  })
+
   it('offers the neighbouring subjects so a trace leads somewhere', async () => {
     const user = userEvent.setup()
     mount()

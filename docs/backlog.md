@@ -982,6 +982,13 @@ types are the source of the payload shapes, and
 
 ### B-60 · No test covers a trace stop that actually carries screens — S
 
+**Closed 2026-08-31 by Story 10.7 review.** The server trace suite now seeds
+the two-row `screen`/`screenshot` chain, attaches the opaque screenshot id to a
+moment, and asserts both `screenCount` and `screenshotId`. The web suite renders
+that id through the ID-addressed media route. The original seeding-cost reason
+was not proportionate: the repository already used this compact pattern in the
+thread timeline tests.
+
 `GET /threads/trace` serves `screenshotId` per quoted moment and `screenCount`
 per stop, and `TraceTimeline` draws a strip of stills at the card altitude and
 full thumbnails at the moment altitude. Every test of that path exercises the
@@ -1002,6 +1009,12 @@ on a stop that has stills; on the web side, assert the card strip renders one
 `screenCount` on the server and a rendered strip in the browser tests.
 
 ### B-61 · An undated meeting cannot arise, so the timeline's unplaceable lane is unbuilt — S
+
+**Closed 2026-08-31 as not applicable by Story 10.7 review.** Migration 0002
+still makes `meeting.started_at` `NOT NULL`; the review additionally pins the
+reachable neighbour end to end: `day` precision discards a stored time of day,
+anchors the stop at UTC midnight plus its offset, preserves the precision on
+the wire, and prints `date only` in the timeline.
 
 Story 10.7's acceptance criteria require a meeting carrying no date to be placed
 at one end of the timeline and **named as unplaceable**, never interleaved.
