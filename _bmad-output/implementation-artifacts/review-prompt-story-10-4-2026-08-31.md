@@ -95,6 +95,21 @@ Owner ruling, 2026-08-30:
   to **B-46** to sit clear of all of them, but three separate B-42s and a
   duplicate B-41 still have to be reconciled at integrate — that is an owner
   or coordinator job, not this review's.
+- **`make client` is owed at integrate, and story 10.5 is blocked on it.**
+  The target requires a live api on `:8000` (`infra/Makefile:1139`), which
+  this lane is forbidden to start — the shared api/worker must stay down
+  during the corpus ingest, and a worktree's `make up` collides on that port
+  anyway (B-35). Story 6.4 left the same obligation to integration for the
+  same reason. **What I did instead:** built the app in-process and dumped
+  `app.openapi()`. `getMomentsFeed` takes `corpus`, `thread`, `meeting`,
+  `kind`, `limit`, `offset` (all optional), and the schemas are
+  `MomentsFeedResponse{items,total,limit,offset}`,
+  `FeedItem{momentId, meetingId, meetingTitle, startedAt,
+  startedAtPrecision, startMs, endMs, corpus, hasRecording, sourceDeepLink,
+  screenshotId, viewType, preview, threads, reasons}`,
+  `FeedReason{kind,label,ref,at}`, `FeedThread{threadId,name,colorOrdinal}`
+  — the AC's names exactly, which is what story 10.5 is coding against. The
+  generated TS client still has to be produced once an api is running.
 - **No query-shape test on the candidate scan** (item 5 above). Named, not
   written.
 - **No `score` on the wire.** Deliberate: the AC enumerates the card's fields.
