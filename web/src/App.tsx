@@ -250,7 +250,12 @@ function Shell() {
             Child screens render at the reading width, not the shell's: they
             are columns of prose and evidence, not ranked grids
             (DESIGN.md · Layout & Spacing). */}
-        <div ref={childRef} hidden={!childOpen} className="mx-auto w-full max-w-5xl">
+        <div
+          ref={childRef}
+          data-testid="child-screen"
+          hidden={!childOpen}
+          className="mx-auto w-full max-w-5xl"
+        >
           <Outlet />
         </div>
         {/* Persistent chrome, not view panels (SPEC-ui-reimagine CAP-1):
@@ -262,7 +267,7 @@ function Shell() {
             answers a cited question over that same corpus (FR12, FR15,
             UX-DR3, UX-DR10); both open a citation's moment view by
             `momentId` alone. */}
-        <div className="grid gap-8 lg:grid-cols-2">
+        <div data-testid="search-ask-chrome" className="grid gap-8 lg:grid-cols-2">
           <CorpusSearch onOpenMoment={(momentId) => openPath(`/moments/${momentId}`)} />
           <ChatPanel onOpenMoment={(momentId) => openPath(`/moments/${momentId}`)} />
         </div>
