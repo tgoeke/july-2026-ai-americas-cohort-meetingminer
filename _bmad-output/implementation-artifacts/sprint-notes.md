@@ -3644,7 +3644,6 @@ typecheck and the production build.
 not owed for 8-2. Note story 6.4 does NOT regenerate it and its
 `/acquisitions` routes are therefore missing from the client — that
 regeneration is owed at 6.4's integration and blocks story 6.5.
-
 ## Story 7.3 — Speaker Assignment (2026-08-30)
 
 `PUT /meetings/{meetingId}/speakers/{tag}` takes a participant id, a new display
@@ -3713,3 +3712,47 @@ an in-process `app.openapi()` dump on the rebased tree, so it now carries both
 `servers` entry** — generating from a file rather than a URL otherwise drops
 `client.gen.ts`'s `baseUrl`, which would quietly break the web client's default
 host. That was caught by reading the diff rather than trusting the tool.
+## Story 6.4 — Acquisition Launch Surface, 2026-08-30 (review)
+
+Branch `story/6-4`, cut at `1c10ecd`. Three routes in one new auto-discovered
+router, and the api performs no acquisition: `POST /acquisitions` classifies
+the URL offline, claims the source id under one `fcntl.flock`, writes a status
+file under `.logs/acquisitions/`, starts `python -m meetingminer.acquisitions
+--run` detached with that acquisition's log as its stdout, and answers 202.
+
+**The footprint held exactly.** Five paths: two new modules, one new test
+module, one addition to `youtube.py` (`ProbeReport` + `probe_only`, composed
+from 6.2's existing checks — no existing function changed or forked), and the
+one-entry `BASELINE_ROUTER_ORDER` extension the spec pre-declared.
+`mintdrop.py`, `config.py`, `conftest.py`, `api/main.py` and `web/` are
+untouched.
+
+**Two decisions worth carrying forward.** The rule → HTTP status and rule →
+remediation tables are *literal dicts* keyed on `youtube.REFUSAL_RULES`, not
+comprehensions over it: a comprehension would give a rule added later a silent
+default and make the completeness test vacuous. And `refusal_rule()` classifies
+an intake failure as `unclassified` — correct, the tool refused nothing — so
+that row keeps the token and carries its own remediation, the exact `curl`
+re-POST for the finalized drop.
+
+**`make client` is owed and was not run.** The epic's last clause puts the TS
+client regeneration in this story; `web/` is outside the footprint and
+`make client` needs a running api, which this wave forbids starting.
+`check-client` only asserts the three files exist, so the gate stays green
+while `web/src/client/` knows nothing about `/acquisitions`. **Story 6.5
+cannot start until integration runs it.** Filed as the spec's first deferred
+item, severity high.
+
+**Backlog ids: none claimed.** Five deferred items are recorded in the spec's
+frontmatter rather than in `docs/backlog.md`, which the wave rules put off
+limits to this lane. They need real ids filed at integration — naming one here
+would not reserve it.
+
+**Verified.** `make test-fast` green (lint clean, mypy clean, 1996 passed,
+2 skipped); `make test` green — 2374 passed, 2 skipped, web build clean, 10m18s;
+`branch_conflicts.py --against story/6-4` clean against `main` and every other
+`story/*` except `sprint-notes.md` vs `story/10-2`, which already conflicts with
+`main` on that file. The tests were written after the code, so coverage was
+proved by mutation instead: fourteen single-edit mutations across the three
+source files and the registry baseline, **all fourteen red**, none silently
+passing.
