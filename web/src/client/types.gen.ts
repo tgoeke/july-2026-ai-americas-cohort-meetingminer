@@ -4520,6 +4520,10 @@ export type DeleteUploadSessionErrors = {
      */
     404: unknown;
     /**
+     * Conflict
+     */
+    409: unknown;
+    /**
      * Unprocessable Entity
      */
     422: unknown;
