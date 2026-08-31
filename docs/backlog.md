@@ -460,6 +460,29 @@ outside it by design, and no other tool reaches them.
 
 ---
 
+### B-55 · Preserve an approved artifact's immutable extraction source — L
+
+Story 4.1 preserves an approved or published moment's complete artifact set on
+a rerun, while Story 12.1 replaces the one `(meeting_id, kind)`
+`extraction_source` row with the latest document. Once approval exists, a
+surviving artifact can therefore point only indirectly at a later reply that
+did not produce it; the document that actually produced the artifact is gone.
+
+This is a known latent defect, not a Story 12.1 blocker. The live-corpus
+measurement on 2026-08-31 found **772 artifacts, all in state `extracted`, zero
+approved, and zero published**. With no approved artifact, every rerun deletes
+the drafts and replaces the document in the same transaction, so the mismatch
+is unreachable today. It becomes reachable when the first artifact is
+approved.
+
+**Do with the future approval-workflow story:** version `extraction_source`
+rows and give each artifact an immutable reference to the exact source row that
+produced it. That preserves provenance without weakening Story 4.1's guarantee.
+Do not redesign the artifact lifecycle in Story 12.1. Owner ruling:
+`_bmad-output/implementation-artifacts/owner-ruling-12-1-f5-2026-08-31.md`.
+
+---
+
 ### B-56 · A re-extraction destroys the set the owner wants to merge against — M
 
 The owner re-extracts a meeting's artifacts often, and merges the old and new

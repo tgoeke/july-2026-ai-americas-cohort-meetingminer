@@ -3,9 +3,9 @@ title: 'Story 12.1: Retain the Extraction Documents'
 type: 'feature'
 created: '2026-08-31'
 baseline_revision: '9fc760fe939922528826da9a54e891694e0c7bad'
-status: 'in-progress'
+status: 'done'
 review_loop_iteration: 0
-followup_review_recommended: true
+followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/planning-artifacts/epics.md'
   - '{project-root}/docs/architecture.md'
@@ -209,12 +209,13 @@ before the story started and recorded in AD-3.
 
 ### Review Findings — 2026-08-31
 
-- [ ] [Review][Decision] F5 — A rerun can orphan surviving approved artifacts
-  from their retained source document. Story 4.1 preserves an approved
-  moment's complete artifact set, while Story 12.1 overwrites the only source
-  row with the new reply. Correct remediation requires an owner choice among
-  versioned sources and links, freezing reruns, or a lifecycle change; the
-  review lane does not silently choose one.
+- [x] [Review][Latent defect — B-55] F5 — A rerun can orphan surviving
+  approved artifacts from their retained source document. The owner ruled this
+  non-blocking on 2026-08-31 from a corpus measurement of 772 artifacts: all
+  `extracted`, zero approved, zero published. The mismatch is unreachable until
+  the first approval. The future approval-workflow story must use versioned
+  `extraction_source` rows plus an immutable artifact-to-source reference; Story
+  12.1 does not build that lifecycle change.
 - [x] [Review][Patch] F1 — Make `documentText` required-but-nullable in OpenAPI
   and the generated client. [`server/meetingminer/api/extraction.py:135`]
 - [x] [Review][Patch] F2 — Type 404 and 409 `application/problem+json` bodies as
@@ -305,5 +306,12 @@ NUL in prose the parser ignores — the only path on which the retained document
 is the thing that carries it — where `_retained_text`'s named refusal is what
 fires. The guard is therefore demonstrated to be reachable and load-bearing
 rather than defensive decoration.
+
+## Review Closeout
+
+**PASS, 2026-08-31.** The owner ruling in
+`owner-ruling-12-1-f5-2026-08-31.md` records F5 as known latent defect B-55,
+scoped to the future approval workflow. No open review finding remains. Story
+12.1 is done without implementing the approval-lifecycle redesign.
 
 </intent-contract>
