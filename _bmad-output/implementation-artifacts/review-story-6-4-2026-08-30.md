@@ -61,3 +61,27 @@ the review handoff. Frozen intent defects will be reported but not patched.
   detail, and the table remediation, while retaining the log line as diagnostic
   output. Validate the passed root as an absolute path owned by the parent, not
   a request-derived value.
+
+### F3 — The probe performs provenance checks outside its frozen boundary
+
+- **Location:** `server/meetingminer/youtube.py:608-642`
+- **Severity:** Medium
+- **Finding:** `probe_only()` calls the full acquisition `validate_info()`
+  helper. Besides the required URL/identity, availability, stream, tool, and
+  duration checks, that helper also requires a publication wall clock and a
+  channel/uploader. The frozen intent says the probe performs the enumerated
+  checks "and nothing else". Valid probe metadata can therefore be rejected as
+  `started-at-unknown` or `channel-missing`, even though neither is part of the
+  pre-submit probe contract.
+- **Evidence:** Starting from the valid full probe fixture, removing only
+  `release_timestamp`/`upload_date` (and unrelated publisher fields) while
+  retaining a matching video id, playable video format, and valid duration
+  made unfixed `probe_only()` refuse with `started-at-unknown`. Inspection of
+  `validate_info()` confirms the additional calls to `started_at_from_info()`
+  and `_channel_from_info()`. The new tests cover duration, stream, captions,
+  and title but never isolate either extra provenance requirement.
+- **Suggested direction:** Compose the probe from the identity check and
+  `refuse_unacceptable()` rather than the full provenance validation helper.
+  Add regressions showing missing publication time and missing publisher do
+  not prevent the four-field probe response; acquisition remains free to
+  refuse them later before minting write-once evidence.
