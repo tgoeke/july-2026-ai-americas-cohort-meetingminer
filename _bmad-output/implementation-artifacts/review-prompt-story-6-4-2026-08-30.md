@@ -39,9 +39,10 @@ terminal but not filed does not exist.
 - Worktree: `/Users/devopsterus/current/cohort/meetingminer-wt/6-4`
   (never edit `/Users/devopsterus/current/cohort/meetingminer`)
 - Branch under review: `story/6-4` (pushed to `origin`)
-- Review range: `e5e0ff9..HEAD` — three commits, all story 6.4:
+- Review range: `e5e0ff9..HEAD` — five commits, all story 6.4:
   `7a20f35` the spec, `c0f6fad` the implementation, `32aef24` the tracking and
-  this handoff. The branch was **rebased onto `origin/main` at `e5e0ff9`**
+  this handoff, `cbf2ffd` the status-file id guard, `0cf3d7e` two unused test
+  helpers removed. The branch was **rebased onto `origin/main` at `e5e0ff9`**
   after the build, so the pre-rebase SHAs (`1c10ecd`, `a5adfb1`, `e53d21c`) are
   gone; use the new ones.
 
@@ -220,21 +221,24 @@ Current results on `story/6-4` — a skip or failure during review is a finding,
 not noise:
 
 - `uv run --project server pytest server/tests/test_api_acquisitions.py -q`
-  → **34 passed**
+  → **35 passed**
 - `uv run --project server pytest server/tests/test_api_registry.py
   server/tests/test_youtube.py server/tests/test_youtube_playlist.py -q`
   → **201 passed, 1 skipped** (the network test, env-flagged as 6.2 left it)
 - `make test-fast` → lint **clean**, mypy **clean (13 files)**, server
-  **1996 passed, 2 skipped, 378 deselected**
-- `make test` → **2374 passed, 2 skipped** in 10m18s, web build clean. The two
-  skips are the pre-existing env-flagged ones `make test-fast -rs` names by
-  reason: 6.2's real-network yt-dlp test (`MM_YOUTUBE_NETWORK_TEST=1`) and
-  `test_diarize_pyannote.py`, whose extra `diarize-extra-test` runs in its own
-  isolated lane.
+  **2042 passed, 3 skipped, 378 deselected**
+- `make test` → **2420 passed, 3 skipped** in 9m42s, web build clean, on this
+  exact tree (`0cf3d7e`). The three skips are the pre-existing env-flagged ones
+  `make test-fast -rs` names by reason: 6.2's real-network yt-dlp test
+  (`MM_YOUTUBE_NETWORK_TEST=1`), B-36's real-network diarizer test
+  (`MM_DIARIZE_REMOTE_NETWORK_TEST=1`), and `test_diarize_pyannote.py`, whose
+  extra `diarize-extra-test` runs in its own isolated lane (92 passed there).
 - `python3 _bmad/scripts/branch_conflicts.py --against story/6-4` → clean
   against `main` and against `story/10-2-review`, `story/7-3`, `story/8-2`.
-  `story/10-2` and `story/10-2-review` conflict on `sprint-notes.md` only —
-  an EOF append against an EOF append, which integrate unions.
+  `story/10-2`, `story/10-2-review` and `story/8-2` conflict on
+  `sprint-notes.md` only — an EOF append against an EOF append, which integrate
+  unions. `story/10-2` and `story/8-2` already conflict with `main` on that
+  same file.
 
 **Manual smoke check of the real child.** `python -m
 meetingminer.acquisitions --run --acquisition-id <uuid> --url <watch url>` was

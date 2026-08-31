@@ -3748,14 +3748,16 @@ frontmatter rather than in `docs/backlog.md`, which the wave rules put off
 limits to this lane. They need real ids filed at integration — naming one here
 would not reserve it.
 
-**Verified.** `make test-fast` green (lint clean, mypy clean, 1996 passed,
-2 skipped); `make test` green — 2374 passed, 2 skipped, web build clean, 10m18s;
-`branch_conflicts.py --against story/6-4` clean against `main` and every other
-`story/*` except `sprint-notes.md` vs `story/10-2`, which already conflicts with
-`main` on that file. The tests were written after the code, so coverage was
-proved by mutation instead: fourteen single-edit mutations across the three
-source files and the registry baseline, **all fourteen red**, none silently
-passing.
+**Verified on the final tree.** `make test-fast` green (lint clean, mypy clean,
+2042 passed, 3 skipped); `make test` green — 2420 passed, 3 skipped, web build
+clean, 9m42s; `branch_conflicts.py --against story/6-4` clean against `main` and
+against every other `story/*` except `sprint-notes.md`, where three lanes append
+at the same EOF and two of them already conflict with `main` there. The tests
+were written after the code, so coverage was proved by mutation instead: sixteen
+single-edit mutations across the three source files and the registry baseline,
+**fifteen red**. The one that stayed green is the log-path hardening, which the
+`read_record` id guard makes provably equivalent — defence in depth, not
+coverage.
 
 **Rebased after the build** onto `origin/main` at `e5e0ff9` (the B-36 diarizer
 work, 17 commits, none touching this story's paths). One conflict —
