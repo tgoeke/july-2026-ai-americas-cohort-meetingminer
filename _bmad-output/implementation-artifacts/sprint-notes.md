@@ -3419,3 +3419,51 @@ by design and the LAN box is operator-scheduled; the flagged test exists and has
 not been run here. The endpoint's own behaviour is what the backlog entry
 records from 2026-08-30, and turn *quality* remains unvalidated against ground
 truth — 2 speakers on a scripted two-person demo is plausible, not measured.
+
+## B-36 diarizer half landed, 2026-08-30 ~21:40 — the port finally has a real engine
+
+`main` at `2dec459`. A `remote-http` engine sits behind the unchanged
+`Diarizer` port and calls the LAN service's `/diarize` over the standard
+library — no new dependency, following `adapters/embed/ollama.py`'s precedent.
+Float seconds convert to integer milliseconds **per boundary**
+(`round(x*1000)` on start and end independently, never
+`start + round(duration)`), turns are validated, sorted, then relabelled into
+the recording-local `SPEAKER_NN` namespace.
+
+**`noop` is still the committed default, deliberately.** The engine choice is
+the owner's; `config.yaml` now offers `noop | pyannote | remote-http`.
+
+**Nothing falls back, and that is tested rather than asserted.** Every failure
+raises a named `DiarizerError` carrying the endpoint, the model when the host
+reported one, and the host's `reason` verbatim. The builder's own mutation
+matrix included "silently return no turns when the host is unreachable" and it
+was caught. An empty `turns` list from a *healthy* host is success; an empty
+list produced by a *failure* is the defect, and the two are distinguishable.
+
+**Review found four, all the same shape — a failure escaping as something
+other than a named `DiarizerError`:** invalid or non-finite timestamps getting
+through, a truncated HTTP response surfacing as `IncompleteRead`, the timeout
+behaving as an inactivity timeout rather than a total request deadline, and
+multipart size taken from stale path metadata. All fixed red-first. The
+timeout one matters most operationally: an inactivity timeout against a host
+that dribbles bytes never returns, which is exactly the hang the finite-timeout
+requirement existed to prevent.
+
+**One deliberate deviation, recorded and reviewed:** the engine is not in
+`ENGINES`, because that registry constructs engines with no arguments and this
+one needs an endpoint and a timeout off the binding. It follows story 7.1's
+`pyannote` special-case, with `ENGINE_CHOICES` keeping the unknown-engine
+diagnostic exhaustive.
+
+**The suite never contacts the host** — `make test` is green with VM120
+untouched, and the live test is env-flagged behind
+`MM_DIARIZE_REMOTE_NETWORK_TEST`.
+
+**B-36's `Stt` half stays open.** Those engines already work locally, so it is
+an optimisation rather than an unblock.
+
+**Measured context for the engine choice** (see
+`diarization-provisional-measurement-2026-08-30.md`): 60 minutes of audio takes
+57.5s on the LAN GPU versus 35m51s in-process on this Mac, CPU-only with MPS
+unused — 37.4x apart. The Mac is a viable fallback for unattended work but the
+substitution must be explicitly configured, never automatic.

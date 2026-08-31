@@ -424,7 +424,7 @@ Two separable pieces of work, and the second is worth more than the first:
   the host in `config.yaml` (AD-9's rule: where inference runs is a config
   change, never a code change). This is an optimisation — transcription already
   works locally — but it is what makes the recorded architecture true.
-- **`Diarizer` over HTTP — the endpoint now EXISTS (2026-08-30).** The
+- **`Diarizer` over HTTP — DONE 2026-08-30, landed at `2dec459`.** The
   `Diarizer` port has no working engine at all: `noop` returns nothing and
   `pyannote` needs a HuggingFace licence acceptance and a token this project
   does not have. The spine notes the guest's NeMo install "carries diarizer
