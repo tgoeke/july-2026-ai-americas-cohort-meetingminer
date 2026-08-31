@@ -86,20 +86,28 @@ Adversarial review of Story 8.1 on `story/8-1-review`, including the eight chang
 - **Evidence:** `LiteLlmCompleter.complete` maps connection, timeout, service, rate-limit, authentication, and permission errors to `LlmUnavailableError` with `model` and `api_base`. Every other SDK exception, including LiteLLM's installed `NotFoundError`/`BadRequestError` missing-model shapes, becomes `LlmError("model ... failed")` without `api_base`. `FallbackLlm.complete` catches the base `LlmError` and engages its configured fallback; the existing test `test_a_plain_llm_error_from_the_primary_also_engages_the_fallback` pins that broad behavior. This confirms the owner-provided operating risk.
 - **Suggested direction:** This changes call-time adapter and fallback semantics, while Story 8.1's frozen boundary says it changes no call path and names `litellm.py` read-only. File B-38 with the exact required failure template `provider {provider!r} at {api_base!r} does not serve model {model!r}`; map model-not-found to its own configuration-shaped port error; exclude that error from fallback; and retain `LlmUnavailableError` fallback for genuine outages.
 
-### Finding 10 — Legacy synthesis normalizes the catalog but not the active model (patch)
+### Finding 10 — Legacy synthesis normalizes the catalog but not the active model (closed — patch)
 
 - **Location:** `server/meetingminer/config.py:327-350`; `server/meetingminer/domain/model_providers.py:17-27`
 - **Severity:** High
 - **Finding:** For a legacy role with outer whitespace around `model`, catalog synthesis strips the spelling before deriving provider metadata, but `LlmRoleBinding.model` retains the original string that runtime routing consumes. The catalog/status identity can therefore disagree with the actual call despite using the same resolver function.
-- **Evidence:** `_catalog_from_model` computes `tag = model.strip()` and builds `CatalogEntry(binding=tag)`, while the validated `model: str` field remains unchanged. With `model: " gpt-4o "`, the catalog reports binding `gpt-4o` and provider `openai`; `resolve_api_base(chat.model, providers)` receives the spaced value and returns `None`.
-- **Suggested direction:** Normalize the active `model` through the existing `NonEmptyText` type so catalog and runtime receive the identical spelling. Pin a legacy spaced-bare regression that checks the stored model, computed provider, and runtime endpoint together.
+- **Evidence:** Before the fix, `_catalog_from_model` computed `tag = model.strip()` for `CatalogEntry` while the validated `model: str` field retained whitespace. The red regression failed with `'  gpt-4o  ' != 'gpt-4o'`. `LlmRoleBinding.model` now uses `NonEmptyText`; the stored model, synthesized binding, derived provider, and `resolve_api_base` endpoint all agree.
+- **Suggested direction:** Implemented in commit `af1672b`; the focused regression and full catalog/config set pass.
+
+### Finding 11 — Known-bare agreement is not observed at the status consumer (patch — verification gap)
+
+- **Location:** `server/meetingminer/api/status.py:128-134`; `server/tests/test_config_catalog.py:150-167`; `server/tests/test_api_status.py`
+- **Severity:** Medium
+- **Finding:** The owner contract requires config, runtime, and displayed status to use one provider rule. The regression asserts config metadata against `resolve_api_base`, but no normal test observes the status consumer for bare OpenAI/Anthropic spellings.
+- **Evidence:** Repository-wide symbol tracing shows `status.provider_of` aliases `provider_for_model`, and `/config` imports that alias, so adoption is correct today. `test_known_bare_catalog_provider_matches_runtime_routing` checks catalog and adapter only; searches for `gpt-4o` and `claude-sonnet-5` in `test_api_status.py` return no cases. Replacing the status alias with a divergent bare-name rule could therefore leave the owner regression green.
+- **Suggested direction:** Extend the existing known-bare parametrized regression to assert `status.provider_of(model) == provider`, pinning config, runtime, and display in one case matrix.
 
 ## Review-layer and triage summary
 
 All four configured layers ran locally and sequentially: Blind Hunter, Edge
 Case Hunter, Verification Gap Reviewer, and Acceptance Auditor. The original
-eight findings plus the owner-verified call-time Finding 9 are now triaged:
-seven patch findings are fixed, one low-severity current-main/environment
+eight findings plus owner follow-ups 9 and 10 are now triaged: eight patch
+findings are fixed, one low-severity current-main/environment
 qualification is deferred, and the out-of-scope call-time defect is filed as
 B-38. No review layer failed.
 
@@ -137,6 +145,9 @@ The original deferred inventory was reassessed rather than duplicated:
   known-bare entries carried no provider. All six passed after the shared
   resolver and computed provider landed; the full catalog/adapter/status set
   then passed 136 tests.
+- Finding 10: a spaced legacy model regression failed because catalog synthesis
+  normalized `gpt-4o` while the active model retained whitespace; it passed
+  after `model` adopted `NonEmptyText`, and the catalog/config set passed 139.
 
 ## Final verification
 
