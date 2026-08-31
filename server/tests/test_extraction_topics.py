@@ -484,6 +484,20 @@ TOPICS_DOC = """\
 | T2 | Credential ownership | Ellis owns the SFTP credentials | [1:35] |
 """
 
+SIGNALS_DOC = """\
+## Risks
+
+| ID | Risk | Detail | Timestamp |
+|----|------|--------|-----------|
+| R1 | The vendor key may be late | Blocks cutover | [0:10] |
+
+## Open questions
+
+| ID | Question | Detail | Timestamp |
+|----|----------|--------|-----------|
+| Q1 | Who approves the purchase order? | Nobody claimed it | [0:45] |
+"""
+
 
 @pytest.fixture()
 def pool(test_pool: ConnectionPool) -> ConnectionPool:
@@ -533,6 +547,37 @@ def topic_rows(pool: ConnectionPool, meeting_id: UUID) -> list[dict[str, Any]]:
         {"id": row[0], "name": row[1], "gist": row[2], "provenance": row[3]}
         for row in rows
     ]
+
+
+def signal_rows(pool: ConnectionPool, meeting_id: UUID) -> list[dict[str, Any]]:
+    with pool.connection() as conn:
+        rows = conn.execute(
+            "SELECT moment_id, kind, label, detail, anchor_ms, item_id, provenance"
+            " FROM ranking_signal WHERE meeting_id = %s ORDER BY anchor_ms, item_id",
+            (meeting_id,),
+        ).fetchall()
+    return [
+        {
+            "moment_id": row[0],
+            "kind": row[1],
+            "label": row[2],
+            "detail": row[3],
+            "anchor_ms": row[4],
+            "item_id": row[5],
+            "provenance": row[6],
+        }
+        for row in rows
+    ]
+
+
+def signals_source(pool: ConnectionPool, meeting_id: UUID) -> tuple[int, int] | None:
+    with pool.connection() as conn:
+        row = conn.execute(
+            "SELECT item_count, artifact_count FROM extraction_source"
+            " WHERE meeting_id = %s AND kind = 'ranking-signals'",
+            (meeting_id,),
+        ).fetchone()
+    return (row[0], row[1]) if row is not None else None
 
 
 def mention_rows(pool: ConnectionPool, topic_id: UUID) -> list[tuple[UUID, int]]:
@@ -1061,3 +1106,147 @@ def test_two_unusable_topics_replies_fail_the_stage_naming_the_document(
     assert error is not None
     assert "topics" in error
     assert "retry" in error
+
+
+# --- story 10.4's fourth pass (F6 review coverage) --------------------------
+
+
+def test_ranking_signals_land_with_provenance_and_reach_the_feed(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_extraction_drop: Callable[[str], Any],
+    fake_llm: Callable[..., FakeLlm],
+    client,
+) -> None:
+    engine = fake_llm(replies=(TOPICS_DOC, SIGNALS_DOC))
+    job_id = enqueue(pool, make_extraction_drop("source-signals"), "source-signals")
+
+    assert runner.run_once(pool, app_config, content_root) is True
+    assert job_row(pool, job_id) == ("done", None)
+    assert len(engine.calls) == 2
+
+    [meeting] = meetings(pool, job_id)
+    moments = moment_ids(pool, meeting["id"])
+    rows = signal_rows(pool, meeting["id"])
+    assert [
+        (row["moment_id"], row["kind"], row["label"], row["detail"], row["anchor_ms"], row["item_id"])
+        for row in rows
+    ] == [
+        (moments[0], "risk", "The vendor key may be late", "Blocks cutover", 10_000, "R1"),
+        (moments[1], "question", "Who approves the purchase order?", "Nobody claimed it", 45_000, "Q1"),
+    ]
+    assert signals_source(pool, meeting["id"]) == (2, 2)
+    for row in rows:
+        assert row["provenance"] | {
+            "role": "extraction",
+            "document_kind": core.DOC_RANKING_SIGNALS,
+            "item_id": row["item_id"],
+        } == row["provenance"]
+
+    feed = client.get("/moments/feed?kind=risk").json()
+    assert feed["total"] == len(feed["items"]) == 1
+    assert feed["items"][0]["momentId"] == str(moments[0])
+    assert any(reason["kind"] == "risk" for reason in feed["items"][0]["reasons"])
+
+
+def test_ranking_signal_rerun_replaces_then_early_exit_clears_rows(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_extraction_drop: Callable[[str], Any],
+    fake_llm: Callable[..., FakeLlm],
+) -> None:
+    fake_llm(replies=(TOPICS_DOC, SIGNALS_DOC))
+    job_id = enqueue(pool, make_extraction_drop("source-signals-rerun"), "source-signals-rerun")
+    assert runner.run_once(pool, app_config, content_root) is True
+    [meeting] = meetings(pool, job_id)
+    assert {row["item_id"] for row in signal_rows(pool, meeting["id"])} == {"R1", "Q1"}
+
+    replacement = """\
+## Open questions
+
+| ID | Question | Detail | Timestamp |
+|----|----------|--------|-----------|
+| Q9 | Is key rotation automated? | Still unanswered | [1:35] |
+"""
+    engine = fake_llm(replies=(TOPICS_DOC, replacement))
+    requeue_extract(pool, job_id)
+    assert runner.run_once(pool, app_config, content_root) is True
+    assert [row["item_id"] for row in signal_rows(pool, meeting["id"])] == ["Q9"]
+    assert signals_source(pool, meeting["id"]) == (1, 1)
+
+    with pool.connection() as conn:
+        conn.execute(
+            "DELETE FROM transcript_segment WHERE meeting_id = %s",
+            (meeting["id"],),
+        )
+    requeue_extract(pool, job_id)
+    assert runner.run_once(pool, app_config, content_root) is True
+    assert len(engine.calls) == 2, "the early exit must not call the model"
+    assert signal_rows(pool, meeting["id"]) == []
+    assert signals_source(pool, meeting["id"]) is None
+
+
+def test_ranking_signal_on_a_superseded_moment_is_named_and_skipped(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_extraction_drop: Callable[[str], Any],
+    fake_llm: Callable[..., FakeLlm],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fake_llm(replies=(TOPICS_DOC, SIGNALS_DOC))
+    job_id = enqueue(pool, make_extraction_drop("source-signals-super"), "source-signals-super")
+    assert runner.run_once(pool, app_config, content_root) is True
+    [meeting] = meetings(pool, job_id)
+    moments = moment_ids(pool, meeting["id"])
+    with pool.connection() as conn:
+        conn.execute(
+            "UPDATE moment SET provenance = provenance ||"
+            " '{\"superseded\": true}'::jsonb WHERE id = %s",
+            (moments[0],),
+        )
+
+    capsys.readouterr()
+    fake_llm(replies=(TOPICS_DOC, SIGNALS_DOC))
+    requeue_extract(pool, job_id)
+    assert runner.run_once(pool, app_config, content_root) is True
+
+    rows = signal_rows(pool, meeting["id"])
+    assert [row["item_id"] for row in rows] == ["Q1"]
+    [discard] = [
+        event
+        for event in log_events(capsys)
+        if event["event"] == "stage.extract.ranking_signal_discarded"
+    ]
+    assert (discard["item_id"], discard["reason"], discard["moment_id"]) == (
+        "R1",
+        "superseded-moment",
+        str(moments[0]),
+    )
+
+
+def test_unusable_ranking_signals_reply_gets_exactly_one_retry(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_extraction_drop: Callable[[str], Any],
+    fake_llm: Callable[..., FakeLlm],
+) -> None:
+    duplicate = """\
+## Risks
+| ID | Risk | Detail | Timestamp |
+|----|------|--------|-----------|
+| R1 | First | one | [0:05] |
+| R1 | Conflicting | two | [0:09] |
+"""
+    engine = fake_llm(replies=(TOPICS_DOC, duplicate, SIGNALS_DOC))
+    job_id = enqueue(pool, make_extraction_drop("source-signals-retry"), "source-signals-retry")
+
+    assert runner.run_once(pool, app_config, content_root) is True
+    assert job_row(pool, job_id) == ("done", None)
+    assert len(engine.calls) == 3
+    assert engine.calls[1] == engine.calls[2]
+    [meeting] = meetings(pool, job_id)
+    assert {row["item_id"] for row in signal_rows(pool, meeting["id"])} == {"R1", "Q1"}
