@@ -664,7 +664,7 @@ def run(ctx: StageContext) -> None:
     # a model at request time.
     #
     # The prompt is `ranking.signals_prompt` rather than a field on the
-    # extraction role binding; `config.yaml` records why (B-41).
+    # extraction role binding; `config.yaml` records why (B-42).
     signals_template = ctx.config.settings.ranking.signals_prompt
     parsed_signals, signals_reply = _generate(
         llm,
