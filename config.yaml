@@ -639,6 +639,20 @@ stores:
 acquisition:
   youtube:
     max_duration_minutes: 180
+  # `POST /uploads` (story 6.4a) refuses against these four before any drop
+  # exists. The byte caps are per role because a recording and a transcript are
+  # not the same size of thing: 8 GiB covers a long meeting recording at
+  # screen-capture bitrates, while 25 MiB is already an order of magnitude more
+  # than an eight-hour VTT, so a 400 MB file claiming to be a transcript is
+  # refused on the wire rather than at ffprobe time. The duration cap is the
+  # upload counterpart of the YouTube one and is checked once the recording has
+  # landed in staging, because only ffprobe can answer it. The TTL is how long
+  # an upload session nobody claimed keeps its bytes under MM_DROPS_ROOT.
+  upload:
+    max_recording_bytes: 8589934592
+    max_transcript_bytes: 26214400
+    max_duration_minutes: 480
+    session_ttl_minutes: 1440
 
 # Thread derivation (story 10.2, FR42). A thread is one subject followed
 # across meetings: `domain/threads.py` reads every stored `topic` row and

@@ -59,6 +59,14 @@ dependencies = [
     # A lower floor would resolve, type-check, and then fail at runtime
     # against a live store, so it is pinned to what is actually verified.
     "meilisearch>=0.43,<1",
+    # The streaming multipart parser behind `POST /uploads` (story 6.4a).
+    # Starlette drives this same library for `request.form()`, but that path
+    # spools every file part into TMPDIR on the boot volume and only then hands
+    # it over to be copied to MM_DROPS_ROOT - two writes of a multi-gigabyte
+    # recording, and a size cap that can only be checked once the bytes have
+    # already landed. `uploads.py` drives the parser's callbacks over the
+    # request stream instead, so each part is written once, where it belongs,
+    # and the cap refuses mid-stream. Imported ONLY there.
     "python-multipart>=0.0.20",
 ]
 
