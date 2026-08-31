@@ -2,8 +2,8 @@
 title: 'Story 6.5: Add-Meeting UI'
 type: 'feature'
 created: '2026-08-31'
-status: 'ready-for-dev'
-baseline_revision: '2d68dcc6dba31007c7d6fd84f0884edbc79508d5'
+status: 'review'
+baseline_revision: 'a6ec4dbfc2c825281fad98e707daa7d04e69b95a'
 review_loop_iteration: 0
 followup_review_recommended: false
 context: []
@@ -145,6 +145,14 @@ deferred: []
 
 **Stepper step 4.** `ingesting` is not an acquisition status — it is the job. Its bar reads `queued` until the posted job's first event, `running` while the job runs, `done` when the job's stages have settled and the api reports `viewable`, and `failed` when the job fails. On a `failed` acquisition it stays `queued`, because ingestion never started (mockup `add-meeting-refusal.html`, section 1).
 
+**No "Name speakers" link on the finished card.** EXPERIENCE.md:144 describes
+one appearing once `transcribe` is `done` on a meeting that arrived without a
+speaker-attributed transcript. `MeetingListItem` carries no field expressing
+that second condition, so the link could only be rendered by guessing at it —
+which is exactly the invention this story forbids. The card therefore offers
+`Open` alone, as the meetings list does. Closing this needs an api field (or
+story 7.4's surface), not a client change.
+
 ## Verification
 
 **Commands:**
@@ -154,3 +162,84 @@ deferred: []
 - `pnpm --dir web run lint` -- expected: oxlint clean over the new files.
 - `pnpm --dir web run build` -- expected: `tsc -b` type-checks the new TSX against the generated client types, then vite builds.
 - `python3 _bmad/scripts/branch_conflicts.py --against story/6-5` -- expected: no overlapping changed regions with the in-flight 6.4a and 10.2a branches.
+
+## Auto Run Result
+
+Status: review — handed to the Codex `bmad-code-review` lane, not marked done.
+
+**Implemented.** `/add` is claimed by a discovered route and the Add-meeting
+screen renders there: the four-source tab chrome with the YouTube URL tab
+built end to end — offline shape check, 600 ms debounced pre-flight probe
+under generation+URL ownership, Submit, the four-bar acquisition stepper
+polling `GET /acquisitions/{id}` every 2 s, and, on `posted`, hand-over to the
+existing `/jobs/events` stream and the existing meeting card. Every refusal
+renders in place with the api's own `rule`, `detail` and `remediation`;
+transport failures are kept distinct from refusals and carry Retry.
+
+**Files changed** (all additions; no existing file was edited):
+
+- `web/src/features/acquisitions/youtubeUrl.ts` — the offline shape check
+  mirroring `youtube.py:video_id_from_url`, plus URL normalization.
+- `web/src/features/acquisitions/acquisitions.ts` — problem-body vs transport
+  classification, the refusal shape, the stepper's four steps, the probe line.
+- `web/src/features/acquisitions/RefusalBox.tsx` — the refusal box and the
+  deliberately-different transport notice.
+- `web/src/features/acquisitions/AcquisitionStepper.tsx` — four bars in
+  `stageStyles` colours plus the bounded log tail with Copy log.
+- `web/src/features/acquisitions/useAcquisitionStatus.ts` — the 2 s poll,
+  terminal on `posted | failed`, generation-owned.
+- `web/src/features/acquisitions/IngestingMeetingCard.tsx` — the meetings-list
+  card driven by `useJobEvents` + `applyEvent`, mounted only after `posted`.
+- `web/src/features/acquisitions/AddMeeting.tsx` — the screen.
+- `web/src/features/acquisitions/AddMeeting.route.tsx` — `path: '/add'`.
+- Four test files: `youtubeUrl.test.ts`, `acquisitions.test.ts`,
+  `AddMeeting.test.tsx`, `AddMeetingRoute.test.tsx` — 50 tests.
+
+**Review findings breakdown.** The in-workflow reviewer subagents were not run:
+this run was dispatched with an explicit instruction to work synchronously with
+no background agents, and this harness's subagents execute detached. The
+external Codex `bmad-code-review` lane is the substitute named in the same
+dispatch, and it applies its own patch findings. Patches applied: 0. Items
+deferred: 0. Items rejected: 0. Findings are therefore this story's open
+review surface, not a completed pass.
+
+**Follow-up review recommendation:** false (0 patched findings this pass;
+score 0). The external review lane is still owed.
+
+**Verification performed** (all foreground, full output read):
+
+- `make web-test` — 63 files, 720 tests, all passed. Includes the 50 new tests
+  and the three pre-existing `/add` tests (`shellPlacement.test.tsx:216`,
+  `globalShortcuts.ruling.test.tsx:74`,
+  `MomentsFeedStates.review.test.tsx:121`), which pass unchanged now that the
+  route resolves to a real screen.
+- `make lint` — ruff, all checks passed.
+- `make typecheck` — mypy, no issues in 13 source files.
+- `pnpm --dir web run lint` — oxlint clean; two `only-export-components`
+  warnings on the new files, matching the warnings every existing `*.route.tsx`
+  already carries.
+- `pnpm --dir web run build` — `tsc -b` then vite, built in 446 ms.
+- `python3 _bmad/scripts/branch_conflicts.py --against story/6-5` —
+  `story/6-5 × story/6-4a` clean and `story/6-5 × story/10-2a` clean, the two
+  in-flight builders. Every other reported conflict is identical to its
+  `main × <branch>` row, so it is inherited from main and involves no file this
+  branch touches.
+- Matrix audit: all 20 I/O matrix rows have a covering test that ran and passed.
+
+**Residual risks.**
+
+- Not exercised against a live api. Every acquisition response is a fixture, so
+  a field the api serves differently from `web/src/client/types.gen.ts` would
+  not be caught here. The generated client is the contract, and it was
+  regenerated by story 6.4.
+- The three file tabs render chrome and an explanatory sentence only. Story
+  6.5a fills them; if its design changes the tab set, this tablist changes with
+  it.
+- No `Name speakers` link on the finished card, though EXPERIENCE.md:144
+  describes one. `MeetingListItem` carries no field saying whether the meeting
+  arrived with a speaker-attributed transcript, so the condition is not
+  derivable from served data and inventing it would breach the story's own
+  "nothing is invented" rule. Recorded in Design Notes; it needs either an api
+  field or story 7.4's surface.
+- `RefusalBox` renders the api's strings directly. That is the point (AD-18),
+  but it means refusal quality is the api's to own, not this screen's.
