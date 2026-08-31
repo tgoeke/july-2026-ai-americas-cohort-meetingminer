@@ -192,11 +192,8 @@ llm:
         IDs run T1, T2, T3... The Topic cell is a short name for the topic; the Gist cell is one line saying what was discussed about it.
 
         Write nothing outside that section. If the transcript discusses nothing, write the table header with no rows under it.
-    # OpenAI, not Anthropic, by owner decision 2026-08-21: the Anthropic key
-    # was deliberately invalidated after unauthorized paid use, and the
-    # spine's AD-10 default binding (claude-sonnet-5) is superseded — see
-    # docs/project-record.md. No fallback, also by
-    # owner decision: a failing primary must surface as an error the user
+    # OpenAI, not Anthropic, by owner decision 2026-08-21. No fallback, also
+    # by owner decision: a failing primary must surface as an error the user
     # sees, never engage a silent substitute model. The `openai/` prefix is
     # required — the adapter's bare-name routing predates gpt-5 and would not
     # resolve `providers.openai` for an unprefixed tag.

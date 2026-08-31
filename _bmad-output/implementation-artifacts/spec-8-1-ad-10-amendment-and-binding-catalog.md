@@ -9,25 +9,6 @@ context: ['AGENTS.md', '_bmad-output/implementation-artifacts/wave-2026-08-30-ru
 warnings: ['oversized']
 deferred:
   - summary: >-
-      AC clause 3 is unmet: the stale chat comment in config.yaml (an
-      invalidated Anthropic key, a superseded claude-sonnet-5 default) is
-      still there.
-    evidence: |-
-      The clause is real, not already-satisfied: the literal token "revoked"
-      is absent but the comment it names is live. It was left alone because
-      `git diff --unified=0 origin/main...origin/story/10-1 -- config.yaml`
-      reports `@@ -146,0 +147,24 @@` - story 10-1 inserts at exactly the first
-      line of that comment, so any edit conflicts with an in-flight lane. The
-      wave rules say narrow rather than widen. Whoever lands after 10-1 should
-      delete the two stale sentences and keep the rest of that comment
-      verbatim: the no-fallback owner decision and the `openai/` prefix
-      requirement are both live. It is recorded here rather than in
-      docs/backlog.md because the wave rules put that file off limits to this
-      lane.
-    location: >-
-      config.yaml:147-154
-    severity: high
-  - summary: >-
       A role's `fallback` tag is subject to neither new rule.
     evidence: |-
       `llm.roles.extraction.fallback` is a live model tag resolved at call
@@ -283,21 +264,22 @@ Authored catalogs now require the active model to be one of their bindings;
 legacy roles are unchanged because their synthesized catalog already contains
 their model. A regression was observed failing before the validator was added.
 
-**2026-08-30 — AC clause 3 (the stale chat comment) is NOT already satisfied; recorded as an
-open gap rather than widened into.** The build prompt directed this story to verify that no
+**2026-08-30 — AC clause 3 was not already satisfied at build time.** The build prompt directed this story to verify that no
 `revoked` text remains and record the clause as satisfied. The literal token is indeed absent
 from `config.yaml` and `config.py`, but the comment the clause names is present at
 `config.yaml:147`-`154`: "the Anthropic key was deliberately invalidated after unauthorized
 paid use, and the spine's AD-10 default binding (claude-sonnet-5) is superseded". The
 Anthropic key was restored on 2026-08-29, so the claim is stale, and the sprint change
-proposal lists it as replaced by the catalog. It is left in place because `git diff
+proposal lists it as replaced by the catalog. It was left in place because `git diff
 --unified=0 origin/main...origin/story/10-1 -- config.yaml` reports `@@ -146,0 +147,24 @@` —
 story 10-1 inserts its `topics_prompt` block at exactly line 147, adjacent to every line of
 that comment, so any edit of it conflicts with an in-flight lane. Per the wave rules the edit
-is narrowed and the gap named here instead. Whoever lands after 10-1 should delete the two
-stale sentences (the invalidated key and the superseded `claude-sonnet-5` default) and keep
-the rest of that comment verbatim: the no-fallback owner decision and the `openai/` prefix
-requirement are both live.
+was narrowed and the gap named here instead. The recorded remedy was to delete the two stale
+sentences (the invalidated key and the superseded `claude-sonnet-5` default) and keep the rest
+of that comment verbatim: the no-fallback owner decision and the `openai/` prefix requirement
+are both live. After Story 10.1 landed, the follow-up review removed
+the two stale claims and preserved those three live rules; AC clause 3 is now
+satisfied.
 
 ## Review Triage Log
 
@@ -308,7 +290,7 @@ requirement are both live.
 - defer: 7: (high 1, medium 4, low 2)
 - reject: 9
 - addressed_findings:
-  - `[high]` `[patch]` Synthesized catalog entries were provider-checked, breaking every pre-catalog file whose tag prefix names an undeclared provider; caught by `make test` via the embedder fail-fast gate. Synthesized entries now carry no provider; regression added; `test_failfast.py`'s fixture drops the authored catalogs with the provider it removes.
+  - `[high]` `[patch]` Synthesized catalog entries were provider-checked, breaking every pre-catalog file whose tag prefix names an undeclared provider; caught by `make test` via the embedder fail-fast gate. The follow-up review preserves a derived provider but marks the entry synthesized so the new check is skipped; `test_failfast.py`'s fixture drops the authored catalogs with the provider it removes.
   - `[medium]` `[patch]` `_provider_prefix` docstring falsely claimed to restate `resolve_api_base`, which also routes bare `claude-`/`gpt-` spellings. Rewritten to state the narrowing and the reason for it.
   - `[medium]` `[patch]` A written `provider` was never checked against the tag's own prefix, so a declared-but-wrong provider passed while the call routed elsewhere. Now refused by name, with a test.
   - `[low]` `[patch]` The role loop assumed every `LlmRoles` field is an `LlmRoleBinding`; guarded with `isinstance`.
@@ -419,4 +401,3 @@ finding was patched.
 - The `_bmad-output` process files (`sprint-notes.md` and two other lanes'
   records) conflict as they already do against `main` itself; integrate absorbs
   them.
-- AC clause 3 is unmet by design, not by oversight — deferred item 1.

@@ -3266,13 +3266,11 @@ one per row of the spec's I/O matrix plus the committed-file check; each was
 observed failing against the unfixed loader first. `test_config.py` was not
 touched (11-2 appends there).
 
-**Gap left open, recorded in the spec's change log.** The AC clause about the
-stale chat comment in `config.yaml` (the invalidated Anthropic key and the
-superseded `claude-sonnet-5` default) is *not* already satisfied — the comment
-is live at the lines `story/10-1` inserts its `topics_prompt` block into. Per
-the wave rules the edit was narrowed rather than widened into another lane;
-whoever lands after 10-1 should delete those two sentences and keep the rest of
-that comment verbatim.
+**Gap closed by the follow-up review after Story 10.1 landed.** At build time,
+the stale invalidated-Anthropic-key and superseded-`claude-sonnet-5` claims were
+live at the lines Story 10.1 was editing, so the wave rules required narrowing.
+With that lane landed, the review deleted those two claims and kept the live
+OpenAI choice, no-fallback rule, and `openai/` prefix rationale.
 
 **Addendum, 8-1.** `make test` earned its keep. The first implementation derived
 a provider for the one-entry catalog synthesized from a role's `model` and then
