@@ -45,13 +45,17 @@ terminal but not filed does not exist.
 - Repo: `/Users/devopsterus/current/cohort/meetingminer` (main checkout — do not
   work in it). Your worktree: `make worktree STORY=7-2-review`.
 - Branch under review: `story/7-2`, rebased onto `main` at `7a1076d` (story
-  6.3 landed during this build). Range: `main..HEAD`, four commits:
+  6.3 landed during this build). Range: `main..HEAD`, six commits:
   - `a784db55f1caf33366b170d956f77418ae0113bc` docs(7-2): frozen spec for Speaker Tags on the Wire
   - `5f5436da3b2920bbff4dd77b81519a3db19068f8` feat(7-2): GET /meetings/{id}/speakers puts the speaker tags on the wire
   - `0c66bbcd340076ae0941d78939fbd45d15d37d6f` chore(7-2): regenerate the typed TS client for listMeetingSpeakers
   - `a6b3be4c3350c6ec7590197c414b527de202f867` docs(7-2): close the build — spec at review, tracking, reviewer handoff
-    (this commit also carries the review prompt you are reading; its own SHA
-    therefore names the tree as of the final push).
+  - `74372389e9abb2e90a823bb2ab840e4b774ef618` docs(7-2): rebase onto main — 6.3 landed, so the Zoom clause is now testable
+  - `512f56dad21d4e59b3a732a3814e8ff990177513` docs(7-2): record the rebased gate's real numbers
+    The last three are documentation only — spec, sprint tracking and this
+    prompt. The reviewable code is the second and third commits; verify the
+    range with `git log --oneline origin/main..origin/story/7-2` rather than
+    trusting this list, since a later doc commit may follow it.
 - Every commit in the range belongs to this story. None belongs to another.
 
 ## Spec
