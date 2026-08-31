@@ -37,13 +37,18 @@ from meetingminer.adapters.llm.litellm import LiteLlmCompleter, resolve_api_base
 from meetingminer.pipeline.extraction import (
     DOC_ACTION_ITEMS,
     DOC_ARCH_SUMMARY,
+    DOC_RANKING_SIGNALS,
+    DOC_TOPICS,
     KIND_ACTION_ITEM,
     KIND_ADR,
+    KIND_SUMMARY,
+    KNOWN_KINDS,
     LAYOUT_BULLET,
     LAYOUT_NONE,
     LAYOUT_TABLE,
     NO_DETAIL_BODY,
     PROMPT_VERSION,
+    SUMMARY_TITLE,
     AnchorResolutionError,
     ArtifactParseError,
     build_actions_prompt,
@@ -1273,3 +1278,155 @@ def test_the_llm_adapter_does_import_litellm() -> None:
     for path in LLM_ADAPTER_ROOT.rglob("*.py"):
         roots |= _imported_roots(path)
     assert "litellm" in roots
+
+
+# --- story 12.2: the executive summary is kept, not dropped -----------------
+#
+# The architecture summary is a whole-meeting analysis and until now only the
+# rows under its decisions heading survived parsing. These cases pin the prose,
+# the three heading spellings sampled from real output, and — just as
+# important — that capturing it changed nothing about what the document already
+# produced.
+
+# The three spellings sampled from real puller output. Numbering, emoji and
+# heading level all vary; the two-word phrase is what they share, which is why
+# it is what the parser keys on.
+_EXEC_SUMMARY_HEADINGS = (
+    "# 1️⃣ Executive Summary",
+    "## 1. Header & Executive Summary",
+    "# 1 Executive Summary",
+)
+
+
+def _summary_document(heading: str, prose: str) -> str:
+    """One architecture summary: an executive-summary section, then decisions.
+
+    The decisions heading is deliberately a *deeper* level than the first
+    heading in two of the three spellings, because that is what real documents
+    do and it is the case a "run to the next same-or-shallower heading" rule
+    would get wrong by swallowing the table.
+    """
+    return (
+        f"{heading}\n"
+        f"\n"
+        f"{prose}\n"
+        f"\n"
+        f"## 3. Decisions made\n"
+        f"\n"
+        f"| ID | Decision | Mark | Timestamp |\n"
+        f"|----|----------|------|-----------|\n"
+        f"| D1 | Vendor feeds move to SFTP | Confirmed | [4:23] |\n"
+    )
+
+
+@pytest.mark.parametrize("heading", _EXEC_SUMMARY_HEADINGS)
+def test_every_sampled_executive_summary_heading_is_recognized(heading: str) -> None:
+    """Matched on heading text, never on numbering — the parser's standing rule."""
+    prose = "- Vendor feeds move to SFTP [4:23]\n- Key rotation is unowned [9:02]"
+    document = parse_extraction_document(
+        _summary_document(heading, prose), DOC_ARCH_SUMMARY
+    )
+    assert document.summary == prose
+
+
+def test_the_summary_stops_at_the_next_heading_of_any_level() -> None:
+    """The decisions table is not swallowed into the summary body.
+
+    `# 1️⃣ Executive Summary` is level 1 and `## 3. Decisions made` is level 2,
+    so a rule that ran to the next same-or-shallower heading would take the
+    whole table with it. This is the case that chose the rule.
+    """
+    prose = "A one-line executive summary."
+    document = parse_extraction_document(
+        _summary_document("# 1️⃣ Executive Summary", prose), DOC_ARCH_SUMMARY
+    )
+    assert document.summary == prose
+    assert "D1" not in (document.summary or "")
+    assert "Vendor feeds move to SFTP" not in (document.summary or "")
+
+
+def test_capturing_the_summary_changes_nothing_else_about_the_parse() -> None:
+    """The whole safety argument for this story's parser change, asserted.
+
+    The executive-summary section is already a *target* section
+    (`_ARCH_TARGET_HEADINGS` contains "summary"), so its lines already feed the
+    populated-section signal and a stray `D`-row inside it already becomes an
+    ADR. The prose is therefore collected *in addition to* the existing
+    per-line handling, never instead of it — and this is what "in addition to"
+    means observably.
+    """
+    prose = "Prose that is not an item and must not become one."
+    with_summary = parse_extraction_document(SUMMARY_TABLE, DOC_ARCH_SUMMARY)
+    assert with_summary.summary == prose
+    # Byte-for-byte the outcomes the pre-12.2 parser produced for this fixture.
+    assert _identity(with_summary) == [
+        (KIND_ADR, "Vendor feeds move to SFTP", 263_000, "D1"),
+        (KIND_ADR, "Adopt Fabrikam for the hub", 291_000, "D2"),
+        (KIND_ADR, "Ops owns key rotation", 266_000, "D3"),
+    ]
+    assert with_summary.layout == LAYOUT_TABLE
+    assert with_summary.populated_target_sections == ("3. Decisions made",)
+
+
+def test_a_document_with_no_executive_summary_yields_none() -> None:
+    """No fabrication. The bullet fixture's heading is `# Architecture summary`,
+    which is not an executive summary, and the generated prompt emits no such
+    section at all — so the generate path produces no summary artifact."""
+    assert parse_extraction_document(SUMMARY_BULLET, DOC_ARCH_SUMMARY).summary is None
+
+
+def test_an_empty_executive_summary_section_yields_none_not_empty_string() -> None:
+    """A section that is present but carries nothing is "no summary", not an
+    empty summary worth storing: there is nothing for a reader to read either
+    way, and a stored empty artifact would occupy the meeting's summary slot."""
+    document = parse_extraction_document(
+        _summary_document("# 1 Executive Summary", "   \n\n\t"), DOC_ARCH_SUMMARY
+    )
+    assert document.summary is None
+
+
+def test_the_summary_keeps_its_own_paragraph_breaks() -> None:
+    """Stripped at the ends only. The prose is stored as the model wrote it —
+    the same rule story 12.1 applied to the document as a whole."""
+    prose = "First line.\n\n- A bullet [4:23]\n- Another bullet [9:02]"
+    document = parse_extraction_document(
+        _summary_document("# 1 Executive Summary", prose), DOC_ARCH_SUMMARY
+    )
+    assert document.summary == prose
+
+
+def test_only_the_architecture_summary_carries_a_summary() -> None:
+    """Every other document kind parses to `summary=None`, including one whose
+    own text contains the phrase: the field belongs to the architecture
+    summary's section, not to any occurrence of the words."""
+    actions = parse_extraction_document(ACTIONS_TABLE, DOC_ACTION_ITEMS)
+    assert actions.summary is None
+
+    topics = parse_extraction_document(
+        "# Topics\n\n| ID | Topic | Gist | Timestamps |\n"
+        "|----|-------|------|-----------|\n"
+        "| T1 | Vendor feeds | Moving to SFTP | [4:23] |\n",
+        DOC_TOPICS,
+    )
+    assert topics.summary is None
+
+    signals = parse_extraction_document(
+        "# 1 Executive Summary\n\nProse that must not be captured here.\n\n"
+        "## Risks\n\n| ID | Risk | Timestamp |\n|----|------|-----------|\n"
+        "| R1 | Key rotation unowned | [9:02] |\n",
+        DOC_RANKING_SIGNALS,
+    )
+    assert signals.summary is None
+
+
+def test_the_summary_kind_is_an_artifact_kind_with_no_anchor_of_its_own() -> None:
+    """`summary` counts as an artifact kind (it enters the same lifecycle), and
+    the summary is deliberately not a `ProposedArtifact`: every one of those
+    carries an `anchor_ms`, and a summary has no anchor. Giving it one would be
+    a fabricated citation."""
+    assert KIND_SUMMARY in KNOWN_KINDS
+    document = parse_extraction_document(
+        _summary_document("# 1 Executive Summary", "Prose."), DOC_ARCH_SUMMARY
+    )
+    assert all(item.kind != KIND_SUMMARY for item in document.artifacts)
+    assert SUMMARY_TITLE
