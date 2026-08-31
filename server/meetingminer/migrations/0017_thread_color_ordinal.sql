@@ -65,7 +65,11 @@ LANGUAGE plpgsql AS $$
 BEGIN
     IF NEW.color_ordinal IS NULL THEN
         NEW.color_ordinal := nextval('thread_color_ordinal_seq');
-    ELSIF NEW.color_ordinal > (SELECT last_value FROM thread_color_ordinal_seq) THEN
+    -- Equality matters for a fresh sequence: its first `last_value` is present
+    -- while `is_called` is false, so leaving an explicit `1` untouched would
+    -- let the next `nextval` return `1` again. Calling `setval` for equality
+    -- marks that value consumed as well as keeping larger imports ahead.
+    ELSIF NEW.color_ordinal >= (SELECT last_value FROM thread_color_ordinal_seq) THEN
         PERFORM setval('thread_color_ordinal_seq', NEW.color_ordinal);
     END IF;
     RETURN NEW;
