@@ -39,7 +39,10 @@ from pydantic.alias_generators import to_camel
 
 from meetingminer import acquisitions, uploads, youtube
 from meetingminer.api.problems import Problem, ProblemDetails
-from meetingminer.api.uploads import refusal_problem as upload_refusal_problem
+from meetingminer.api.uploads import (
+    refusal_problem as upload_refusal_problem,
+    state_problem as upload_state_problem,
+)
 from meetingminer.config import AppConfig, ConfigError
 from meetingminer.transcripts import dialects
 
@@ -266,6 +269,11 @@ def start_acquisition(
         raise _refusal_problem(exc) from exc
     except acquisitions.AcquisitionInProgress as exc:
         rule = "acquisition-in-progress"
+        remediation = (
+            uploads.REMEDIATIONS[rule]
+            if exc.record.kind == acquisitions.KIND_UPLOAD
+            else acquisitions.YOUTUBE_IN_PROGRESS_REMEDIATION
+        )
         raise Problem(
             409,
             "acquisition-in-progress",
@@ -273,11 +281,15 @@ def start_acquisition(
             f" {exc.record.status} for {exc.record.source_id}; poll it rather"
             " than starting a second one",
             rule=rule,
-            remediation=uploads.REMEDIATIONS[rule],
+            remediation=remediation,
             acquisitionId=exc.record.acquisition_id,
             sourceId=exc.record.source_id,
         ) from exc
     except acquisitions.AcquisitionStateError as exc:
+        if body.upload_session_id is not None:
+            raise upload_state_problem(
+                exc, rule="acquisition-state-unwritable"
+            ) from exc
         raise Problem(500, "acquisition-state-unwritable", str(exc)) from exc
     return AcquisitionAccepted(
         acquisition_id=UUID(record.acquisition_id),

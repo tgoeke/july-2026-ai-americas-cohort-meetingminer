@@ -93,6 +93,22 @@ SESSION_FILENAME = "session.json"
 #: ``acquisitions.write_record`` uses for the same reason.
 TEMP_SUFFIX = ".tmp"
 
+#: A create request writes this pid-bearing marker before its first await. The
+#: TTL sweep can therefore distinguish a live request from an abandoned partial
+#: directory without holding a process-blocking lock across the request body or
+#: ffprobe.
+CREATE_OWNER_PREFIX = ".create-owner-"
+
+#: Before the owner marker exists, construction happens under this hidden,
+#: pid-bearing name. The directory becomes a sweep-visible UUID only through
+#: one atomic rename after ownership is durable.
+CREATE_STAGING_PREFIX = ".creating-"
+
+#: Deletion first renames a session out of the UUID namespace. Even when the
+#: recursive removal then fails, no later acquisition can consume those bytes.
+#: The next sweep retries these internal tombstones without waiting for TTL.
+DISCARD_PREFIX = ".discard-"
+
 #: The multipart field names this endpoint knows. Anything else is refused by
 #: name rather than silently ignored, so a misspelled ``titel`` is reported as
 #: the typo it is instead of as a missing title.
@@ -189,10 +205,12 @@ REFUSAL_RULES = frozenset(
         # the session named does not exist
         "upload-session-not-found",
         "upload-session-unreadable",
+        "upload-session-unwritable",
         # acquisition request/claim refusals owned by the upload surface
         "acquisition-source-ambiguous",
         "acquisition-source-missing",
         "acquisition-in-progress",
+        "acquisition-state-unwritable",
     }
 )
 
@@ -290,6 +308,10 @@ REMEDIATIONS: dict[str, str] = {
         "Upload the files again. The staged session is incomplete or unreadable"
         " and cannot safely become a write-once drop."
     ),
+    "upload-session-unwritable": (
+        "The staged session could not be removed. Check MM_DROPS_ROOT is mounted"
+        " and writable, then retry; the session is quarantined from acquisition."
+    ),
     "acquisition-source-ambiguous": (
         "Send exactly one source: url or uploadSessionId, never both."
     ),
@@ -299,6 +321,10 @@ REMEDIATIONS: dict[str, str] = {
     "acquisition-in-progress": (
         "Poll the named acquisition instead of starting or deleting this upload"
         " session while its detached runner owns it."
+    ),
+    "acquisition-state-unwritable": (
+        "The acquisition state directory could not be locked or written. Check"
+        " the api host's .logs/acquisitions permissions, then retry."
     ),
 }
 
@@ -329,9 +355,11 @@ PROBLEM_STATUS: dict[str, int] = {
     "upload-staging-unwritable": 503,
     "upload-session-not-found": 404,
     "upload-session-unreadable": 503,
+    "upload-session-unwritable": 503,
     "acquisition-source-ambiguous": 400,
     "acquisition-source-missing": 400,
     "acquisition-in-progress": 409,
+    "acquisition-state-unwritable": 503,
 }
 
 
@@ -580,11 +608,12 @@ def read_session(root: Path, session_id: str) -> UploadSession:
 
 
 def discard_session(root: Path, session_id: str) -> bool:
-    """Remove one session's directory. ``True`` when there was one to remove.
+    """Quarantine and remove one session. ``True`` when there was one.
 
-    Never raises for a missing directory: this runs on the failure path of an
-    acquisition, and a cleanup that can fail is a cleanup that leaves bytes
-    behind.
+    The rename happens before the recursive removal, under the caller's claim
+    lock. A failed removal can therefore leave bytes only under an internal
+    dot-prefixed tombstone, never beside the UUID a second acquisition accepts.
+    Missing is idempotent; every other filesystem failure is named.
     """
     try:
         directory = session_directory(root, session_id)
@@ -592,8 +621,27 @@ def discard_session(root: Path, session_id: str) -> bool:
         return False
     if not directory.is_dir():
         return False
-    shutil.rmtree(directory, ignore_errors=True)
-    return not directory.exists()
+    discarded = root / f"{DISCARD_PREFIX}{session_id}-{uuid.uuid4().hex}"
+    try:
+        os.replace(directory, discarded)
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise UploadStateError(
+            f"the upload session at {directory} could not be quarantined before"
+            f" removal: {exc}"
+        ) from exc
+    try:
+        shutil.rmtree(discarded)
+    except OSError as exc:
+        raise UploadStateError(
+            f"the upload session at {discarded} could not be removed: {exc}"
+        ) from exc
+    if discarded.exists():
+        raise UploadStateError(
+            f"the upload session at {discarded} could not be removed"
+        )
+    return True
 
 
 def expired_at(created: datetime, limits: UploadLimits) -> datetime:
@@ -629,9 +677,23 @@ def sweep_expired(
     except OSError:
         return []
     for entry in entries:
+        if entry.is_dir() and entry.name.startswith(DISCARD_PREFIX):
+            shutil.rmtree(entry, ignore_errors=True)
+            continue
+        if entry.is_dir() and entry.name.startswith(CREATE_STAGING_PREFIX):
+            raw_pid = entry.name.removeprefix(CREATE_STAGING_PREFIX).split("-", 1)[0]
+            try:
+                live = _pid_is_live(int(raw_pid))
+            except ValueError:
+                live = False
+            if not live and _incomplete_expired(entry, limits, now=now):
+                shutil.rmtree(entry, ignore_errors=True)
+            continue
         if not entry.is_dir() or not SESSION_ID_PATTERN.fullmatch(entry.name):
             continue
         if entry.name in protected:
+            continue
+        if _create_owner_is_live(entry):
             continue
         try:
             session = read_session(root, entry.name)
@@ -643,18 +705,39 @@ def sweep_expired(
             if _parse_stamp(session.expires_at) > now:
                 continue
         else:
-            try:
-                mtime = datetime.fromtimestamp(
-                    _latest_activity_mtime(entry), tz=timezone.utc
-                )
-            except OSError:
-                continue
-            if expired_at(mtime, limits) > now:
+            if not _incomplete_expired(entry, limits, now=now):
                 continue
         shutil.rmtree(entry, ignore_errors=True)
         if not entry.exists():
             removed.append(entry.name)
     return removed
+
+
+def _create_owner_is_live(directory: Path) -> bool:
+    """Whether an API process named by this create marker still exists."""
+    for marker in directory.glob(f"{CREATE_OWNER_PREFIX}*"):
+        raw_pid = marker.name.removeprefix(CREATE_OWNER_PREFIX)
+        try:
+            pid = int(raw_pid)
+        except ValueError:
+            continue
+        if _pid_is_live(pid):
+            return True
+    return False
+
+
+def _pid_is_live(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
 
 
 def _latest_activity_mtime(directory: Path) -> float:
@@ -669,6 +752,18 @@ def _latest_activity_mtime(directory: Path) -> float:
         with suppress(OSError):
             latest = max(latest, child.stat().st_mtime)
     return latest
+
+
+def _incomplete_expired(
+    directory: Path, limits: UploadLimits, *, now: datetime
+) -> bool:
+    try:
+        mtime = datetime.fromtimestamp(
+            _latest_activity_mtime(directory), tz=timezone.utc
+        )
+    except OSError:
+        return False
+    return expired_at(mtime, limits) <= now
 
 
 def _parse_stamp(raw: str) -> datetime:
@@ -939,14 +1034,28 @@ async def create_session(
 
     session_id = str(uuid.uuid4())
     directory = session_directory(root, session_id)
+    staging = root / f"{CREATE_STAGING_PREFIX}{os.getpid()}-{session_id}"
     try:
-        directory.mkdir(parents=True)
+        staging.mkdir(parents=True)
     except OSError as exc:
         raise UploadRefused(
-            f"the upload staging directory could not be created at {directory}:"
+            f"the upload staging directory could not be created at {staging}:"
             f" {exc}",
             rule="upload-staging-unwritable",
         ) from exc
+
+    owner_name = f"{CREATE_OWNER_PREFIX}{os.getpid()}"
+    owner = staging / owner_name
+    try:
+        owner.touch(exist_ok=False)
+        os.replace(staging, directory)
+    except OSError as exc:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise UploadRefused(
+            f"the upload create owner could not be recorded at {owner}: {exc}",
+            rule="upload-staging-unwritable",
+        ) from exc
+    owner = directory / owner_name
 
     sink = _PartSink(directory, limits)
     try:
@@ -1003,6 +1112,12 @@ async def create_session(
             now=now() if callable(now) else now,
         )
         write_session(session)
+        try:
+            owner.unlink()
+        except OSError as exc:
+            raise UploadStateError(
+                f"the upload create owner could not be removed from {owner}: {exc}"
+            ) from exc
     except BaseException:
         shutil.rmtree(directory, ignore_errors=True)
         raise

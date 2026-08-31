@@ -99,6 +99,11 @@ LOG_SUFFIX = ".log"
 TEMP_SUFFIX = ".tmp"
 CLAIM_LOCK_FILENAME = ".claim.lock"
 
+YOUTUBE_IN_PROGRESS_REMEDIATION = (
+    "Poll the named acquisition instead of starting this YouTube video again"
+    " while its detached runner owns it."
+)
+
 #: The four states ``GET /acquisitions/{id}`` reports.
 STATUSES = ("queued", "running", "posted", "failed")
 
@@ -1063,7 +1068,7 @@ def _complete_upload_record(
     sessions_root: Path,
     session_id: str,
     record: AcquisitionRecord,
-) -> None:
+) -> AcquisitionRecord:
     """Publish a terminal record only after its claimed bytes are gone.
 
     Launch, DELETE and sweep all use this claim lock. Keeping cleanup and the
@@ -1072,9 +1077,46 @@ def _complete_upload_record(
     terminal record plus no session, never terminal state beside consumable
     bytes.
     """
+    def _failed(rule: str, detail: str) -> AcquisitionRecord:
+        return record.advanced(
+            status="failed",
+            result=None,
+            refusal=Refusal(
+                rule=rule,
+                detail=_one_line(detail),
+                remediation=uploads.REMEDIATIONS[rule],
+            ),
+        )
+
+    def _persist(candidate: AcquisitionRecord) -> AcquisitionRecord:
+        try:
+            write_record(root, candidate)
+            return candidate
+        except AcquisitionStateError as exc:
+            # The session is already absent from the claimable UUID namespace.
+            # A second atomic write records the degraded terminal outcome after
+            # a transient replace/fsync failure instead of stranding `running`.
+            fallback = _failed("acquisition-state-unwritable", str(exc))
+            write_record(root, fallback)
+            return fallback
+
     with claim_lock(root):
-        uploads.discard_session(sessions_root, session_id)
-        write_record(root, record)
+        try:
+            uploads.discard_session(sessions_root, session_id)
+        except uploads.UploadStateError as exc:
+            # A quarantine rename can itself fail. In that case the public
+            # UUID directory is still claimable, so publishing *any* terminal
+            # record would reopen it to another detached runner. Preserve the
+            # existing nonterminal ownership record and surface the named
+            # state error instead. Once quarantine succeeded, a later rmtree
+            # failure is safe to publish as failed because the UUID is gone.
+            if (sessions_root / session_id).exists():
+                raise
+            # `discard_session` quarantines before recursive removal, so even
+            # this failed cleanup cannot leave a reusable UUID session beside
+            # the terminal failure record.
+            return _persist(_failed("upload-session-unwritable", str(exc)))
+        return _persist(record)
 
 
 def run_upload_acquisition(
@@ -1153,7 +1195,7 @@ def run_upload_acquisition(
         ) as exc:
             print(f"refused    {exc}", file=sys.stderr, flush=True)
             record = record.advanced(status="failed", refusal=refusal_for(exc))
-            _complete_upload_record(root, sessions, session_id, record)
+            record = _complete_upload_record(root, sessions, session_id, record)
             completed = True
             return record
 
@@ -1177,7 +1219,7 @@ def run_upload_acquisition(
                     ),
                 ),
             )
-            _complete_upload_record(root, sessions, session_id, record)
+            record = _complete_upload_record(root, sessions, session_id, record)
             completed = True
             return record
 
@@ -1204,10 +1246,14 @@ def run_upload_acquisition(
             tool_version=(
                 provenance.get("toolVersion")
                 if isinstance(provenance.get("toolVersion"), str)
-                else None
+                else (
+                    provenance.get("ytDlpVersion")
+                    if isinstance(provenance.get("ytDlpVersion"), str)
+                    else None
+                )
             ),
         )
-        _complete_upload_record(root, sessions, session_id, record)
+        record = _complete_upload_record(root, sessions, session_id, record)
         completed = True
         return record
     finally:

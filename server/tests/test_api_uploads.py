@@ -895,7 +895,7 @@ def test_delete_cleanup_failure_is_a_complete_named_http_refusal(
     make_env: Callable[..., Env],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    env = make_env()
+    make_env()
     session_id = post_session(client, data=fields(), files=[vtt_part()]).json()[
         "uploadSessionId"
     ]
@@ -1021,7 +1021,8 @@ def test_a_live_create_owner_survives_a_concurrent_ttl_sweep(
                     )
                 )
             )
-        except BaseException as exc:  # surfaced in the test thread below
+        except (uploads.UploadError, OSError, AssertionError, RuntimeError) as exc:
+            # Surfaced in the test thread below.
             failures.append(exc)
 
     creator = threading.Thread(target=_create)
@@ -1048,6 +1049,64 @@ def test_a_live_create_owner_survives_a_concurrent_ttl_sweep(
     assert failures == []
     assert [session.session_id for session in result] == [directory.name]
     assert not list(directory.glob(".create-owner-*"))
+
+
+def test_create_is_not_sweep_visible_before_its_owner_marker_exists(
+    make_env: Callable[..., Env],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = make_env(session_ttl_minutes=1)
+    limits = uploads.UploadLimits.from_config(env.config)
+    entered_owner_write = threading.Event()
+    release_owner_write = threading.Event()
+    result: list[uploads.UploadSession] = []
+    failures: list[BaseException] = []
+    raw = multipart_body(list(fields().items()), file=("meeting.vtt", ZOOM_VTT))
+    real_touch = Path.touch
+
+    def _touch(path: Path, *args: Any, **kwargs: Any) -> None:
+        if path.name.startswith(uploads.CREATE_OWNER_PREFIX):
+            entered_owner_write.set()
+            assert release_owner_write.wait(timeout=2)
+        real_touch(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "touch", _touch)
+
+    async def _body() -> Any:
+        yield raw
+
+    def _create() -> None:
+        try:
+            result.append(
+                asyncio.run(
+                    uploads.create_session(
+                        root=env.uploads_root,
+                        content_type="multipart/form-data; boundary=mmboundary",
+                        content_length=len(raw),
+                        body=_body(),
+                        limits=limits,
+                        now=lambda: datetime.now(timezone.utc),
+                    )
+                )
+            )
+        except (uploads.UploadError, OSError, AssertionError, RuntimeError) as exc:
+            failures.append(exc)
+
+    creator = threading.Thread(target=_create)
+    creator.start()
+    assert entered_owner_write.wait(timeout=2)
+
+    swept = uploads.sweep_expired(
+        env.uploads_root,
+        limits,
+        now=datetime.now(timezone.utc) + timedelta(minutes=2),
+    )
+    release_owner_write.set()
+    creator.join(timeout=3)
+
+    assert swept == []
+    assert failures == []
+    assert len(result) == 1
 
 
 def test_incomplete_session_age_uses_current_child_file_activity(
@@ -1431,7 +1490,7 @@ def test_launch_claim_blocks_delete_until_the_live_owner_is_published(
     def _launch() -> None:
         try:
             acquisitions.launch_upload(env.config, session_id)
-        except BaseException as exc:
+        except (acquisitions.AcquisitionError, uploads.UploadError, AssertionError) as exc:
             launch_failures.append(exc)
 
     def _delete() -> None:
@@ -1557,7 +1616,7 @@ def test_terminal_cleanup_blocks_a_second_launch_until_the_session_is_gone(
     def _launch() -> None:
         try:
             acquisitions.launch_upload(env.config, session_id)
-        except BaseException as exc:
+        except (acquisitions.AcquisitionError, uploads.UploadError, AssertionError) as exc:
             launch_failures.append(exc)
         finally:
             launch_done.set()
@@ -1590,7 +1649,8 @@ def test_parent_process_start_failure_discards_the_claimed_session(
         lambda *a, **k: (_ for _ in ()).throw(OSError("exec failed")),
     )
     response = start_acquisition(client, session_id)
-    assert response.status_code == 500
+    assert response.status_code == 503
+    assert refusal(response)[0] == "acquisition-state-unwritable"
     assert env.session_dirs() == []
 
 
@@ -1635,6 +1695,55 @@ def test_terminal_cleanup_failure_never_publishes_posted_beside_a_reusable_sessi
     assert persisted.status == "failed"
     assert persisted.refusal is not None
     assert persisted.refusal.rule == "upload-session-unwritable"
+
+
+def test_terminal_quarantine_failure_does_not_publish_terminal_state(
+    client: Any,
+    make_env: Callable[..., Env],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = make_env()
+    session_id = post_session(client, data=fields(), files=[vtt_part()]).json()[
+        "uploadSessionId"
+    ]
+    session_directory = env.uploads_root / session_id
+    acquisition_id = str(uuid.uuid4())
+    running = acquisitions.AcquisitionRecord(
+        acquisition_id=acquisition_id,
+        source_id=f"upload:{session_id}",
+        url=f"upload:{session_id}",
+        status="running",
+        created_at=STARTED_AT,
+        updated_at=STARTED_AT,
+        pid=os.getpid(),
+        kind=acquisitions.KIND_UPLOAD,
+        upload_session_id=session_id,
+    )
+    acquisitions.write_record(env.acquisitions_root, running)
+    real_replace = uploads.os.replace
+
+    def _replace(source: str | Path, target: str | Path) -> None:
+        if Path(source) == session_directory:
+            raise OSError("quarantine rename failed")
+        real_replace(source, target)
+
+    monkeypatch.setattr(uploads.os, "replace", _replace)
+
+    with pytest.raises(uploads.UploadStateError, match="could not be quarantined"):
+        acquisitions._complete_upload_record(
+            env.acquisitions_root,
+            env.uploads_root,
+            session_id,
+            running.advanced(
+                status="posted", source_id="sha256:done", result="created"
+            ),
+        )
+
+    assert session_directory.is_dir()
+    persisted = acquisitions.read_record(env.acquisitions_root, acquisition_id)
+    assert persisted.status == "running"
+    with pytest.raises(acquisitions.AcquisitionInProgress):
+        acquisitions.launch_upload(env.config, session_id)
 
 
 def test_transient_terminal_status_write_failure_is_recovered_as_failed(
@@ -2034,6 +2143,14 @@ def test_hand_mint_and_upload_are_exactly_equal_for_every_supported_shape(
             identity_root=env.drops,
             provenance_extra=conversion.provenance_extra,
         )
+    real_runner_mint = acquisitions.mint
+    runner_evidence: list[set[str]] = []
+
+    def _capture_runner_mint(**kwargs: Any) -> Any:
+        runner_evidence.append({Path(path).name for path in kwargs["supplied"]})
+        return real_runner_mint(**kwargs)
+
+    monkeypatch.setattr(acquisitions, "mint", _capture_runner_mint)
     uploaded = acquisitions.run_upload_acquisition(
         env.config,
         accepted["acquisitionId"],
@@ -2046,6 +2163,7 @@ def test_hand_mint_and_upload_are_exactly_equal_for_every_supported_shape(
     assert uploaded.status == "posted"
     assert uploaded.result == "exists"
     assert uploaded.source_id == hand.source_id
+    assert runner_evidence == [expected_evidence]
     metadata = read_metadata(hand.path)
     assert metadata["startedAt"] == STARTED_AT
     assert metadata["startedAtPrecision"] == "second"

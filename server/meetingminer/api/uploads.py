@@ -197,6 +197,19 @@ def refusal_problem(error: uploads.UploadRefused) -> Problem:
     )
 
 
+def state_problem(error: Exception, *, rule: str) -> Problem:
+    """One upload infrastructure refusal through the same closed vocabulary."""
+    status = uploads.PROBLEM_STATUS[rule]
+    return Problem(
+        status,
+        "upload-refused",
+        " ".join(str(error).split()),
+        title=_REFUSAL_TITLES.get(status),
+        rule=rule,
+        remediation=uploads.REMEDIATIONS[rule],
+    )
+
+
 def _view(session: uploads.UploadSession) -> UploadSessionView:
     return UploadSessionView(
         upload_session_id=UUID(session.session_id),
@@ -249,19 +262,21 @@ def _root(request: Request) -> tuple[AppConfig, uploads.UploadLimits, Path]:
 async def create_upload_session(request: Request) -> UploadSessionView:
     try:
         config, limits, root = _root(request)
+        # Cheap, bounded, and the only thing that reclaims an abandoned
+        # session's bytes. This lock covers the ownership snapshot plus sweep,
+        # never the awaited request stream below.
+        state_root = acquisitions.acquisitions_root(config)
+        with acquisitions.claim_lock(state_root):
+            uploads.sweep_expired(
+                root,
+                limits,
+                now=datetime.now(timezone.utc),
+                protected_session_ids=acquisitions.live_upload_sessions(state_root),
+            )
     except uploads.UploadRefused as exc:
         raise refusal_problem(exc) from exc
-
-    # Cheap, bounded, and the only thing that reclaims an abandoned session's
-    # bytes: story 6.4's spec recorded that nothing reaped staged state.
-    state_root = acquisitions.acquisitions_root(config)
-    with acquisitions.claim_lock(state_root):
-        uploads.sweep_expired(
-            root,
-            limits,
-            now=datetime.now(timezone.utc),
-            protected_session_ids=acquisitions.live_upload_sessions(state_root),
-        )
+    except acquisitions.AcquisitionStateError as exc:
+        raise state_problem(exc, rule="acquisition-state-unwritable") from exc
 
     declared = request.headers.get("content-length")
     try:
@@ -283,7 +298,7 @@ async def create_upload_session(request: Request) -> UploadSessionView:
     except uploads.UploadRefused as exc:
         raise refusal_problem(exc) from exc
     except uploads.UploadStateError as exc:
-        raise Problem(500, "upload-state-unwritable", str(exc)) from exc
+        raise state_problem(exc, rule="upload-staging-unwritable") from exc
     return _view(session)
 
 
@@ -310,7 +325,7 @@ def get_upload_session(upload_session_id: UUID, request: Request) -> UploadSessi
     except uploads.UploadRefused as exc:
         raise refusal_problem(exc) from exc
     except uploads.UploadStateError as exc:
-        raise Problem(500, "upload-state-unreadable", str(exc)) from exc
+        raise state_problem(exc, rule="upload-session-unreadable") from exc
     return _view(session)
 
 
@@ -356,7 +371,9 @@ def delete_upload_session(upload_session_id: UUID, request: Request) -> Response
     except uploads.UploadRefused as exc:
         raise refusal_problem(exc) from exc
     except uploads.UploadStateError as exc:
-        raise Problem(500, "upload-state-unreadable", str(exc)) from exc
+        raise state_problem(exc, rule="upload-session-unwritable") from exc
+    except acquisitions.AcquisitionStateError as exc:
+        raise state_problem(exc, rule="acquisition-state-unwritable") from exc
     if not removed:
         raise _not_found(upload_session_id)
     return Response(status_code=204)
