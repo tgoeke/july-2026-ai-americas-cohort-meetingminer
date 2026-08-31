@@ -1138,6 +1138,7 @@ def _no_incidental_projection(monkeypatch: pytest.MonkeyPatch) -> None:
     from meetingminer.pipeline import runner
 
     monkeypatch.setattr(runner, "_maybe_project", lambda *_a, **_kw: None)
+    monkeypatch.setattr(runner, "_maybe_project_documents", lambda *_a, **_kw: None)
 
 
 def _real_maybe_project() -> Any:
@@ -1150,12 +1151,31 @@ def _real_maybe_project() -> Any:
 _REAL_MAYBE_PROJECT = _real_maybe_project()
 
 
+def _real_maybe_project_documents() -> Any:
+    from meetingminer.pipeline import runner
+
+    return runner._maybe_project_documents
+
+
+_REAL_MAYBE_PROJECT_DOCUMENTS = _real_maybe_project_documents()
+
+
 @pytest.fixture()
 def projection_trigger(monkeypatch: pytest.MonkeyPatch) -> None:
     """Put the real ingest-complete projection trigger back for this test."""
     from meetingminer.pipeline import runner
 
     monkeypatch.setattr(runner, "_maybe_project", _REAL_MAYBE_PROJECT)
+
+
+@pytest.fixture()
+def document_projection_trigger(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Put the real extraction-document settle trigger back for this test."""
+    from meetingminer.pipeline import runner
+
+    monkeypatch.setattr(
+        runner, "_maybe_project_documents", _REAL_MAYBE_PROJECT_DOCUMENTS
+    )
 
 
 def stores_reachable(config: AppConfig) -> str | None:
