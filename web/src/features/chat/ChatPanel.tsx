@@ -193,9 +193,17 @@ export function ChatPanel({
 
       <form
         onSubmit={handleSubmit}
-        className={compact ? 'flex items-center gap-1.5' : 'flex flex-col gap-2'}
+        className={
+          compact ? 'flex flex-wrap items-center gap-1.5' : 'flex flex-col gap-2'
+        }
       >
-        <label className={compact ? 'min-w-0 flex-1 text-sm' : 'flex flex-col gap-1 text-sm'}>
+        <label
+          className={
+            compact
+              ? 'min-w-0 flex-1 basis-56 text-sm'
+              : 'flex flex-col gap-1 text-sm'
+          }
+        >
           <span className={compact ? 'sr-only' : 'text-muted-foreground'}>
             Ask a question about what was discussed — the answer is cited to
             the moments it came from

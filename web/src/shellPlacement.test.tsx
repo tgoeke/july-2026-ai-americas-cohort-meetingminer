@@ -131,21 +131,29 @@ describe('shell placement', () => {
   })
 
   it.each(childRoutes.map((route) => route.path))(
-    'renders %s directly below compact search and ask chrome',
+    'renders %s beside the standing search and ask controls',
     (pattern) => {
       window.history.replaceState(null, '', concretePath(pattern))
       render(<App />)
 
       const child = screen.getByTestId('child-screen')
       const chrome = screen.getByTestId('search-ask-chrome')
-      const header = chrome.closest('header')
+      const rail = chrome.closest('aside')
       // The child screen is open…
       expect(child).not.toHaveAttribute('hidden')
-      // …and the compact controls precede it inside the one sticky header,
-      // rather than occupying a flow-height block between Back and Outlet.
-      expect(header).toHaveClass('sticky')
-      expect(header).toContainElement(screen.getByTestId('search-input'))
-      expect(header).toContainElement(screen.getByTestId('chat-question-input'))
+      // …and the controls live in their own rail rather than in a
+      // flow-height block between Back and Outlet.
+      //
+      // Owner revision 2026-08-31: they used to sit inside the sticky header
+      // (story 10.5's F10 ruling). On a wide display the rail is a left column
+      // beside the content and the header keeps the nav; below the breakpoint
+      // it is the same short strip. What B-13 actually forbids — a growing
+      // block that pushes the opened screen down — is unchanged, because the
+      // results still expand as overlays.
+      expect(rail).not.toBeNull()
+      expect(rail).toHaveClass('min-[1400px]:sticky')
+      expect(rail).toContainElement(screen.getByTestId('search-input'))
+      expect(rail).toContainElement(screen.getByTestId('chat-question-input'))
       expect(child.compareDocumentPosition(chrome)).toBe(Node.DOCUMENT_POSITION_PRECEDING)
       // The Back control belongs to an open child screen.
       expect(child.previousElementSibling).toHaveTextContent('← Back')

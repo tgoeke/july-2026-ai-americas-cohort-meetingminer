@@ -250,6 +250,21 @@ function Shell() {
 
   return (
     <div className="flex min-h-screen flex-col">
+      {/* Owner request 2026-08-31: the corpus metrics sit above everything,
+          including the chrome, as one full-width row. They answer "how much
+          evidence is in here" before the reader looks at anything else, and on
+          a wide display seven figures fit on a single line. */}
+      <div
+        data-testid="corpus-stats-banner"
+        className="border-b border-border bg-background px-4 py-2 min-[1200px]:px-8"
+      >
+        <CorpusStats />
+      </div>
+      {/* Column on a normal display, two columns on a wide one: the chrome
+          becomes a left rail so Search and Ask stand beside the content
+          instead of above it (owner request, for a full-screen 32" demo).
+          The DOM order is unchanged — only the axis — so the chrome keeps the
+          placement `chromeSearchAsk.ruling.test.tsx` pins. */}
       {/* SPEC-ui-reimagine CAP-1 chrome, recomposed by story 10.5: the brand,
           the standing destinations, the one primary action, and the health
           indicator, sticky at the top of every screen. */}
@@ -272,37 +287,6 @@ function Shell() {
               </NavLink>
             ))}
           </nav>
-          <div
-            data-testid="search-ask-chrome"
-            className="order-last flex w-full items-center gap-2 min-[1200px]:order-none min-[1200px]:ml-auto min-[1200px]:w-auto"
-          >
-            <div
-              className="relative min-w-0 flex-1 min-[1200px]:w-36 min-[1200px]:flex-none"
-              onFocusCapture={() => setExpandedChrome('search')}
-              onBlurCapture={(event) => {
-                if (!event.currentTarget.contains(event.relatedTarget)) setExpandedChrome(null)
-              }}
-            >
-              <CorpusSearch
-                presentation="chrome"
-                expanded={expandedChrome === 'search'}
-                onOpenMoment={(momentId) => openPath(`/moments/${momentId}`)}
-              />
-            </div>
-            <div
-              className="relative min-w-0 flex-[2] min-[1200px]:w-72 min-[1200px]:flex-none"
-              onFocusCapture={() => setExpandedChrome('ask')}
-              onBlurCapture={(event) => {
-                if (!event.currentTarget.contains(event.relatedTarget)) setExpandedChrome(null)
-              }}
-            >
-              <ChatPanel
-                presentation="chrome"
-                expanded={expandedChrome === 'ask'}
-                onOpenMoment={(momentId) => openPath(`/moments/${momentId}`)}
-              />
-            </div>
-          </div>
           <div className="flex shrink-0 items-center gap-3">
             {/* Story 6.5's Add-meeting flow at `/add`. The chrome carries the
                 link before that route lands, exactly as it carried
@@ -321,7 +305,50 @@ function Shell() {
           </div>
         </div>
       </header>
-      <main className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col gap-6 px-8 pt-6 pb-12">
+      {/* Owner request 2026-08-31, for a full-screen 32" demo: on a wide
+          display Search and Ask stand in a left column and the content takes
+          the rest, instead of both stacking down a narrow centre column. The
+          nav stays where it was, in the horizontal bar above. Below the
+          breakpoint this is the same one-line pair under the chrome that
+          story 10.5 landed. */}
+      <div className="flex flex-1 flex-col min-[1400px]:flex-row min-[1400px]:items-start min-[1400px]:gap-6 min-[1400px]:px-8">
+        <aside
+          data-testid="search-ask-rail"
+          className="border-b border-border px-4 py-2 min-[1400px]:sticky min-[1400px]:top-16 min-[1400px]:w-[24rem] min-[1400px]:shrink-0 min-[1400px]:border-b-0 min-[1400px]:px-0 min-[1400px]:pt-6"
+        >
+        <div
+          data-testid="search-ask-chrome"
+          className="flex w-full items-center gap-2 min-[1400px]:flex-col min-[1400px]:items-stretch min-[1400px]:gap-3"
+        >
+          <div
+            className="relative min-w-0 flex-1 min-[1400px]:w-full min-[1400px]:flex-none"
+            onFocusCapture={() => setExpandedChrome('search')}
+            onBlurCapture={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) setExpandedChrome(null)
+            }}
+          >
+            <CorpusSearch
+              presentation="chrome"
+              expanded={expandedChrome === 'search'}
+              onOpenMoment={(momentId) => openPath(`/moments/${momentId}`)}
+            />
+          </div>
+          <div
+            className="relative min-w-0 flex-[2] min-[1400px]:w-full min-[1400px]:flex-none"
+            onFocusCapture={() => setExpandedChrome('ask')}
+            onBlurCapture={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) setExpandedChrome(null)
+            }}
+          >
+            <ChatPanel
+              presentation="chrome"
+              expanded={expandedChrome === 'ask'}
+              onOpenMoment={(momentId) => openPath(`/moments/${momentId}`)}
+            />
+          </div>
+        </div>
+        </aside>
+      <main className="mx-auto flex w-full max-w-[1600px] min-w-0 flex-1 flex-col gap-6 px-8 pt-6 pb-12 min-[1400px]:mx-0 min-[1400px]:max-w-none min-[1400px]:px-0">
         {childOpen && (
           <div>
             <Button size="sm" variant="outline" onClick={back}>
@@ -369,9 +396,9 @@ function Shell() {
             never unmounted, so the meetings stream stays subscribed and the
             list keeps its rows across a meeting opened out of it. */}
         <div hidden={!meetingsOpen} className="flex flex-col gap-8">
-          {/* The corpus's scale, before its contents: CAP-1's one-screen
-              answer to "how much evidence does this corpus hold". */}
-          <CorpusStats />
+          {/* The corpus counts used to sit here. They moved to the banner above
+              the chrome (owner request) so they are answered on every screen,
+              not only this one — one instance, not two. */}
           <MeetingsList
             onOpen={(row) => {
               // `meetingId` is null until the worker mints the meeting row; a
@@ -382,6 +409,7 @@ function Shell() {
           <HealthPanel />
         </div>
       </main>
+      </div>
     </div>
   )
 }

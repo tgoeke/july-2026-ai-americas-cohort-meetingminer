@@ -43,10 +43,15 @@ describe('F10 owner ruling: compact Search and Ask chrome', () => {
   it('keeps both one-line controls in the sticky header and expands one at a time', async () => {
     render(<App />)
     const chrome = screen.getByTestId('search-ask-chrome')
-    const header = chrome.closest('header')
-    expect(header).not.toBeNull()
-    expect(header).toContainElement(screen.getByTestId('search-input'))
-    expect(header).toContainElement(screen.getByTestId('chat-question-input'))
+    // Owner revision 2026-08-31: the pair moved out of the header into its own
+    // rail, so that on a wide display they stand in a left column beside the
+    // content. They are still one line each, still standing on every route,
+    // and still expanding one at a time — which is what the F10 ruling was
+    // about. The header keeps the brand and the nav.
+    const rail = chrome.closest('aside')
+    expect(rail).not.toBeNull()
+    expect(rail).toContainElement(screen.getByTestId('search-input'))
+    expect(rail).toContainElement(screen.getByTestId('chat-question-input'))
     expect(screen.getByTestId('chat-question-input')).toHaveAttribute('rows', '1')
     expect(screen.getByTestId('moments-feed').closest('main')).not.toContainElement(chrome)
 
@@ -67,7 +72,9 @@ describe('F10 owner ruling: compact Search and Ask chrome', () => {
     await waitFor(() => expect(window.location.pathname).toBe('/threads'))
     expect(searchSurface).toHaveAttribute('aria-expanded', 'false')
 
-    expect(header?.firstElementChild).toHaveClass('min-[1200px]:h-14')
+    expect(document.querySelector('header')?.firstElementChild).toHaveClass(
+      'min-[1200px]:h-14',
+    )
     await userEvent.click(screen.getByTestId('chat-question-input'))
     expect(document.getElementById('chrome-ask-results')).toHaveClass('shadow-md')
     expect(await screen.findByTestId('model-select-unavailable')).toHaveTextContent(
