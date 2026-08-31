@@ -48,12 +48,17 @@ worker-owned, machine-derived navigation metadata, labelled as such in their
 provenance, each mention anchored to the moment where the topic was discussed.
 They are not artifacts — they never enter the `extracted → approved →
 published` lifecycle — and an extraction rerun replaces a meeting's topic rows
-wholesale. Nothing projects them yet; story 10.2 gives the graph its `Topic`
-nodes and `MENTIONS` edges.
+wholesale. Story 10.2 added `thread`/`topic_thread` above them: one subject
+followed across meetings, derived corpus-wide by unioning topics on normalized
+name and embedding similarity. Thread derivation is idempotent by design — a
+rerun over unchanged topics lands on the same rows, ids included, because the
+graph projection, curation and the timeline all key on `thread.id` — so a
+thread is identified by a content-derived `identity_key` rather than by
+chronology. Both project to the graph (AD-4).
 
 ## Decisions
 
-Seventeen decisions constrain the build. Each states what it prevents, because
+Eighteen decisions constrain the build. Each states what it prevents, because
 that is what makes it worth keeping.
 
 **AD-1 — One canonical inbox: the source drop.** Every source lands as one
@@ -97,7 +102,11 @@ rows, so no locking machinery is needed. Two tables split by column rather than
 by table: artifacts (worker owns content, api owns lifecycle) and participants
 (worker inserts on intake, api owns curated columns). A merge writes an
 api-owned alias row that the worker resolves before every insert, so merges
-survive re-ingests.
+survive re-ingests. `app_setting` is api-owned — only `api/settings.py` writes
+it, the worker only reads it (AD-10). `topic`, `topic_mention`, `thread` and
+`topic_thread` are worker-owned and machine-derived, and every reader must
+label them as such; human thread curation arrives as separate api-owned rows on
+top, the same split participants already use.
 
 **AD-6 — Citations are Postgres-minted moment ids, gated in code.** A moment id
 is minted once and carried verbatim into graph nodes, search documents, and
@@ -122,7 +131,10 @@ server run as host processes. No pipeline stage may assume a container and no
 container may require platform frameworks, which keeps OCR and speech engines
 that need host frameworks or GPU access reachable. Local-first governs evidence
 and state, not inference: a remote engine is a new adapter behind an existing
-port, not an architecture change.
+port, not an architecture change — paid out by the `remote-http` diarizer,
+which reaches a LAN GPU host over one `POST /diarize` and moved nothing else.
+Compose runs one stack *per checkout* (`meetingminer-<slug>`, its own ports and
+incarnation id), so suites in different worktrees never contend.
 
 **AD-10 — One config file drives everything.** A single versioned `config.yaml`
 declares every adapter binding, model, threshold, and endpoint, and — for each
@@ -192,6 +204,19 @@ resolves a media request by looking the row up from an id, never by joining a
 client-supplied path onto a root. Checksum mismatch is read by anchor — a hard
 failure for arrived material, provenance-only for produced material, because
 reruns are not bit-reproducible.
+
+**AD-18 — Degradation is never silent.** No component quietly substitutes a
+lesser result for the one it was asked for. An adapter whose engine is
+unavailable either fails by name or succeeds while reporting what it did —
+never the third thing, a diminished result indistinguishable afterwards from a
+good one. The choice belongs to the port. The diarizer never substitutes: its
+remote engine raises rather than falling back to `noop`, carrying the endpoint,
+the model and the host's own reason, because a meeting ingested with no speaker
+turns when diarization was asked for cannot later be told apart from a healthy
+host that heard no speakers. The `Llm` port may fall back to its configured
+secondary, but the reply carries `fallback_engaged` and the answering model, and
+that reaches the eval run's metadata. A model *selection* is never a fallback: a
+failing selected binding is an error, not a quiet resolution to the default.
 
 ## Invariants
 
