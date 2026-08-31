@@ -260,6 +260,10 @@ REMEDIATIONS: dict[str, str] = {
         " Check MM_DROPS_ROOT is mounted and writable on the api host, then"
         " retry."
     ),
+    "intake-failed": (
+        "The finalized drop could not be handed to intake. Re-POST the exact"
+        " drop named in the refusal remediation; do not re-run acquisition."
+    ),
     "config": (
         "The api host's configuration refused this acquisition — the detail"
         " names the setting. Correct config.yaml or .env and restart the api."
@@ -295,6 +299,7 @@ PROBLEM_STATUS: dict[str, int] = {
     "existing-drop-incomplete": 503,
     "playlist-unreadable": 503,
     "mint-refused": 503,
+    "intake-failed": 503,
     "config": 503,
     "unclassified": 503,
     # the URL is well-formed; this video cannot enter the corpus
@@ -781,10 +786,9 @@ def run_acquisition(
         record = record.advanced(
             status="failed",
             refusal=Refusal(
-                # `refusal_rule` classifies an IntakeError as `unclassified`:
-                # the drop is fine and the *tool* refused nothing — the api
-                # did not answer. The remediation is what makes that
-                # actionable, and it is specific to this failure.
+                # Intake failure has its own stable rule. The drop is already
+                # finalized, so the failure-specific remediation names the
+                # exact safe re-POST instead of suggesting another download.
                 rule=youtube.refusal_rule(exc),
                 detail=_one_line(str(exc)),
                 remediation=(

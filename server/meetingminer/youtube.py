@@ -163,6 +163,7 @@ REFUSAL_RULES = frozenset(
         "entry-not-a-video",
         # refusals raised outside this module, and the fallback
         "mint-refused",
+        "intake-failed",
         "config",
         "unclassified",
     }
@@ -191,6 +192,8 @@ def refusal_rule(error: BaseException) -> str:
         return error.rule
     if isinstance(error, MintError):
         return "mint-refused"
+    if isinstance(error, IntakeError):
+        return "intake-failed"
     if isinstance(error, ConfigError):
         return "config"
     return "unclassified"
