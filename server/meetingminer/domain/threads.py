@@ -522,8 +522,22 @@ def derive_threads(
 
     name_links = 0
     embedding_links = 0
+    reserved_by_key = _threads_by_identity_key(conn, clusters)
+    claimed_thread_ids = set(reserved_by_key.values())
     for cluster in clusters:
-        thread_id = _upsert_thread(conn, cluster, link_rule=settings.link_rule, derivation=derivation)
+        existing = reserved_by_key.get(cluster.identity_key)
+        if existing is None:
+            existing = _attached_thread_to_reuse(
+                conn, cluster, unavailable=claimed_thread_ids
+            )
+        thread_id = _upsert_thread(
+            conn,
+            cluster,
+            link_rule=settings.link_rule,
+            derivation=derivation,
+            existing_thread_id=existing,
+        )
+        claimed_thread_ids.add(thread_id)
         for member in cluster.members:
             _upsert_membership(conn, member, thread_id=thread_id)
             if member.linked_by == NAME_LINK:
@@ -552,6 +566,7 @@ def _upsert_thread(
     *,
     link_rule: str,
     derivation: dict[str, object],
+    existing_thread_id: UUID | None,
 ) -> UUID:
     """Insert or update one thread by ``identity_key``, returning its id.
 
@@ -560,8 +575,7 @@ def _upsert_thread(
     thread, and "the derivation changed nothing" would be unobservable. The
     cost is one extra SELECT in exactly the case where nothing was written.
     """
-    existing = _thread_to_reuse(conn, cluster)
-    if existing is not None:
+    if existing_thread_id is not None:
         row = conn.execute(
             "UPDATE thread"
             " SET name = %s, link_rule = %s, derivation = %s"
@@ -574,13 +588,13 @@ def _upsert_thread(
                 cluster.name,
                 link_rule,
                 Jsonb(derivation),
-                existing,
+                existing_thread_id,
                 cluster.name,
                 link_rule,
                 Jsonb(derivation),
             ),
         ).fetchone()
-        return row[0] if row is not None else existing
+        return row[0] if row is not None else existing_thread_id
 
     row = conn.execute(
         "INSERT INTO thread (identity_key, name, link_rule, derivation)"
@@ -607,29 +621,41 @@ def _upsert_thread(
     return unchanged[0]
 
 
-def _thread_to_reuse(conn: Connection, cluster: ThreadCluster) -> UUID | None:
-    """Resolve durable identity before an insert can mint a replacement.
+def _threads_by_identity_key(
+    conn: Connection, clusters: Sequence[ThreadCluster]
+) -> dict[str, UUID]:
+    """Reserve exact content-key rows before any cluster claims an old row."""
+    keys = [cluster.identity_key for cluster in clusters]
+    return {
+        row[0]: row[1]
+        for row in conn.execute(
+            "SELECT identity_key, id FROM thread WHERE identity_key = ANY(%s)",
+            (keys,),
+        ).fetchall()
+    }
 
-    A retained empty row with the canonical content key wins, which is the
-    Story 10.1 replace-all path. Otherwise reuse a row already attached to a
-    cluster member, which preserves identity when a newly backfilled topic
-    changes the cluster's canonical candidate. Multiple prior rows can meet
-    after a bridge appears; ordering makes the survivor deterministic.
+
+def _attached_thread_to_reuse(
+    conn: Connection,
+    cluster: ThreadCluster,
+    *,
+    unavailable: set[UUID],
+) -> UUID | None:
+    """Choose an unclaimed prior row attached to a cluster member.
+
+    Exact content-key rows have already been reserved for their own clusters.
+    The remaining ordered choice preserves identity across a backfill without
+    allowing two products of a split to collapse back onto the same row.
     """
-    keyed = conn.execute(
-        "SELECT id FROM thread WHERE identity_key = %s", (cluster.identity_key,)
-    ).fetchone()
-    if keyed is not None:
-        return keyed[0]
     members = [member.topic_id for member in cluster.members]
     attached = conn.execute(
         "SELECT DISTINCT th.id, th.identity_key"
         " FROM topic_thread tt JOIN thread th ON th.id = tt.thread_id"
         " WHERE tt.topic_id = ANY(%s)"
-        " ORDER BY th.identity_key, th.id LIMIT 1",
+        " ORDER BY th.identity_key, th.id",
         (members,),
-    ).fetchone()
-    return attached[0] if attached is not None else None
+    ).fetchall()
+    return next((row[0] for row in attached if row[0] not in unavailable), None)
 
 
 def _upsert_membership(conn: Connection, member: ThreadMember, *, thread_id: UUID) -> None:
