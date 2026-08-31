@@ -3869,9 +3869,12 @@ criteria and exists in neither footprint, so this API serves the opaque ids
 that route will take and never a path, and the route itself remains unbuilt.
 
 **Verification.** `make test-fast`: 2222 passed, 3 named skips, 411
-deselected, with ruff and mypy clean. `branch_conflicts.py --against
-story/10-3`: 15 clean pairs, 0 conflicting. Full `make test` result recorded
-with the story's SHAs.
+deselected, with ruff and mypy clean. Full `make test` at `f0d24c7`: server
+**2633 passed, 3 skipped** in 649.33s (10:49), exit 0, plus web 294, the eval
+harness 655, diarization 92 and the puller's 118 subtests. The three skips are
+the pre-existing named ones — `pyannote.audio` is not installed, and the two
+real-network tests need their env flags. `branch_conflicts.py --against
+story/10-3`: 15 clean pairs, 0 conflicting.
 
 **`make client` is owed at integration.** The generated TS client does not
 carry `/threads` or `/threads/{threadId}/timeline`: regenerating it needs a
