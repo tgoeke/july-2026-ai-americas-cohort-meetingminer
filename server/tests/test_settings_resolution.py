@@ -35,6 +35,7 @@ from meetingminer.adapters.llm.port import (
     LlmReply,
     LlmUnavailableError,
 )
+from meetingminer.domain import model_selection
 from meetingminer.domain.model_providers import provider_for_model
 
 
@@ -217,3 +218,126 @@ def test_the_new_error_is_still_an_llm_error_for_existing_callers() -> None:
     failure rather than escaping the port as an unmapped exception.
     """
     assert issubclass(LlmModelNotServedError, LlmError)
+
+
+# --- the rule: which binding a role is actually served by --------------------
+
+
+def _role(model: str, catalog: list[str], default: str | None = None, **extra: object):
+    """One `llm.roles.<role>` block, built through the real loader model.
+
+    Built rather than stubbed: the rule under test reads `catalog`, `default`
+    and `model`, and story 8.1's validators are what guarantee their
+    relationship. A hand-rolled stand-in could hold a combination the loader
+    would have refused, and the rule would then be pinned against a state that
+    cannot occur.
+    """
+    from meetingminer.config import LlmRoleBinding
+
+    payload: dict[str, object] = {
+        "model": model,
+        "catalog": [{"binding": binding} for binding in catalog],
+        **extra,
+    }
+    if default is not None:
+        payload["default"] = default
+    return LlmRoleBinding.model_validate(payload)
+
+
+def test_with_no_selection_the_role_resolves_to_the_files_default() -> None:
+    binding = _role(
+        "ollama/gpt-oss:120b",
+        ["ollama/gpt-oss:120b", "ollama/qwen3:30b"],
+        default="ollama/qwen3:30b",
+    )
+
+    effective = model_selection.resolve("extraction", binding, selected=None)
+
+    assert effective.binding == "ollama/qwen3:30b"
+    assert effective.source == "file-default"
+    assert effective.selected is None
+    assert effective.stale_selection is None
+
+
+def test_a_stored_selection_wins_over_the_files_default() -> None:
+    binding = _role(
+        "openai/gpt-5.2", ["openai/gpt-5.2", "anthropic/claude-sonnet-5"]
+    )
+
+    effective = model_selection.resolve(
+        "chat", binding, selected="anthropic/claude-sonnet-5"
+    )
+
+    assert effective.binding == "anthropic/claude-sonnet-5"
+    assert effective.source == "selection"
+    assert effective.provider == "anthropic"
+
+
+def test_the_provider_is_derived_by_the_one_shared_rule() -> None:
+    """Never a second spelling table: whatever `provider_for_model` says, stands."""
+    binding = _role("claude-sonnet-5", ["claude-sonnet-5"])
+
+    effective = model_selection.resolve("chat", binding, selected=None)
+
+    assert effective.provider == provider_for_model("claude-sonnet-5") == "anthropic"
+
+
+def test_a_selection_outside_the_catalog_is_refused_on_write() -> None:
+    binding = _role("openai/gpt-5.2", ["openai/gpt-5.2"])
+
+    with pytest.raises(model_selection.SelectionNotInCatalogError) as caught:
+        model_selection.check_selectable("chat", "openai/gpt-9", binding)
+
+    message = str(caught.value)
+    assert "chat" in message
+    assert "openai/gpt-9" in message
+    assert "openai/gpt-5.2" in message
+
+
+def test_a_selection_the_catalog_no_longer_offers_is_discarded_on_read() -> None:
+    """`config.yaml` can be edited under a stored selection.
+
+    The stored pick is not applied and not hidden: the role falls back to the
+    file's own default, and the discarded binding is reported so a surface can
+    say what happened rather than showing a choice that is not in effect.
+    """
+    binding = _role("openai/gpt-5.2", ["openai/gpt-5.2"])
+
+    effective = model_selection.resolve("chat", binding, selected="openai/gpt-4o")
+
+    assert effective.binding == "openai/gpt-5.2"
+    assert effective.source == "file-default"
+    assert effective.stale_selection == "openai/gpt-4o"
+    assert "openai/gpt-4o" in (effective.stale_reason or "")
+    assert "catalog" in (effective.stale_reason or "")
+
+
+def test_the_effective_binding_replaces_only_the_model_on_the_role() -> None:
+    """The role's endpoint, timeout and context window still apply.
+
+    `base_url` is declared as the endpoint for this role's *primary* model, and
+    a selection replaces the primary. Dropping it would silently move the call
+    to `providers.<prefix>.base_url` — a different host — which is exactly the
+    kind of unannounced re-routing this story exists to remove.
+    """
+    binding = _role(
+        "ollama/gpt-oss:120b",
+        ["ollama/gpt-oss:120b", "ollama/qwen3:30b"],
+        base_url="http://10.77.0.52:11434",
+        timeout_seconds=900,
+        num_ctx=65536,
+        fallback="ollama/qwen3:30b",
+    )
+
+    applied = model_selection.bind(
+        binding, model_selection.resolve("extraction", binding, "ollama/qwen3:30b")
+    )
+
+    assert applied.model == "ollama/qwen3:30b"
+    assert applied.base_url == "http://10.77.0.52:11434"
+    assert applied.timeout_seconds == 900
+    assert applied.num_ctx == 65536
+    assert applied.fallback == "ollama/qwen3:30b"
+    # The configured object is never mutated: two requests in one process must
+    # not see each other's selection.
+    assert binding.model == "ollama/gpt-oss:120b"
