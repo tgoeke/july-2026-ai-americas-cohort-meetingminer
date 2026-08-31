@@ -205,7 +205,7 @@ All paths under `web/src/features/threads/`, all new.
 
 ## Change Log
 
-- **Owner rulings, review loop 2.** F18 is specified: optional RFC 3339 `at`
+- **Owner-ruling remediation.** F18 is specified: optional RFC 3339 `at`
   links centre the calling instant at meetings detail, while a bare deep link
   fits the thread's own complete span at bands detail. F17 is accepted on the
   builder's one-off Chrome 151 probe and the absence of executable layout in
@@ -221,9 +221,11 @@ All paths under `web/src/features/threads/`, all new.
   context; list and canvas share ordering; short corpora retain the bands-floor
   opening; keyboard, pointer, focus, density, clustering and track geometry are
   pinned by new regression files; and tier replacement is a real cross-fade.
-  Two decisions remain open: a durable real-browser geometry harness/Chrome
-  connection, and the time-anchor semantics absent from `/threads/:threadId`.
-  See `review-story-10-6-2026-08-31.md`.
+  The owner subsequently accepted the recorded Chrome measurement and filed
+  the standing harness as B-51, then ruled optional `at` plus the bare
+  thread-span default. Those semantics and their request/measurement ownership
+  are fixed red-first in `edc63178`, `a8af8e04`, and `6c2496dc`. See
+  `review-story-10-6-2026-08-31.md`.
 
 - **Footprint kept.** Only `web/src/features/threads/` (new) and an append to
   `docs/backlog.md`, which the build prompt names explicitly.
@@ -266,6 +268,12 @@ All paths under `web/src/features/threads/`, all new.
   `make test-fast` — ruff and mypy green, puller 128 passed, web 540 passed,
   evals 655 passed, server 2178 passed / 3 standing named skips / 411 slow
   tests deselected.
+- Final step-4 remediation (`6c2496dc`): 11 targeted tests red before the fix;
+  33 targeted tests green after it. Final foreground rerun:
+  `pnpm --dir web exec vitest run src/features/threads` — 111 passed across 10
+  files; forced TypeScript build — exit 0; `make test-fast` — ruff and mypy
+  green, puller 128 passed, web 552 passed, evals 655 passed, server 2178
+  passed / 3 standing named skips / 411 slow tests deselected.
 - `make test-fast` — green at `39ccfba`: ruff `All checks passed!`, mypy
   `Success: no issues found in 13 source files`, vitest `353 passed (20 files)`,
   pytest `2173 passed, 3 skipped, 411 deselected in 103.27s`. The three skips
@@ -287,19 +295,27 @@ evidence tier and inline replay are story 10.6a. Curation is story 10.2a.
 
 **Route semantics**
 
-- Start with route parsing, refusal precedence, and selected-thread defaults.
-  [`Threads.tsx:65`](../../web/src/features/threads/Threads.tsx#L65)
+- Start with route parsing, refusal precedence, and route-generation ownership.
+  [`Threads.tsx:64`](../../web/src/features/threads/Threads.tsx#L64)
 
-- Validate strict RFC 3339 anchors and emit the shared integration URL.
-  [`threadTimelinePath.ts:14`](../../web/src/features/threads/threadTimelinePath.ts#L14)
+- Validate strict anchors, route-safe ids, and emit the shared integration URL.
+  [`threadTimelinePath.ts:20`](../../web/src/features/threads/threadTimelinePath.ts#L20)
 
 **Viewport ownership**
 
-- Apply anchored and bare defaults only after current canvas measurement.
-  [`Threads.tsx:128`](../../web/src/features/threads/Threads.tsx#L128)
+- Apply defaults only while the route still owns the measured view.
+  [`Threads.tsx:136`](../../web/src/features/threads/Threads.tsx#L136)
 
-- Reset measurement ownership when the timeline canvas leaves the DOM.
-  [`useTimelineView.ts:147`](../../web/src/features/threads/useTimelineView.ts#L147)
+- Publish fresh measurement ownership whenever the canvas remounts.
+  [`useTimelineView.ts:151`](../../web/src/features/threads/useTimelineView.ts#L151)
+
+**Request ownership**
+
+- Bind list responses to their current route generation.
+  [`Threads.tsx:117`](../../web/src/features/threads/Threads.tsx#L117)
+
+- Bind tier retries and cache reuse to route plus snapped window.
+  [`Threads.tsx:215`](../../web/src/features/threads/Threads.tsx#L215)
 
 **Contract evidence**
 

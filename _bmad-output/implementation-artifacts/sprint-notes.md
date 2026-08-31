@@ -4142,3 +4142,21 @@ was unavailable and no browser-test harness exists inside the frozen footprint;
 and `/threads/:threadId` carries no moment/window anchor even though the UX
 calls for meetings around the calling moment. The owner must select the harness
 and the deep-link time semantics. No backlog id was filed.
+
+## Story 10.6 review — owner rulings completed (2026-08-31)
+
+The owner accepted the builder's one-off Chrome 151 CSS-geometry measurement
+and filed the missing standing browser harness as B-51. F18 now has explicit
+semantics: `/threads/:threadId?at=<RFC3339>` opens meetings centred on the
+calling instant, while a bare link fits the selected thread's served
+first-to-last extent at bands detail without inventing a latest or fixed
+window. The shared URL decision is ready for Story 10.5's unlanded moment-card
+producer.
+
+The implementation and two adversarial hardening passes are `edc63178`,
+`a8af8e04`, and `6c2496dc`. They also pin Story 10.3 F2: a fine row's served
+`occurredAt` remains valid outside the requested envelope because the mention
+anchor owns membership. Final foreground gates: Threads 111 passed, forced
+TypeScript build passed, and `make test-fast` passed with ruff/mypy green,
+puller 128, web 552, evals 655, and server 2178 passed / 3 named skips / 411
+deselected.
