@@ -308,6 +308,8 @@ describe('Add-meeting, the pre-flight probe', () => {
       `Cannot reach the api at ${API_BASE}: Failed to fetch`,
     )
     expect(screen.queryByTestId('probe-refusal')).not.toBeInTheDocument()
+    expect(screen.getByText('Retry the pre-flight check before submitting.')).toBeInTheDocument()
+    expect(screen.queryByText('The pre-flight check refused this URL.')).not.toBeInTheDocument()
     expect(screen.getByTestId('submit-acquisition')).toBeDisabled()
   })
 

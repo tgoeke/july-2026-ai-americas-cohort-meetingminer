@@ -199,7 +199,9 @@ export function AddMeeting({ onOpenMeeting }: AddMeetingProps = {}) {
           : probeState.kind === 'probing'
             ? 'Waiting for the pre-flight check to answer.'
             : probeState.kind === 'failed'
-              ? 'The pre-flight check refused this URL.'
+              ? probeState.failure.kind === 'transport'
+                ? 'Retry the pre-flight check before submitting.'
+                : 'The pre-flight check refused this URL.'
               : probeState.kind === 'idle'
                 ? 'Waiting for the pre-flight check.'
                 : null
