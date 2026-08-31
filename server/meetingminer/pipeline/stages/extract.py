@@ -195,6 +195,7 @@ _PROMPT_FIELD = {
     core.DOC_ARCH_SUMMARY: "arch_summary_prompt",
     core.DOC_ACTION_ITEMS: "action_items_prompt",
     core.DOC_TOPICS: "topics_prompt",
+    core.DOC_RANKING_SIGNALS: "ranking_signals_prompt",
 }
 
 
@@ -663,9 +664,7 @@ def run(ctx: StageContext) -> None:
     # exit above. They exist so `GET /moments/feed` can rank without calling
     # a model at request time.
     #
-    # The prompt is `ranking.signals_prompt` rather than a field on the
-    # extraction role binding; `config.yaml` records why (B-46).
-    signals_template = ctx.config.settings.ranking.signals_prompt
+    signals_template = getattr(binding, _PROMPT_FIELD[core.DOC_RANKING_SIGNALS])
     parsed_signals, signals_reply = _generate(
         llm,
         core.build_prompt(

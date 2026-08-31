@@ -208,6 +208,44 @@ llm:
         IDs run T1, T2, T3... The Topic cell is a short name for the topic; the Gist cell is one line saying what was discussed about it.
 
         Write nothing outside that section. If the transcript discusses nothing, write the table header with no rows under it.
+      # Story 10.4's fourth whole-transcript extraction prompt. All four live
+      # on this binding so prompt authors and the stage have one source of truth.
+      ranking_signals_prompt: |
+        You are an expert meeting analyst. Extract every RISK and every OPEN QUESTION from one meeting or recorded session transcript.
+
+        The transcript is verbatim and auto-generated, in the form `[m:ss] Speaker Name: text`, and covers the whole recording.
+
+        Ground rules, all of them binding:
+        - Do not invent facts. Report only what was said. If two statements conflict, report the conflict rather than silently reconciling it.
+        - Anchor every item to the transcript with the [m:ss] timestamp where it was discussed. An item with no timestamp cannot be cited and must not be written.
+        - One item per row, even when it is restated later. Put every relevant timestamp in that one row.
+        - Expect speech-to-text noise: mis-heard names and technical terms ("sequel" = SQL), dropped words, mid-sentence self-corrections. Normalize obvious mis-hears; keep an uncertain name or term and mark it "(sp?)".
+
+        More rules for this document:
+        - A RISK is a stated way the work could go wrong: a dependency that may not land, a deadline nobody is confident about, a system that may not hold, a decision that may prove wrong. Something already known to have gone wrong is not a risk; leave it out.
+        - An OPEN QUESTION is something the meeting raised and did NOT answer. A question somebody answered in the same meeting is not open; leave it out.
+        - Neither is an action item. If somebody committed to do the work, it belongs to the action-items document, not this one.
+        - Write the Risk or Question cell as one short line a reader can act on, not a paragraph.
+
+        Produce exactly these two sections and nothing else:
+
+        ## Risks
+
+        A markdown table with this header row and one row per risk:
+
+        | ID | Risk | Detail | Timestamp |
+        |----|------|--------|-----------|
+        | R1 | The vendor key may not arrive before the cutover | Blocks the SFTP move | [5:12] |
+
+        ## Open questions
+
+        A markdown table with this header row and one row per open question:
+
+        | ID | Question | Detail | Timestamp |
+        |----|----------|--------|-----------|
+        | Q1 | Who approves the purchase order? | Nobody claimed it | [44:02] |
+
+        IDs run R1, R2, R3... and Q1, Q2, Q3... Write nothing outside those two sections. If the meeting produced no risks, write the Risks heading with the table header and no rows under it; the same for open questions.
     # OpenAI, not Anthropic, by owner decision 2026-08-21. No fallback, also
     # by owner decision: a failing primary must surface as an error the user
     # sees, never engage a silent substitute model. The `openai/` prefix is
@@ -748,51 +786,3 @@ ranking:
   # a bound on the wire, not a preference.
   default_limit: 20
   max_limit: 100
-
-  # The ranking-signals prompt (story 10.4). It sits here rather than beside
-  # the other three under `llm.roles.extraction` for one narrow reason: the
-  # frozen story footprint gives story 10.4 the end of this file and gives
-  # the `llm:` block to nobody, and editing a block another lane may hold is
-  # the widening the wave rules forbid. The port is unchanged — the stage
-  # still calls `Llm(extraction)` — and relocating this key is filed as B-46.
-  #
-  # It pins the same markdown shape the other extraction prompts pin, for the
-  # same reason: the parser keys on the short item ID and the timestamp,
-  # never on heading numbering.
-  signals_prompt: |
-    You are an expert meeting analyst. Extract every RISK and every OPEN QUESTION from one meeting or recorded session transcript.
-
-    The transcript is verbatim and auto-generated, in the form `[m:ss] Speaker Name: text`, and covers the whole recording.
-
-    Ground rules, all of them binding:
-    - Do not invent facts. Report only what was said. If two statements conflict, report the conflict rather than silently reconciling it.
-    - Anchor every item to the transcript with the [m:ss] timestamp where it was discussed. An item with no timestamp cannot be cited and must not be written.
-    - One item per row, even when it is restated later. Put every relevant timestamp in that one row.
-    - Expect speech-to-text noise: mis-heard names and technical terms ("sequel" = SQL), dropped words, mid-sentence self-corrections. Normalize obvious mis-hears; keep an uncertain name or term and mark it "(sp?)".
-
-    More rules for this document:
-    - A RISK is a stated way the work could go wrong: a dependency that may not land, a deadline nobody is confident about, a system that may not hold, a decision that may prove wrong. Something already known to have gone wrong is not a risk; leave it out.
-    - An OPEN QUESTION is something the meeting raised and did NOT answer. A question somebody answered in the same meeting is not open; leave it out.
-    - Neither is an action item. If somebody committed to do the work, it belongs to the action-items document, not this one.
-    - Write the Risk or Question cell as one short line a reader can act on, not a paragraph.
-
-    Produce exactly these two sections and nothing else:
-
-    ## Risks
-
-    A markdown table with this header row and one row per risk:
-
-    | ID | Risk | Detail | Timestamp |
-    |----|------|--------|-----------|
-    | R1 | The vendor key may not arrive before the cutover | Blocks the SFTP move | [5:12] |
-
-    ## Open questions
-
-    A markdown table with this header row and one row per open question:
-
-    | ID | Question | Detail | Timestamp |
-    |----|----------|--------|-----------|
-    | Q1 | Who approves the purchase order? | Nobody claimed it | [44:02] |
-
-    IDs run R1, R2, R3... and Q1, Q2, Q3... Write nothing outside those two sections. If the meeting produced no risks, write the Risks heading with the table header and no rows under it; the same for open questions.
-

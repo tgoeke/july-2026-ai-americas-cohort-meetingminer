@@ -39,6 +39,7 @@ llm:
       arch_summary_prompt: "Summarize the architecture decisions."
       action_items_prompt: "Extract the action items."
       topics_prompt: "List the topics discussed."
+      ranking_signals_prompt: "Extract risks and open questions."
     chat: {model: claude-sonnet-5, fallback: ollama/qwen3:32b}
     judge: {model: claude-sonnet-5, fallback: ollama/qwen3:32b}
 embedder:
@@ -138,7 +139,6 @@ ranking:
   max_thread_reasons: 3
   default_limit: 20
   max_limit: 100
-  signals_prompt: extract risks and open questions
 """
 
 

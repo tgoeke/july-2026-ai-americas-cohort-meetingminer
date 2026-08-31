@@ -142,6 +142,17 @@ def test_ranking_signal_kinds_are_not_artifact_kinds() -> None:
     assert core.DOC_RANKING_SIGNALS in core._PARSEABLE_DOCUMENT_KINDS
 
 
+def test_ranking_signals_prompt_lives_on_the_extraction_binding() -> None:
+    """B-46: all four whole-transcript prompts have one discoverable home."""
+    raw = yaml.safe_load((REPO_ROOT / "config.yaml").read_text())
+    settings = Settings.model_validate(raw)
+
+    assert settings.llm.roles.extraction.ranking_signals_prompt == (
+        raw["llm"]["roles"]["extraction"]["ranking_signals_prompt"].strip()
+    )
+    assert "signals_prompt" not in raw["ranking"]
+
+
 def test_the_migration_declares_no_lifecycle_column() -> None:
     """A `state` column would be an approval path story 10.4 must not have."""
     sql = (

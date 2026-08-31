@@ -372,10 +372,10 @@ class LlmRoleBinding(_StrictModel):
 
 
 class ExtractionRoleBinding(LlmRoleBinding):
-    """The extraction role's binding, plus its two visible prompt templates.
+    """The extraction role's binding, plus its four visible prompt templates.
 
     Story 4.2 (AD-8/AD-10, epics AC1/AC3): a prompt swap is a config edit,
-    never a code change, so the two whole-transcript prompt templates live
+    never a code change, so the four whole-transcript prompt templates live
     here rather than as Python string constants. Each is required and
     non-empty — there is no code-level default the generate path falls back
     to at runtime — and each is the *complete* text sent to the model (plus
@@ -386,6 +386,7 @@ class ExtractionRoleBinding(LlmRoleBinding):
     arch_summary_prompt: NonEmptyText
     action_items_prompt: NonEmptyText
     topics_prompt: NonEmptyText
+    ranking_signals_prompt: NonEmptyText
 
 
 class LlmRoles(_StrictModel):
@@ -965,9 +966,9 @@ class RankingConfig(_StrictModel):
 
     The score is deterministic and computed at request time over rows already
     in Postgres — no model call, no cached ordering — so everything that
-    decides an order is here rather than in Python constants. The prompt text
-    for the risk/question extraction pass lives here too; ``config.yaml``
-    records why it is not under ``llm.roles.extraction`` with the other three.
+    decides an order is here rather than in Python constants. The risk/question
+    prompt lives with the other whole-transcript extraction prompts on
+    :class:`ExtractionRoleBinding`; this block owns ranking only.
     """
 
     weights: RankingWeights
@@ -988,11 +989,6 @@ class RankingConfig(_StrictModel):
     # name — a bound on the wire, not a preference.
     default_limit: int = Field(ge=1)
     max_limit: int = Field(ge=1)
-    # The complete prompt text for the ranking-signals document (story 10.4),
-    # composed verbatim with the meeting header and transcript exactly as the
-    # other three extraction prompts are. No code-level default.
-    signals_prompt: NonEmptyText
-
     @model_validator(mode="after")
     def _default_limit_within_max(self) -> "RankingConfig":
         if self.default_limit > self.max_limit:

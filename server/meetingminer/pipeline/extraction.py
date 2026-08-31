@@ -280,7 +280,8 @@ def build_signals_prompt(
     """The whole-meeting prompt for the ranking-signals document (story 10.4).
 
     ``template`` is the config-owned, complete prompt text
-    (``ranking.signals_prompt``) — composed verbatim with the meeting header
+    (``llm.roles.extraction.ranking_signals_prompt``) — composed verbatim with
+    the meeting header
     and transcript, never reformatted or templated further, exactly as the
     three prompts above are.
     """

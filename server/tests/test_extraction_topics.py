@@ -604,7 +604,7 @@ def test_topics_land_as_rows_with_a_mention_per_containing_moment(
     assert len(engine.calls) == 2
     binding = app_config.settings.llm.roles.extraction
     assert engine.calls[0].startswith(binding.topics_prompt)
-    assert engine.calls[1].startswith(app_config.settings.ranking.signals_prompt)
+    assert engine.calls[1].startswith(binding.ranking_signals_prompt)
     assert "[1:30] Goeke, Timothy: Nothing else to report today." in engine.calls[0]
 
     [meeting] = meetings(pool, job_id)
