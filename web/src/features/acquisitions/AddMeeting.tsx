@@ -104,6 +104,10 @@ export function AddMeeting({ onOpenMeeting }: AddMeetingProps = {}) {
       return
     }
     const key = probeKey
+    // A successful answer belongs only to the normalized URL that produced it.
+    // Clear it before the next URL's debounce so that URL cannot be submitted
+    // during the window before its own probe begins.
+    setProbeState({ kind: 'idle' })
     const controller = new AbortController()
     const generation = probeOwner.current.generation + 1
     probeOwner.current = { generation, key }

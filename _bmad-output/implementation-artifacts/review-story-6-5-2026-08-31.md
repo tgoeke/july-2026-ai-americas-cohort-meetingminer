@@ -55,7 +55,7 @@ Date: 2026-08-31
 - **Finding** — After one URL has an answered probe, editing the field to a different shape-valid video leaves the old `answered` state visible and Submit enabled until the new 600 ms debounce elapses. Clicking during that window starts the new URL without a successful preflight.
 - **Evidence** — The effect changes ownership immediately but does not change `probeState` until the timer sets `probing` at lines 114–115. `submitDisabled` at line 192 depends only on `probeState.kind`, while the click handler submits the current `shape.normalized` at line 339. This violates the frozen requirement that Submit remain disabled until the current normalized URL's probe answers and defeats the probe's refusal-before-write purpose.
 - **Suggested direction** — Clear the previous answer synchronously when a different normalized URL schedules a probe, then enable Submit only after that generation answers. Add a regression test covering the debounce window after editing an answered URL.
-- **Disposition** — patchable; remediation in progress.
+- **Disposition** — fixed red-first. The debounce-window regression observed an enabled Submit against the original effect; it passed after a new probe generation synchronously cleared the prior answer before scheduling its timer.
 
 ## Disposition
 
