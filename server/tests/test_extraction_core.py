@@ -1075,15 +1075,20 @@ def stub_litellm(monkeypatch: pytest.MonkeyPatch) -> Any:
 
     Configure `stub.result` (returned) or `stub.error` (raised) per test;
     every call's kwargs are recorded on `stub.calls`. `stub.exceptions`
-    carries real exception classes under the SDK's names — including
-    `BadRequestError`, which the adapter deliberately does *not* map to
-    unavailability.
+    carries real exception classes under the SDK's names — including two the
+    adapter deliberately does *not* map to unavailability: `BadRequestError`,
+    and `NotFoundError`, which since story 8.2 is the model-the-provider-does
+    -not-serve refusal that must never engage the fallback (backlog B-38).
+
+    Every name the adapter references must appear here, or the lazy
+    `import litellm` inside `complete` resolves to a stub without it and the
+    `except` clause raises `AttributeError` instead of mapping the failure.
     """
     stub = types.ModuleType("litellm")
     stub.exceptions = types.SimpleNamespace(
         **{
             name: type(name, (Exception,), {})
-            for name in (*_MAPPED_EXCEPTION_NAMES, "BadRequestError")
+            for name in (*_MAPPED_EXCEPTION_NAMES, "BadRequestError", "NotFoundError")
         }
     )
     stub.calls = []

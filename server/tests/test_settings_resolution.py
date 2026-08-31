@@ -14,18 +14,23 @@ Three concerns, one module, because they are one rule seen from three sides:
   the worker per job, plus the eval run's configuration snapshot, which records
   the effective binding beside the file value.
 
-`litellm` is imported at module scope on purpose. The adapter imports it lazily
-*inside* `complete`, so a test that triggered the first import would pay several
-seconds in its call phase and trip `fast_budget`; paying it at collection keeps
-every test here in the fast set, where this behaviour belongs.
+The real `litellm` is reached only through the `litellm_sdk` fixture, and never
+at module scope. Two reasons, and the second is a trap:
+
+* importing it costs seconds, which in a test body would trip `fast_budget`;
+  a module-scoped fixture pays it once, in setup, which the budget exempts.
+* `import litellm` calls `load_dotenv()`, injecting this repository's real
+  `.env` into `os.environ` for the rest of the session. Measured here: it is
+  enough to make `test_config.py`'s env-precedence tests read the developer's
+  real `POSTGRES_PASSWORD` instead of their fixture's, so the import must not
+  leak. The fixture restores the environment it found.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
-import litellm
-import litellm.exceptions
 import pytest
 
 from meetingminer.adapters.llm import FallbackLlm, LiteLlmCompleter
@@ -75,9 +80,31 @@ class _RaisingLlm:
         raise self._error
 
 
-def _not_found(model: str, provider: str, message: str) -> Exception:
+@pytest.fixture(scope="module")
+def litellm_sdk() -> Any:
+    """The real `litellm`, imported once and without editing the process env.
+
+    Deliberately the real SDK rather than a stub: the whole point of the
+    mapping under test is that it keys on the exception type LiteLLM actually
+    raises, and a hand-written stand-in would keep passing after an SDK rename.
+
+    The environment is snapshotted and restored around the import because
+    `litellm` calls `load_dotenv()` at import time.
+    """
+    import os
+
+    snapshot = dict(os.environ)
+    import litellm
+    import litellm.exceptions  # noqa: F401 - imported for the attribute access below
+
+    os.environ.clear()
+    os.environ.update(snapshot)
+    return litellm
+
+
+def _not_found(sdk: Any, model: str, provider: str, message: str) -> Exception:
     """The SDK's 404, as LiteLLM raises it for a model a host does not serve."""
-    return litellm.exceptions.NotFoundError(
+    return sdk.exceptions.NotFoundError(
         message=message, model=model, llm_provider=provider
     )
 
@@ -86,7 +113,7 @@ def _not_found(model: str, provider: str, message: str) -> Exception:
 
 
 def test_a_model_the_provider_does_not_serve_is_a_configuration_error(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, litellm_sdk: Any
 ) -> None:
     """404 from the host means the binding is wrong, not that the host is down.
 
@@ -97,12 +124,13 @@ def test_a_model_the_provider_does_not_serve_is_a_configuration_error(
 
     def boom(**kwargs: object) -> object:
         raise _not_found(
+            litellm_sdk,
             "ollama/qwen3:30b",
             "ollama",
             'model "qwen3:30b" not found, try pulling it first',
         )
 
-    monkeypatch.setattr(litellm, "completion", boom)
+    monkeypatch.setattr(litellm_sdk, "completion", boom)
     completer = LiteLlmCompleter("ollama/qwen3:30b", PROVIDERS)
 
     with pytest.raises(LlmModelNotServedError) as caught:
@@ -120,7 +148,7 @@ def test_a_model_the_provider_does_not_serve_is_a_configuration_error(
 
 
 def test_the_refusal_names_the_provider_the_shared_spelling_rule_derives(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, litellm_sdk: Any
 ) -> None:
     """Provider identity comes from `provider_for_model`, never from the SDK's guess.
 
@@ -132,9 +160,9 @@ def test_the_refusal_names_the_provider_the_shared_spelling_rule_derives(
     def boom(**kwargs: object) -> object:
         # The SDK is deliberately given a *different* provider name, so a test
         # that passed by echoing `llm_provider` would fail here.
-        raise _not_found("claude-sonnet-5", "openai", "model not found")
+        raise _not_found(litellm_sdk, "claude-sonnet-5", "openai", "model not found")
 
-    monkeypatch.setattr(litellm, "completion", boom)
+    monkeypatch.setattr(litellm_sdk, "completion", boom)
     completer = LiteLlmCompleter("claude-sonnet-5", PROVIDERS)
 
     with pytest.raises(LlmModelNotServedError) as caught:
@@ -147,7 +175,7 @@ def test_the_refusal_names_the_provider_the_shared_spelling_rule_derives(
 
 
 def test_the_refusal_is_still_readable_with_no_configured_endpoint(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, litellm_sdk: Any
 ) -> None:
     """No `providers:` entry means LiteLLM's own default endpoint answered.
 
@@ -156,9 +184,9 @@ def test_the_refusal_is_still_readable_with_no_configured_endpoint(
     """
 
     def boom(**kwargs: object) -> object:
-        raise _not_found("openai/gpt-5.2", "openai", "model not found")
+        raise _not_found(litellm_sdk, "openai/gpt-5.2", "openai", "model not found")
 
-    monkeypatch.setattr(litellm, "completion", boom)
+    monkeypatch.setattr(litellm_sdk, "completion", boom)
     completer = LiteLlmCompleter("openai/gpt-5.2", PROVIDERS)
 
     with pytest.raises(LlmModelNotServedError) as caught:
