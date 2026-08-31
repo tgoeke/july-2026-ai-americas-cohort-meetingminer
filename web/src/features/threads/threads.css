@@ -62,9 +62,17 @@
   cursor: pointer;
 }
 
-/* A tier fades in at the x positions the outgoing tier left behind. */
-.mm-layer {
+/* A tier cross-fades at the x positions the outgoing tier left behind. */
+.mm-layer-incoming {
   animation: mm-fade-in 160ms ease-out;
+}
+
+.mm-layer-outgoing {
+  position: absolute;
+  inset: 32px 0 0;
+  z-index: 1;
+  pointer-events: none;
+  animation: mm-fade-out 160ms ease-out forwards;
 }
 
 @keyframes mm-fade-in {
@@ -73,6 +81,15 @@
   }
   to {
     opacity: 1;
+  }
+}
+
+@keyframes mm-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
   }
 }
 
@@ -136,7 +153,8 @@
 /* Reduced motion: the tier swap and the progress line stop animating. Nothing
    becomes unreachable; only the easing is removed. */
 @media (prefers-reduced-motion: reduce) {
-  .mm-layer {
+  .mm-layer-incoming,
+  .mm-layer-outgoing {
     animation: none;
   }
 

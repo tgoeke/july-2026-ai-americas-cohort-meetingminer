@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react'
 import { bandFillStyle, paintFor } from './palette'
 import {
   axisTicks,
@@ -10,6 +19,7 @@ import {
   MOMENT_CELL_WIDTH_PX,
   offsetLabel,
   TIER_MAX_SCALE,
+  TIER_FADE_MS,
   TIMELINE_GUTTER_PX,
   TIMELINE_ROW_GAP_PX,
   TIMELINE_ROW_HEADER_PX,
@@ -371,6 +381,70 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     title: cell.label,
   })
 
+  const layerNode: ReactNode = (
+    <>
+      {tier === 'bands' ? (
+        <BandsTier
+          rows={rows}
+          threads={threads}
+          bands={bands}
+          view={view}
+          width={width}
+          epochMs={epochMs}
+          focusedThreadId={focusedThreadId}
+          onFocusThread={onFocusThread}
+          cellProps={cellProps}
+          onActivate={(cell) => {
+            onFocusThread(cell.threadId)
+            onFitTo(cell.span)
+          }}
+        />
+      ) : null}
+
+      {tier === 'meetings' ? (
+        <MeetingsTier
+          rows={rows}
+          threads={threads}
+          focusedThread={focusedThread}
+          meetings={meetings}
+          epochMs={epochMs}
+          cellProps={cellProps}
+          onActivate={(cell) => onFitTo(cell.span)}
+        />
+      ) : null}
+
+      {tier === 'moments' ? (
+        <MomentsTier
+          rows={rows}
+          threads={threads}
+          focusedThread={focusedThread}
+          meetings={meetings}
+          moments={moments}
+          epochMs={epochMs}
+          cellProps={cellProps}
+          onActivate={(cell) => {
+            if (cell.momentId !== undefined) onOpenMoment(cell.momentId)
+            else onFitTo(cell.span)
+          }}
+        />
+      ) : null}
+    </>
+  )
+  const lastLayerRef = useRef<{ tier: Tier; node: ReactNode } | null>(null)
+  const [outgoingLayer, setOutgoingLayer] = useState<ReactNode | null>(null)
+
+  useLayoutEffect(() => {
+    const previous = lastLayerRef.current
+    if (previous !== null && previous.tier !== tier) setOutgoingLayer(previous.node)
+    lastLayerRef.current = { tier, node: layerNode }
+  }, [layerNode, tier])
+
+  useEffect(() => {
+    if (outgoingLayer === null) return
+    const timer = window.setTimeout(() => setOutgoingLayer(null), TIER_FADE_MS)
+    return () => window.clearTimeout(timer)
+  }, [outgoingLayer])
+
   return (
     <section aria-label="Threads timeline" className="min-w-0 flex-1">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -446,54 +520,22 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
             />
           ) : null}
 
-          <div key={tier} className="mm-layer">
-            {tier === 'bands' ? (
-              <BandsTier
-                rows={rows}
-                threads={threads}
-                bands={bands}
-                view={view}
-                width={width}
-                epochMs={epochMs}
-                focusedThreadId={focusedThreadId}
-                onFocusThread={onFocusThread}
-                cellProps={cellProps}
-                onActivate={(cell) => {
-                  // Drilling a bucket enters that bucket's thread: the meetings
-                  // tier draws one thread, so the gesture has to say which.
-                  onFocusThread(cell.threadId)
-                  onFitTo(cell.span)
-                }}
-              />
-            ) : null}
-
-            {tier === 'meetings' ? (
-              <MeetingsTier
-                rows={rows}
-                threads={threads}
-                focusedThread={focusedThread}
-                meetings={meetings}
-                epochMs={epochMs}
-                cellProps={cellProps}
-                onActivate={(cell) => onFitTo(cell.span)}
-              />
-            ) : null}
-
-            {tier === 'moments' ? (
-              <MomentsTier
-                rows={rows}
-                threads={threads}
-                focusedThread={focusedThread}
-                meetings={meetings}
-                moments={moments}
-                epochMs={epochMs}
-                cellProps={cellProps}
-                onActivate={(cell) => {
-                  if (cell.momentId !== undefined) onOpenMoment(cell.momentId)
-                  else onFitTo(cell.span)
-                }}
-              />
-            ) : null}
+          {outgoingLayer !== null ? (
+            <div
+              aria-hidden="true"
+              inert
+              data-testid="outgoing-tier-layer"
+              className="mm-layer mm-layer-outgoing"
+            >
+              {outgoingLayer}
+            </div>
+          ) : null}
+          <div
+            key={tier}
+            data-testid="incoming-tier-layer"
+            className="mm-layer mm-layer-incoming"
+          >
+            {layerNode}
           </div>
         </div>
       </div>

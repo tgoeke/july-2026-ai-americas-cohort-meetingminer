@@ -214,3 +214,30 @@ describe('review regressions: geometry and pointer interaction', () => {
     expect(fill).toHaveStyle({ opacity: '1' })
   })
 })
+
+describe('review regression: tier transition', () => {
+  it('keeps the previous tier mounted while the incoming tier cross-fades', () => {
+    const rendered = render(<TimelineCanvas {...props()} />)
+    expect(screen.getByRole('gridcell', { name: /3 mentions/ })).toBeInTheDocument()
+    rendered.rerender(
+      <TimelineCanvas
+        {...props({
+          tier: 'meetings',
+          focusedThreadId: THREAD.threadId,
+          bands: null,
+          meetings: [
+            {
+              meetingId: 'meeting-a',
+              title: 'incoming meeting',
+              occurredAt: new Date(100_000).toISOString(),
+              durationMs: 100_000,
+              mentionCount: 1,
+            },
+          ],
+        })}
+      />,
+    )
+    expect(screen.getByTestId('outgoing-tier-layer')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByTestId('incoming-tier-layer')).toHaveClass('mm-layer-incoming')
+  })
+})
