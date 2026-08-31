@@ -4298,3 +4298,29 @@ drift unprompted (story 12.1 found the same for AD-3 and AD-4).
 entries numbered B-42 from parallel branches on the same day; this is separate
 from the four ids reconciled earlier today (7.4's group became B-47..B-50).
 Recorded rather than renumbered, because landed specs already cite the id.
+
+## Story 10.2a parked — 2026-08-31
+
+**Owner decision: do not land 10.2a.** Built and reviewed, not merged. The
+branch and its review branch stay on origin.
+
+Two reasons, and the second is the operative one.
+
+Its review left three findings open, two Major: a split or merge correction
+disappears when a re-extraction renames the topic, because the pin is keyed on
+the normalized name and no durable topic lineage exists (F2); and after A is
+merged into B, B can never merge into C, so a corpus that later reveals B and C
+are one subject is uncorrectable without database surgery (F8). F9 — a thread
+deletion cascading away curation — is unreachable: `api/thread_curation.py`
+exposes exactly three routes, `PATCH` rename and `POST` merge and split, with
+no delete route at all.
+
+**But the reason it is parked is scope, not defects.** Thread curation is not on
+the path story 10.7 describes — name a subject, get a timeline, zoom, open a
+meeting. It is corpus maintenance. And 10.2a is the only thing holding
+`api/threads.py`, `Threads.tsx`, `ThreadList.tsx` and `threadsApi.ts`, which
+10.7 needs. Parking it costs nothing today and unblocks the work that matters.
+
+**When it is taken up again** it should be designed against 10.7's model rather
+than the catalogue, and F2's lineage problem is real design work whichever
+surface it lands on.
