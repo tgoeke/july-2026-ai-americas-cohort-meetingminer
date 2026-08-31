@@ -103,6 +103,35 @@ export type AssignProjectProductRequest = {
 };
 
 /**
+ * AssignSpeakerRequest
+ *
+ * Exactly one of three choices, as the story's first clause names them.
+ *
+ * Three optional fields rather than a discriminated union, because that is
+ * the shape the UI's three gestures produce (pick a suggestion, type a name,
+ * press *Unresolved*); the validator makes the "exactly one" rule explicit
+ * instead of leaving a two-field request to be resolved by precedence.
+ *
+ * ``unresolved: false`` selects nothing, on purpose — it is the field's
+ * default, so counting it as a choice would make an empty body mean
+ * "unresolve", which is a destructive reading of silence.
+ */
+export type AssignSpeakerRequest = {
+    /**
+     * Participantid
+     */
+    participantId?: string | null;
+    /**
+     * Displayname
+     */
+    displayName?: string | null;
+    /**
+     * Unresolved
+     */
+    unresolved?: boolean;
+};
+
+/**
  * CatalogEntryView
  *
  * One binding a role may be served by, as a picker renders it.
@@ -1859,6 +1888,56 @@ export type SnippetRunModel = {
 };
 
 /**
+ * SpeakerAssignmentResponse
+ *
+ * What was recorded, and what was re-armed to act on it.
+ *
+ * Deliberately reports the *persisted* facts rather than predicting the
+ * attribution the rerun will write: ``align`` decides that, and a response
+ * claiming it in advance would be guessing, on the one story that exists to
+ * stop guessing (AD-13). ``participantId``/``displayName`` are the alias
+ * target — both null for ``unresolved``, which stores no row at all.
+ */
+export type SpeakerAssignmentResponse = {
+    /**
+     * Meetingid
+     */
+    meetingId: string;
+    /**
+     * Speakerlabel
+     */
+    speakerLabel: string;
+    /**
+     * Participantid
+     */
+    participantId: string | null;
+    /**
+     * Displayname
+     */
+    displayName: string | null;
+    /**
+     * Jobid
+     */
+    jobId: string;
+    /**
+     * Rearmedstages
+     */
+    rearmedStages: Array<string>;
+    /**
+     * Acceptedwhileunviewable
+     *
+     * Whether this PUT was accepted while meeting evidence was unviewable.
+     */
+    acceptedWhileUnviewable: boolean;
+    /**
+     * Previousjobstatus
+     *
+     * The job status observed before this assignment re-armed it.
+     */
+    previousJobStatus: 'queued' | 'done' | 'failed';
+};
+
+/**
  * SpeakerTag
  *
  * One voice in one meeting, as the transcript labelled it.
@@ -2617,7 +2696,7 @@ export type SelectRoleBindingErrors = {
      */
     404: ProblemDetails;
     /**
-     * `binding-not-in-catalog` — the role exists but its catalog does not offer the requested binding. `invalid-request` — the request body failed validation.
+     * `binding-not-in-catalog` — the role exists but its catalog does not offer the requested binding. `role-file-only` — the role exists but does not yet adopt persisted selection. `invalid-request` — the request body failed validation.
      */
     422: ProblemDetails;
 };
@@ -2670,6 +2749,48 @@ export type ListMeetingSpeakersResponses = {
 };
 
 export type ListMeetingSpeakersResponse = ListMeetingSpeakersResponses[keyof ListMeetingSpeakersResponses];
+
+export type AssignMeetingSpeakerData = {
+    body: AssignSpeakerRequest;
+    path: {
+        /**
+         * Meeting Id
+         */
+        meeting_id: string;
+        /**
+         * Tag
+         */
+        tag: string;
+    };
+    query?: never;
+    url: '/meetings/{meeting_id}/speakers/{tag}';
+};
+
+export type AssignMeetingSpeakerErrors = {
+    /**
+     * `not-found` — no such meeting. `unknown-speaker-tag` — the meeting's transcript carries no segment with that label, so the assignment would never match anything. `unknown-participant` — `participantId` names no participant row.
+     */
+    404: unknown;
+    /**
+     * `assignment-target-busy` — the meeting's job is `running`, so re-arming it would race the worker; carries `jobId` and `jobStatus`. Retry once the job settles. An unviewable meeting whose job is not running is deliberately accepted by this PUT as the curator's recovery path; no other meeting read or write receives that exception.
+     */
+    409: unknown;
+    /**
+     * `invalid-request` — the route parameter is not a UUID, or the body did not name exactly one of `participantId`, `displayName` or `unresolved: true` (a blank or NUL-bearing `displayName` is refused here too).
+     */
+    422: ProblemDetails;
+};
+
+export type AssignMeetingSpeakerError = AssignMeetingSpeakerErrors[keyof AssignMeetingSpeakerErrors];
+
+export type AssignMeetingSpeakerResponses = {
+    /**
+     * Successful Response
+     */
+    200: SpeakerAssignmentResponse;
+};
+
+export type AssignMeetingSpeakerResponse = AssignMeetingSpeakerResponses[keyof AssignMeetingSpeakerResponses];
 
 export type GetCorpusStatsData = {
     body?: never;

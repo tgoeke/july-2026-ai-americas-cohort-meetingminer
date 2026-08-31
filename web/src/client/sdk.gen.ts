@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, ServerSentEventsResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { ApproveMomentArtifactsData, ApproveMomentArtifactsErrors, ApproveMomentArtifactsResponses, AskCorpusData, AskCorpusErrors, AskCorpusResponses, AssignMeetingProjectData, AssignMeetingProjectErrors, AssignMeetingProjectResponses, AssignMeetingSeriesData, AssignMeetingSeriesErrors, AssignMeetingSeriesResponses, AssignProjectProductData, AssignProjectProductErrors, AssignProjectProductResponses, CreateIngestData, CreateIngestErrors, CreateIngestResponses, CreateProductData, CreateProductErrors, CreateProductResponses, CreateProjectData, CreateProjectErrors, CreateProjectResponses, CreateSeriesData, CreateSeriesErrors, CreateSeriesResponses, GetConfigurationData, GetConfigurationResponses, GetCorpusStatsData, GetCorpusStatsResponses, GetExtractionPromptsData, GetExtractionPromptsResponses, GetHealthData, GetHealthResponses, GetJobData, GetJobErrors, GetJobResponses, GetMediaFileData, GetMediaFileErrors, GetMediaFileResponses, GetMeetingDrilldownData, GetMeetingDrilldownErrors, GetMeetingDrilldownResponses, GetModelSettingsData, GetModelSettingsResponses, GetMomentData, GetMomentErrors, GetMomentResponses, GetRecordingData, GetRecordingErrors, GetRecordingResponses, GetSystemStatusData, GetSystemStatusResponses, ListMeetingMomentsData, ListMeetingMomentsErrors, ListMeetingMomentsResponses, ListMeetingsData, ListMeetingSpeakersData, ListMeetingSpeakersErrors, ListMeetingSpeakersResponses, ListMeetingsResponses, ListParticipantsData, ListParticipantsResponses, ListProductsData, ListProductsResponses, ListProjectsData, ListProjectsResponses, ListSeriesData, ListSeriesResponses, MergeParticipantsData, MergeParticipantsErrors, MergeParticipantsResponses, RenameParticipantData, RenameParticipantErrors, RenameParticipantResponses, SearchCorpusData, SearchCorpusErrors, SearchCorpusResponses, SelectRoleBindingData, SelectRoleBindingErrors, SelectRoleBindingResponses, StreamJobEventsData, StreamJobEventsResponses } from './types.gen';
+import type { ApproveMomentArtifactsData, ApproveMomentArtifactsErrors, ApproveMomentArtifactsResponses, AskCorpusData, AskCorpusErrors, AskCorpusResponses, AssignMeetingProjectData, AssignMeetingProjectErrors, AssignMeetingProjectResponses, AssignMeetingSeriesData, AssignMeetingSeriesErrors, AssignMeetingSeriesResponses, AssignMeetingSpeakerData, AssignMeetingSpeakerErrors, AssignMeetingSpeakerResponses, AssignProjectProductData, AssignProjectProductErrors, AssignProjectProductResponses, CreateIngestData, CreateIngestErrors, CreateIngestResponses, CreateProductData, CreateProductErrors, CreateProductResponses, CreateProjectData, CreateProjectErrors, CreateProjectResponses, CreateSeriesData, CreateSeriesErrors, CreateSeriesResponses, GetConfigurationData, GetConfigurationResponses, GetCorpusStatsData, GetCorpusStatsResponses, GetExtractionPromptsData, GetExtractionPromptsResponses, GetHealthData, GetHealthResponses, GetJobData, GetJobErrors, GetJobResponses, GetMediaFileData, GetMediaFileErrors, GetMediaFileResponses, GetMeetingDrilldownData, GetMeetingDrilldownErrors, GetMeetingDrilldownResponses, GetModelSettingsData, GetModelSettingsResponses, GetMomentData, GetMomentErrors, GetMomentResponses, GetRecordingData, GetRecordingErrors, GetRecordingResponses, GetSystemStatusData, GetSystemStatusResponses, ListMeetingMomentsData, ListMeetingMomentsErrors, ListMeetingMomentsResponses, ListMeetingsData, ListMeetingSpeakersData, ListMeetingSpeakersErrors, ListMeetingSpeakersResponses, ListMeetingsResponses, ListParticipantsData, ListParticipantsResponses, ListProductsData, ListProductsResponses, ListProjectsData, ListProjectsResponses, ListSeriesData, ListSeriesResponses, MergeParticipantsData, MergeParticipantsErrors, MergeParticipantsResponses, RenameParticipantData, RenameParticipantErrors, RenameParticipantResponses, SearchCorpusData, SearchCorpusErrors, SearchCorpusResponses, SelectRoleBindingData, SelectRoleBindingErrors, SelectRoleBindingResponses, StreamJobEventsData, StreamJobEventsResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -219,6 +219,37 @@ export const selectRoleBinding = <ThrowOnError extends boolean = false>(options:
  * Aggregate one meeting's transcript segments into one row per speaker.
  */
 export const listMeetingSpeakers = <ThrowOnError extends boolean = false>(options: Options<ListMeetingSpeakersData, ThrowOnError>): RequestResult<ListMeetingSpeakersResponses, ListMeetingSpeakersErrors, ThrowOnError> => (options.client ?? client).get<ListMeetingSpeakersResponses, ListMeetingSpeakersErrors, ThrowOnError>({ url: '/meetings/{meeting_id}/speakers', ...options });
+
+/**
+ * Assign Meeting Speaker
+ *
+ * Record who a voice belongs to, and re-arm the meeting to act on it.
+ *
+ * Two writes and nothing else (AD-5): an api-owned `participant_alias` row
+ * in the `speaker:<meetingId>:<tag>` namespace, and the job re-armed for
+ * `align → moments → extract`. This route never touches
+ * `transcript_segment`, `moment` or `artifact`. `align` reads the alias back
+ * and re-derives the attribution, which is what makes an assignment survive
+ * every later rerun and re-ingest instead of being a one-off edit the next
+ * ingest would undo.
+ *
+ * Deliberately READ COMMITTED, not the REPEATABLE READ the read routes use:
+ * the checks below span `meeting`, `job`, `job_stage`, `transcript_segment`
+ * and `participant_alias`, and a snapshot frozen at the first of them would
+ * let this accept against a job whose status changed after the transaction
+ * opened. `assignment-target-busy` is the refusal that has to see the
+ * current row, because re-arming a claimed job would race the single
+ * worker's own final status write (AD-9) and could drop the assignment
+ * silently.
+ */
+export const assignMeetingSpeaker = <ThrowOnError extends boolean = false>(options: Options<AssignMeetingSpeakerData, ThrowOnError>): RequestResult<AssignMeetingSpeakerResponses, AssignMeetingSpeakerErrors, ThrowOnError> => (options.client ?? client).put<AssignMeetingSpeakerResponses, AssignMeetingSpeakerErrors, ThrowOnError>({
+    url: '/meetings/{meeting_id}/speakers/{tag}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
 
 /**
  * Get Corpus Stats
