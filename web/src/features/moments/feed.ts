@@ -55,7 +55,7 @@ export interface FeedReason {
 export interface FeedThread {
   threadId: string
   name: string
-  colorOrdinal: number
+  colorOrdinal: number | null
 }
 
 /** One ranked moment. Field names are story 10.4's acceptance criteria. */
@@ -193,7 +193,8 @@ function threadOf(raw: unknown, where: string): FeedThread {
   return {
     threadId: requireString(row, 'threadId', where),
     name: requireString(row, 'name', where),
-    colorOrdinal: requireNumber(row, 'colorOrdinal', where),
+    colorOrdinal:
+      row.colorOrdinal === null ? null : requireNumber(row, 'colorOrdinal', where),
   }
 }
 
@@ -391,17 +392,34 @@ export interface ThreadPalette {
   hue: number | null
   /** 1 or 2 within the palette, or `null` beyond it. */
   lap: number | null
-  /** The CSS custom property carrying the colour. */
-  cssVar: string
+  /** The lap-one CSS custom property used for the readable thread name. */
+  textCssVar: string
+  /** The CSS custom property used by the lap swatch. */
+  swatchCssVar: string
 }
 
-export function threadPaletteOf(colorOrdinal: number): ThreadPalette {
-  if (!Number.isInteger(colorOrdinal) || colorOrdinal < 1 || colorOrdinal > 16) {
-    return { hue: null, lap: null, cssVar: '--thread-beyond-band' }
+export function threadPaletteOf(colorOrdinal: number | null): ThreadPalette {
+  if (
+    colorOrdinal === null ||
+    !Number.isInteger(colorOrdinal) ||
+    colorOrdinal < 1 ||
+    colorOrdinal > 16
+  ) {
+    return {
+      hue: null,
+      lap: null,
+      textCssVar: '--thread-beyond-band',
+      swatchCssVar: '--thread-beyond-band',
+    }
   }
   const hue = ((colorOrdinal - 1) % 8) + 1
   const lap = Math.floor((colorOrdinal - 1) / 8) + 1
-  return { hue, lap, cssVar: lap === 1 ? `--thread-${hue}-band` : `--thread-${hue}-band-lap2` }
+  return {
+    hue,
+    lap,
+    textCssVar: `--thread-${hue}-band`,
+    swatchCssVar: lap === 1 ? `--thread-${hue}-band` : `--thread-${hue}-band-lap2`,
+  }
 }
 
 /** A thread chip's accessible name — the `#` is decoration and never read. */
