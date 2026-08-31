@@ -40,10 +40,10 @@ beforeEach(() => {
   vi.stubGlobal('localStorage', memoryStorage)
   window.history.replaceState(null, '', '/')
   vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
-    const path = new URL(String(input)).pathname
+    const path = new URL(input instanceof Request ? input.url : String(input)).pathname
     const body = path.endsWith('/threads')
       ? { threads: [] }
-      : { items: [], total: 0, unfilteredTotal: 0, limit: 24, offset: 0 }
+      : { items: [], total: 0, corpusTotal: 0, limit: 24, offset: 0 }
     return Promise.resolve(new Response(JSON.stringify(body)))
   }))
 })

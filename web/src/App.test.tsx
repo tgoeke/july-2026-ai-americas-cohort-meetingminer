@@ -76,7 +76,7 @@ function feedPage(items: Array<unknown> = []): string {
   return JSON.stringify({
     items,
     total: items.length,
-    unfilteredTotal: items.length,
+    corpusTotal: items.length,
     limit: 24,
     offset: 0,
   })
@@ -118,15 +118,14 @@ beforeEach(() => {
     return { stream: live.stream }
   })
   sdk.listParticipants.mockResolvedValue({ data: [], error: undefined })
-  // Two readers in this shell use raw `fetch` rather than the generated sdk:
-  // the status indicator polls `GET /status`, and the Moments feed reads
-  // `GET /moments/feed` (story 10.4's endpoint, not yet in the client). Only
-  // the feed is answered; everything else reads as unreachable, which is what
-  // these navigation tests want.
+  // The status indicator polls `GET /status` directly while the generated
+  // Moments operation also reaches the test's global fetch. Only the feed is
+  // answered; everything else reads as unreachable, which is what these
+  // navigation tests want.
   vi.stubGlobal(
     'fetch',
     vi.fn((input: RequestInfo | URL) => {
-      if (String(input).includes('/moments/feed')) {
+      if ((input instanceof Request ? input.url : String(input)).includes('/moments/feed')) {
         return Promise.resolve(jsonResponse(feedPage()))
       }
       return Promise.reject(new Error('no api in this test'))
@@ -485,16 +484,16 @@ describe('App', () => {
     sdk.getHealth.mockResolvedValue(health('meetingminer-api'))
     sdk.getMoment.mockResolvedValue({ data: momentDetail(), error: undefined })
     // URL-aware, not a blanket resolved value: the shell now carries a second
-    // raw-`fetch` reader — the status indicator polls `GET /status`
+    // direct-fetch reader — the status indicator polls `GET /status`
     // (SPEC-system-status) — and a single shared Response body would be
     // consumed by whichever request lands first. Only `/chat` gets the
     // stream; the status poll gets a refusal and reads as unreachable, which
     // is irrelevant to this citation-navigation test.
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
-      if (String(input).includes('/moments/feed')) {
+      if ((input instanceof Request ? input.url : String(input)).includes('/moments/feed')) {
         return Promise.resolve(jsonResponse(feedPage()))
       }
-      if (!String(input).endsWith('/chat')) {
+      if (!(input instanceof Request ? input.url : String(input)).endsWith('/chat')) {
         return Promise.reject(new Error('no api in this test'))
       }
       return Promise.resolve(

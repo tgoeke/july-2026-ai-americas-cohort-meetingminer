@@ -45,7 +45,7 @@ function item(overrides: Partial<MomentFeedItem> = {}): MomentFeedItem {
 interface Page {
   items: Array<MomentFeedItem>
   total?: number
-  unfilteredTotal?: number
+  corpusTotal?: number
 }
 
 /** Serve the feed, one page per `offset` the component asks for. Any other
@@ -53,7 +53,7 @@ interface Page {
 function serveFeed(pages: (offset: number) => Page) {
   const calls: Array<URL> = []
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
-    const url = new URL(String(input))
+    const url = new URL(input instanceof Request ? input.url : String(input))
     if (url.pathname.endsWith('/threads')) {
       return Promise.resolve(
         new Response(
@@ -85,7 +85,7 @@ function serveFeed(pages: (offset: number) => Page) {
         JSON.stringify({
           items: page.items,
           total: page.total ?? page.items.length,
-          unfilteredTotal: page.unfilteredTotal ?? page.total ?? page.items.length,
+          corpusTotal: page.corpusTotal ?? page.total ?? page.items.length,
           limit: Number(url.searchParams.get('limit') ?? '24'),
           offset,
         }),
@@ -132,7 +132,7 @@ describe('MomentsFeed', () => {
       'fetch',
       vi.fn(async () => {
         await held
-        return new Response(JSON.stringify({ items: [], total: 0, unfilteredTotal: 0, limit: 24, offset: 0 }), {
+        return new Response(JSON.stringify({ items: [], total: 0, corpusTotal: 0, limit: 24, offset: 0 }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         })
@@ -301,7 +301,7 @@ describe('MomentsFeed', () => {
   })
 
   it('names the active filters when nothing matches, and clears them', async () => {
-    serveFeed(() => ({ items: [], total: 0, unfilteredTotal: 24 }))
+    serveFeed(() => ({ items: [], total: 0, corpusTotal: 24 }))
     renderFeed({}, '/?corpus=real&kind=decision')
 
     expect(await screen.findByTestId('moments-empty')).toHaveTextContent(
@@ -340,14 +340,14 @@ describe('MomentsFeed', () => {
   it('names the api address when the feed cannot be reached, and retries', async () => {
     let feedAttempt = 0
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
-      const url = new URL(String(input))
+      const url = new URL(input instanceof Request ? input.url : String(input))
       if (url.pathname.endsWith('/threads')) {
         return Promise.resolve(new Response(JSON.stringify({ threads: [] })))
       }
       feedAttempt += 1
       if (feedAttempt === 1) return Promise.reject(new Error('fetch failed'))
       return Promise.resolve(
-        new Response(JSON.stringify({ items: [item()], total: 1, unfilteredTotal: 1, limit: 24, offset: 0 }), {
+        new Response(JSON.stringify({ items: [item()], total: 1, corpusTotal: 1, limit: 24, offset: 0 }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         }),

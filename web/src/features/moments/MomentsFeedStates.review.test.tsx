@@ -15,7 +15,10 @@ function renderFeed() {
   )
 }
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
 
 describe('review F8 — honest initial, error, and empty states', () => {
   it('does not publish a false zero before ranking finishes', async () => {
@@ -23,7 +26,7 @@ describe('review F8 — honest initial, error, and empty states', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn((input: RequestInfo | URL) => {
-        if (new URL(String(input)).pathname.endsWith('/threads')) {
+        if (new URL(input instanceof Request ? input.url : String(input)).pathname.endsWith('/threads')) {
           return Promise.resolve(new Response(JSON.stringify({ threads: [] })))
         }
         return new Promise<Response>((resolve) => {
@@ -37,7 +40,7 @@ describe('review F8 — honest initial, error, and empty states', () => {
     expect(screen.queryByTestId('moments-count')).toBeNull()
 
     release(
-      new Response(JSON.stringify({ items: [], total: 0, unfilteredTotal: 0, limit: 24, offset: 0 }), {
+      new Response(JSON.stringify({ items: [], total: 0, corpusTotal: 0, limit: 24, offset: 0 }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),
@@ -49,7 +52,7 @@ describe('review F8 — honest initial, error, and empty states', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn((input: RequestInfo | URL) =>
-        new URL(String(input)).pathname.endsWith('/threads')
+        new URL(input instanceof Request ? input.url : String(input)).pathname.endsWith('/threads')
           ? Promise.resolve(new Response(JSON.stringify({ threads: [] })))
           : Promise.reject(new Error('fixture offline')),
       ),
@@ -59,18 +62,50 @@ describe('review F8 — honest initial, error, and empty states', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('fixture offline')
   })
 
+  it('preserves the api problem sentence when the generated operation is refused', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) =>
+        Promise.resolve(
+          new URL(input instanceof Request ? input.url : String(input)).pathname.endsWith('/threads')
+            ? new Response(JSON.stringify({ threads: [] }))
+            : new Response(
+                JSON.stringify({ title: 'Invalid request', detail: 'corpus is unknown' }),
+                {
+                  status: 422,
+                  headers: { 'Content-Type': 'application/problem+json' },
+                },
+              ),
+        ),
+      ),
+    )
+    renderFeed()
+
+    expect(await screen.findByTestId('moments-error')).toHaveTextContent(
+      'Invalid request: corpus is unknown',
+    )
+  })
+
+  it('names the feed timeout instead of exposing the generated abort error', async () => {
+    vi.spyOn(AbortSignal, 'timeout').mockReturnValue(AbortSignal.abort())
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('aborted'))))
+    renderFeed()
+
+    expect(await screen.findByTestId('moments-error')).toHaveTextContent('timed out after 8000ms')
+  })
+
   it('offers the primary Add meeting recovery when the corpus is empty', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn((input: RequestInfo | URL) =>
         Promise.resolve(
-          new URL(String(input)).pathname.endsWith('/threads')
+          new URL(input instanceof Request ? input.url : String(input)).pathname.endsWith('/threads')
             ? new Response(JSON.stringify({ threads: [] }))
             : new Response(
                 JSON.stringify({
                   items: [],
                   total: 0,
-                  unfilteredTotal: 0,
+                  corpusTotal: 0,
                   limit: 24,
                   offset: 0,
                 }),
