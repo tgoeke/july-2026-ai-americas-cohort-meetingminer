@@ -258,7 +258,10 @@ parallel wave.
 - `make web-test` -- 59 files, 669 tests passed.
 - `make test` -- **2773 passed, 3 skipped, 0 failed in 696.71s**, plus web 669,
   evals 655, puller 92, and the web build. The 3 skips are pre-existing and
-  unchanged: the same 3 appeared in the run before this story's pins landed.
+  unchanged: the same 3 appeared in the run before this story's pins landed, and
+  the one `-rs` names is the opt-in network test at
+  `server/tests/test_youtube.py:1353` ("real yt-dlp acquisition over the
+  network: set MM_YOUTUBE_NETWORK_TEST=1 to run it"). No skip is this story's.
 - `python3 _bmad/scripts/branch_conflicts.py --against story/6-4a` -- this
   branch's own overlaps are `docs/backlog.md` (appended items),
   `web/src/client/*` (regenerated), `server/tests/test_api_registry.py` against
