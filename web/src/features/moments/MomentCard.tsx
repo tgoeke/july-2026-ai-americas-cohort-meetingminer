@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { getMeetingDrilldown } from '@/client/sdk.gen'
 import { SourceLinkAnchor } from '@/components/SourceLinkAnchor'
 import { Button } from '@/components/ui/button'
 import { ReplayPlayer } from '@/features/replay/ReplayPlayer'
+import { webVttDataUrl } from '@/features/replay/captions'
 import { affordanceOf, offsetLabel } from '@/lib/affordance'
 import { cn } from '@/lib/utils'
 import { KindGlyph } from './KindGlyph'
@@ -213,6 +215,7 @@ export function MomentCard({
   onOpenThread,
 }: MomentCardProps) {
   const [shotFailed, setShotFailed] = useState(false)
+  const [captionsSrc, setCaptionsSrc] = useState<string | null>(null)
   const affordance = affordanceOf(item, item.startMs)
   const title = item.meetingTitle?.trim() || item.meetingId
   const offset = offsetLabel(item.startMs)
@@ -225,6 +228,26 @@ export function MomentCard({
     if (expanded) onToggleReplay()
     onOpenMeeting()
   }
+
+  useEffect(() => {
+    setCaptionsSrc(null)
+    if (!expanded || affordance.kind !== 'replay') return
+    const controller = new AbortController()
+    const load = async () => {
+      try {
+        const { data, error } = await getMeetingDrilldown({
+          path: { meeting_id: item.meetingId },
+          signal: controller.signal,
+        })
+        if (controller.signal.aborted || error !== undefined || data === undefined) return
+        setCaptionsSrc(webVttDataUrl(data.segments))
+      } catch {
+        // Replay remains usable when its optional transcript read fails.
+      }
+    }
+    void load()
+    return () => controller.abort()
+  }, [affordance.kind, expanded, item.meetingId])
 
   const frame = (
     <div
@@ -263,6 +286,11 @@ export function MomentCard({
           startMs={item.startMs}
           label={`Recording of ${title} at ${offset}`}
           className="w-full rounded-md border border-border bg-background"
+          captions={
+            captionsSrc === null
+              ? undefined
+              : { src: captionsSrc, label: `Transcript captions for ${title}` }
+          }
         />
       )}
     </div>
