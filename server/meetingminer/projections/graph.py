@@ -28,6 +28,18 @@ Nodes: ``Meeting``, ``Moment``, ``Screen``, ``Screenshot``, ``Participant``,
   (story 2.5, AD-5); ``Series``/``Project``/``Product`` are cross-meeting
   nodes, upserted like ``Screen``/``Participant`` and never deleted by a
   per-meeting pass
+* ``(Topic)-[:MENTIONS]->(Moment)`` — one edge per ``topic_mention`` row
+  (story 10.1), carrying ``anchorMs``. ``Topic`` is meeting-scoped like
+  ``Artifact``, so a per-meeting pass deletes and re-creates it, which is what
+  keeps a re-extraction from leaving a superseded topic in the graph.
+* ``(Thread)-[:INCLUDES]->(Topic)`` — the cross-meeting half (story 10.2).
+  A ``Thread`` exists precisely because it spans meetings, so it is upserted
+  like ``Screen`` and never deleted by a per-meeting pass. A meeting whose
+  topics have not been threaded yet writes ``Topic`` nodes and no ``Thread``:
+  extraction and thread derivation are two passes, and the second may not have
+  run. Topics and threads are **navigation metadata outside the publish
+  gate** — they are not artifacts, carry no lifecycle state, and so are never
+  put through :func:`assert_publishable` (AD-4, as clarified for story 10.2).
 
 Every node key is the Postgres-minted UUID, verbatim (AD-6) — never an
 ordinal, never a composite the store mints. A ``Chunk`` has no Postgres row of
@@ -418,6 +430,93 @@ def _write_moments(
         ).consume()
 
 
+def _write_topics(tx: neo4j.Transaction, evidence: MeetingEvidence) -> None:
+    """``Topic`` and ``Thread`` nodes with their ``MENTIONS``/``INCLUDES`` edges.
+
+    Runs after ``_write_moments``, because every ``MENTIONS`` edge matches a
+    ``Moment`` node written there. Three statements rather than one, for the
+    same reason the moment writer splits: the ``Thread`` half is conditional
+    on the meeting having been threaded, and folding a conditional MERGE into
+    the node statement would make an un-threaded meeting silently skip its
+    ``Topic`` nodes too.
+
+    No publish gate. ``Artifact`` nodes go through :func:`assert_publishable`
+    because a draft leaking into retrieval would put an unapproved claim in
+    front of a reader; a topic is navigation metadata with no lifecycle state
+    to gate on, so gating it would mean inventing one (AD-4, story 10.2).
+    """
+    if not evidence.topics:
+        return
+    meeting_id = str(evidence.meeting_id)
+    rows = [
+        {
+            "id": str(topic.id),
+            "name": topic.name,
+            "gist": topic.gist,
+            "threadId": str(topic.thread_id) if topic.thread_id is not None else None,
+            "threadName": topic.thread_name,
+            "mentions": [
+                {"momentId": str(mention.moment_id), "anchorMs": mention.anchor_ms}
+                for mention in topic.mentions
+            ],
+        }
+        for topic in evidence.topics
+    ]
+    expected_edges = sum(
+        len({mention["momentId"] for mention in row["mentions"]}) for row in rows
+    )
+    for batch in _batches(rows):
+        tx.run(
+            "UNWIND $rows AS row"
+            " MERGE (t:Topic {id: row.id})"
+            " SET t.meetingId = $meetingId, t.name = row.name, t.gist = row.gist",
+            meetingId=meeting_id,
+            rows=batch,
+        ).consume()
+        # A Thread is cross-meeting: MERGE, never CREATE, and never deleted by
+        # a per-meeting pass. `threadId IS NOT NULL` is the un-threaded case —
+        # the corpus-wide derivation has not run over this meeting's topics
+        # yet, which is an ordering fact, not a missing node.
+        tx.run(
+            "UNWIND $rows AS row"
+            " WITH row WHERE row.threadId IS NOT NULL"
+            " MATCH (t:Topic {id: row.id})"
+            " MERGE (th:Thread {id: row.threadId})"
+            " SET th.name = row.threadName"
+            " MERGE (th)-[:INCLUDES]->(t)",
+            rows=batch,
+        ).consume()
+        tx.run(
+            "UNWIND $rows AS row"
+            " MATCH (t:Topic {id: row.id})"
+            " UNWIND row.mentions AS mention"
+            " MATCH (mo:Moment {id: mention.momentId})"
+            " MERGE (t)-[m:MENTIONS]->(mo)"
+            " SET m.anchorMs = mention.anchorMs",
+            rows=batch,
+        ).consume()
+
+    # The same rule `OF_SCREEN` and `CITES` are held to: a Cypher `MATCH` that
+    # finds nothing drops its row silently, so a missing `Moment` node would
+    # cost a `MENTIONS` edge while the projection still reported success — and
+    # a topic with no edge is navigation to nowhere, which is precisely what
+    # migration 0014 refuses at the record.
+    linked = tx.run(
+        "MATCH (:Topic {meetingId: $meetingId})-[m:MENTIONS]->(:Moment)"
+        " RETURN count(m) AS total",
+        meetingId=meeting_id,
+    ).single()["total"]
+    if linked != expected_edges:
+        raise ProjectionError(
+            f"meeting {evidence.meeting_id}: {expected_edges - linked} of"
+            f" {expected_edges} topic MENTIONS edges could not be written — a"
+            " mentioned Moment node is missing from the graph, so the thread"
+            " traversal would show a topic with no evidence. Run"
+            f" 'rebuild --meeting {evidence.meeting_id}' to re-project the"
+            " meeting and its topics together."
+        )
+
+
 def _write_shown_during(
     tx: neo4j.Transaction, evidence: MeetingEvidence, chunks: tuple[Chunk, ...]
 ) -> None:
@@ -545,7 +644,7 @@ def project_meeting(
 
     Order matters: screens before screenshots (``OF_SCREEN`` matches an
     existing ``Screen``), chunks before moments (``COVERS``), screenshots
-    before moments (``SHOWS``).
+    before moments (``SHOWS``), moments before topics (``MENTIONS``).
     """
     meeting_id = str(evidence.meeting_id)
     with driver.session() as session:
@@ -562,6 +661,9 @@ def project_meeting(
             _write_screenshots(tx, evidence)
             _write_chunks(tx, evidence, chunks)
             _write_moments(tx, evidence, chunks)
+            # Topics after moments: every `MENTIONS` edge matches a `Moment`
+            # node written just above, and the count check depends on it.
+            _write_topics(tx, evidence)
             _write_shown_during(tx, evidence, chunks)
             # Artifacts last: `CITES` matches the Moment nodes written above.
             # Inside the same transaction, so the meeting and its published

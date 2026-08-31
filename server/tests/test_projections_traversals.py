@@ -27,10 +27,12 @@ from meetingminer.projections.stores import ProjectionError, StoreUnavailableErr
 from meetingminer.projections.traversals import (
     PARTICIPANT_TOPIC_MOMENTS,
     SCREEN_HISTORY,
+    THREAD_TIMELINE,
     TRAVERSAL_TEMPLATES,
     participant_topic_moments,
     run_template,
     screen_history,
+    thread_timeline,
 )
 
 from conftest import FakeEmbedder, truncate_evidence
@@ -58,8 +60,12 @@ def project(
 # --- store-free: the registry (AC4) ---------------------------------------
 
 
-def test_the_registry_contains_exactly_the_two_templates() -> None:
-    assert set(TRAVERSAL_TEMPLATES) == {SCREEN_HISTORY, PARTICIPANT_TOPIC_MOMENTS}
+def test_the_registry_contains_exactly_the_three_templates() -> None:
+    assert set(TRAVERSAL_TEMPLATES) == {
+        SCREEN_HISTORY,
+        PARTICIPANT_TOPIC_MOMENTS,
+        THREAD_TIMELINE,
+    }
     for name, template in TRAVERSAL_TEMPLATES.items():
         assert template.name == name
         # The declared parameters are exactly the run function's keyword-only
@@ -74,6 +80,7 @@ def test_the_registry_contains_exactly_the_two_templates() -> None:
         assert template.parameters == keyword_only, name
     assert TRAVERSAL_TEMPLATES[SCREEN_HISTORY].run is screen_history
     assert TRAVERSAL_TEMPLATES[PARTICIPANT_TOPIC_MOMENTS].run is participant_topic_moments
+    assert TRAVERSAL_TEMPLATES[THREAD_TIMELINE].run is thread_timeline
 
 
 def _cypher_parameter(name: str) -> str:

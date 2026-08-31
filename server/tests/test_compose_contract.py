@@ -533,6 +533,7 @@ SLOW_MODULES = (
     "test_projections_locks",
     "test_projections_rebuild",
     "test_projections_search",
+    "test_projections_threads",
     "test_projections_traversals",
 )
 

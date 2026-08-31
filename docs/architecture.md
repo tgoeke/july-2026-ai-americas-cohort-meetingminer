@@ -81,7 +81,15 @@ rather than a data migration.
 through `server/projections`. The publish gate lives inside that module and
 refuses any artifact whose Postgres state is not `published`, so drafts cannot
 leak into retrieval. Embeddings are computed in-module rather than by store-native
-auto-embedders, which is what keeps `rebuild` deterministic.
+auto-embedders, which is what keeps `rebuild` deterministic. The gate is about
+artifacts specifically: topics and threads are navigation metadata, not
+artifacts — they carry no `extracted → approved → published` state, so there is
+nothing to gate them on and gating them would mean inventing a lifecycle they
+do not have. They project at evidence-complete alongside moments and screens,
+and remain uncitable: only moment ids are citations (AD-6), so a topic name
+never reaches an answer as a fact. Sole-writer is unchanged — the worker
+derives them into Postgres, and `projections` stays the only module that opens
+a store client.
 
 **AD-5 — Table ownership is disjoint.** The worker writes evidence and job
 tables; the api writes user-declared data. Two processes never mutate the same

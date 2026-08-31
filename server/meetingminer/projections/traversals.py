@@ -18,8 +18,19 @@ authored the graph shape:
 * **participant-topic-moments** — ``Participant → Meeting → Moment``: the
   "I already explained this to Clarence" query. Presence is ``ATTENDED``, not
   ``SPOKE_IN`` — Clarence was in the room, not necessarily speaking. There is
-  no topic hop: Topic nodes do not exist until Epic 4, so "the topic was
-  discussed" is a case-insensitive substring over ``Moment.text``.
+  no topic hop: this template predates ``Topic`` nodes, so "the topic was
+  discussed" is a case-insensitive substring over ``Moment.text``. Story
+  10.2's ``Topic`` nodes do not change it — a different question is a
+  different template, not a rewrite of a registered one.
+* **thread-timeline** — ``Thread → Topic → Moment ← Meeting`` (story 10.2):
+  every discussion of one subject over time. Rows come back in wall-clock
+  order and are folded into per-meeting groups carrying the aggregates the
+  acceptance criteria name — mentions per meeting, the meeting's span in
+  milliseconds, and the participants known to have spoken in the mentioned
+  moments — with the same three totals repeated at thread level. Speakers are
+  ``SPOKE_IN``, not ``ATTENDED``: the claim is "these people said something in
+  a moment where the subject came up", which is narrower than the attendee
+  list and is the only one the evidence actually supports.
 
 Three rules every template obeys:
 
@@ -53,7 +64,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 from uuid import UUID
 
 import neo4j
@@ -64,6 +75,7 @@ from meetingminer.projections.stores import ProjectionError, StoreUnavailableErr
 # The registered template names — what story 3.3's router classifies onto.
 SCREEN_HISTORY = "screen-history"
 PARTICIPANT_TOPIC_MOMENTS = "participant-topic-moments"
+THREAD_TIMELINE = "thread-timeline"
 
 
 # --- result shapes ---------------------------------------------------------
@@ -123,6 +135,83 @@ class ScreenHistoryResult:
 
 
 @dataclass(frozen=True)
+class ThreadAnchor:
+    """The resolved thread a thread-timeline traversal anchored on."""
+
+    id: UUID
+    name: str
+
+
+@dataclass(frozen=True)
+class ThreadParticipant:
+    """One person known to have spoken in a moment where the subject came up.
+
+    ``SPOKE_IN``, not ``ATTENDED``, and the graph writes ``SPOKE_IN`` only for
+    turns whose speaker actually resolved to a participant — an unresolved or
+    ambiguous label contributes no edge (``evidence.py``: a wrong attribution
+    is worse than an absent one). So this is honestly "participants where
+    known", which is what the acceptance criteria ask for, and never a claim
+    to be the full attendee list.
+    """
+
+    id: UUID
+    identity_key: str
+    display_name: str
+
+
+@dataclass(frozen=True)
+class ThreadMention:
+    """One ``topic_mention`` reached through the thread, with its moment.
+
+    ``moment`` is the same :class:`TraversalMoment` the other two templates
+    return, so a caller that already renders traversal rows renders these.
+    ``started_at`` is the *moment's* own wall clock — the value the thread's
+    span is computed from, distinct from the meeting's start.
+    """
+
+    topic_id: UUID
+    topic_name: str
+    topic_gist: str | None
+    anchor_ms: int
+    started_at: datetime
+    moment: TraversalMoment
+    speakers: tuple[ThreadParticipant, ...]
+
+
+@dataclass(frozen=True)
+class ThreadMeeting:
+    """One meeting's share of a thread, with the per-level aggregates.
+
+    ``span_ms`` is the distance from the first mention's start to the last
+    mention's end *within this meeting* — how much of the meeting the subject
+    occupied — not the meeting's own duration, which the graph does not carry.
+    """
+
+    meeting_id: UUID
+    meeting_title: str | None
+    started_at: datetime
+    mention_count: int
+    span_ms: int
+    participants: tuple[ThreadParticipant, ...]
+    mentions: tuple[ThreadMention, ...]
+
+
+@dataclass(frozen=True)
+class ThreadTimelineResult:
+    """``thread is None`` means the anchor matched no node — an unknown
+    thread, not an empty one. A resolved thread with no meetings is the valid
+    empty answer: a thread whose topics have no surviving mentions."""
+
+    thread: ThreadAnchor | None
+    meetings: tuple[ThreadMeeting, ...]
+    meeting_count: int
+    mention_count: int
+    participants: tuple[ThreadParticipant, ...]
+    first_mention_at: datetime | None
+    last_mention_at: datetime | None
+
+
+@dataclass(frozen=True)
 class ParticipantTopicMomentsResult:
     """``participant is None`` means the anchor matched no node. A resolved
     participant with no rows means no attended meeting's moment text contains
@@ -173,6 +262,39 @@ _PARTICIPANT_TOPIC_MOMENTS_CYPHER = (
     " mo.startMs AS startMs, mo.endMs AS endMs,"
     " mo.screenshotId AS screenshotId, mo.sourceDeepLink AS sourceDeepLink"
     " ORDER BY meeting.startedAt, meeting.id, mo.startMs, mo.id"
+)
+
+
+# The thread walk. Same anchor-then-OPTIONAL-MATCH shape as the two above, so
+# an unknown thread and a thread with no mentions stay distinguishable from one
+# round trip.
+#
+# The second OPTIONAL MATCH collects the moment's resolved speakers as triples
+# rather than maps only because a triple needs no quote characters; the
+# no-string-literal rule (AD-7) is asserted over the statement text, and a map
+# literal would still satisfy it but reads worse beside the other two
+# templates. When a moment has no resolved speaker the collect yields one
+# all-null triple, which the row parser drops.
+#
+# ORDER BY carries the same explicit chain as the other two, plus `tp.id`:
+# two topics of one thread can mention the same moment in the same meeting, so
+# the moment-level tie-break is not enough to make the row order total.
+_THREAD_TIMELINE_CYPHER = (
+    "MATCH (th:Thread {id: $threadId})"
+    " OPTIONAL MATCH (th)-[:INCLUDES]->(tp:Topic)-[men:MENTIONS]->(mo:Moment)"
+    "<-[:HAS_MOMENT]-(meeting:Meeting)"
+    " OPTIONAL MATCH (sp:Participant)-[:SPOKE_IN]->(mo)"
+    " WITH th, tp, men, mo, meeting,"
+    " collect(DISTINCT [sp.id, sp.identityKey, sp.displayName]) AS speakers"
+    " RETURN th.id AS anchorId, th.name AS anchorName,"
+    " tp.id AS topicId, tp.name AS topicName, tp.gist AS topicGist,"
+    " men.anchorMs AS anchorMs, mo.startedAt AS momentStartedAt,"
+    " mo.id AS momentId, meeting.id AS meetingId,"
+    " meeting.title AS meetingTitle, meeting.startedAt AS meetingStartedAt,"
+    " mo.startMs AS startMs, mo.endMs AS endMs,"
+    " mo.screenshotId AS screenshotId, mo.sourceDeepLink AS sourceDeepLink,"
+    " speakers AS speakers"
+    " ORDER BY meeting.startedAt, meeting.id, mo.startMs, mo.id, tp.id"
 )
 
 
@@ -463,6 +585,192 @@ def participant_topic_moments(
     return ParticipantTopicMomentsResult(participant=anchor, rows=rows)
 
 
+def _moment_started_at(data: Mapping[str, Any], *, moment_id: UUID) -> datetime:
+    """The moment's own wall clock, which the thread's span is measured on.
+
+    Held to the same standard ``_moment_of`` holds ``meeting.startedAt`` to:
+    ISO-8601 and offset-aware UTC, because the thread-level span compares
+    values across meetings and a naive one would compare as though it were
+    UTC. Named separately from the meeting's so a corrupt value says which
+    node it came from.
+    """
+    raw = data.get("momentStartedAt")
+    try:
+        started_at = datetime.fromisoformat(raw)
+    except (TypeError, ValueError) as exc:
+        raise ProjectionError(
+            f"the {THREAD_TIMELINE!r} traversal returned Moment {moment_id}"
+            f" with a startedAt that is not ISO-8601: {raw!r} — the projection"
+            " writes it and the thread's span depends on it. Run"
+            " 'rebuild --all' to regenerate the store from Postgres."
+        ) from exc
+    if started_at.tzinfo is None or started_at.utcoffset() != timedelta(0):
+        raise ProjectionError(
+            f"the {THREAD_TIMELINE!r} traversal returned Moment {moment_id}"
+            f" with a non-UTC startedAt: {raw!r} — the projection writes"
+            " offset-aware UTC, and the thread's span is compared across"
+            " meetings. Run 'rebuild --all' to regenerate the store from"
+            " Postgres."
+        )
+    return started_at
+
+
+def _speakers_of(data: Mapping[str, Any], *, moment_id: UUID) -> tuple[ThreadParticipant, ...]:
+    """The resolved speakers of one moment, or an empty tuple.
+
+    The Cypher collects one all-null triple when a moment has no ``SPOKE_IN``
+    edge, so a null id is *absence* and is dropped. A triple with an id but a
+    missing key or name is corruption and is refused by name — ``identityKey``
+    is what the retrieval eval compares participants by, so a ``None`` there
+    would poison every comparison downstream.
+    """
+    speakers: list[ThreadParticipant] = []
+    for triple in data.get("speakers") or ():
+        if not isinstance(triple, (list, tuple)) or len(triple) != 3:
+            raise ProjectionError(
+                f"the {THREAD_TIMELINE!r} traversal returned a malformed"
+                f" speaker entry for Moment {moment_id}: {triple!r}"
+            )
+        raw_id, identity_key, display_name = triple
+        if raw_id is None:
+            continue
+        participant_id = _uuid_of(raw_id, node="Participant", template=THREAD_TIMELINE)
+        speakers.append(
+            ThreadParticipant(
+                id=participant_id,
+                identity_key=_string_of(
+                    identity_key,
+                    node="Participant",
+                    node_id=participant_id,
+                    field="identityKey",
+                    template=THREAD_TIMELINE,
+                ),
+                display_name=_string_of(
+                    display_name,
+                    node="Participant",
+                    node_id=participant_id,
+                    field="displayName",
+                    template=THREAD_TIMELINE,
+                ),
+            )
+        )
+    return tuple(sorted(speakers, key=lambda person: (person.display_name, person.id)))
+
+
+def _merged_participants(
+    groups: Sequence[Sequence[ThreadParticipant]],
+) -> tuple[ThreadParticipant, ...]:
+    """One de-duplicated, display-ordered roll-up of several speaker sets."""
+    by_id = {person.id: person for group in groups for person in group}
+    return tuple(
+        sorted(by_id.values(), key=lambda person: (person.display_name, person.id))
+    )
+
+
+def thread_timeline(driver: neo4j.Driver, *, thread_id: UUID | str) -> ThreadTimelineResult:
+    """One subject's whole history: every meeting and moment, in wall-clock order.
+
+    ``Thread → Topic → Moment ← Meeting`` (story 10.2). The store returns one
+    row per mention, already ordered; the fold below groups them by meeting
+    without re-sorting, so the wall-clock order the aggregates describe is the
+    store's, not one this function invented.
+    """
+    records = _run_cypher(
+        driver,
+        template=THREAD_TIMELINE,
+        cypher=_THREAD_TIMELINE_CYPHER,
+        parameters={"threadId": _input_uuid(thread_id, parameter="thread_id")},
+    )
+    if not records:
+        return ThreadTimelineResult(
+            thread=None,
+            meetings=(),
+            meeting_count=0,
+            mention_count=0,
+            participants=(),
+            first_mention_at=None,
+            last_mention_at=None,
+        )
+    first = records[0]
+    thread_uuid = _uuid_of(first.get("anchorId"), node="Thread", template=THREAD_TIMELINE)
+    anchor = ThreadAnchor(
+        id=thread_uuid,
+        name=_string_of(
+            first.get("anchorName"),
+            node="Thread",
+            node_id=thread_uuid,
+            field="name",
+            template=THREAD_TIMELINE,
+        ),
+    )
+
+    # dict preserves insertion order, and the records arrive in the Cypher's
+    # ORDER BY, so meeting groups come out in wall-clock order for free.
+    grouped: dict[UUID, list[ThreadMention]] = {}
+    for record in records:
+        if record.get("momentId") is None:
+            # The anchor row of a thread with no mentions — a valid empty
+            # answer, not a node whose moment failed to resolve.
+            continue
+        moment = _moment_of(record, template=THREAD_TIMELINE)
+        topic_id = _uuid_of(record.get("topicId"), node="Topic", template=THREAD_TIMELINE)
+        mention = ThreadMention(
+            topic_id=topic_id,
+            topic_name=_string_of(
+                record.get("topicName"),
+                node="Topic",
+                node_id=topic_id,
+                field="name",
+                template=THREAD_TIMELINE,
+            ),
+            topic_gist=_nullable_string_of(
+                record.get("topicGist"),
+                node="Topic",
+                node_id=topic_id,
+                field="gist",
+                template=THREAD_TIMELINE,
+            ),
+            anchor_ms=_int_of(
+                record.get("anchorMs"),
+                moment_id=moment.moment_id,
+                field="anchorMs",
+                template=THREAD_TIMELINE,
+            ),
+            started_at=_moment_started_at(record, moment_id=moment.moment_id),
+            moment=moment,
+            speakers=_speakers_of(record, moment_id=moment.moment_id),
+        )
+        grouped.setdefault(moment.meeting_id, []).append(mention)
+
+    meetings = tuple(
+        ThreadMeeting(
+            meeting_id=meeting_id,
+            meeting_title=mentions[0].moment.meeting_title,
+            started_at=mentions[0].moment.meeting_started_at,
+            mention_count=len(mentions),
+            # First start to last end. The rows are in start order, but the
+            # widest end is not necessarily the last row's — moments can
+            # overlap — so the maximum is taken rather than assumed.
+            span_ms=max(mention.moment.end_ms for mention in mentions)
+            - min(mention.moment.start_ms for mention in mentions),
+            participants=_merged_participants([m.speakers for m in mentions]),
+            mentions=tuple(mentions),
+        )
+        for meeting_id, mentions in grouped.items()
+    )
+    every_mention = [mention for meeting in meetings for mention in meeting.mentions]
+    stamps = [mention.started_at for mention in every_mention]
+    return ThreadTimelineResult(
+        thread=anchor,
+        meetings=meetings,
+        meeting_count=len(meetings),
+        mention_count=len(every_mention),
+        participants=_merged_participants([meeting.participants for meeting in meetings]),
+        first_mention_at=min(stamps) if stamps else None,
+        last_mention_at=max(stamps) if stamps else None,
+    )
+
+
 # --- the registry ----------------------------------------------------------
 
 
@@ -480,7 +788,9 @@ class TraversalTemplate:
     name: str
     parameters: tuple[str, ...]
     cypher: str
-    run: Callable[..., ScreenHistoryResult | ParticipantTopicMomentsResult]
+    run: Callable[
+        ..., ScreenHistoryResult | ParticipantTopicMomentsResult | ThreadTimelineResult
+    ]
 
 
 # The complete set of traversals story 3.3's router may classify onto. A
@@ -499,12 +809,18 @@ TRAVERSAL_TEMPLATES: Mapping[str, TraversalTemplate] = {
         cypher=_PARTICIPANT_TOPIC_MOMENTS_CYPHER,
         run=participant_topic_moments,
     ),
+    THREAD_TIMELINE: TraversalTemplate(
+        name=THREAD_TIMELINE,
+        parameters=("thread_id",),
+        cypher=_THREAD_TIMELINE_CYPHER,
+        run=thread_timeline,
+    ),
 }
 
 
 def run_template(
     driver: neo4j.Driver, name: str, **params: Any
-) -> ScreenHistoryResult | ParticipantTopicMomentsResult:
+) -> ScreenHistoryResult | ParticipantTopicMomentsResult | ThreadTimelineResult:
     """Dispatch one traversal by its registered name — the router's only door."""
     template = TRAVERSAL_TEMPLATES.get(name)
     if template is None:

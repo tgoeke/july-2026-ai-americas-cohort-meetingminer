@@ -120,6 +120,42 @@ class MomentRow:
 
 
 @dataclass(frozen=True)
+class TopicMentionRow:
+    """One (topic, containing moment) pair — the citation unit for a topic.
+
+    ``topic_mention``'s primary key is ``(topic_id, moment_id)``, so two
+    stamps inside one moment are already collapsed onto one row by the record
+    (migration 0014); ``anchor_ms`` is the earliest stamp inside that moment.
+    """
+
+    moment_id: UUID
+    anchor_ms: int
+
+
+@dataclass(frozen=True)
+class TopicRow:
+    """One machine-derived topic and the thread it was derived into.
+
+    ``thread_id`` is ``None`` until `domain/threads.py` has run over the
+    corpus: topics are written per meeting by the `extract` stage and threaded
+    by a separate corpus-wide pass, so a freshly extracted meeting is
+    legitimately un-threaded and the graph then writes its ``Topic`` nodes
+    with no ``Thread``. That is an ordering fact about two passes, not a gap.
+
+    Machine-derived navigation metadata, like the rows behind it: read here
+    exactly as every other table is, and never entering the
+    ``extracted → approved → published`` lifecycle (the AD-4 clarification).
+    """
+
+    id: UUID
+    name: str
+    gist: str
+    thread_id: UUID | None
+    thread_name: str | None
+    mentions: tuple[TopicMentionRow, ...]
+
+
+@dataclass(frozen=True)
 class MeetingEvidence:
     """Everything the projections write for one meeting."""
 
@@ -142,6 +178,11 @@ class MeetingEvidence:
     # Human-declared series/project/product (story 2.5); all-None when the
     # meeting has no assignments, and the graph then writes nothing for it.
     structure: StructureRow = StructureRow()
+    # Machine-derived topics and their threads (stories 10.1 and 10.2). Empty
+    # for a meeting the `extract` stage has not reached, which is why it has a
+    # default: the graph then writes no `Topic` node and the traversal finds
+    # nothing, rather than either of them treating absence as corruption.
+    topics: tuple[TopicRow, ...] = ()
 
 
 def projectable_meeting_ids(conn: Connection) -> list[UUID]:
@@ -353,6 +394,48 @@ def read_meeting(conn: Connection, meeting_id: UUID) -> MeetingEvidence:
         product_name=structure_row[5],
     )
 
+    # Topics (story 10.1) and the thread each was derived into (story 10.2).
+    # Two statements rather than one join, because a topic has many mentions
+    # and exactly one thread: joining both would fan the thread columns out
+    # across the mention rows and make the read's shape depend on how many
+    # moments happened to mention the topic.
+    #
+    # `topic_mention` is filtered by its own denormalized `meeting_id`, which
+    # 0014 pins to both the topic and the moment with composite foreign keys —
+    # so this cannot pick up another meeting's moment.
+    mentions_by_topic: dict[UUID, list[TopicMentionRow]] = {}
+    for topic_id, moment_id, anchor_ms in conn.execute(
+        "SELECT topic_id, moment_id, anchor_ms FROM topic_mention"
+        " WHERE meeting_id = %s ORDER BY anchor_ms, moment_id",
+        (meeting_id,),
+    ).fetchall():
+        mentions_by_topic.setdefault(topic_id, []).append(
+            TopicMentionRow(moment_id=moment_id, anchor_ms=anchor_ms)
+        )
+
+    # LEFT JOIN on both hops: threading is a separate corpus-wide pass, so a
+    # topic with no `topic_thread` row is an un-threaded topic, not a missing
+    # one. An INNER JOIN here would silently drop every topic of a meeting
+    # extracted since the last derivation.
+    topics = tuple(
+        TopicRow(
+            id=r[0],
+            name=r[1],
+            gist=r[2],
+            thread_id=r[3],
+            thread_name=r[4],
+            mentions=tuple(mentions_by_topic.get(r[0], ())),
+        )
+        for r in conn.execute(
+            "SELECT t.id, t.name, t.gist, th.id, th.name"
+            " FROM topic t"
+            " LEFT JOIN topic_thread tt ON tt.topic_id = t.id"
+            " LEFT JOIN thread th ON th.id = tt.thread_id"
+            " WHERE t.meeting_id = %s ORDER BY t.name, t.id",
+            (meeting_id,),
+        ).fetchall()
+    )
+
     return MeetingEvidence(
         meeting_id=row[0],
         source_id=row[1],
@@ -368,4 +451,5 @@ def read_meeting(conn: Connection, meeting_id: UUID) -> MeetingEvidence:
         turns=turns,
         moment_by_segment=moment_by_segment,
         structure=structure,
+        topics=topics,
     )

@@ -63,14 +63,26 @@ EMBEDDER_NAME = "default"
 # DELETEs the `Moment` nodes, so the pass re-creates artifacts from Postgres
 # (`WHERE state = 'published'`) instead of trying to exempt them. Postgres
 # stays authoritative; augment preserves moment ids, so `CITES` re-resolves.
-MEETING_SCOPED_LABELS = ("Meeting", "Moment", "Screenshot", "Chunk", "Artifact")
+# `Topic` (story 10.2) belongs here for the same reason `Artifact` does: a
+# topic is a per-meeting row that anchors to that meeting's `Moment` nodes,
+# and the per-meeting DETACH DELETE would sever its `MENTIONS` edges anyway.
+# The pass re-creates it from Postgres, which is what keeps a re-projection
+# idempotent rather than accumulating stale topics from a superseded extract.
+MEETING_SCOPED_LABELS = ("Meeting", "Moment", "Screenshot", "Chunk", "Artifact", "Topic")
 # Labels that are cross-meeting and are only ever upserted. Deleting a
 # `Screen` in a per-meeting pass would break screen lineage for every other
 # meeting that showed it (AD-5), and deleting a `Participant` would break the
 # "I already explained this to Clarence" traversal across meetings. `Series`,
 # `Project` and `Product` (story 2.5) follow the same rule: many meetings hang
 # off one of them, so a per-meeting pass only ever upserts them.
-CROSS_MEETING_LABELS = ("Screen", "Participant", "Series", "Project", "Product")
+# `Thread` (story 10.2) is the newest member and the clearest case: a thread
+# exists precisely because it spans meetings, so deleting it in a per-meeting
+# pass would destroy the only structure the thread traversal walks. Like
+# `Screen`, it is MERGEd by id and lingers with no edges until `rebuild --all`
+# if its last topic goes away.
+CROSS_MEETING_LABELS = (
+    "Screen", "Participant", "Series", "Project", "Product", "Thread",
+)
 
 # One Postgres advisory lock key, taken by `rebuild` for its whole run and by
 # the worker for the duration of one meeting's projection. Both stores
@@ -237,6 +249,11 @@ _NODE_KEY_CONSTRAINTS = (
     ("Project", "id"),
     ("Product", "id"),
     ("Artifact", "id"),
+    # Story 10.2: `Topic` and `Thread` carry Postgres-minted UUIDs like every
+    # other node (AD-6). `Thread`'s constraint is what makes the cross-meeting
+    # MERGE that every meeting's pass performs converge on one node.
+    ("Topic", "id"),
+    ("Thread", "id"),
 )
 
 # Every meeting-scoped label carries `meetingId`, which is what makes
