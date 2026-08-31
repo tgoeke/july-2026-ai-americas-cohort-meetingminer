@@ -3803,3 +3803,31 @@ against failing code first.
 deliberately (web/ outside its footprint), and it blocked story 6.5. The
 client now carries all three `/acquisitions` routes; `web-test` 294 passed and
 the production build is clean. **6.5 is unblocked.**
+
+## Story 10.6 — Threads Zoomable Timeline (2026-08-31)
+
+Built in `web/src/features/threads/`, fixture-driven at every level because
+story 10.3's api is being built beside it. 59 new web tests; `make test-fast`
+green (ruff, mypy, vitest 353, pytest 2173 passed / 3 skipped / 411 deselected).
+
+The zoom is two CSS custom properties on the canvas root: every item carries its
+own `--t` and computes `x = (t − from) / scale` in CSS, so a gesture writes two
+numbers and the browser lays the whole tier out — React does not re-render while
+a zoom eases. The tier is a pure function of `scale`, which is why "no layout
+jump" is asserted rather than hoped: a tier change touches neither the window
+origin nor the scale.
+
+The CSS geometry was measured in Chrome 151 against a probe page carrying the
+same rules — jsdom computes no layout, so no vitest test could have shown it
+working. It reproduces the mapping exactly, negative offsets and fractional
+scales included.
+
+Three defects the tests found were fixed with the tests that found them: focus
+dropped to the page when a focused cell clustered away; the zoom re-anchored on
+the recomputed cell and drifted ~4px over a dozen steps; `fitView` put a
+clamped span at the canvas edge instead of its middle.
+
+**For integration:** `threadsApi.ts` assumes response *shapes* for 10.3's three
+levels (the acceptance criteria fix the field names, not the envelopes) — it is
+the one file to reconcile. `Threads.route.tsx` may collide with story 10.5's
+Threads placeholder; this file is the resolution. B-41, B-42 and B-43 filed.
