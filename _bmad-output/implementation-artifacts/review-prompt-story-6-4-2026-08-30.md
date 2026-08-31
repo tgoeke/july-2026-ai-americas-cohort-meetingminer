@@ -226,7 +226,7 @@ not noise:
   → **35 passed**
 - `uv run --project server pytest server/tests/test_api_registry.py
   server/tests/test_youtube.py server/tests/test_youtube_playlist.py -q`
-  → **201 passed, 1 skipped** (the network test, env-flagged as 6.2 left it)
+  → **167 passed, 1 skipped** (the network test, env-flagged as 6.2 left it)
 - `make test-fast` → lint **clean**, mypy **clean (13 files)**, server
   **2042 passed, 3 skipped, 378 deselected**
 - `make test` → **2420 passed, 3 skipped** in 9m42s, web build clean, on this
