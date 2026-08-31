@@ -550,7 +550,7 @@ class TestRerun:
         approved and published artifacts must be untouched, and extraction
         must replace drafts only.
         """
-        job_id, meeting_id = self._ingest(
+        _job_id, meeting_id = self._ingest(
             client, test_pool, app_config, content_root, make_drop, "assign-citation"
         )
         moments_before = self._moments(test_pool, meeting_id)
