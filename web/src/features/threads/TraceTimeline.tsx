@@ -110,9 +110,17 @@ export default function TraceTimeline({
   useLayoutEffect(() => {
     const element = viewport.current
     if (element === null) return
-    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width))
+    // A zero measurement is "not laid out yet", not "no room": a collapsed
+    // container would otherwise pin the view to the minimum altitude and cull
+    // every stop off screen. The last real width stands until a real one
+    // replaces it.
+    const measure = (value: number) => {
+      if (value > 0) setWidth(value)
+    }
+    measure(element.clientWidth)
+    if (typeof ResizeObserver !== 'function') return
+    const observer = new ResizeObserver(([entry]) => measure(entry.contentRect.width))
     observer.observe(element)
-    setWidth(element.clientWidth)
     return () => observer.disconnect()
   }, [])
 
