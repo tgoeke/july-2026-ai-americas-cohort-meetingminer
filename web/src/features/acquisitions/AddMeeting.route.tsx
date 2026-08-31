@@ -4,7 +4,12 @@ import { AddMeeting } from './AddMeeting'
 
 function AddMeetingRoute() {
   const openPath = useOpenPath()
-  return <AddMeeting onOpenMeeting={(meetingId) => openPath(`/meetings/${meetingId}`)} />
+  return (
+    <AddMeeting
+      onOpenMeeting={(meetingId) => openPath(`/meetings/${meetingId}`)}
+      onNameSpeakers={(meetingId) => openPath(`/meetings/${meetingId}/speakers`)}
+    />
+  )
 }
 
 /**

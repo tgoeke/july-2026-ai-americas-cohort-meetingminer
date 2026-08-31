@@ -32,7 +32,10 @@ export function ingestStatusOf(row: MeetingListItem | null): RenderedStageStatus
 export interface IngestingMeetingCardProps {
   /** The job `POST /ingests` returned, reported by `GET /acquisitions/{id}`. */
   jobId: string
+  /** True only when this new acquisition's served probe said captions were auto-generated. */
+  speakerLabelsMissing: boolean
   onOpen: (meetingId: string) => void
+  onNameSpeakers: (meetingId: string) => void
   onIngestStatus: (status: RenderedStageStatus) => void
 }
 
@@ -51,7 +54,9 @@ export interface IngestingMeetingCardProps {
  */
 export function IngestingMeetingCard({
   jobId,
+  speakerLabelsMissing,
   onOpen,
+  onNameSpeakers,
   onIngestStatus,
 }: IngestingMeetingCardProps) {
   const [row, setRow] = useState<MeetingListItem | null>(null)
@@ -204,6 +209,9 @@ export function IngestingMeetingCard({
     .filter((part) => part != null)
     .join(' · ')
   const counts = countParts(row)
+  const transcribeDone = row.stages.some(
+    (stage) => stage.name === 'transcribe' && stage.status === 'done',
+  )
 
   return (
     <div
@@ -252,6 +260,7 @@ export function IngestingMeetingCard({
 
         <div className="flex flex-wrap items-center gap-3">
           <Button
+            type="button"
             size="sm"
             disabled={!row.viewable}
             title={reason ?? undefined}
@@ -263,6 +272,16 @@ export function IngestingMeetingCard({
           >
             Open
           </Button>
+          {speakerLabelsMissing && transcribeDone && row.meetingId != null && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => onNameSpeakers(row.meetingId!)}
+            >
+              Name speakers
+            </Button>
+          )}
           {reason !== null && (
             <span id="acquired-open-reason" className="text-xs text-muted-foreground">
               {reason}
