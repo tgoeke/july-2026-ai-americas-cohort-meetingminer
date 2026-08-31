@@ -144,6 +144,7 @@ function Shell() {
   // path — `/` and anything unknown — is the front door.
   const meetingsOpen = !childOpen && matchPath('/meetings', pathname) !== null
   const momentsOpen = !childOpen && !meetingsOpen
+  const [expandedChrome, setExpandedChrome] = useState<'search' | 'ask' | null>(null)
 
   // Dark is the only mode (DESIGN.md · Colors): the app's `.dark` tokens
   // exist but were never applied, so every screen rendered light. The shell
@@ -152,6 +153,8 @@ function Shell() {
   useEffect(() => {
     document.documentElement.classList.add('dark')
   }, [])
+
+  useEffect(() => setExpandedChrome(null), [pathname])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -199,9 +202,8 @@ function Shell() {
     return () => window.removeEventListener('keydown', onKey)
   }, [navigate])
 
-  // The child screen is placed above the chrome (see the `<Outlet />` block
-  // below), which is what actually fixes "Open moment does nothing". This
-  // scroll covers the other half of the same gesture: the hit that was
+  // The child screen is the first flow-height content below the compact
+  // sticky chrome. This scroll covers the other half of the same gesture: the hit that was
   // clicked may sit hundreds of pixels down the result list, so opening it
   // must also return the reader to the top where the child now renders,
   // rather than leaving them parked at the old offset staring at more hits.
@@ -233,9 +235,9 @@ function Shell() {
           the standing destinations, the one primary action, and the health
           indicator, sticky at the top of every screen. */}
       <header className="sticky top-0 z-20 border-b border-border bg-background">
-        <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center gap-x-6 gap-y-2 px-8 py-3">
+        <div className="mx-auto flex min-h-14 w-full max-w-[1600px] flex-wrap items-center gap-3 px-4 py-2 min-[900px]:h-14 min-[900px]:flex-nowrap min-[900px]:px-8 min-[900px]:py-0">
           <span className="text-lg font-semibold tracking-tight">MeetingMiner</span>
-          <nav aria-label="Primary" className="flex flex-wrap items-center gap-4 text-sm">
+          <nav aria-label="Primary" className="flex flex-wrap items-center gap-3 text-sm min-[900px]:flex-nowrap">
             {PRIMARY_NAV.map((entry) => (
               <NavLink
                 key={entry.to}
@@ -251,7 +253,38 @@ function Shell() {
               </NavLink>
             ))}
           </nav>
-          <div className="ml-auto flex items-center gap-4">
+          <div
+            data-testid="search-ask-chrome"
+            className="order-last flex w-full items-center gap-2 min-[900px]:order-none min-[900px]:ml-auto min-[900px]:w-auto"
+          >
+            <div
+              className="relative min-w-0 flex-1 min-[900px]:w-36 min-[900px]:flex-none"
+              onFocusCapture={() => setExpandedChrome('search')}
+              onBlurCapture={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget)) setExpandedChrome(null)
+              }}
+            >
+              <CorpusSearch
+                presentation="chrome"
+                expanded={expandedChrome === 'search'}
+                onOpenMoment={(momentId) => openPath(`/moments/${momentId}`)}
+              />
+            </div>
+            <div
+              className="relative min-w-0 flex-[2] min-[900px]:w-72 min-[900px]:flex-none"
+              onFocusCapture={() => setExpandedChrome('ask')}
+              onBlurCapture={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget)) setExpandedChrome(null)
+              }}
+            >
+              <ChatPanel
+                presentation="chrome"
+                expanded={expandedChrome === 'ask'}
+                onOpenMoment={(momentId) => openPath(`/moments/${momentId}`)}
+              />
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-3">
             {/* Story 6.5's Add-meeting flow at `/add`. The chrome carries the
                 link before that route lands, exactly as it carried
                 `/settings` before story ui-4 — until then the unknown-path
@@ -277,16 +310,11 @@ function Shell() {
             </Button>
           </div>
         )}
-        {/* The open child screen sits ABOVE the persistent search/ask chrome
-            (2026-08-22 hot fix; pinned by `shellPlacement.test.tsx`, backlog
-            B-13). It used to render in the last `<Outlet />`, after that
-            chrome — and the chrome stays mounted on purpose so Back returns
-            to the same result list. A full page of hits is taller than the
-            viewport, so the opened moment landed ~4000px down a ~5000px
-            document, where the browser cannot even scroll it to the top, and
-            the click read as "Open moment does nothing". Replay looked fine
-            throughout because its player opens inline beside the clicked hit,
-            which is why only one of the two buttons appeared broken.
+        {/* The open child screen is the first flow-height content below the
+            persistent 56px chrome (pinned by `shellPlacement.test.tsx`,
+            backlog B-13). Search and Ask stay mounted inside the header, but
+            their results expand as overlays, so a full result list can never
+            push the opened screen thousands of pixels down the document.
 
             Same remedy as `spec-meeting-artifacts-below-fold`: fix document
             order rather than chase it with scrolling, so DOM order (and
@@ -305,19 +333,6 @@ function Shell() {
           className="mx-auto w-full max-w-5xl"
         >
           <Outlet />
-        </div>
-        {/* Persistent chrome, not view panels (SPEC-ui-reimagine CAP-1):
-            search and ask-the-corpus stand on every route. Always mounted for
-            the same reason the views are hidden rather than unmounted — the
-            verify-a-claim loop is search → moment → back → next hit, and
-            unmounting would blank the query and results on every navigation.
-            Search first: search answers "where was this discussed", chat
-            answers a cited question over that same corpus (FR12, FR15,
-            UX-DR3, UX-DR10); both open a citation's moment view by
-            `momentId` alone. */}
-        <div data-testid="search-ask-chrome" className="grid gap-8 lg:grid-cols-2">
-          <CorpusSearch onOpenMoment={(momentId) => openPath(`/moments/${momentId}`)} />
-          <ChatPanel onOpenMoment={(momentId) => openPath(`/moments/${momentId}`)} />
         </div>
         {/* The front door (story 10.5): the ranked feed, hidden but never
             unmounted while a moment opened out of it is on screen, so Back

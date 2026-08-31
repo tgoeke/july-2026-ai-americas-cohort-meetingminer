@@ -21,6 +21,8 @@ export interface ChatPanelProps {
    * mode itself).
    */
   onOpenMoment?: (momentId: string) => void
+  presentation?: 'standalone' | 'chrome'
+  expanded?: boolean
 }
 
 /** How long a question waits for the api before it names the timeout — a
@@ -43,7 +45,11 @@ const CHAT_TIMEOUT_MS = 60_000
  * token's text as it arrives can never show an uncited or later-rejected
  * fragment.
  */
-export function ChatPanel({ onOpenMoment }: ChatPanelProps = {}) {
+export function ChatPanel({
+  onOpenMoment,
+  presentation = 'standalone',
+  expanded = false,
+}: ChatPanelProps = {}) {
   const [question, setQuestion] = useState('')
   // `null` is "no answer for the current turn yet"; `''` is "the request is
   // under way but no token has arrived" — the same null/empty split
@@ -172,17 +178,25 @@ export function ChatPanel({ onOpenMoment }: ChatPanelProps = {}) {
   }
 
   const showAnswer = answer !== null && answer !== ''
+  const compact = presentation === 'chrome'
 
   return (
-    <section className="flex w-full flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+    <section
+      className={compact ? 'relative w-full' : 'flex w-full flex-col gap-4'}
+      data-testid={compact ? 'chrome-ask-surface' : undefined}
+      aria-expanded={compact ? expanded : undefined}
+    >
+      <header className={compact ? 'sr-only' : 'flex flex-wrap items-center justify-between gap-3'}>
         <h2 className="text-lg font-semibold tracking-tight">Ask</h2>
-        <ModelSelect />
+        {!compact && <ModelSelect />}
       </header>
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-2">
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">
+      <form
+        onSubmit={handleSubmit}
+        className={compact ? 'flex items-center gap-1.5' : 'flex flex-col gap-2'}
+      >
+        <label className={compact ? 'min-w-0 flex-1 text-sm' : 'flex flex-col gap-1 text-sm'}>
+          <span className={compact ? 'sr-only' : 'text-muted-foreground'}>
             Ask a question about what was discussed — the answer is cited to
             the moments it came from
           </span>
@@ -191,11 +205,18 @@ export function ChatPanel({ onOpenMoment }: ChatPanelProps = {}) {
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
             placeholder="What did we decide about the purchase order?"
-            rows={2}
-            className="rounded-md border px-3 py-2 text-sm"
+            rows={compact ? 1 : 2}
+            aria-expanded={compact ? expanded : undefined}
+            aria-controls={compact ? 'chrome-ask-results' : undefined}
+            className={
+              compact
+                ? 'h-8 w-full resize-none rounded-md border px-2 py-1 text-sm'
+                : 'rounded-md border px-3 py-2 text-sm'
+            }
           />
         </label>
-        <div className="flex items-center gap-3">
+        {compact && <ModelSelect />}
+        <div className={compact ? 'flex items-center' : 'flex items-center gap-3'}>
           <Button
             type="submit"
             size="sm"
@@ -212,7 +233,16 @@ export function ChatPanel({ onOpenMoment }: ChatPanelProps = {}) {
         </div>
       </form>
 
-      {failure !== null && failure.kind !== 'rejected' && (
+      <div
+        id={compact ? 'chrome-ask-results' : undefined}
+        hidden={compact && !expanded}
+        className={
+          compact
+            ? 'absolute top-[calc(100%+0.75rem)] right-0 z-40 flex max-h-[min(38rem,calc(100vh-5rem))] w-[min(38rem,calc(100vw-2rem))] flex-col gap-4 overflow-y-auto rounded-lg border bg-popover p-4 shadow-xl'
+            : 'contents'
+        }
+      >
+        {failure !== null && failure.kind !== 'rejected' && (
         <p
           role="alert"
           data-testid="chat-failure"
@@ -247,7 +277,7 @@ export function ChatPanel({ onOpenMoment }: ChatPanelProps = {}) {
         </p>
       )}
 
-      <div aria-live="polite" aria-busy={busy} className="flex flex-col gap-3">
+        <div aria-live="polite" aria-busy={busy} className="flex flex-col gap-3">
         {showAnswer && (
           <div
             data-testid="chat-answer"
@@ -318,6 +348,7 @@ export function ChatPanel({ onOpenMoment }: ChatPanelProps = {}) {
             {showAnswer ? 'Finishing…' : 'Asking…'}
           </p>
         )}
+        </div>
       </div>
     </section>
   )

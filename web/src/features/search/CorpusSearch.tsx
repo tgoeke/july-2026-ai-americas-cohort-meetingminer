@@ -54,9 +54,17 @@ export interface CorpusSearchProps {
    * navigation lives in whatever mounts this.
    */
   onOpenMoment?: (momentId: string) => void
+  /** Compact chrome keeps the field in-row and presents its complete output
+   * in an anchored overlay without unmounting the search state. */
+  presentation?: 'standalone' | 'chrome'
+  expanded?: boolean
 }
 
-export function CorpusSearch({ onOpenMoment }: CorpusSearchProps = {}) {
+export function CorpusSearch({
+  onOpenMoment,
+  presentation = 'standalone',
+  expanded = false,
+}: CorpusSearchProps = {}) {
   const [term, setTerm] = useState('')
   // `null` is "no search has answered yet", `[]` is "answered, nothing
   // matched". Collapsing them is how an empty corpus renders as a permanent
@@ -184,10 +192,15 @@ export function CorpusSearch({ onOpenMoment }: CorpusSearchProps = {}) {
   const searching = trimmed !== '' && rows === null
   const shown = rows?.length ?? 0
   const truncated = rows !== null && shown > 0 && estimatedTotal > shown
+  const compact = presentation === 'chrome'
 
   return (
-    <section className="flex w-full flex-col gap-4">
-      <header className="flex items-baseline justify-between gap-4">
+    <section
+      className={compact ? 'relative w-full' : 'flex w-full flex-col gap-4'}
+      data-testid={compact ? 'chrome-search-surface' : undefined}
+      aria-expanded={compact ? expanded : undefined}
+    >
+      <header className={compact ? 'sr-only' : 'flex items-baseline justify-between gap-4'}>
         <h2 className="text-lg font-semibold tracking-tight">Search</h2>
         {ranking === 'keyword' && (
           <span
@@ -200,11 +213,11 @@ export function CorpusSearch({ onOpenMoment }: CorpusSearchProps = {}) {
         )}
       </header>
 
-      <label className="flex flex-col gap-1 text-sm">
+      <label className={compact ? 'block text-sm' : 'flex flex-col gap-1 text-sm'}>
         {/* No `aria-label` here on purpose. One would override the words below
             and leave the visible text unable to activate the field by voice
             (WCAG 2.5.3), so the visible text *is* the accessible name. */}
-        <span className="text-muted-foreground">
+        <span className={compact ? 'sr-only' : 'text-muted-foreground'}>
           Search the corpus for the moments where something was discussed
         </span>
         <input
@@ -213,11 +226,26 @@ export function CorpusSearch({ onOpenMoment }: CorpusSearchProps = {}) {
           value={term}
           placeholder="purchase order"
           onChange={(event) => setTerm(event.target.value)}
-          className="rounded-md border px-3 py-2 text-sm"
+          aria-expanded={compact ? expanded : undefined}
+          aria-controls={compact ? 'chrome-search-results' : undefined}
+          className={
+            compact
+              ? 'h-8 w-full rounded-md border px-2 text-sm'
+              : 'rounded-md border px-3 py-2 text-sm'
+          }
         />
       </label>
 
-      {failure !== null && (
+      <div
+        id={compact ? 'chrome-search-results' : undefined}
+        hidden={compact && !expanded}
+        className={
+          compact
+            ? 'absolute top-[calc(100%+0.75rem)] left-0 z-40 flex max-h-[min(38rem,calc(100vh-5rem))] w-[min(38rem,calc(100vw-2rem))] flex-col gap-4 overflow-y-auto rounded-lg border bg-popover p-4 shadow-xl'
+            : 'contents'
+        }
+      >
+        {failure !== null && (
         <p
           role="alert"
           className="rounded-md border border-destructive/40 p-3 text-sm text-destructive"
@@ -232,7 +260,7 @@ export function CorpusSearch({ onOpenMoment }: CorpusSearchProps = {}) {
       {/* One live region around every result state, so the "Searching…" → "N
           results" transition is announced rather than changing silently under
           a screen reader. */}
-      <div
+        <div
         aria-live="polite"
         // Busy from the keystroke, not from the request: the debounce window
         // is still time in which this region's contents are known to be about
@@ -458,6 +486,7 @@ export function CorpusSearch({ onOpenMoment }: CorpusSearchProps = {}) {
             </ul>
           </>
         )}
+        </div>
       </div>
     </section>
   )
