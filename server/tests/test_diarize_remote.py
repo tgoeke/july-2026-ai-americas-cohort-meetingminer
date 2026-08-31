@@ -71,6 +71,19 @@ class Received:
     fields: dict[str, tuple[str, bytes]] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class ScriptedResponse:
+    """A stub response whose declared length may disagree with its payload."""
+
+    status: int
+    payload: bytes
+    content_length: int
+
+
+StubResponse = tuple[int, bytes] | ScriptedResponse
+Responder = Callable[[Received], StubResponse]
+
+
 def _parse_multipart(content_type: str, body: bytes) -> dict[str, tuple[str, bytes]]:
     """`{name: (filename, payload)}` from one multipart/form-data body."""
     boundary = content_type.split("boundary=", 1)[1].strip().strip('"')
@@ -104,7 +117,7 @@ class _QuietServer(HTTPServer):
 
 
 def _serve(
-    responder: Callable[[Received], tuple[int, bytes]], received: list[Received]
+    responder: Responder, received: list[Received]
 ) -> Iterator[str]:
     """Run a one-route HTTP server that answers however `responder` says."""
 
@@ -128,10 +141,17 @@ def _serve(
                 ),
             )
             received.append(request)
-            status, payload = responder(request)
+            scripted = responder(request)
+            if isinstance(scripted, ScriptedResponse):
+                status = scripted.status
+                payload = scripted.payload
+                content_length = scripted.content_length
+            else:
+                status, payload = scripted
+                content_length = len(payload)
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Content-Length", str(content_length))
             self.end_headers()
             self.wfile.write(payload)
 
@@ -150,7 +170,7 @@ def _serve(
         server.server_close()
 
 
-Install = Callable[[Callable[[Received], tuple[int, bytes]]], tuple[str, list[Received]]]
+Install = Callable[[Responder], tuple[str, list[Received]]]
 
 
 @pytest.fixture()
@@ -159,7 +179,7 @@ def diarize_stub() -> Iterator[Install]:
     running: list[Iterator[str]] = []
 
     def _install(
-        responder: Callable[[Received], tuple[int, bytes]],
+        responder: Responder,
     ) -> tuple[str, list[Received]]:
         received: list[Received] = []
         generator = _serve(responder, received)
@@ -174,7 +194,7 @@ def diarize_stub() -> Iterator[Install]:
 
 def answers(
     payload: dict[str, Any] | list[Any] | str, status: int = 200
-) -> Callable[[Received], tuple[int, bytes]]:
+) -> Responder:
     """A responder that always sends this body (a `str` is sent verbatim)."""
     body = (
         payload.encode("utf-8")
@@ -184,6 +204,20 @@ def answers(
 
     def _responder(_request: Received) -> tuple[int, bytes]:
         return status, body
+
+    return _responder
+
+
+def truncates(payload: dict[str, Any], status: int = 200) -> Responder:
+    """A responder that closes before its advertised response length."""
+    body = json.dumps(payload).encode("utf-8")
+
+    def _responder(_request: Received) -> StubResponse:
+        return ScriptedResponse(
+            status=status,
+            payload=body,
+            content_length=len(body) + 20,
+        )
 
     return _responder
 
@@ -438,6 +472,36 @@ def test_body_that_is_not_json_is_named(diarize_stub: Install, audio: Path) -> N
     message = str(caught.value)
     assert f"{base_url}/diarize" in message
     assert "JSON" in message
+
+
+@pytest.mark.parametrize("status", [200, 503])
+def test_a_truncated_response_is_named(
+    diarize_stub: Install, audio: Path, status: int
+) -> None:
+    base_url, _ = diarize_stub(truncates({"turns": [], "model": HOST_MODEL}, status))
+    engine = RemoteHttpDiarizer(base_url=base_url, timeout_seconds=5.0)
+
+    with pytest.raises(DiarizerError) as caught:
+        engine.diarize(audio)
+
+    message = str(caught.value)
+    assert f"{base_url}/diarize" in message
+    assert "incomplete" in message.lower()
+
+
+def test_an_unparseable_http_error_preserves_its_own_text(
+    diarize_stub: Install, audio: Path
+) -> None:
+    reason = "proxy closed the upstream connection"
+    base_url, _ = diarize_stub(answers(reason, status=502))
+    engine = RemoteHttpDiarizer(base_url=base_url, timeout_seconds=5.0)
+
+    with pytest.raises(DiarizerError) as caught:
+        engine.diarize(audio)
+
+    message = str(caught.value)
+    assert f"{base_url}/diarize" in message
+    assert reason in message
 
 
 @pytest.mark.parametrize(

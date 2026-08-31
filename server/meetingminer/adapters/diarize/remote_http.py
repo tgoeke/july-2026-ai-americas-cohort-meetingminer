@@ -24,6 +24,7 @@ endpoint, the model the host named, and the host's own ``reason`` verbatim.
 
 from __future__ import annotations
 
+import http.client
 import io
 import json
 import math
@@ -188,7 +189,11 @@ class RemoteHttpDiarizer:
             # The host answered and said no. Its own words, not ours: it
             # reports 503 when another VM holds the GPU and 400 when ffmpeg
             # rejects the upload, so the taxonomy is not one status code.
-            reason, model = _reason_from(exc.read())
+            try:
+                error_body = exc.read()
+            except http.client.HTTPException as read_exc:
+                raise self._malformed_response(read_exc, status=exc.code) from read_exc
+            reason, model = _reason_from(error_body)
             raise DiarizerError(
                 f"{self._who(model)} refused the request (HTTP {exc.code}):"
                 f" {reason or exc.reason}"
@@ -201,6 +206,8 @@ class RemoteHttpDiarizer:
             # The host accepted the upload and never answered: urllib does not
             # wrap a timeout raised while reading the response.
             raise self._timed_out(started, exc) from exc
+        except http.client.HTTPException as exc:
+            raise self._malformed_response(exc) from exc
         except OSError as exc:
             raise self._unreachable(exc) from exc
         finally:
@@ -312,4 +319,13 @@ class RemoteHttpDiarizer:
             " config.yaml. No other engine is substituted here: a meeting"
             " ingested with no speaker turns would look exactly like a"
             " successful diarization of silence"
+        )
+
+    def _malformed_response(
+        self, exc: http.client.HTTPException, *, status: int | None = None
+    ) -> DiarizerError:
+        status_text = f" after HTTP {status}" if status is not None else ""
+        return DiarizerError(
+            f"{self._who(None)} returned an incomplete or malformed HTTP"
+            f" response{status_text}: {exc}"
         )
