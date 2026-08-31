@@ -473,6 +473,13 @@ def test_a_body_without_a_turns_list_is_named(
         pytest.param({"start": 1.0, "end": None, "speaker": "A"}, id="end-null"),
         pytest.param({"start": 1.0, "end": 2.0, "speaker": 7}, id="speaker-a-number"),
         pytest.param({"start": True, "end": 2.0, "speaker": "A"}, id="start-a-bool"),
+        pytest.param({"start": float("nan"), "end": 2.0, "speaker": "A"}, id="start-nan"),
+        pytest.param(
+            {"start": float("inf"), "end": float("inf"), "speaker": "A"},
+            id="positive-infinite",
+        ),
+        pytest.param({"start": float("-inf"), "end": 0.0, "speaker": "A"}, id="negative-infinite"),
+        pytest.param({"start": 10**400, "end": 2.0, "speaker": "A"}, id="start-overflows-float"),
         pytest.param(["1.0", "2.0", "A"], id="turn-not-an-object"),
     ],
 )

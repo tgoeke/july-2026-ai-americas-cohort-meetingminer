@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import io
 import json
+import math
 import secrets
 import time
 import urllib.error
@@ -114,7 +115,11 @@ def _number(value: Any) -> float | None:
     """
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    return float(value)
+    try:
+        number = float(value)
+    except (OverflowError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
 
 
 class RemoteHttpDiarizer:
