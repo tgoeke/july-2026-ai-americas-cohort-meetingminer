@@ -122,6 +122,7 @@ def install_fakes(
     llm: FakeLlm,
     corpus: FakeCorpus,
     chat_bodies: dict[str, dict[str, Any]] | None = None,
+    built_bindings: list[Any] | None = None,
 ) -> None:
     monkeypatch.setattr(
         "evals.harness.subjects.fetch_meetings", lambda api_base_url: ()
@@ -130,7 +131,12 @@ def install_fakes(
         "evals.harness.subjects.select_subjects",
         lambda meetings, manifests: Selection(subjects=subjects, unmatched=(), corpus_mismatches=()),
     )
-    monkeypatch.setattr("meetingminer.adapters.llm.build_llm", lambda *a, **k: llm)
+    def fake_build_llm(binding: Any, *_args: Any, **_kwargs: Any) -> FakeLlm:
+        if built_bindings is not None:
+            built_bindings.append(binding)
+        return llm
+
+    monkeypatch.setattr("meetingminer.adapters.llm.build_llm", fake_build_llm)
 
     class _CorpusFactory:
         @staticmethod
@@ -225,6 +231,7 @@ def test_run_judge_writes_a_correctly_shaped_report(
             verdict_reply(),  # scores the qa answer
         ]
     )
+    built_bindings: list[Any] = []
     install_fakes(
         monkeypatch,
         subjects=(subject,),
@@ -236,6 +243,7 @@ def test_run_judge_writes_a_correctly_shaped_report(
                 "citations": [{"momentId": "moment-1"}],
             }
         },
+        built_bindings=built_bindings,
     )
 
     payload = run_judge(
@@ -247,6 +255,7 @@ def test_run_judge_writes_a_correctly_shaped_report(
     )
 
     assert corpus.closed is True
+    assert built_bindings == [FakeConfig.settings.llm.roles.judge]
     assert len(payload["items"]) == 2
     kinds = {item["kind"] for item in payload["items"]}
     assert kinds == {"artifact", "qa"}

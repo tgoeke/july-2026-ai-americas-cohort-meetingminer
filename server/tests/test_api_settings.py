@@ -78,11 +78,8 @@ def test_the_catalog_is_served_with_the_active_selection(
 
     assert response.status_code == 200
     payload = response.json()
-    assert {row["role"] for row in payload["roles"]} == {
-        "extraction",
-        "chat",
-        "judge",
-    }
+    assert {row["role"] for row in payload["roles"]} == {"extraction", "chat"}
+    assert all(row["role"] != "judge" for row in payload["roles"])
 
     chat = _role_view(payload, "chat")
     configured = _roles(app_config).chat
@@ -100,7 +97,7 @@ def test_with_nothing_chosen_every_role_reports_the_files_default(
 ) -> None:
     payload = client.get("/settings/models").json()
 
-    for role in ("extraction", "chat", "judge"):
+    for role in ("extraction", "chat"):
         view = _role_view(payload, role)
         configured = getattr(_roles(app_config), role)
         assert view["selected"] is None
@@ -198,8 +195,39 @@ def test_an_unknown_role_is_refused_by_name(client: TestClient) -> None:
     assert response.status_code == 404
     body = response.json()
     assert body["type"] == "urn:meetingminer:problem:unknown-role"
-    for role in ("extraction", "chat", "judge"):
+    for role in ("extraction", "chat"):
         assert role in body["detail"]
+
+
+def test_judge_is_file_only_until_the_eval_harness_adopts_selection(
+    client: TestClient, test_pool: ConnectionPool
+) -> None:
+    """Never advertise an effective choice that the judge call ignores.
+
+    ``evals/tests/test_run_judge.py`` pins the companion half: the harness
+    still hands ``config.settings.llm.roles.judge`` directly to ``build_llm``.
+    Until that test changes alongside the harness, this surface must exclude
+    judge explicitly and refuse an attempted write by name.
+    """
+    payload = client.get("/settings/models").json()
+    assert "judge" not in {row["role"] for row in payload["roles"]}
+    assert not any(
+        row["role"] == "judge" and "effectiveBinding" in row
+        for row in payload["roles"]
+    )
+
+    response = client.put(
+        "/settings/roles/judge", json={"binding": "openai/gpt-5.2"}
+    )
+
+    assert response.status_code == 422
+    assert response.headers["content-type"].startswith(PROBLEM_JSON)
+    body = response.json()
+    assert body["type"] == "urn:meetingminer:problem:role-file-only"
+    assert "judge" in body["detail"]
+    assert "file-only today" in body["detail"]
+    with test_pool.connection() as conn:
+        assert model_selection.read_selection(conn, "judge") is None
 
 
 def test_a_blank_binding_is_refused(client: TestClient) -> None:

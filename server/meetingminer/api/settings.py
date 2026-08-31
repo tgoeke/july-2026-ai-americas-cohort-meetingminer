@@ -4,10 +4,15 @@ Story 8.1 made ``config.yaml`` declare, per LLM role, the ``catalog[]`` a user
 may choose from and the ``default`` among them — and nothing served it, so the
 declaration existed only in the file (AD-10, FR38). These two routes close that:
 
-* ``GET /settings/models`` serves every role's catalog together with the binding
-  actually in force and where it came from.
+* ``GET /settings/models`` serves every selectable role's catalog together with
+  the binding actually in force and where it came from.
 * ``PUT /settings/roles/{role}`` persists a choice, refusing any binding the
   role's catalog does not offer.
+
+The eval judge is deliberately absent: its harness still binds
+``config.settings.llm.roles.judge`` directly, so reporting a persisted judge
+selection as effective would be false. The explicit role policy below makes a
+future role addition, or making judge selectable, a deliberate code change.
 
 The catalog is read from the running configuration on every request and the
 selection from Postgres on every request; neither is cached. A config edit is
@@ -35,6 +40,20 @@ from meetingminer.api.problems import Problem
 from meetingminer.domain import model_selection
 
 router = APIRouter()
+
+# ``None`` means selectable. A string means the role exists in config but this
+# API must refuse persistence for the stated reason. This is intentionally an
+# exhaustive policy rather than a deny-list: if ``LlmRoles`` gains a field,
+# settings must decide whether that role genuinely adopts persisted selection
+# before it can appear here.
+SETTINGS_ROLE_POLICY: dict[str, str | None] = {
+    "extraction": None,
+    "chat": None,
+    "judge": (
+        "the judge binding is file-only today; the eval harness has not yet"
+        " adopted persisted judge selection"
+    ),
+}
 
 # A binding is a model tag, not prose: stripped and non-empty. Its upper bound
 # is the catalog itself; imposing a second length domain here could make a
@@ -95,13 +114,18 @@ class RoleSelectionRequest(BaseModel):
 
 
 def _role_names(config: Any) -> tuple[str, ...]:
-    """Every LLM role, taken from the config model rather than a list here.
-
-    A second list of role names would drift the first time a role is added,
-    and would do it quietly: the new role would simply be missing from this
-    surface while `config.yaml` happily declared its catalog.
-    """
-    return tuple(type(config.settings.llm.roles).model_fields)
+    """Every role this API may truthfully report as selection-aware."""
+    declared = tuple(type(config.settings.llm.roles).model_fields)
+    if set(declared) != set(SETTINGS_ROLE_POLICY):
+        unclassified = sorted(set(declared) - set(SETTINGS_ROLE_POLICY))
+        removed = sorted(set(SETTINGS_ROLE_POLICY) - set(declared))
+        raise RuntimeError(
+            "settings role policy must classify every configured LLM role;"
+            f" unclassified={unclassified!r}, removed={removed!r}"
+        )
+    return tuple(
+        role for role in declared if SETTINGS_ROLE_POLICY[role] is None
+    )
 
 
 def _binding_for(config: Any, role: str) -> Any:
@@ -110,6 +134,14 @@ def _binding_for(config: Any, role: str) -> Any:
 
 def _require_role(config: Any, role: str) -> Any:
     known = _role_names(config)
+    file_only_reason = SETTINGS_ROLE_POLICY.get(role)
+    if file_only_reason is not None:
+        raise Problem(
+            422,
+            "role-file-only",
+            file_only_reason,
+            role=role,
+        )
     if role not in known:
         raise Problem(
             404,
@@ -187,6 +219,8 @@ def get_model_settings(request: Request) -> ModelSettingsResponse:
             },
             "description": "`binding-not-in-catalog` — the role exists but"
             " its catalog does not offer the requested binding."
+            " `role-file-only` — the role exists but does not yet adopt"
+            " persisted selection."
             " `invalid-request` — the request body failed validation.",
         },
     },
