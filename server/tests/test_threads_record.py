@@ -536,6 +536,31 @@ def test_a_rerun_after_a_topic_moves_retains_its_old_thread_as_empty(
         ).fetchone()[0] == 0
 
 
+def test_one_prior_thread_can_split_into_two_distinct_active_threads(
+    pool: ConnectionPool, app_config: AppConfig
+) -> None:
+    with pool.connection() as conn:
+        first = seed_meeting(conn, "threads-split-a")
+        second = seed_meeting(conn, "threads-split-b", offset_days=1)
+        add_topic(conn, first, "Vendor feed")
+        changed = add_topic(conn, second, "vendor feed")
+
+    with pool.connection() as conn:
+        derive_threads(conn, app_config, embedder=StubEmbedder(ORTHOGONAL))
+        assert conn.execute(
+            "SELECT count(DISTINCT thread_id) FROM topic_thread"
+        ).fetchone()[0] == 1
+        conn.execute("UPDATE topic SET name = 'Budget review' WHERE id = %s", (changed,))
+
+    with pool.connection() as conn:
+        derive_threads(conn, app_config, embedder=StubEmbedder(ORTHOGONAL))
+        active_thread_ids = conn.execute(
+            "SELECT DISTINCT thread_id FROM topic_thread ORDER BY thread_id"
+        ).fetchall()
+
+    assert len(active_thread_ids) == 2
+
+
 def test_an_unreachable_model_host_writes_nothing(
     pool: ConnectionPool, app_config: AppConfig
 ) -> None:
