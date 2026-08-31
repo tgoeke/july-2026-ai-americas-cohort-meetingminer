@@ -761,7 +761,7 @@ export type ExtractionDocument = {
     /**
      * Documenttext
      */
-    documentText?: string | null;
+    documentText: string | null;
     /**
      * Createdat
      */
@@ -3728,11 +3728,11 @@ export type ListMeetingExtractionDocumentsErrors = {
     /**
      * `not-found` — no meeting with that id.
      */
-    404: unknown;
+    404: ProblemDetails;
     /**
      * `meeting-not-viewable` — the meeting exists but an evidence stage has not settled; the same gate every meeting-scoped read passes.
      */
-    409: unknown;
+    409: ProblemDetails;
     /**
      * `invalid-request` — the route parameter is not a UUID.
      */

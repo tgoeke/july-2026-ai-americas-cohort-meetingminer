@@ -30,7 +30,7 @@ from pydantic.alias_generators import to_camel
 
 from meetingminer import logs
 from meetingminer.api.moments import _require_viewable
-from meetingminer.api.problems import Problem, ProblemDetails
+from meetingminer.api.problems import Problem
 
 router = APIRouter()
 
@@ -102,13 +102,19 @@ _DOCUMENTS_PROBLEM_RESPONSES = {
         "description": "`invalid-request` — the route parameter is not a UUID.",
     },
     404: {
-        "model": ProblemDetails,
-        "content": {"application/problem+json": {}},
+        "content": {
+            "application/problem+json": {
+                "schema": {"$ref": "#/components/schemas/ProblemDetails"}
+            }
+        },
         "description": "`not-found` — no meeting with that id.",
     },
     409: {
-        "model": ProblemDetails,
-        "content": {"application/problem+json": {}},
+        "content": {
+            "application/problem+json": {
+                "schema": {"$ref": "#/components/schemas/ProblemDetails"}
+            }
+        },
         "description": "`meeting-not-viewable` — the meeting exists but an"
         " evidence stage has not settled; the same gate every meeting-scoped"
         " read passes.",
@@ -148,7 +154,7 @@ class ExtractionDocument(BaseModel):
     # document is `""` with `byteSize` 0. Collapsing the two would be exactly
     # the silent degradation AD-18 forbids, so they are distinct on the wire
     # and every renderer must keep them distinct.
-    document_text: str | None = None
+    document_text: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -171,10 +177,11 @@ def list_meeting_extraction_documents(
 ) -> MeetingExtractionDocumentsResponse:
     """Every extraction run of one meeting, with the document it read (story 12.1).
 
-    The document a run produced is the evidence for the artifacts it yielded,
-    and it is the only thing to read at all when a run yielded nothing — which
-    is the case this endpoint exists for. It is served as the markdown it is:
-    no rendering, no summarising, no parse of it substituted for it.
+    The document is the source record for the extraction run and the only thing
+    to read at all when a run yielded nothing — which is the case this endpoint
+    exists for. Under AD-4 it remains a claim about evidence, never evidence or
+    a citation target. It is served as the markdown it is: no rendering, no
+    summarising, no parse of it substituted for it.
 
     A meeting with no extraction rows returns an empty list rather than a 404 —
     that is a meeting whose extract stage has not run, which is a state, not a

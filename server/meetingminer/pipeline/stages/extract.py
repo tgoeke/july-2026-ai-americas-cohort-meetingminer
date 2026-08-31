@@ -279,6 +279,24 @@ def _read_drop_document(path: Path) -> tuple[str, str, int]:
     return text, digest, byte_size
 
 
+def _utf8_bytes(document_kind: str, text: str) -> bytes:
+    """Encode one document or refuse it with the producing kind named.
+
+    JSON permits an escaped lone surrogate, and Python preserves one in a
+    ``str``, but it has no UTF-8 byte representation. Generated replies are
+    checked before parsing so a surrogate in a parsed field cannot reach a
+    Postgres insert first, the same reason the NUL guard names its document.
+    """
+    try:
+        return text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise StageError(
+            f"the {document_kind} document cannot be represented as valid UTF-8"
+            f" ({exc}) — the retained document must have one exact byte"
+            " representation, so it is refused rather than encoded lossily"
+        ) from exc
+
+
 def _generate(
     llm: Llm, prompt: str, options: LlmOptions, document_kind: str
 ) -> tuple[core.ParsedDocument, LlmReply]:
@@ -296,6 +314,7 @@ def _generate(
         raise StageError(
             f"extract could not complete the {document_kind} document: {exc}"
         ) from exc
+    _utf8_bytes(document_kind, reply.text)
     try:
         return core.parse_extraction_document(reply.text, document_kind), reply
     except core.ArtifactParseError as first_error:
@@ -306,6 +325,7 @@ def _generate(
                 f"extract could not complete the {document_kind} document on"
                 f" retry: {exc}"
             ) from exc
+        _utf8_bytes(document_kind, reply.text)
         try:
             return core.parse_extraction_document(reply.text, document_kind), reply
         except core.ArtifactParseError as exc:
@@ -465,7 +485,7 @@ def run(ctx: StageContext) -> None:
             models_used.add(reply.model)
             document_fallback = reply.fallback_engaged
             fallback_engaged = fallback_engaged or reply.fallback_engaged
-            digest, byte_size = _digest_of(reply.text)
+            digest, byte_size = _digest_of(document_kind, reply.text)
             # The model's reply verbatim — not the parse of it. A reader of
             # this document must see what the model emitted, including
             # anything the parser ignored.
@@ -577,7 +597,7 @@ def run(ctx: StageContext) -> None:
     models_used.add(topics_reply.model)
     fallback_engaged = fallback_engaged or topics_reply.fallback_engaged
     topics_prompt_hash = hashlib.sha256(topics_template.encode()).hexdigest()[:16]
-    topics_digest, topics_byte_size = _digest_of(topics_reply.text)
+    topics_digest, topics_byte_size = _digest_of(core.DOC_TOPICS, topics_reply.text)
 
     topics_inserted = 0
     mentions_inserted = 0
@@ -717,7 +737,9 @@ def run(ctx: StageContext) -> None:
     models_used.add(signals_reply.model)
     fallback_engaged = fallback_engaged or signals_reply.fallback_engaged
     signals_prompt_hash = hashlib.sha256(signals_template.encode()).hexdigest()[:16]
-    signals_digest, signals_byte_size = _digest_of(signals_reply.text)
+    signals_digest, signals_byte_size = _digest_of(
+        core.DOC_RANKING_SIGNALS, signals_reply.text
+    )
 
     signal_counts: dict[str, int] = {
         kind: 0 for kind in sorted(core.RANKING_SIGNAL_KINDS)
@@ -916,7 +938,7 @@ def _retained_text(
             " or not at all, so it is refused here rather than stored with the"
             " NUL silently removed and a sha256 that no longer describes it"
         )
-    raw = text.encode("utf-8")
+    raw = _utf8_bytes(document_kind, text)
     if len(raw) != byte_size or hashlib.sha256(raw).hexdigest() != digest:
         raise StageError(
             f"the {document_kind} document's text does not reproduce the"
@@ -928,7 +950,7 @@ def _retained_text(
     return text
 
 
-def _digest_of(text: str) -> tuple[str, int]:
+def _digest_of(document_kind: str, text: str) -> tuple[str, int]:
     """sha256 and byte size of a generated document's UTF-8 bytes.
 
     A generated document has no file, so there is nothing for
@@ -936,5 +958,5 @@ def _digest_of(text: str) -> tuple[str, int]:
     `extraction_source` row still has to identify the exact bytes that were
     parsed, so a rerun can prove whether the input changed.
     """
-    raw = text.encode("utf-8")
+    raw = _utf8_bytes(document_kind, text)
     return hashlib.sha256(raw).hexdigest(), len(raw)

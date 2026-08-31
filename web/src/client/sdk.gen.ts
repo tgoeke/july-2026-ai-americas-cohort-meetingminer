@@ -186,10 +186,11 @@ export const getExtractionPrompts = <ThrowOnError extends boolean = false>(optio
  *
  * Every extraction run of one meeting, with the document it read (story 12.1).
  *
- * The document a run produced is the evidence for the artifacts it yielded,
- * and it is the only thing to read at all when a run yielded nothing — which
- * is the case this endpoint exists for. It is served as the markdown it is:
- * no rendering, no summarising, no parse of it substituted for it.
+ * The document is the source record for the extraction run and the only thing
+ * to read at all when a run yielded nothing — which is the case this endpoint
+ * exists for. Under AD-4 it remains a claim about evidence, never evidence or
+ * a citation target. It is served as the markdown it is: no rendering, no
+ * summarising, no parse of it substituted for it.
  *
  * A meeting with no extraction rows returns an empty list rather than a 404 —
  * that is a meeting whose extract stage has not run, which is a state, not a
