@@ -1111,10 +1111,15 @@ def parse_extraction_document(text: str, document_kind: str) -> ParsedDocument:
             continue
         dedup_key = (section if document_kind == DOC_ACTION_ITEMS else "", item_id)
         if dedup_key in seen_ids:
-            if document_kind == DOC_TOPICS:
+            if document_kind in (DOC_TOPICS, DOC_RANKING_SIGNALS):
+                item_name = (
+                    "topic"
+                    if document_kind == DOC_TOPICS
+                    else "ranking signal"
+                )
                 raise ArtifactParseError(
-                    f"duplicate topic ID {item_id} in the {document_kind} document;"
-                    " each topic ID must be defined exactly once"
+                    f"duplicate {item_name} ID {item_id} in the {document_kind}"
+                    f" document; each {item_name} ID must be defined exactly once"
                 )
             # Both prompts tell the model to reference an item's ID in later
             # sections rather than restate it, and real documents restate some

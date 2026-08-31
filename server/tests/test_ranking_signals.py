@@ -119,6 +119,21 @@ def test_a_signal_with_no_text_beyond_bookkeeping_is_refused() -> None:
     assert "R1" in str(raised.value)
 
 
+def test_duplicate_ranking_signal_ids_are_a_named_parse_error() -> None:
+    """F8: document-global IDs may not silently discard conflicting rows."""
+    document = """
+## Risks
+
+| ID | Risk | Detail | Timestamp |
+|----|------|--------|-----------|
+| R1 | The key may be late | First statement | [0:05] |
+| R1 | The key is already missing | Conflicting statement | [0:09] |
+"""
+
+    with pytest.raises(core.ArtifactParseError, match="duplicate ranking signal ID R1"):
+        core.parse_extraction_document(document, core.DOC_RANKING_SIGNALS)
+
+
 def test_ranking_signal_kinds_are_not_artifact_kinds() -> None:
     """The record's whole point: these rows never enter the publish lifecycle."""
     assert core.RANKING_SIGNAL_KINDS == {"risk", "question"}
