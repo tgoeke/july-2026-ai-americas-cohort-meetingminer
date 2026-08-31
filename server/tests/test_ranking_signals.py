@@ -173,11 +173,28 @@ def test_a_date_inside_a_dependency_sentence_is_not_the_items_timing() -> None:
     assert stated_timing(body) is None
 
 
+def test_dependency_labels_do_not_override_the_actual_timing_field() -> None:
+    """F5: `by` is a timing label, not a substring inside `Blocked by`."""
+    body = "Blocked by: vendor approval\nTiming (as stated): not stated"
+
+    assert stated_timing(body) is None
+
+
+def test_stated_timing_continues_past_an_empty_or_unstated_alias() -> None:
+    body = "Due:\nWhen: not stated\nTiming (as stated): September 4, 2026"
+
+    assert stated_timing(body) == "September 4, 2026"
+
+
 @pytest.mark.parametrize(
     "timing,expected",
     [
         ("2026-09-04", (2026, 9, 4)),
         ("by 9/4/2026 at the latest", (2026, 9, 4)),
+        ("September 4, 2026", (2026, 9, 4)),
+        ("Sep. 4, 2026", (2026, 9, 4)),
+        ("4 September 2026", (2026, 9, 4)),
+        ("not 2026-13-45; use 9/4/2026", (2026, 9, 4)),
         ("this week", None),
         ("after the demo", None),
         ("2026-13-45", None),

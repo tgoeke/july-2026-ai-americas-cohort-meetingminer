@@ -264,7 +264,10 @@ def _card_threads(
 # writes `Timing (as stated)`; real documents drift to `Due`, `Due date`,
 # `When`, `By`. Matched as a whole word inside the label so `Owner` cannot
 # match `by` and a `Details` column cannot match `date`.
-_TIMING_LABEL = re.compile(r"\b(timing|due|deadline|when|by)\b", re.IGNORECASE)
+_TIMING_LABEL = re.compile(
+    r"(?:timing(?:\s*\(as stated\))?|due(?:\s+date)?|deadline|when|by)",
+    re.IGNORECASE,
+)
 
 # What the prompt writes when the transcript stated no timing at all, plus the
 # spellings a model reaches for anyway. Compared case-folded and stripped of
@@ -293,6 +296,26 @@ _UNSTATED_TIMING = frozenset(
 # worse than not ranking on it.
 _ISO_DATE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
 _US_DATE = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{4})\b")
+_MONTH_NAME = (
+    r"(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+    r"jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|"
+    r"nov(?:ember)?|dec(?:ember)?)"
+)
+_MONTH_FIRST_DATE = re.compile(
+    rf"\b{_MONTH_NAME}\.?\s+(\d{{1,2}})(?:st|nd|rd|th)?(?:,\s*|\s+)(\d{{4}})\b",
+    re.IGNORECASE,
+)
+_DAY_FIRST_DATE = re.compile(
+    rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s+{_MONTH_NAME}\.?\s+(\d{{4}})\b",
+    re.IGNORECASE,
+)
+_MONTH_NUMBERS = {
+    name: index
+    for index, name in enumerate(
+        ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"),
+        start=1,
+    )
+}
 
 
 def stated_timing(body: str) -> str | None:
@@ -305,29 +328,50 @@ def stated_timing(body: str) -> str | None:
     """
     for line in body.splitlines():
         label, separator, value = line.partition(":")
-        if not separator or not _TIMING_LABEL.search(label):
+        if not separator or _TIMING_LABEL.fullmatch(label.strip()) is None:
             continue
         text = value.strip()
         if text.casefold().strip(" .") in _UNSTATED_TIMING:
-            return None
-        return text or None
+            continue
+        if text:
+            return text
     return None
 
 
 def stated_due_date(timing: str) -> date | None:
     """The calendar date the timing text states, when it states one."""
-    iso = _ISO_DATE.search(timing)
-    if iso is not None:
+    candidates: list[tuple[int, int, int, int]] = []
+    candidates.extend(
+        (match.start(), int(match.group(1)), int(match.group(2)), int(match.group(3)))
+        for match in _ISO_DATE.finditer(timing)
+    )
+    candidates.extend(
+        (match.start(), int(match.group(3)), int(match.group(1)), int(match.group(2)))
+        for match in _US_DATE.finditer(timing)
+    )
+    candidates.extend(
+        (
+            match.start(),
+            int(match.group(3)),
+            _MONTH_NUMBERS[match.group(1)[:3].casefold()],
+            int(match.group(2)),
+        )
+        for match in _MONTH_FIRST_DATE.finditer(timing)
+    )
+    candidates.extend(
+        (
+            match.start(),
+            int(match.group(3)),
+            _MONTH_NUMBERS[match.group(2)[:3].casefold()],
+            int(match.group(1)),
+        )
+        for match in _DAY_FIRST_DATE.finditer(timing)
+    )
+    for _, year, month, day in sorted(candidates):
         try:
-            return date(int(iso.group(1)), int(iso.group(2)), int(iso.group(3)))
+            return date(year, month, day)
         except ValueError:
-            return None
-    us = _US_DATE.search(timing)
-    if us is not None:
-        try:
-            return date(int(us.group(3)), int(us.group(1)), int(us.group(2)))
-        except ValueError:
-            return None
+            continue
     return None
 
 
