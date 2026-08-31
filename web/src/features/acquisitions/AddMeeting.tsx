@@ -260,13 +260,17 @@ export function AddMeeting({ onOpenMeeting }: AddMeetingProps = {}) {
       {/* The YouTube panel keeps its state while another tab is shown —
           `hidden` rather than unmounted — so switching away and back does not
           discard a typed URL or a running acquisition (EXPERIENCE.md:98). */}
-      <div
+      <form
         role="tabpanel"
         id="panel-youtube"
         aria-labelledby="tab-youtube"
         hidden={tab !== 'youtube'}
         data-testid="panel-youtube"
         className="flex flex-col gap-4"
+        onSubmit={(event) => {
+          event.preventDefault()
+          if (!submitDisabled && shape.kind === 'valid') void submit(shape.normalized)
+        }}
       >
         <div className="flex flex-col gap-2">
           <label htmlFor="youtube-url" className="text-sm font-medium">
@@ -335,12 +339,10 @@ export function AddMeeting({ onOpenMeeting }: AddMeetingProps = {}) {
 
         <div className="flex flex-wrap items-center gap-3">
           <Button
+            type="submit"
             data-testid="submit-acquisition"
             disabled={submitDisabled}
             aria-describedby={submitReason === null ? undefined : 'submit-reason'}
-            onClick={() => {
-              if (shape.kind === 'valid') void submit(shape.normalized)
-            }}
           >
             Submit
           </Button>
@@ -427,7 +429,7 @@ export function AddMeeting({ onOpenMeeting }: AddMeetingProps = {}) {
             )}
           </div>
         )}
-      </div>
+      </form>
     </section>
   )
 }
