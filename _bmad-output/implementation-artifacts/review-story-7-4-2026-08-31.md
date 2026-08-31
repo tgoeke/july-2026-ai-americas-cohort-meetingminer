@@ -94,3 +94,12 @@ Adversarial review of the Story 7.4 web implementation, with emphasis on unsettl
 - **Evidence:** Every call to `save()` aborts `saveControllerRef.current` before installing a new controller. React state does not protect imperative callers, and `onPanelKeyDown` does not inspect `saving`; focus on any non-input control inside the naming panel makes the shortcut reachable while both assignment buttons are disabled.
 - **Suggested direction:** Put a synchronous single-flight guard inside `save()` itself, release it only for the request that owns it, and leave disabled controls as presentation rather than the concurrency boundary. Verify that a pending Save followed by `u` issues exactly one PUT.
 - **Red/green evidence:** A deferred PUT followed by the scoped `u` shortcut first produced two assignment calls, with the second carrying `{unresolved: true}`. A synchronous in-function guard now rejects every second entry path until the owning request releases it; the regression passes with exactly one PUT.
+
+### F9 — A settled reread can strand selection on a removed tag
+
+- **Location:** `web/src/features/speakers/SpeakerNaming.tsx:274`; `web/src/features/speakers/SpeakerNaming.tsx:281`
+- **Severity:** High
+- **Status:** Confirmed — patch required
+- **Finding:** Selection reconciliation only chooses the first row when `selectedTag` is `null`. If a successful settled reread returns honest rows that no longer contain the selected tag, `selectedTag` remains stale, `selected` becomes `null`, and the screen hides the naming controls and transcript even though other speaker rows are present.
+- **Evidence:** `selected` is derived with `find(...) ?? null`, while the effect returns every non-null current tag without checking membership in the new `rows`. A rerun can legitimately change diarization output or concurrent recovery work can replace the tag set; this is exactly the state-retention boundary where stale evidence must remain usable without preserving an invalid pointer.
+- **Suggested direction:** Preserve selection only while the refreshed rows still contain it; otherwise select the first available row, and retain `null` only for an empty result. Verify a landed reread that removes the active tag moves selection to a remaining tag.
