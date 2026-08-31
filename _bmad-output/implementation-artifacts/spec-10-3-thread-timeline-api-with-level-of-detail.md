@@ -8,6 +8,7 @@ review_loop_iteration: 0
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/build-prompt-story-10-3-2026-08-31.md'
+  - '{project-root}/_bmad-output/implementation-artifacts/owner-ruling-10-3-window-anchor-2026-08-31.md'
   - '{project-root}/_bmad-output/implementation-artifacts/wave-2026-08-30-rules.md'
   - '{project-root}/_bmad-output/implementation-artifacts/spec-10-2-threads-and-the-graph-projection.md'
 deferred:
@@ -68,11 +69,20 @@ tie-break chain and the band bucket ladder are pure functions in a new
   the Postgres database — and one monotone sequence in that database is the
   only scope under which each thread has exactly one ordinal. Partitioning by
   `meeting.corpus` would give a cross-corpus thread two colours.
+- **The mention anchor owns window membership at every level.** A mention, its
+  meeting, and its fine moment/evidence row belong to a requested window
+  exactly when the wall clock derived from `topic_mention.anchor_ms` is in the
+  inclusive interval `[from, to]`. Envelope totals and every tier use that one
+  selection predicate, so moving between levels cannot change membership or
+  make a count disagree with the rows it describes.
 - **`occurredAt` is derived server-side**, never reconstructed by a client:
   `meeting.started_at + startMs`, serialized RFC 3339 UTC with an explicit `Z`.
-  When the meeting's `started_at_precision` is `day` the anchor is truncated to
-  `00:00:00Z` before `startMs` is added, so a day-precision source cannot leak
-  a spurious time of day, and `occurredAtPrecision` is served as `day`.
+  It is the fine row's evidence start and seek position, not its window
+  selector, and is explicitly permitted to fall outside the requested window.
+  When the meeting's `started_at_precision` is `day` the evidence start is
+  truncated to `00:00:00Z` before `startMs` is added, so a day-precision source
+  cannot leak a spurious time of day, and `occurredAtPrecision` is served as
+  `day`.
 - **Ties break by `meetingId`, then `momentId`.** Every ordered level uses the
   same explicit chain — `occurred_at, meeting_id, moment_id` — in SQL, and the
   same chain is available as a pure key function for unit tests.
@@ -140,6 +150,7 @@ tie-break chain and the band bucket ladder are pure functions in a new
 | Window default | No `from`/`to` | The thread's own first→last mention span | No error |
 | Inverted window | `from` after `to` | Refused, naming both bounds | 400 `invalid-window` |
 | Window excludes a meeting | `from`/`to` inside one meeting only | Only that meeting's mentions at every level; counts agree across levels | No error |
+| Mention/evidence boundary | Moment starts at 59s, its mention anchor is 61s; query `[60s,62s]`, then `[58s,60s]` | Every level includes it only in the first window. The fine row in that first response has `occurredAt` at 59s, before `windowFrom`, because `occurredAt` is the evidence start rather than the selector | No error |
 | Day-precision meeting | `started_at_precision='day'`, `started_at` carrying a time | `occurredAt` anchors at `00:00:00Z + startMs`; `occurredAtPrecision` is `day` | No error |
 | Equal anchors | Two moments at the same instant in two meetings | Ordered by `meetingId`, then `momentId` | No error |
 | Speakers where known | Covered segments, some `resolved`, some `placeholder` | Only `resolved` labels, in first-appearance order, deduplicated | No error |
@@ -176,6 +187,11 @@ tie-break chain and the band bucket ladder are pure functions in a new
 
 ## Spec Change Log
 
+- 2026-08-31 — **Owner ruling `1adb11c` resolves the window-anchor
+  contradiction.** `topic_mention.anchor_ms` is now the single selector for
+  envelope totals and all four tiers. Fine-row `occurredAt` remains the
+  `moment.start_ms` evidence start and may fall outside the requested window;
+  that permission is part of the wire contract rather than an implication.
 - 2026-08-31 — B-40's open question ("decide the corpus ownership model with
   Stories 10.3/10.6") is answered by this story: the sequence is per database
   of record. Recorded in `docs/backlog.md` as part of closing B-40.

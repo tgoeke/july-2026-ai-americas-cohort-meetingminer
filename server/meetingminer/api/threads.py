@@ -23,14 +23,14 @@ and the number of rows returned is bounded by the bucket ladder in
 `domain/thread_timeline.py`. A corpus of hundreds of meetings costs a band
 what one thread's mentions cost, not what the corpus's moments cost.
 
-**Two anchors, deliberately, and they are not interchangeable.** The coarse
-levels count *mentions*, so they bucket by `topic_mention.anchor_ms` — the
-earliest stamp inside the mentioned moment. The fine levels list *moments*, so
-they serve `startMs` as `moment.start_ms` and derive `occurredAt` from it, the
-same number the rest of the api spells `startMs`. The two differ by at most
-one moment's own duration, always in the same direction
-(`start_ms <= anchor_ms`), and coincide at any bucket wider than a moment —
-which every ladder step above a minute is.
+**One selector, two timestamps with different meanings.** At every level, a
+row belongs to the requested window when its `topic_mention.anchor_ms` does.
+That one predicate also owns the envelope totals, so zooming cannot move a row
+across the window boundary. Fine rows still serve `startMs` as
+`moment.start_ms` and derive `occurredAt` from it: that timestamp is where the
+evidence begins and where a reader seeks. It may therefore precede the
+requested window; it describes the returned evidence rather than selecting
+it.
 
 **Never a storage path** (AD-17). No query here selects `screenshot.path`,
 `frame.path` or `meeting_media.drop_relative_path`. Media travels as opaque
@@ -88,21 +88,21 @@ EXCERPT_MAX_CHARS = 300
 MOMENT_LEVEL_LIMIT = 500
 
 
-def _occurred_at_sql(offset_column: str) -> str:
+def _occurred_at_sql(offset_column: str, meeting_alias: str = "mt") -> str:
     """The SQL twin of `domain.thread_timeline.occurred_at`, for one offset.
 
     Written as an expression rather than a function so `EXPLAIN` shows the
-    window predicate on it, and kept in one place so the two anchors
-    (`topic_mention.anchor_ms`, `moment.start_ms`) cannot drift apart in how
-    they treat day precision. `AT TIME ZONE 'UTC'` twice is the portable form
-    of "truncate this instant to its UTC date": the first converts the
-    `timestamptz` to a naive UTC reading, the second reads the truncated
-    result back as UTC.
+    window predicate on it, and kept in one place so the mention selector and
+    evidence timestamp cannot drift apart in how they treat day precision.
+    `AT TIME ZONE 'UTC'` twice is the portable form of "truncate this instant
+    to its UTC date": the first converts the `timestamptz` to a naive UTC
+    reading, the second reads the truncated result back as UTC.
     """
     return (
-        "(CASE WHEN mt.started_at_precision = 'day'"
-        " THEN date_trunc('day', mt.started_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'"
-        " ELSE mt.started_at END"
+        f"(CASE WHEN {meeting_alias}.started_at_precision = 'day'"
+        f" THEN date_trunc('day', {meeting_alias}.started_at AT TIME ZONE 'UTC')"
+        " AT TIME ZONE 'UTC'"
+        f" ELSE {meeting_alias}.started_at END"
         f" + ({offset_column} * INTERVAL '1 millisecond'))"
     )
 
@@ -211,12 +211,12 @@ _WINDOW_TOTALS = (
 
 # --- the fine levels: the moments themselves -------------------------------
 
-# The thread's moments in the window. This is the first query that touches
-# `moment`, and it is bounded by the mention set before the window is even
-# applied: the IN list is the thread's own moment ids, read from
-# `topic_mention` through the same thread-bounded index path the coarse levels
-# use. Superseded rows are excluded exactly as the moments list excludes them
-# (`api/moments.py`) — a timeline must not interleave ghosts with live
+# The thread's moments whose *mentions* fall in the window. This is the first
+# query that touches `moment`, but selection is still the exact mention-anchor
+# predicate used by the coarse levels and envelope totals. `occurred_at` below
+# intentionally remains the moment's evidence start and may precede the
+# window. Superseded rows are excluded exactly as the moments list excludes
+# them (`api/moments.py`) — a timeline must not interleave ghosts with live
 # moments. LIMIT one past the cap so the envelope can say `truncated` without
 # a second counting query.
 _MOMENTS_LEVEL = (
@@ -228,10 +228,12 @@ _MOMENTS_LEVEL = (
     " FROM moment mo JOIN meeting mt ON mt.id = mo.meeting_id"
     " WHERE mo.id IN (SELECT tm.moment_id FROM topic_thread tt"
     " JOIN topic_mention tm ON tm.topic_id = tt.topic_id"
-    " WHERE tt.thread_id = %(thread_id)s)"
+    " JOIN meeting anchor_mt ON anchor_mt.id = tm.meeting_id"
+    " WHERE tt.thread_id = %(thread_id)s"
+    f" AND {_occurred_at_sql('tm.anchor_ms', 'anchor_mt')} >= %(window_from)s"
+    f" AND {_occurred_at_sql('tm.anchor_ms', 'anchor_mt')} <= %(window_to)s)"
     " AND COALESCE(mo.provenance->>'superseded', '') <> 'true'"
     ") m"
-    " WHERE m.occurred_at >= %(window_from)s AND m.occurred_at <= %(window_to)s"
     " ORDER BY m.occurred_at, m.meeting_id, m.moment_id"
     " LIMIT %(limit)s"
 )
@@ -360,7 +362,11 @@ class TimelineMoment(_Camel):
     # The thread's topic name for this moment; `moment` has no title column.
     title: str
     start_ms: int
-    occurred_at: str
+    occurred_at: str = Field(
+        description="Evidence start and seek position, derived from moment.start_ms. "
+        "Window membership is selected by the topic mention anchor, so this value "
+        "may fall outside the requested window."
+    )
     occurred_at_precision: str
     # Only `resolved` speaker labels, in first-appearance order. Empty when
     # the moment covers no segment whose speaker is known.
@@ -542,6 +548,10 @@ def get_thread_timeline(
     to_at: Annotated[datetime | None, Query(alias="to")] = None,
 ) -> BandsTimeline | MeetingsTimeline | MomentsTimeline | EvidenceTimeline:
     """One thread at one level of detail, bounded by an optional window.
+
+    Window membership at every level is selected by each topic mention's
+    anchor. A fine row's `occurredAt` is instead its evidence start and may
+    fall outside the requested window.
 
     All reads for one response happen on one connection under `REPEATABLE
     READ`, the rule `api/moments.py` states: a response is one snapshot, so a
