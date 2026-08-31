@@ -5,6 +5,118 @@ export type ClientOptions = {
 };
 
 /**
+ * AcquisitionAccepted
+ */
+export type AcquisitionAccepted = {
+    /**
+     * Acquisitionid
+     */
+    acquisitionId: string;
+    /**
+     * Sourceid
+     */
+    sourceId: string;
+    /**
+     * Status
+     */
+    status: string;
+};
+
+/**
+ * AcquisitionRefusal
+ */
+export type AcquisitionRefusal = {
+    /**
+     * Rule
+     */
+    rule: string;
+    /**
+     * Detail
+     */
+    detail: string;
+    /**
+     * Remediation
+     */
+    remediation: string;
+};
+
+/**
+ * AcquisitionRequest
+ */
+export type AcquisitionRequest = {
+    /**
+     * Url
+     */
+    url: string;
+};
+
+/**
+ * AcquisitionSource
+ */
+export type AcquisitionSource = {
+    /**
+     * Sourceid
+     */
+    sourceId: string;
+    /**
+     * Tool
+     */
+    tool?: string | null;
+    /**
+     * Toolversion
+     */
+    toolVersion?: string | null;
+};
+
+/**
+ * AcquisitionStatus
+ */
+export type AcquisitionStatus = {
+    /**
+     * Acquisitionid
+     */
+    acquisitionId: string;
+    /**
+     * Sourceid
+     */
+    sourceId: string;
+    /**
+     * Url
+     */
+    url: string;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Createdat
+     */
+    createdAt: string;
+    /**
+     * Updatedat
+     */
+    updatedAt: string;
+    /**
+     * Result
+     */
+    result?: string | null;
+    /**
+     * Jobid
+     */
+    jobId?: string | null;
+    /**
+     * Meetingid
+     */
+    meetingId?: string | null;
+    source?: AcquisitionSource | null;
+    refusal?: AcquisitionRefusal | null;
+    /**
+     * Logtail
+     */
+    logTail: Array<string>;
+};
+
+/**
  * AlignView
  */
 export type AlignView = {
@@ -1332,6 +1444,39 @@ export type PostgresView = {
 };
 
 /**
+ * ProbeCaptions
+ */
+export type ProbeCaptions = {
+    /**
+     * Kind
+     */
+    kind: string;
+    /**
+     * Language
+     */
+    language: string;
+};
+
+/**
+ * ProbeResult
+ */
+export type ProbeResult = {
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Durationms
+     */
+    durationMs: number;
+    captions: ProbeCaptions | null;
+    /**
+     * Sourceid
+     */
+    sourceId: string;
+};
+
+/**
  * ProblemDetails
  *
  * OpenAPI shape of an RFC 9457 error body (extension members allowed).
@@ -2533,6 +2678,116 @@ export type GetMediaFileResponses = {
 };
 
 export type GetMediaFileResponse = GetMediaFileResponses[keyof GetMediaFileResponses];
+
+export type StartAcquisitionData = {
+    body: AcquisitionRequest;
+    path?: never;
+    query?: never;
+    url: '/acquisitions';
+};
+
+export type StartAcquisitionErrors = {
+    /**
+     * Bad Request
+     */
+    400: unknown;
+    /**
+     * Conflict
+     */
+    409: unknown;
+    /**
+     * Unprocessable Entity
+     */
+    422: unknown;
+    /**
+     * Internal Server Error
+     */
+    500: unknown;
+    /**
+     * Service Unavailable
+     */
+    503: unknown;
+};
+
+export type StartAcquisitionResponses = {
+    /**
+     * Successful Response
+     */
+    202: AcquisitionAccepted;
+};
+
+export type StartAcquisitionResponse = StartAcquisitionResponses[keyof StartAcquisitionResponses];
+
+export type ProbeAcquisitionData = {
+    body: AcquisitionRequest;
+    path?: never;
+    query?: never;
+    url: '/acquisitions/probe';
+};
+
+export type ProbeAcquisitionErrors = {
+    /**
+     * Bad Request
+     */
+    400: unknown;
+    /**
+     * Unprocessable Entity
+     */
+    422: unknown;
+    /**
+     * Internal Server Error
+     */
+    500: unknown;
+    /**
+     * Service Unavailable
+     */
+    503: unknown;
+};
+
+export type ProbeAcquisitionResponses = {
+    /**
+     * Successful Response
+     */
+    200: ProbeResult;
+};
+
+export type ProbeAcquisitionResponse = ProbeAcquisitionResponses[keyof ProbeAcquisitionResponses];
+
+export type GetAcquisitionData = {
+    body?: never;
+    path: {
+        /**
+         * Acquisition Id
+         */
+        acquisition_id: string;
+    };
+    query?: never;
+    url: '/acquisitions/{acquisition_id}';
+};
+
+export type GetAcquisitionErrors = {
+    /**
+     * Not Found
+     */
+    404: unknown;
+    /**
+     * Unprocessable Entity
+     */
+    422: unknown;
+    /**
+     * Internal Server Error
+     */
+    500: unknown;
+};
+
+export type GetAcquisitionResponses = {
+    /**
+     * Successful Response
+     */
+    200: AcquisitionStatus;
+};
+
+export type GetAcquisitionResponse = GetAcquisitionResponses[keyof GetAcquisitionResponses];
 
 export type GetConfigurationData = {
     body?: never;

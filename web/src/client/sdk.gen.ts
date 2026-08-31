@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, ServerSentEventsResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { ApproveMomentArtifactsData, ApproveMomentArtifactsErrors, ApproveMomentArtifactsResponses, AskCorpusData, AskCorpusErrors, AskCorpusResponses, AssignMeetingProjectData, AssignMeetingProjectErrors, AssignMeetingProjectResponses, AssignMeetingSeriesData, AssignMeetingSeriesErrors, AssignMeetingSeriesResponses, AssignMeetingSpeakerData, AssignMeetingSpeakerErrors, AssignMeetingSpeakerResponses, AssignProjectProductData, AssignProjectProductErrors, AssignProjectProductResponses, CreateIngestData, CreateIngestErrors, CreateIngestResponses, CreateProductData, CreateProductErrors, CreateProductResponses, CreateProjectData, CreateProjectErrors, CreateProjectResponses, CreateSeriesData, CreateSeriesErrors, CreateSeriesResponses, GetConfigurationData, GetConfigurationResponses, GetCorpusStatsData, GetCorpusStatsResponses, GetExtractionPromptsData, GetExtractionPromptsResponses, GetHealthData, GetHealthResponses, GetJobData, GetJobErrors, GetJobResponses, GetMediaFileData, GetMediaFileErrors, GetMediaFileResponses, GetMeetingDrilldownData, GetMeetingDrilldownErrors, GetMeetingDrilldownResponses, GetModelSettingsData, GetModelSettingsResponses, GetMomentData, GetMomentErrors, GetMomentResponses, GetRecordingData, GetRecordingErrors, GetRecordingResponses, GetSystemStatusData, GetSystemStatusResponses, ListMeetingMomentsData, ListMeetingMomentsErrors, ListMeetingMomentsResponses, ListMeetingsData, ListMeetingSpeakersData, ListMeetingSpeakersErrors, ListMeetingSpeakersResponses, ListMeetingsResponses, ListParticipantsData, ListParticipantsResponses, ListProductsData, ListProductsResponses, ListProjectsData, ListProjectsResponses, ListSeriesData, ListSeriesResponses, MergeParticipantsData, MergeParticipantsErrors, MergeParticipantsResponses, RenameParticipantData, RenameParticipantErrors, RenameParticipantResponses, SearchCorpusData, SearchCorpusErrors, SearchCorpusResponses, SelectRoleBindingData, SelectRoleBindingErrors, SelectRoleBindingResponses, StreamJobEventsData, StreamJobEventsResponses } from './types.gen';
+import type { ApproveMomentArtifactsData, ApproveMomentArtifactsErrors, ApproveMomentArtifactsResponses, AskCorpusData, AskCorpusErrors, AskCorpusResponses, AssignMeetingProjectData, AssignMeetingProjectErrors, AssignMeetingProjectResponses, AssignMeetingSeriesData, AssignMeetingSeriesErrors, AssignMeetingSeriesResponses, AssignMeetingSpeakerData, AssignMeetingSpeakerErrors, AssignMeetingSpeakerResponses, AssignProjectProductData, AssignProjectProductErrors, AssignProjectProductResponses, CreateIngestData, CreateIngestErrors, CreateIngestResponses, CreateProductData, CreateProductErrors, CreateProductResponses, CreateProjectData, CreateProjectErrors, CreateProjectResponses, CreateSeriesData, CreateSeriesErrors, CreateSeriesResponses, GetAcquisitionData, GetAcquisitionErrors, GetAcquisitionResponses, GetConfigurationData, GetConfigurationResponses, GetCorpusStatsData, GetCorpusStatsResponses, GetExtractionPromptsData, GetExtractionPromptsResponses, GetHealthData, GetHealthResponses, GetJobData, GetJobErrors, GetJobResponses, GetMediaFileData, GetMediaFileErrors, GetMediaFileResponses, GetMeetingDrilldownData, GetMeetingDrilldownErrors, GetMeetingDrilldownResponses, GetModelSettingsData, GetModelSettingsResponses, GetMomentData, GetMomentErrors, GetMomentResponses, GetRecordingData, GetRecordingErrors, GetRecordingResponses, GetSystemStatusData, GetSystemStatusResponses, ListMeetingMomentsData, ListMeetingMomentsErrors, ListMeetingMomentsResponses, ListMeetingsData, ListMeetingSpeakersData, ListMeetingSpeakersErrors, ListMeetingSpeakersResponses, ListMeetingsResponses, ListParticipantsData, ListParticipantsResponses, ListProductsData, ListProductsResponses, ListProjectsData, ListProjectsResponses, ListSeriesData, ListSeriesResponses, MergeParticipantsData, MergeParticipantsErrors, MergeParticipantsResponses, ProbeAcquisitionData, ProbeAcquisitionErrors, ProbeAcquisitionResponses, RenameParticipantData, RenameParticipantErrors, RenameParticipantResponses, SearchCorpusData, SearchCorpusErrors, SearchCorpusResponses, SelectRoleBindingData, SelectRoleBindingErrors, SelectRoleBindingResponses, StartAcquisitionData, StartAcquisitionErrors, StartAcquisitionResponses, StreamJobEventsData, StreamJobEventsResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -125,6 +125,37 @@ export const getRecording = <ThrowOnError extends boolean = false>(options: Opti
  * Stream one content-root-relative file — a screenshot or a frame (AD-3).
  */
 export const getMediaFile = <ThrowOnError extends boolean = false>(options: Options<GetMediaFileData, ThrowOnError>): RequestResult<GetMediaFileResponses, GetMediaFileErrors, ThrowOnError> => (options.client ?? client).get<GetMediaFileResponses, GetMediaFileErrors, ThrowOnError>({ url: '/media/{path}', ...options });
+
+/**
+ * Start Acquisition
+ */
+export const startAcquisition = <ThrowOnError extends boolean = false>(options: Options<StartAcquisitionData, ThrowOnError>): RequestResult<StartAcquisitionResponses, StartAcquisitionErrors, ThrowOnError> => (options.client ?? client).post<StartAcquisitionResponses, StartAcquisitionErrors, ThrowOnError>({
+    url: '/acquisitions',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Probe Acquisition
+ */
+export const probeAcquisition = <ThrowOnError extends boolean = false>(options: Options<ProbeAcquisitionData, ThrowOnError>): RequestResult<ProbeAcquisitionResponses, ProbeAcquisitionErrors, ThrowOnError> => (options.client ?? client).post<ProbeAcquisitionResponses, ProbeAcquisitionErrors, ThrowOnError>({
+    url: '/acquisitions/probe',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Get Acquisition
+ *
+ * One acquisition's state — queued | running | posted | failed — read from the status file its detached runner writes.
+ */
+export const getAcquisition = <ThrowOnError extends boolean = false>(options: Options<GetAcquisitionData, ThrowOnError>): RequestResult<GetAcquisitionResponses, GetAcquisitionErrors, ThrowOnError> => (options.client ?? client).get<GetAcquisitionResponses, GetAcquisitionErrors, ThrowOnError>({ url: '/acquisitions/{acquisition_id}', ...options });
 
 /**
  * Get Configuration
