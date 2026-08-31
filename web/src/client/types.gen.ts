@@ -2191,6 +2191,28 @@ export type ProviderStatus = {
 };
 
 /**
+ * RelatedSubject
+ */
+export type RelatedSubject = {
+    /**
+     * Threadid
+     */
+    threadId: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Colorordinal
+     */
+    colorOrdinal: number;
+    /**
+     * Sharedmoments
+     */
+    sharedMoments: number;
+};
+
+/**
  * RenameParticipantRequest
  */
 export type RenameParticipantRequest = {
@@ -2773,6 +2795,114 @@ export type SttView = {
 };
 
 /**
+ * SubjectCandidate
+ *
+ * An adjacent subject the typed wording could have meant.
+ */
+export type SubjectCandidate = {
+    /**
+     * Threadid
+     */
+    threadId: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Colorordinal
+     */
+    colorOrdinal: number;
+    /**
+     * Meetingcount
+     */
+    meetingCount: number;
+    /**
+     * Spandays
+     */
+    spanDays: number;
+};
+
+/**
+ * SubjectReach
+ *
+ * How far a subject runs, which is the whole basis for offering it.
+ *
+ * Both numbers are shown to the reader rather than only ranked on: "9
+ * meetings over 118 days" is what makes a suggestion a considered choice
+ * instead of a button whose label is the only thing known about it.
+ */
+export type SubjectReach = {
+    /**
+     * Meetingcount
+     */
+    meetingCount: number;
+    /**
+     * Spandays
+     */
+    spanDays: number;
+    /**
+     * Firstmentionat
+     */
+    firstMentionAt: string;
+    /**
+     * Lastmentionat
+     */
+    lastMentionAt: string;
+};
+
+/**
+ * SuggestedSubject
+ */
+export type SuggestedSubject = {
+    /**
+     * Threadid
+     */
+    threadId: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Colorordinal
+     */
+    colorOrdinal: number;
+    /**
+     * Mentioncount
+     */
+    mentionCount: number;
+    reach: SubjectReach;
+};
+
+/**
+ * SuggestionsResponse
+ *
+ * The empty state's offer, with the band it was drawn from.
+ *
+ * The band travels with the answer because an empty list means something
+ * specific — no subject in this corpus recurs across meetings for long enough
+ * to be worth tracing — and a client that cannot see the bounds would have to
+ * render that as a blank.
+ */
+export type SuggestionsResponse = {
+    /**
+     * Subjects
+     */
+    subjects: Array<SuggestedSubject>;
+    /**
+     * Minmeetings
+     */
+    minMeetings: number;
+    /**
+     * Maxmeetings
+     */
+    maxMeetings: number;
+    /**
+     * Minspandays
+     */
+    minSpanDays: number;
+};
+
+/**
  * ThreadSummary
  *
  * One thread as the Threads view lists it.
@@ -2809,6 +2939,70 @@ export type ThreadSummary = {
      * Colorordinal
      */
     colorOrdinal: number;
+};
+
+/**
+ * ThreadTrace
+ *
+ * One subject, traced across every meeting where it surfaced.
+ *
+ * **`mode` is the closed set; `completenessNote` is the prose.** Both are
+ * carried because a client that inferred completeness from the wording would
+ * be one edit away from presenting a sample as a full history — the same
+ * unverified-absence failure as claiming no recording exists, in the one view
+ * whose entire claim is that it shows the corpus's true shape (AD-18).
+ */
+export type ThreadTrace = {
+    /**
+     * Mode
+     */
+    mode: 'exhaustive' | 'sample';
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Threadid
+     */
+    threadId?: string | null;
+    /**
+     * Colorordinal
+     */
+    colorOrdinal?: number | null;
+    /**
+     * Resolvedfrom
+     */
+    resolvedFrom?: string | null;
+    /**
+     * Ranking
+     */
+    ranking?: 'hybrid' | 'keyword' | null;
+    /**
+     * Complete
+     */
+    complete: boolean;
+    /**
+     * Completenessnote
+     */
+    completenessNote: string;
+    /**
+     * Permeetinglimit
+     */
+    perMeetingLimit: number;
+    span?: TraceSpan | null;
+    counts: TraceCounts;
+    /**
+     * Candidates
+     */
+    candidates: Array<SubjectCandidate>;
+    /**
+     * Relatedsubjects
+     */
+    relatedSubjects: Array<RelatedSubject>;
+    /**
+     * Stops
+     */
+    stops: Array<TraceStop>;
 };
 
 /**
@@ -3039,6 +3233,158 @@ export type TimelineTopic = {
      * Linkedby
      */
     linkedBy: string;
+};
+
+/**
+ * TraceCounts
+ */
+export type TraceCounts = {
+    /**
+     * Stops
+     */
+    stops: number;
+    /**
+     * Momentsquoted
+     */
+    momentsQuoted: number;
+    /**
+     * Mentiontotal
+     */
+    mentionTotal: number;
+    /**
+     * Meetingsmentioning
+     */
+    meetingsMentioning: number;
+    /**
+     * Withscreen
+     */
+    withScreen: number;
+};
+
+/**
+ * TraceMoment
+ *
+ * One quoted moment at a stop.
+ */
+export type TraceMoment = {
+    /**
+     * Momentid
+     */
+    momentId: string;
+    /**
+     * Startms
+     */
+    startMs: number;
+    /**
+     * Occurredat
+     */
+    occurredAt: string;
+    /**
+     * Occurredatprecision
+     */
+    occurredAtPrecision: string;
+    /**
+     * Speakers
+     */
+    speakers: Array<string>;
+    /**
+     * Excerpt
+     */
+    excerpt?: string | null;
+    /**
+     * Screenshotid
+     */
+    screenshotId?: string | null;
+};
+
+/**
+ * TraceSpan
+ */
+export type TraceSpan = {
+    /**
+     * Fromat
+     */
+    fromAt: string;
+    /**
+     * Toat
+     */
+    toAt: string;
+    /**
+     * Days
+     */
+    days: number;
+    /**
+     * Meetings
+     */
+    meetings: number;
+};
+
+/**
+ * TraceStop
+ *
+ * One meeting where the subject surfaced.
+ *
+ * `mentionCount` and `momentCount` describe the meeting; `quotedCount` is how
+ * many of them are carried in `moments`. The three are all present so a
+ * reader is never shown six moments from a meeting that held forty without
+ * being told which they are looking at.
+ *
+ * `hasRecording` and `screenCount` are carried as facts rather than as a
+ * rendered sentence about them: a stop with no screens must state its reason,
+ * and the reason turns on whether the absence was established (transcript-only
+ * ingest) or merely observed (no capture covers these moments). A client that
+ * derived the state from the presence of prose would be one wording change
+ * away from claiming the wrong one (AD-18).
+ */
+export type TraceStop = {
+    /**
+     * Meetingid
+     */
+    meetingId: string;
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Corpus
+     */
+    corpus: string;
+    /**
+     * Hasrecording
+     */
+    hasRecording: boolean;
+    /**
+     * Occurredat
+     */
+    occurredAt: string;
+    /**
+     * Lastoccurredat
+     */
+    lastOccurredAt: string;
+    /**
+     * Occurredatprecision
+     */
+    occurredAtPrecision: string;
+    /**
+     * Mentioncount
+     */
+    mentionCount: number;
+    /**
+     * Momentcount
+     */
+    momentCount: number;
+    /**
+     * Quotedcount
+     */
+    quotedCount: number;
+    /**
+     * Screencount
+     */
+    screenCount: number;
+    /**
+     * Moments
+     */
+    moments: Array<TraceMoment>;
 };
 
 /**
@@ -4369,6 +4715,102 @@ export type ListThreadsResponses = {
 };
 
 export type ListThreadsResponse = ListThreadsResponses[keyof ListThreadsResponses];
+
+export type ListThreadSuggestionsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Minmeetings
+         */
+        minMeetings?: number;
+        /**
+         * Maxmeetings
+         */
+        maxMeetings?: number;
+        /**
+         * Minspandays
+         */
+        minSpanDays?: number;
+    };
+    url: '/threads/suggestions';
+};
+
+export type ListThreadSuggestionsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListThreadSuggestionsError = ListThreadSuggestionsErrors[keyof ListThreadSuggestionsErrors];
+
+export type ListThreadSuggestionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: SuggestionsResponse;
+};
+
+export type ListThreadSuggestionsResponse = ListThreadSuggestionsResponses[keyof ListThreadSuggestionsResponses];
+
+export type TraceThreadData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Q
+         */
+        q?: string | null;
+        /**
+         * Threadid
+         */
+        threadId?: string | null;
+        /**
+         * Permeeting
+         */
+        perMeeting?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/threads/trace';
+};
+
+export type TraceThreadErrors = {
+    /**
+     * `invalid-request` — neither `q` nor `threadId` was given.
+     */
+    400: unknown;
+    /**
+     * `not-found` — no thread with that id.
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+    /**
+     * `thread-trace-store-unavailable`, `thread-trace-store-unusable` or `embedder-unusable` — the sample leg could not be served, and is refused rather than degraded to silence.
+     */
+    503: unknown;
+};
+
+export type TraceThreadError = TraceThreadErrors[keyof TraceThreadErrors];
+
+export type TraceThreadResponses = {
+    /**
+     * Successful Response
+     */
+    200: ThreadTrace;
+};
+
+export type TraceThreadResponse = TraceThreadResponses[keyof TraceThreadResponses];
 
 export type GetThreadTimelineData = {
     body?: never;

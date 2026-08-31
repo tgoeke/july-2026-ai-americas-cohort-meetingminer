@@ -2,7 +2,7 @@
 
 import { type Client, type ClientMeta, formDataBodySerializer, type Options as Options2, type RequestResult, type ServerSentEventsResult, type TDataShape } from './client';
 import { client } from './client.gen';
-import type { ApproveMomentArtifactsData, ApproveMomentArtifactsErrors, ApproveMomentArtifactsResponses, AskCorpusData, AskCorpusErrors, AskCorpusResponses, AssignMeetingProjectData, AssignMeetingProjectErrors, AssignMeetingProjectResponses, AssignMeetingSeriesData, AssignMeetingSeriesErrors, AssignMeetingSeriesResponses, AssignMeetingSpeakerData, AssignMeetingSpeakerErrors, AssignMeetingSpeakerResponses, AssignProjectProductData, AssignProjectProductErrors, AssignProjectProductResponses, CreateIngestData, CreateIngestErrors, CreateIngestResponses, CreateProductData, CreateProductErrors, CreateProductResponses, CreateProjectData, CreateProjectErrors, CreateProjectResponses, CreateSeriesData, CreateSeriesErrors, CreateSeriesResponses, CreateUploadSessionData, CreateUploadSessionErrors, CreateUploadSessionResponses, DeleteUploadSessionData, DeleteUploadSessionErrors, DeleteUploadSessionResponses, GetAcquisitionData, GetAcquisitionErrors, GetAcquisitionResponses, GetConfigurationData, GetConfigurationResponses, GetCorpusStatsData, GetCorpusStatsResponses, GetExtractionPromptsData, GetExtractionPromptsResponses, GetHealthData, GetHealthResponses, GetJobData, GetJobErrors, GetJobResponses, GetMediaFileData, GetMediaFileErrors, GetMediaFileResponses, GetMeetingDrilldownData, GetMeetingDrilldownErrors, GetMeetingDrilldownResponses, GetModelSettingsData, GetModelSettingsResponses, GetMomentData, GetMomentErrors, GetMomentResponses, GetMomentsFeedData, GetMomentsFeedErrors, GetMomentsFeedResponses, GetRecordingData, GetRecordingErrors, GetRecordingResponses, GetSystemStatusData, GetSystemStatusResponses, GetThreadTimelineData, GetThreadTimelineErrors, GetThreadTimelineResponses, GetUploadSessionData, GetUploadSessionErrors, GetUploadSessionResponses, ListMeetingExtractionDocumentsData, ListMeetingExtractionDocumentsErrors, ListMeetingExtractionDocumentsResponses, ListMeetingMomentsData, ListMeetingMomentsErrors, ListMeetingMomentsResponses, ListMeetingsData, ListMeetingSpeakersData, ListMeetingSpeakersErrors, ListMeetingSpeakersResponses, ListMeetingsResponses, ListParticipantsData, ListParticipantsResponses, ListProductsData, ListProductsResponses, ListProjectsData, ListProjectsResponses, ListSeriesData, ListSeriesResponses, ListThreadsData, ListThreadsResponses, MergeParticipantsData, MergeParticipantsErrors, MergeParticipantsResponses, ProbeAcquisitionData, ProbeAcquisitionErrors, ProbeAcquisitionResponses, RenameParticipantData, RenameParticipantErrors, RenameParticipantResponses, SearchCorpusData, SearchCorpusErrors, SearchCorpusResponses, SelectRoleBindingData, SelectRoleBindingErrors, SelectRoleBindingResponses, StartAcquisitionData, StartAcquisitionErrors, StartAcquisitionResponses, StreamJobEventsData, StreamJobEventsResponses } from './types.gen';
+import type { ApproveMomentArtifactsData, ApproveMomentArtifactsErrors, ApproveMomentArtifactsResponses, AskCorpusData, AskCorpusErrors, AskCorpusResponses, AssignMeetingProjectData, AssignMeetingProjectErrors, AssignMeetingProjectResponses, AssignMeetingSeriesData, AssignMeetingSeriesErrors, AssignMeetingSeriesResponses, AssignMeetingSpeakerData, AssignMeetingSpeakerErrors, AssignMeetingSpeakerResponses, AssignProjectProductData, AssignProjectProductErrors, AssignProjectProductResponses, CreateIngestData, CreateIngestErrors, CreateIngestResponses, CreateProductData, CreateProductErrors, CreateProductResponses, CreateProjectData, CreateProjectErrors, CreateProjectResponses, CreateSeriesData, CreateSeriesErrors, CreateSeriesResponses, CreateUploadSessionData, CreateUploadSessionErrors, CreateUploadSessionResponses, DeleteUploadSessionData, DeleteUploadSessionErrors, DeleteUploadSessionResponses, GetAcquisitionData, GetAcquisitionErrors, GetAcquisitionResponses, GetConfigurationData, GetConfigurationResponses, GetCorpusStatsData, GetCorpusStatsResponses, GetExtractionPromptsData, GetExtractionPromptsResponses, GetHealthData, GetHealthResponses, GetJobData, GetJobErrors, GetJobResponses, GetMediaFileData, GetMediaFileErrors, GetMediaFileResponses, GetMeetingDrilldownData, GetMeetingDrilldownErrors, GetMeetingDrilldownResponses, GetModelSettingsData, GetModelSettingsResponses, GetMomentData, GetMomentErrors, GetMomentResponses, GetMomentsFeedData, GetMomentsFeedErrors, GetMomentsFeedResponses, GetRecordingData, GetRecordingErrors, GetRecordingResponses, GetSystemStatusData, GetSystemStatusResponses, GetThreadTimelineData, GetThreadTimelineErrors, GetThreadTimelineResponses, GetUploadSessionData, GetUploadSessionErrors, GetUploadSessionResponses, ListMeetingExtractionDocumentsData, ListMeetingExtractionDocumentsErrors, ListMeetingExtractionDocumentsResponses, ListMeetingMomentsData, ListMeetingMomentsErrors, ListMeetingMomentsResponses, ListMeetingsData, ListMeetingSpeakersData, ListMeetingSpeakersErrors, ListMeetingSpeakersResponses, ListMeetingsResponses, ListParticipantsData, ListParticipantsResponses, ListProductsData, ListProductsResponses, ListProjectsData, ListProjectsResponses, ListSeriesData, ListSeriesResponses, ListThreadsData, ListThreadsResponses, ListThreadSuggestionsData, ListThreadSuggestionsErrors, ListThreadSuggestionsResponses, MergeParticipantsData, MergeParticipantsErrors, MergeParticipantsResponses, ProbeAcquisitionData, ProbeAcquisitionErrors, ProbeAcquisitionResponses, RenameParticipantData, RenameParticipantErrors, RenameParticipantResponses, SearchCorpusData, SearchCorpusErrors, SearchCorpusResponses, SelectRoleBindingData, SelectRoleBindingErrors, SelectRoleBindingResponses, StartAcquisitionData, StartAcquisitionErrors, StartAcquisitionResponses, StreamJobEventsData, StreamJobEventsResponses, TraceThreadData, TraceThreadErrors, TraceThreadResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -430,6 +430,38 @@ export const assignMeetingProject = <ThrowOnError extends boolean = false>(optio
  * List Threads
  */
 export const listThreads = <ThrowOnError extends boolean = false>(options?: Options<ListThreadsData, ThrowOnError>): RequestResult<ListThreadsResponses, unknown, ThrowOnError> => (options?.client ?? client).get<ListThreadsResponses, unknown, ThrowOnError>({ url: '/threads', ...options });
+
+/**
+ * List Thread Suggestions
+ *
+ * Subjects worth tracing, for the view's empty state.
+ *
+ * Not the most-mentioned subjects. Those are the generic ones — they appear
+ * in nearly every meeting, so their thread is the whole corpus and no story
+ * at all. What is offered instead is the subjects that recur across a
+ * middling number of meetings, ranked by how much calendar time they span,
+ * with near-duplicates dropped so one concern does not consume two slots.
+ */
+export const listThreadSuggestions = <ThrowOnError extends boolean = false>(options?: Options<ListThreadSuggestionsData, ThrowOnError>): RequestResult<ListThreadSuggestionsResponses, ListThreadSuggestionsErrors, ThrowOnError> => (options?.client ?? client).get<ListThreadSuggestionsResponses, ListThreadSuggestionsErrors, ThrowOnError>({ url: '/threads/suggestions', ...options });
+
+/**
+ * Trace Thread
+ *
+ * One subject across every meeting where it surfaced.
+ *
+ * **Two ways in, and the answer says which one it took.** A `threadId`, or a
+ * phrase that plainly names one known subject, walks the stored mentions and
+ * is exhaustive within the corpus. Anything else is a top-k retrieval sample,
+ * ranked by relevance and then re-sorted by time, carrying the adjacent
+ * subjects the wording could have meant so the reader disambiguates rather
+ * than this route guessing.
+ *
+ * The whole trace is served once, at every altitude the client will draw it
+ * at. It is deliberately not `GET /threads/{threadId}/timeline`: that
+ * endpoint answers one level of detail per request, which a semantic zoom
+ * cannot use without the view flickering between tiers it has not fetched.
+ */
+export const traceThread = <ThrowOnError extends boolean = false>(options?: Options<TraceThreadData, ThrowOnError>): RequestResult<TraceThreadResponses, TraceThreadErrors, ThrowOnError> => (options?.client ?? client).get<TraceThreadResponses, TraceThreadErrors, ThrowOnError>({ url: '/threads/trace', ...options });
 
 /**
  * Get Thread Timeline
