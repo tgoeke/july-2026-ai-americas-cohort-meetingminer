@@ -76,8 +76,25 @@ DOCUMENT_KINDS: tuple[str, ...] = (DOC_ARCH_SUMMARY, DOC_ACTION_ITEMS)
 KIND_TOPIC = "topic"
 DOC_TOPICS = "topics"
 
+# Story 10.4: the ranking-signals document and its two item kinds. Neither
+# kind is in `KNOWN_KINDS` and the document is not in `DOCUMENT_KINDS`, for
+# exactly the reason topics are excluded from both: these rows are ranking
+# signals, never artifacts. They land in the worker-owned `ranking_signal`
+# table, carry no `state`, and never reach the publish gate.
+#
+# `KIND_RISK`/`KIND_QUESTION` are spelled as migration 0018's CHECK spells
+# them, so the parser's vocabulary and the record's cannot drift.
+KIND_RISK = "risk"
+KIND_QUESTION = "question"
+RANKING_SIGNAL_KINDS: frozenset[str] = frozenset({KIND_RISK, KIND_QUESTION})
+DOC_RANKING_SIGNALS = "ranking-signals"
+
 # Every document kind `parse_extraction_document` and `build_prompt` accept.
-_PARSEABLE_DOCUMENT_KINDS: tuple[str, ...] = (*DOCUMENT_KINDS, DOC_TOPICS)
+_PARSEABLE_DOCUMENT_KINDS: tuple[str, ...] = (
+    *DOCUMENT_KINDS,
+    DOC_TOPICS,
+    DOC_RANKING_SIGNALS,
+)
 
 # What `extraction_source.layout` may say.
 LAYOUT_TABLE = "table"
@@ -253,6 +270,29 @@ def build_topics_prompt(
     )
 
 
+def build_signals_prompt(
+    transcript: str,
+    *,
+    template: str,
+    meeting_title: str | None = None,
+    meeting_date: str | None = None,
+) -> str:
+    """The whole-meeting prompt for the ranking-signals document (story 10.4).
+
+    ``template`` is the config-owned, complete prompt text
+    (``ranking.signals_prompt``) — composed verbatim with the meeting header
+    and transcript, never reformatted or templated further, exactly as the
+    three prompts above are.
+    """
+    return "\n\n".join(
+        [
+            template,
+            _document_header(meeting_title, meeting_date),
+            "Raw transcript:\n\n" + (transcript if transcript.strip() else "(none)"),
+        ]
+    )
+
+
 def build_prompt(
     document_kind: str,
     transcript: str,
@@ -268,6 +308,8 @@ def build_prompt(
         builder = build_actions_prompt
     elif document_kind == DOC_TOPICS:
         builder = build_topics_prompt
+    elif document_kind == DOC_RANKING_SIGNALS:
+        builder = build_signals_prompt
     else:
         raise ValueError(
             f"unknown extraction document kind {document_kind!r} — expected one of"
@@ -434,6 +476,20 @@ _ARCH_PREFIX_KINDS = {"D": KIND_ADR}
 # `T`: a risk or question id that strays into a topics table is structure,
 # never a topic.
 _TOPIC_PREFIX_KINDS = {"T": KIND_TOPIC}
+
+# Which ID prefixes become ranking signals in the ranking-signals document
+# (story 10.4). The prefix decides the kind, not the section heading: a risk
+# the model filed under "Open questions" is still a risk, and keying on the
+# heading would make one drifted word relabel a whole table. An `A`- or
+# `D`-prefixed row that strays into this document is a commitment or a
+# decision belonging to another document, and is skipped as structure.
+_SIGNAL_PREFIX_KINDS = {"R": KIND_RISK, "Q": KIND_QUESTION}
+
+# The ranking-signals table's two persisted text columns, by header label.
+# Exact labels, the topics precedent: a fuzzy match would let a foreign
+# ``Risk owner`` column become the label a reader is shown.
+_SIGNAL_LABEL_HEADERS = ("risk", "question", "open question", "issue", "concern")
+_SIGNAL_DETAIL_HEADERS = ("detail", "details", "note", "notes", "context")
 
 # How short and how complete a table row has to be to be read as a header row.
 # A prose line that happens to contain a pipe must not be able to relabel a
@@ -799,6 +855,59 @@ def _topic_title_and_body(
     return topic, f"Gist: {gist}"
 
 
+def _signal_label_and_detail(
+    cells: Sequence[str], headers: Sequence[str] | None, item_id: str
+) -> tuple[str, str]:
+    """Read a ranking signal's label and its detail (story 10.4).
+
+    The label is a required field, not a heuristic title: migration 0018
+    refuses a blank one, and `GET /moments/feed` drops an item whose reasons
+    are all invalid — so a signal that reached the table with nothing to say
+    would be a feed row that silently vanishes. Refusing it here means the
+    stage names the row instead.
+
+    The detail is genuinely optional. A risk stated in five words carries no
+    elaboration, and synthesizing one from the label would be the parser
+    writing rather than reporting.
+
+    Labelled columns win; a headerless table or a bullet falls back to the
+    prompt's pinned ordering — label, detail, then timestamps — which is the
+    same rule :func:`_topic_title_and_body` applies.
+    """
+    label_index = _exact_labelled(headers, _SIGNAL_LABEL_HEADERS)
+    detail_index = _exact_labelled(headers, _SIGNAL_DETAIL_HEADERS)
+    if label_index is None:
+        label_index = 0
+    if detail_index is None or detail_index == label_index:
+        detail_index = label_index + 1
+
+    label = cells[label_index].strip() if label_index < len(cells) else ""
+    detail = cells[detail_index].strip() if detail_index < len(cells) else ""
+    if not label or _is_bare_stamp(label):
+        raise ArtifactParseError(
+            f"item {item_id} in the {DOC_RANKING_SIGNALS} document has no"
+            " risk/question text, only bookkeeping"
+        )
+    # A trailing timestamp column read as the detail is bookkeeping, not
+    # context: the anchor is already carried separately.
+    if _is_bare_stamp(detail):
+        detail = ""
+    return label, detail
+
+
+def signal_detail(artifact: ProposedArtifact) -> str:
+    """The detail column of a parsed ranking signal, or the empty string.
+
+    :class:`ProposedArtifact` substitutes :data:`NO_DETAIL_BODY` for an empty
+    body, because an *artifact* with a blank body is a row story 4.1 refused
+    by name. A ranking signal is not an artifact and an absent detail is
+    ordinary, so the placeholder is unwound here rather than persisted —
+    `ranking_signal.detail` stores `''`, and no reader has to know the
+    sentence "No detail was recorded beyond the item text." is a sentinel.
+    """
+    return "" if artifact.body == NO_DETAIL_BODY else artifact.body
+
+
 def _truncate_title(title: str) -> str:
     if len(title) <= _MAX_TITLE_CHARS:
         return title
@@ -829,6 +938,14 @@ def _section_is_target(heading: str, document_kind: str) -> bool:
         # every existing worker test. Strictness lives in the T-id/anchor
         # rules and the stage's zero-topics signal, which is keyed on
         # meeting content, not on section names.
+        return True
+    if document_kind == DOC_RANKING_SIGNALS:
+        # Every heading is a target here for the same reason (story 10.4):
+        # real output drifts ("Concerns", "Things we did not settle"), and a
+        # keyword list would re-create the §8 shape — a document whose rows
+        # plainly carry risks parsing to an honest-looking zero because its
+        # heading used a synonym. Strictness lives in the R/Q prefix rule and
+        # in the required non-empty label, not in the section name.
         return True
     lowered = heading.casefold()
     return any(marker in lowered for marker in _ARCH_TARGET_HEADINGS)
@@ -868,6 +985,8 @@ def _kind_for(prefix: str, document_kind: str) -> str | None:
         return KIND_ACTION_ITEM
     if document_kind == DOC_TOPICS:
         return _TOPIC_PREFIX_KINDS.get(prefix)
+    if document_kind == DOC_RANKING_SIGNALS:
+        return _SIGNAL_PREFIX_KINDS.get(prefix)
     return _ARCH_PREFIX_KINDS.get(prefix)
 
 
@@ -1032,6 +1151,8 @@ def parse_extraction_document(text: str, document_kind: str) -> ParsedDocument:
             )
         if document_kind == DOC_TOPICS:
             title, body = _topic_title_and_body(rest, rest_headers, item_id)
+        elif document_kind == DOC_RANKING_SIGNALS:
+            title, body = _signal_label_and_detail(rest, rest_headers, item_id)
         else:
             title, body = _title_and_body(rest, rest_headers, owner_index)
         if not title:
