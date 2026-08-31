@@ -248,3 +248,38 @@ The review will also account for the required rebase onto `origin/main` before c
 - **Finding:** Story 6.5's test factories return objects whose override type makes `kind` optional, but Story 6.4a's generated `AcquisitionStatus` now requires it. Unit tests transpile, yet the production TypeScript build fails.
 - **Evidence:** The post-rebase foreground `make test` completed the full server gate at 2,858 passed/3 skipped, then `tsc -b` failed both factories with TS2322: `string | undefined` is not assignable to required `string` for `kind`.
 - **Suggested direction:** Keep the factory defaults but omit required discriminator fields from the partial override type, so callers may replace their value but cannot erase them. Re-run the production web build and full gate.
+
+## Disposition and remediation
+
+All 29 findings are closed on `story/6-4a-review`; none requires an unresolved
+owner decision. B-57 (retain a failed upload for retry) and B-58 (reap terminal
+acquisition status files) remain explicit backlog choices, not correctness gaps
+in the frozen Story 6.4a contract.
+
+- F-1–F-17 were fixed in the first red-first remediation pass: multipart
+  completion/ceilings, metadata and timestamp validation, dialect shapes,
+  cleanup and ownership, refusal vocabulary, immutable provenance, nonblocking
+  finalization, identity sensitivity, and detached CLI coverage.
+- F-18–F-28 were fixed in the second red-first pass. The initial focused run
+  was **10 failed, 12 passed, 113 deselected**; two narrower ownership mutations
+  each failed once before the final marker/quarantine design. The repaired
+  upload/acquisition modules pass **137 tests**.
+- F-29 was observed red in the first post-rebase full gate: **2,858 server tests
+  passed, 3 skipped**, then `tsc -b` failed both Story 6.5 acquisition factories
+  because `kind` could become undefined. The fixture correction made the
+  targeted production build and both affected web suites green.
+
+Final verification on the rebased branch:
+
+- `make lint` and `make typecheck` passed.
+- Schema-dump OpenAPI client regeneration was clean; `client.gen.ts` did not
+  change, and current-main operations remained generated.
+- `make test-fast`: 2,445 server passed, 3 named skips, 413 slow deselections;
+  puller 128, web 746, and evals 655 passed.
+- Final foreground `make test`: 2,858 server passed, 3 named skips;
+  diarizer-extra 92, puller 128, web 746, evals 655, test-store health, and the
+  production TypeScript/Vite build all passed.
+
+The branch is rebased onto `origin/main` at `37cc543e`; it is intentionally not
+merged to `main`, because the owner reserved integration to the `integrate`
+step.

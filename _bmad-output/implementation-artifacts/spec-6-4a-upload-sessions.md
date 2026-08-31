@@ -4,7 +4,7 @@ type: 'feature'
 created: '2026-08-31'
 baseline_revision: '2d68dcc6dba31007c7d6fd84f0884edbc79508d5'
 baseline_commit: '311788ba'
-status: 'in-review'
+status: 'done'
 review_loop_iteration: 2
 followup_review_recommended: false
 context:
@@ -313,6 +313,25 @@ parallel wave.
 
 ## Verification
 
+**Final rebased gate (2026-08-31, after F-29):**
+
+- Schema-dump client regeneration from `app.openapi()` produced no diff;
+  `client.gen.ts` remained unchanged and the rebased extraction-documents
+  operation remained present.
+- `make lint` -- all checks passed.
+- `make typecheck` -- success, no issues in 13 source files.
+- `uv run --project server pytest -m "" server/tests/test_api_uploads.py
+  server/tests/test_api_acquisitions.py -q` -- **137 passed**.
+- `make web-test` -- **63 files, 746 tests passed**.
+- `make test-fast` -- **2,445 server tests passed**, 3 named skips and 413
+  slow deselections; puller 128, web 746 and evals 655 passed.
+- The first post-rebase `make test` run proved F-29 red: the server gate passed
+  2,858 tests with 3 named skips, then `tsc -b` failed both acquisition test
+  factories because required `kind` could become undefined.
+- After the fixture correction, the foreground `make test` rerun passed:
+  **2,858 server tests**, 3 named skips, diarizer-extra 92, puller 128, web 746,
+  evals 655, test-store health, and the production TypeScript/Vite build.
+
 **Second-remediation red phase (2026-08-31, production at `b0de6123`):**
 
 - `uv run --project server pytest server/tests/test_api_uploads.py
@@ -393,3 +412,38 @@ collisions.
 - `git diff --stat web/src/client/` shows only additions for the three upload
   operations and their models; no unrelated churn from a different generator
   version.
+
+## Suggested Review Order
+
+**Upload publication and streaming**
+
+- The request entry point sweeps safely, then streams directly into hidden staging.
+  [`api/uploads.py:262`](../../server/meetingminer/api/uploads.py#L262)
+
+- Multipart parsing enforces observed limits and publishes only complete owned sessions.
+  [`uploads.py:1008`](../../server/meetingminer/uploads.py#L1008)
+
+- Sweep distinguishes live creates, claimed sessions, abandoned staging, and quarantines.
+  [`uploads.py:651`](../../server/meetingminer/uploads.py#L651)
+
+**Acquisition identity and atomicity**
+
+- Launch claims the session and composes the detached child under one authority.
+  [`acquisitions.py:876`](../../server/meetingminer/acquisitions.py#L876)
+
+- Terminal completion quarantines bytes before durable status publication.
+  [`acquisitions.py:1066`](../../server/meetingminer/acquisitions.py#L1066)
+
+- The runner preserves mint-drop call order and immutable winning-drop provenance.
+  [`acquisitions.py:1122`](../../server/meetingminer/acquisitions.py#L1122)
+
+**Contract and verification**
+
+- Upload and acquisition failures share complete, kind-correct RFC 9457 responses.
+  [`acquisitions.py:224`](../../server/meetingminer/api/acquisitions.py#L224)
+
+- End-to-end identity covers every supported shape and multi-file evidence.
+  [`test_api_uploads.py:2097`](../../server/tests/test_api_uploads.py#L2097)
+
+- Barrier tests pin launch, deletion, sweep, and terminal-cleanup interleavings.
+  [`test_api_uploads.py:1461`](../../server/tests/test_api_uploads.py#L1461)
