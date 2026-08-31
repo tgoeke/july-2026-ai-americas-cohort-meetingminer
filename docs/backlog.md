@@ -612,6 +612,17 @@ warns against generalizing, so it needs the owner rather than a builder. A
 narrower version — the 409 body carrying the tag list — leaks aggregate data
 into a refusal and is probably worse.
 
+**Owner ruling, 2026-08-31: extend it.** The exception exists so a curator can
+recover a meeting whose rerun failed, and a read that refuses makes that
+recovery impossible from a cold page load — which is the case a curator is
+most likely to arrive in, because the failure happened while they were away.
+Extend story 7.3's recovery exception to `GET /meetings/{id}/speakers`, kept
+route-local and narrow in exactly the way the write's exception is: this one
+read, this one meeting state, no generalization of `_require_viewable` and no
+change to `GET /meetings/{id}/drilldown`. Story 7.3's comment warning against
+generalizing stands — it warns against widening the rule, not against the
+second half of the same recovery path.
+
 ---
 
 ### B-42 · The speakers wire carries no provenance for a resolution — S
