@@ -294,8 +294,19 @@ def playlist_id_from_url(url: str) -> str:
 # --- tools and subprocesses -------------------------------------------------
 
 
+def _require_tool(tool: str, install_name: str) -> None:
+    if shutil.which(tool) is None:
+        raise YoutubeError(
+            f"{tool} is not on PATH — acquiring a YouTube video needs it."
+            f" Install it with 'brew install {install_name}' (checked at run time"
+            " by name; acquisition does not depend on the rest of the"
+            " stack)",
+            rule="tool-missing",
+        )
+
+
 def ensure_tools() -> None:
-    """Refuse by name before any network when a required tool is missing.
+    """Refuse by name before any network when media tools are missing.
 
     ``ffmpeg`` is needed twice: yt-dlp merges the video and audio streams with
     it, and ``mint()``'s video check needs the ffprobe it ships with.
@@ -305,14 +316,12 @@ def ensure_tools() -> None:
         (FFMPEG, FFMPEG),
         (FFPROBE, FFMPEG),
     ):
-        if shutil.which(tool) is None:
-            raise YoutubeError(
-                f"{tool} is not on PATH — acquiring a YouTube video needs it."
-                f" Install it with 'brew install {install_name}' (checked at run time"
-                " by name; acquisition does not depend on the rest of the"
-                " stack)",
-                rule="tool-missing",
-            )
+        _require_tool(tool, install_name)
+
+
+def ensure_playlist_tool() -> None:
+    """Require only the executable used by flat-playlist enumeration."""
+    _require_tool(YT_DLP, YT_DLP)
 
 
 def _run(
@@ -1111,7 +1120,7 @@ def run_playlist(
     sees.
     """
     playlist_id = playlist_id_from_url(url)
-    ensure_tools()
+    ensure_playlist_tool()
     entries = enumerate_playlist(playlist_url(playlist_id))
     total = len(entries)
     noun = "entry" if total == 1 else "entries"

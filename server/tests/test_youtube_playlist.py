@@ -324,7 +324,7 @@ def run_with_stubbed_acquire(
     """
     seen: dict[str, Any] = {"urls": [], "posts": []}
 
-    monkeypatch.setattr(youtube, "ensure_tools", lambda: None)
+    monkeypatch.setattr(youtube, "ensure_playlist_tool", lambda: None)
     monkeypatch.setattr(
         youtube,
         "_run",
@@ -492,7 +492,7 @@ def test_no_post_mints_every_entry_and_posts_none(
 def test_a_playlist_of_only_good_entries_exits_zero(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(youtube, "ensure_tools", lambda: None)
+    monkeypatch.setattr(youtube, "ensure_playlist_tool", lambda: None)
     listing = {
         "_type": "playlist",
         "id": PLAYLIST_ID,
@@ -534,7 +534,11 @@ def test_the_exists_short_circuit_applies_per_entry_with_no_media_download(
             {"_type": "url", "id": FIRST_ID, "title": "Platform Sync — August"}
         ],
     }
-    monkeypatch.setattr(youtube, "ensure_tools", lambda: None)
+    monkeypatch.setattr(
+        youtube.shutil,
+        "which",
+        lambda tool: "/fake/yt-dlp" if tool == youtube.YT_DLP else None,
+    )
     monkeypatch.setattr(youtube, "probe", _must_not_run("probe"))
     monkeypatch.setattr(youtube, "download", _must_not_run("download"))
     monkeypatch.setattr(youtube, "yt_dlp_version", _must_not_run("yt_dlp_version"))
