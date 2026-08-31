@@ -85,3 +85,29 @@ the review handoff. Frozen intent defects will be reported but not patched.
   Add regressions showing missing publication time and missing publisher do
   not prevent the four-field probe response; acquisition remains free to
   refuse them later before minting write-once evidence.
+
+### F4 — A known intake outage is published as the unknown fallback token
+
+- **Location:** `server/meetingminer/acquisitions.py:764-783` and
+  `server/meetingminer/youtube.py:188-196`
+- **Severity:** Medium — Open, owner decision required
+- **Finding:** `IntakeError` is a distinct, expected failure after a finalized
+  drop exists, but `youtube.refusal_rule()` maps it to the catch-all
+  `unclassified` token. The acquisition does provide an excellent failure-
+  specific re-POST remediation, yet the stable machine field cannot distinguish
+  "the intake API did not answer" from any genuinely unknown exception. That
+  weakens the purpose of a stable refusal vocabulary for the future UI.
+- **Evidence:** `refusal_rule()` has explicit branches for `YoutubeError`,
+  `MintError`, and `ConfigError`, then returns `unclassified` for every other
+  type. `run_acquisition()` catches `IntakeError` separately but calls that
+  fallback, and
+  `test_an_intake_failure_is_failed_and_names_the_repost_command` explicitly
+  pins `rule == "unclassified"`. Thus this is shipped behavior, not a missing
+  test. The detail and remediation remain failure-specific, confirming the
+  condition itself is already distinguishable.
+- **Suggested direction:** Owner to authorize a closed-vocabulary extension
+  such as `intake-failed` in `youtube.REFUSAL_RULES`, with literal remediation
+  and status-table entries and the existing intake regression updated. Do not
+  invent a second vocabulary. This review leaves it open because changing the
+  pre-existing refusal set/function exceeds the lane's allowed `youtube.py`
+  addition and needs an explicit footprint ruling.
