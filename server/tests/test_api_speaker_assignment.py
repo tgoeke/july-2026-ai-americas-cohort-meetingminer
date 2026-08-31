@@ -643,6 +643,18 @@ class TestRerun:
             meeting_id,
         )
 
+    @staticmethod
+    def _segment_structure(
+        pool: ConnectionPool, meeting_id: UUID
+    ) -> list[tuple[Any, ...]]:
+        """The transcript fields a speaker assignment has no authority to move."""
+        return _rows(
+            pool,
+            "SELECT ordinal, start_ms, end_ms, text, speaker_label"
+            " FROM transcript_segment WHERE meeting_id = %s ORDER BY ordinal",
+            meeting_id,
+        )
+
     def test_a_rename_breaks_no_moment_id_citation_or_published_artifact(
         self, client, test_pool, app_config, content_root, make_drop
     ) -> None:
@@ -658,6 +670,7 @@ class TestRerun:
         )
         moments_before = self._moments(test_pool, meeting_id)
         assert len(moments_before) >= 3, "need distinct moments to protect"
+        segment_structure_before = self._segment_structure(test_pool, meeting_id)
 
         # The human record this meeting already carries: one approved
         # artifact with a sibling draft, one published artifact, and one
@@ -701,6 +714,13 @@ class TestRerun:
 
         # 1. Every pre-existing moment id still resolves, unmoved and unrekeyed.
         assert self._moments(test_pool, meeting_id) == moments_before
+        # The assignment changes attribution only. Reordering or rewriting the
+        # immutable transcript could leave moment ids intact while reversing
+        # drilldown/chat output, both of which consume ``ordinal`` order.
+        assert (
+            self._segment_structure(test_pool, meeting_id)
+            == segment_structure_before
+        )
 
         # 2. The approved and published rows are exactly as the human left
         #    them, and so is the draft sitting beside the approved one.
