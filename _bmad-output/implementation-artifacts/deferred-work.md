@@ -336,3 +336,9 @@ also edits the pinned sets in `server/tests/test_lint_contract.py`.
   summary: DEFERRED — transcript-only identity can ignore corrected speaker attribution. Do not amend the identity contract and do not change code unless the observed trigger occurs.
   evidence: Exact reproduction: the two exports `Alice: identical words` and `Bob: identical words` produce the identical `sha256:d53bde...` identity. `transcript.vtt` sorts before `transcript.txt` in `_digest_supplied(classify_supplied(...))`, so the speaker-less artifact determines the identity; `_evidence_not_in()` cannot warn because the existing drop already carries the canonical filename. Preserve both candidate fixes for a future decision: derive identity from the operator's original supplied file, or derive a deterministic digest over both converted artifacts.
   revisit_trigger: An operator re-mints a corrected Zoom export and the system reports `exists` while keeping the old attribution.
+
+## Deferred from: Story 12.2 review (2026-08-31)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-12-2-the-meeting-summary.md`
+  summary: `make evals-test` can wait on and fail behind the live corpus projection lock despite being advertised as store-free and concurrently safe.
+  evidence: During the 12.2 review's post-rebase `make test-fast`, `test_a_clean_cleanup_verifies_every_target` waited 300 seconds on `meetingminer-projections-262fe3fa5a97e4f3.lock` behind the main checkout's live `rebuild --all`, then failed with the named projection-lock timeout; all of the test's store/database collaborators were fake. Keep the production cleanup lock, but isolate ordinary cleanup unit tests from live endpoint-derived locks and retain one dedicated lock-domain assertion.
