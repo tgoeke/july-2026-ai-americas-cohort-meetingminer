@@ -1640,6 +1640,29 @@ def test_artifact_rank_survives_postgres_readback(
     ]
 
 
+def test_a_stale_summary_index_hit_is_dropped_as_non_citable(
+    pool: ConnectionPool,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A NULL-scoped artifact can never enter moment-keyed chat context."""
+    import meetingminer.api.chat as chat_module
+
+    with pool.connection() as conn:
+        seeded = seed_meeting(conn, source_id="chat-stale-summary")
+        summary_id = seed_artifact(
+            conn,
+            None,  # type: ignore[arg-type] -- migration 0022's meeting scope
+            seeded.meeting_id,
+            kind="summary",
+            title="Executive summary",
+            body="Whole-meeting analysis with no replayable anchor.",
+        )
+
+    capsys.readouterr()
+    assert chat_module._read_artifact_context(pool, (summary_id,)) == {}
+    assert "chat.stale_artifact_hit" in capsys.readouterr().out
+
+
 def test_route_search_hits_does_not_double_count_a_shared_source_moment(
     pool: ConnectionPool,
     app_config: AppConfig,

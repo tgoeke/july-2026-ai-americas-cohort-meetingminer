@@ -15,7 +15,9 @@ from typing import Any
 import pytest
 
 from evals.harness.corpus import (
+    ARTIFACT_COLUMNS,
     MOMENT_COLUMNS,
+    ArtifactRow,
     Corpus,
     CorpusQueryError,
     MomentRow,
@@ -24,6 +26,7 @@ from evals.harness.corpus import (
 
 MEETING = "11111111-1111-7111-8111-111111111111"
 MOMENT = "aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa"
+ARTIFACT = "bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb"
 
 
 class FakeConnection:
@@ -76,8 +79,35 @@ def test_a_drifted_moment_row_is_a_named_error() -> None:
 
 
 # --------------------------------------------------------------------------
-# moments_for / stage_status — result shapes over the fake connection
+# artifacts_for / moments_for / stage_status — shapes over the fake connection
 # --------------------------------------------------------------------------
+
+
+def test_artifacts_for_reads_only_rows_with_replayable_moment_evidence() -> None:
+    reader, connection = corpus_over(
+        [(ARTIFACT, MOMENT, "adr", "published", "Keep the anchor", "Because.")]
+    )
+
+    assert reader.artifacts_for(MEETING) == (
+        ArtifactRow(
+            id=ARTIFACT,
+            moment_id=MOMENT,
+            kind="adr",
+            state="published",
+            title="Keep the anchor",
+            body="Because.",
+        ),
+    )
+    sql, params = connection.queries[0]
+    assert "moment_id IS NOT NULL" in sql
+    assert params == (MEETING,)
+
+
+def test_a_drifted_artifact_row_is_a_named_error() -> None:
+    reader, _ = corpus_over([(ARTIFACT, MOMENT)])
+    with pytest.raises(CorpusQueryError) as caught:
+        reader.artifacts_for(MEETING)
+    assert ", ".join(ARTIFACT_COLUMNS) in str(caught.value)
 
 
 def test_moments_for_returns_the_rows_as_moment_records() -> None:

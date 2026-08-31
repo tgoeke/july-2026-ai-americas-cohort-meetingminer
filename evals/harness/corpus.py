@@ -40,7 +40,7 @@ ARTIFACT_COLUMNS = ("id", "moment_id", "kind", "state", "title", "body")
 _ARTIFACTS = (
     "SELECT id, moment_id, kind, state, title, body"
     " FROM artifact"
-    " WHERE meeting_id = %s::uuid"
+    " WHERE meeting_id = %s::uuid AND moment_id IS NOT NULL"
     " ORDER BY created_at, id"
 )
 
@@ -141,10 +141,11 @@ class ArtifactRow:
     """One ``artifact`` row — the judge's extraction-item unit (story 5.4).
 
     ``moment_id`` is what :meth:`Corpus.segments_for_moment` reads with to
-    build the faithfulness haystack; the FK from ``artifact`` to ``moment``
-    (0009_artifacts.sql) is exactly why ``citation_present`` is mechanically
-    true for an extraction item rather than judged — the row cannot exist
-    without a moment.
+    build the faithfulness haystack. The corpus query selects only rows whose
+    nullable scope anchor is present, so 0009's composite FK makes
+    ``citation_present`` mechanically true for every extraction item the
+    citation/evidence judge receives. Meeting-scoped artifacts have no such
+    haystack and are excluded by nullability, never by a kind list.
     """
 
     id: str
@@ -341,12 +342,14 @@ class Corpus:
         return rows[0][0] if rows else None
 
     def artifacts_for(self, meeting_id: str) -> tuple[ArtifactRow, ...]:
-        """Every ``artifact`` row for one meeting, insertion-ordered.
+        """Every moment-anchored ``artifact`` row, insertion-ordered.
 
         Read-only, direct from Postgres (AD-16 permits this; story 4.3's route
         that would add an API path is still backlog). One row per extraction
         proposal, regardless of ``state`` — the judge scores what was extracted,
-        not only what is approved or published.
+        not only what is approved or published. Meeting-scoped rows carry no
+        replayable transcript target and therefore do not enter this
+        citation/evidence corpus.
         """
         return tuple(
             artifact_from_row(row) for row in self._rows(_ARTIFACTS, meeting_id)

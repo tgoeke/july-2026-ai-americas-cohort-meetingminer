@@ -203,7 +203,7 @@ _RESOLVE_PARTICIPANT = (
 _ARTIFACT_CONTEXT = (
     "SELECT a.id, a.moment_id, a.kind, a.title, a.body"
     " FROM artifact a"
-    " WHERE a.id = ANY(%s) AND a.state = %s"
+    " WHERE a.id = ANY(%s) AND a.state = %s AND a.moment_id IS NOT NULL"
 )
 
 _RESOLVE_PARTICIPANT_BY_ID = (
