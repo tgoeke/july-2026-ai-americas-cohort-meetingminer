@@ -2,7 +2,7 @@
 title: 'Story 8.1: AD-10 Amendment and Binding Catalog'
 type: 'feature'
 created: '2026-08-30'
-status: 'in-progress'
+status: 'in-review'
 baseline_commit: '1f64b32dc2467badf93dd6acdea6e70f61bfb7a8'
 review_loop_iteration: 1
 followup_review_recommended: true
@@ -131,6 +131,7 @@ into AD-10 and the repository's binding policy line. Runtime routing behavior is
 | Known bare authored entry | entry binding `claude-sonnet-5` | Provider derives as `anthropic`, exactly as runtime routing does, then is checked against `providers:` | Refused by the undeclared-provider rule only if `anthropic` is not declared |
 | Ambiguous bare authored entry | entry binding `some-model` | Refused; the loader never guesses or accepts a parallel provider label | `ConfigError` naming the role, binding, and ambiguous routing |
 | Authored provider field | entry `{binding: gpt-4o, provider: ollama}` | Refused; `provider` is derived output, not YAML input | `ConfigError` naming `provider` as forbidden extra input |
+| Spaced known bare model | legacy `model: "  gpt-4o  "` | Active model and synthesized binding both normalize to `gpt-4o`; provider/runtime endpoint resolve as OpenAI | No error expected |
 | Authored empty catalog | `catalog: []` | Refused — `default` (or `model`) cannot be in an empty catalog | Falls out of the default-in-catalog rule; no separate rule invented |
 
 </intent-contract>
@@ -210,6 +211,8 @@ into AD-10 and the repository's binding policy line. Runtime routing behavior is
 - Given a known bare OpenAI or Anthropic spelling, when config and runtime resolve it, then
   both derive the same provider; given an ambiguous bare spelling or an authored `provider`
   field, load refuses by name rather than guessing or trusting a parallel label.
+- Given outer whitespace around a known model spelling, when a legacy role loads, then the
+  active model and synthesized catalog binding normalize identically before runtime routing.
 - Given the amendment, when it lands, then AD-10 carries the catalog wording and
   `project-context.md`'s binding policy line matches it.
 
@@ -235,6 +238,12 @@ into AD-10 and the repository's binding policy line. Runtime routing behavior is
 - [x] [Review][Defer] Finding 8 — Current main's fast/full server runs skip the
   optional main-venv pyannote import and opt-in real YouTube network case;
   the isolated diarize gate passes [`server/tests/test_diarize_pyannote.py:266`].
+- [x] [Review][Patch] Finding 10 — Normalize the active model and synthesized
+  catalog binding identically so the shared provider rule receives one spelling.
+- [x] [Review][Verification] Finding 11 — Pin status provider identity beside
+  config and runtime for recognized bare OpenAI and Anthropic spellings.
+- [x] [Review][Patch] Finding 12 — Give synthetic eval bake-off bindings an
+  explicit `test/` prefix under the ambiguity-refusal contract.
 
 ## Spec Change Log
 
@@ -263,6 +272,15 @@ change belongs to call-time adapter/fallback behavior, but this story's frozen
 boundary says it changes no call path and marks `litellm.py` read-only. Per the
 owner's scope ruling it is therefore filed as backlog B-38 rather than
 stretched into Story 8.1.
+
+**2026-08-30 — Follow-up review: active and displayed spellings must be
+identical.** The owner-mandated shared resolver still received different input
+for a legacy model with outer whitespace: catalog synthesis stripped the value,
+while the active `model: str` retained it for runtime. A red regression proved
+`"  gpt-4o  "` displayed OpenAI metadata but resolved no configured runtime
+endpoint. `LlmRoleBinding.model` now uses `NonEmptyText`, so active model,
+catalog binding, provider metadata, and runtime routing consume the identical
+normalized spelling.
 
 **2026-08-30 — `make test` caught a back-compat break the fast set could not.**
 The first implementation derived a provider for the *synthesized* one-entry
@@ -406,7 +424,7 @@ until persisted selection lands.
   ambiguity refusal, catalog/default validation, and the catalog×providers cross-check.
 - `server/meetingminer/adapters/llm/litellm.py` and
   `server/meetingminer/api/status.py` — runtime and display consume the shared rule.
-- `server/tests/test_config_catalog.py` — NEW; 17 collected cases covering every
+- `server/tests/test_config_catalog.py` — NEW; 18 collected cases covering every
   I/O-matrix row, the committed file, and the back-compat and active-model
   review regressions.
 - `server/tests/test_failfast.py` — fixture only; drops the authored catalogs
@@ -445,3 +463,49 @@ finding was patched.
 - The `_bmad-output` process files (`sprint-notes.md` and two other lanes'
   records) conflict as they already do against `main` itself; integrate absorbs
   them.
+
+## Suggested Review Order
+
+**Single provider identity**
+
+- Start with the one dependency-neutral spelling rule every consumer shares.
+  [`model_providers.py:18`](../../server/meetingminer/domain/model_providers.py#L18)
+
+- Catalog provider metadata is computed, while ambiguous and authored labels refuse.
+  [`config.py:219`](../../server/meetingminer/config.py#L219)
+
+- Runtime endpoint resolution consumes the shared provider result unchanged.
+  [`litellm.py:51`](../../server/meetingminer/adapters/llm/litellm.py#L51)
+
+- Status exposes the exact same function rather than restating its logic.
+  [`status.py:134`](../../server/meetingminer/api/status.py#L134)
+
+**Load-time boundaries**
+
+- Active model normalization keeps displayed and called spellings identical.
+  [`config.py:268`](../../server/meetingminer/config.py#L268)
+
+- Derived providers remain checked against the file's declared endpoint map.
+  [`config.py:940`](../../server/meetingminer/config.py#L940)
+
+**Owner-directed follow-through**
+
+- AD-10 records derived identity and named ambiguity refusal.
+  [`architecture.md:119`](../../docs/architecture.md#L119)
+
+- Call-time missing-model behavior is precisely deferred outside Story 8.1.
+  [`backlog.md:156`](../../docs/backlog.md#L156)
+
+**Regression evidence**
+
+- The misleading authored provider is impossible to express.
+  [`test_config_catalog.py:116`](../../server/tests/test_config_catalog.py#L116)
+
+- Bare OpenAI and Anthropic agree across config, runtime, and status.
+  [`test_config_catalog.py:155`](../../server/tests/test_config_catalog.py#L155)
+
+- Legacy whitespace cannot split displayed identity from the active call.
+  [`test_config_catalog.py:187`](../../server/tests/test_config_catalog.py#L187)
+
+- The shipped catalog documents local Ollama bindings without provider duplication.
+  [`config.yaml:38`](../../config.yaml#L38)

@@ -94,27 +94,27 @@ Adversarial review of Story 8.1 on `story/8-1-review`, including the eight chang
 - **Evidence:** Before the fix, `_catalog_from_model` computed `tag = model.strip()` for `CatalogEntry` while the validated `model: str` field retained whitespace. The red regression failed with `'  gpt-4o  ' != 'gpt-4o'`. `LlmRoleBinding.model` now uses `NonEmptyText`; the stored model, synthesized binding, derived provider, and `resolve_api_base` endpoint all agree.
 - **Suggested direction:** Implemented in commit `af1672b`; the focused regression and full catalog/config set pass.
 
-### Finding 11 — Known-bare agreement is not observed at the status consumer (patch — verification gap)
+### Finding 11 — Known-bare agreement is not observed at the status consumer (closed — verification patch)
 
 - **Location:** `server/meetingminer/api/status.py:128-134`; `server/tests/test_config_catalog.py:150-167`; `server/tests/test_api_status.py`
 - **Severity:** Medium
 - **Finding:** The owner contract requires config, runtime, and displayed status to use one provider rule. The regression asserts config metadata against `resolve_api_base`, but no normal test observes the status consumer for bare OpenAI/Anthropic spellings.
-- **Evidence:** Repository-wide symbol tracing shows `status.provider_of` aliases `provider_for_model`, and `/config` imports that alias, so adoption is correct today. `test_known_bare_catalog_provider_matches_runtime_routing` checks catalog and adapter only; searches for `gpt-4o` and `claude-sonnet-5` in `test_api_status.py` return no cases. Replacing the status alias with a divergent bare-name rule could therefore leave the owner regression green.
-- **Suggested direction:** Extend the existing known-bare parametrized regression to assert `status.provider_of(model) == provider`, pinning config, runtime, and display in one case matrix.
+- **Evidence:** Repository-wide symbol tracing showed `status.provider_of` aliases `provider_for_model`, and `/config` imports that alias, so adoption was correct but unobserved. The known-bare parametrized regression now checks `status.provider_of(model) == provider` beside catalog metadata and `resolve_api_base`; both OpenAI and Anthropic cases pass.
+- **Suggested direction:** Implemented in commit `cc97e96`; config, runtime, and displayed status are pinned in one case matrix.
 
-### Finding 12 — Eval bake-off fixtures use newly ambiguous bare bindings (patch)
+### Finding 12 — Eval bake-off fixtures use newly ambiguous bare bindings (closed — patch)
 
 - **Location:** `evals/tests/test_bakeoff.py:459,524`
 - **Severity:** Medium
 - **Finding:** Two store-free eval tests construct `LlmRoleBinding` with fake bare model names whose provider cannot be determined under the owner-amended contract, so `make test-fast` fails before exercising the behavior those tests target.
-- **Evidence:** The first foreground `make test-fast` run passed lint, typecheck, puller, and web, then failed `test_run_bakeoff_excludes_a_candidate_that_fails_after_its_probe` on `model="x"` and `test_run_bakeoff_breaks_an_agreement_tie_by_consistency_end_to_end` on `model="flaky-model"`; both raise the new named ambiguous-routing validation error. The remaining eval suite reported 641 passed.
-- **Suggested direction:** Give the synthetic bindings an explicit `test/` provider prefix so the fixtures remain unmistakably fake and unambiguous without changing the bake-off behavior under test. Rerun the eval suite, then restart `make test-fast` from the beginning.
+- **Evidence:** The first foreground `make test-fast` run passed lint, typecheck, puller, and web, then failed on `model="x"` and `model="flaky-model"`; both raised the new named ambiguous-routing validation error, and the remaining eval suite reported 641 passed. All three affected synthetic bindings now use explicit `test/` prefixes, the eval suite passes 643, and the restarted fast gate passes.
+- **Suggested direction:** Implemented in commit `90c4c85`; fake provider prefixes preserve the bake-off behavior without weakening production validation.
 
 ## Review-layer and triage summary
 
 All four configured layers ran locally and sequentially: Blind Hunter, Edge
 Case Hunter, Verification Gap Reviewer, and Acceptance Auditor. The original
-eight findings plus owner follow-ups 9 and 10 are now triaged: eight patch
+eight findings plus owner/remediation follow-ups 9–12 are now triaged: ten patch
 findings are fixed, one low-severity current-main/environment
 qualification is deferred, and the out-of-scope call-time defect is filed as
 B-38. No review layer failed.
@@ -124,7 +124,7 @@ The original deferred inventory was reassessed rather than duplicated:
 - The stale chat comment and active-model boundary were wrongly deferred; they
   became Findings 3 and 2 and are fixed.
 - Provider-rule drift was more serious than recorded; the concrete bare-tag
-  mismatch became open Finding 4.
+  mismatch became Finding 4 and is fixed under the owner's ruling.
 - The live `fallback` exemption remains a medium owner/Story 8.2 boundary.
 - API visibility remains correctly owned by Story 8.2.
 - Resolved-config dump round-tripping remains a low, currently unconsumed gap.
@@ -156,26 +156,34 @@ The original deferred inventory was reassessed rather than duplicated:
 - Finding 10: a spaced legacy model regression failed because catalog synthesis
   normalized `gpt-4o` while the active model retained whitespace; it passed
   after `model` adopted `NonEmptyText`, and the catalog/config set passed 139.
+- Finding 11: repository tracing found status correctly adopted the shared
+  resolver but no test observed known bare spellings there; the OpenAI and
+  Anthropic matrix now asserts status beside config and runtime.
+- Finding 12: the first fast gate failed two eval fixtures using ambiguous fake
+  bare bindings (641 other eval tests passed); explicit `test/` prefixes made
+  the eval suite 643/643 and the restarted fast gate green.
 
 ## Final verification
 
-All final gates ran after rebasing onto `origin/main` at `f92cb9c`:
+The complete gate below passed on rebased base `7a1076d1`; `origin/main` then
+advanced to `fceab409`, so it is evidence but not yet the final landing-base
+gate. The review will rebase and rerun before closeout.
 
 - `uv sync --project server` — clean.
 - `make lint` — clean.
 - `make typecheck` — no issues in 13 source files.
 - `make test-fast` — puller 128 passed; web 294 passed; evals 643 passed;
-  server 1,893 passed, 2 skipped, 378 deselected. Both skips are Finding 8.
+  server 1,898 passed, 2 skipped, 378 deselected. Both skips are Finding 8.
 - `make test` — puller 128 passed; web 294 passed; evals 643 passed; isolated
-  diarize-extra gate 92 passed; test-store reachability 1 passed; server 2,271
+  diarize-extra gate 92 passed; test-store reachability 1 passed; server 2,276
   passed and the same 2 tests skipped; production web build clean.
-- Targeted pre-rebase remediation suites also passed: config/catalog 134 and
-  fail-fast 12. The final fast and full gates reran those modules after rebase.
+- Targeted remediation suites also passed: config/catalog 139, fail-fast 12,
+  catalog/adapter/status 136, and evals 643.
 
 ## Verdict
 
-**Pending final gates.** Finding 4 is closed under the owner's frozen-spec
-amendment. Finding 9 is verified but intentionally outside Story 8.1's
-no-call-path boundary and is filed as B-38. The final verdict will be recorded
-after lint, typecheck, fast/full tests, and `make check-reviews`. This review
-does not merge or commit to `main`.
+**Pending final rebase gate.** Every in-scope finding is fixed. Finding 9 is
+verified but intentionally outside Story 8.1's no-call-path boundary and is
+filed as B-38. Because `origin/main` moved during the full gate, the final
+verdict waits for rebase, rerun, and `make check-reviews`. This review does not
+merge or commit to `main`.

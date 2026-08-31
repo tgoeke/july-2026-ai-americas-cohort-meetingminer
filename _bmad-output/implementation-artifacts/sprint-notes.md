@@ -3266,12 +3266,19 @@ current adapter instead drops endpoint identity into generic `LlmError`, which
 and marks the adapter read-only, that verified call-time defect is filed as
 B-38 rather than widened into this config-contract story.
 
+The owner-remediation fast gate found two bake-off tests whose fake `x` and
+`flaky-model` bindings became correctly ambiguous under the new loader rule.
+Those fixtures now use an explicit `test/` prefix (including the stable peer),
+the eval suite passes 643, and the restarted fast gate passes. A local review
+also normalized outer whitespace on the active `model` and pinned status as the
+third consumer of the shared provider rule.
+
 The committed `config.yaml` gains a two-entry catalog per role (extraction:
 the two local Ollama bindings it already names; chat and judge: `openai/gpt-5.2`
 beside the free local `ollama/gpt-oss:120b`), with each `default` equal to the
 `model` that role already used, so which model runs is unchanged.
 
-Coverage is a new module, `server/tests/test_config_catalog.py` — 17 collected cases
+Coverage is a new module, `server/tests/test_config_catalog.py` — 18 collected cases
 covering the spec's I/O matrix, the committed file, and review regressions;
 each behavior-changing test was observed failing against the unfixed loader
 first. `test_config.py` was not touched (11-2 appends there).
