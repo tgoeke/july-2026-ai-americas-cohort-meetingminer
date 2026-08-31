@@ -211,6 +211,31 @@ sample ran 1–91 minutes, median ~42.
   one- or two-presenter webinars. Prefer the committee meetings when the demo
   needs participants.
 
+`https://www.youtube.com/channel/UCT9EK-ykJu6796jqDPHRNdg` — Waipā District
+Council (NZ). A second jurisdiction, and a second recurring committee:
+
+- `53yPfrqbpkE` — Finance & Corporate Committee, Zoom meeting, **104 min**,
+  auto-captions.
+- *Finance and Corporate Committee Meeting – 10 December 2025*, **111 min** —
+  the same committee again, so pairing the two gives cross-meeting thread
+  continuity for this council as well.
+- Being Zoom recordings, these carry screen-shared reports and documents, which
+  exercises the capture path more than a podium-and-slides recording does.
+
+**Two cautions if this channel is ever ingested wholesale rather than
+hand-picked:**
+
+1. **One item exceeds the 180-minute cap** — *Plan Change 14 – Hearing,
+   6 March 2025* at **384 minutes**. Story 6.2 will refuse it by name and
+   story 6.2a's per-entry survival keeps the rest of the run going, so this
+   is correct behaviour rather than a failure — but expect it in the outcome
+   table rather than being surprised by it. *Private Plan Change 33* at 172
+   min sits just under the cap.
+2. **Most of the channel is short comms clips** (0–4 min: explainers, drone
+   footage, rates videos). Bulk-ingesting would fill the corpus with material
+   that has no meeting structure to extract. Prefer a hand-picked list over
+   `--playlist` here.
+
 ### Set B — recorded software demonstrations, for capture and citation
 
 Seven vendor demos and tutorials, all confirmed available with captions:
