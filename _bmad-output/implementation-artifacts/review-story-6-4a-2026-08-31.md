@@ -240,3 +240,11 @@ The review will also account for the required rebase onto `origin/main` before c
 - **Finding:** After the required rebase, the backlog correctly assigns Story 6.4a B-57/B-58, but the spec still claims B-55/B-56 and warns that B-56 remains unresolved. The report's original suggested direction is likewise stale.
 - **Evidence:** Current main owns B-55/B-56 for Story 12.1; `docs/backlog.md` contains the upload entries at B-57/B-58 with no duplicate headings.
 - **Suggested direction:** Update only Story 6.4a's spec/report references to B-57/B-58 and record that the integration collision is resolved.
+
+### F-29 — Rebased acquisition test factories violate the required `kind` contract
+
+- **Location:** `web/src/features/acquisitions/acquisitions.test.ts:26` and `web/src/features/acquisitions/AddMeeting.test.tsx:78`
+- **Severity:** Medium
+- **Finding:** Story 6.5's test factories return objects whose override type makes `kind` optional, but Story 6.4a's generated `AcquisitionStatus` now requires it. Unit tests transpile, yet the production TypeScript build fails.
+- **Evidence:** The post-rebase foreground `make test` completed the full server gate at 2,858 passed/3 skipped, then `tsc -b` failed both factories with TS2322: `string | undefined` is not assignable to required `string` for `kind`.
+- **Suggested direction:** Keep the factory defaults but omit required discriminator fields from the partial override type, so callers may replace their value but cannot erase them. Re-run the production web build and full gate.
