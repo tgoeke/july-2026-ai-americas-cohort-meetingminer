@@ -3,14 +3,14 @@
 - Date: 2026-08-30
 - Review branch: `story/7-3-review`
 - Branch under review: `origin/story/7-3`
-- Review status: complete — changes requested; owner decisions remain open
+- Review status: complete — pass after owner remediation
 
 ## Scope
 
 Adversarial review of the complete Story 7.3 implementation, its tests,
-generated client changes, and closing documentation. Frozen intent-contract
-defects will be reported as open and will not be patched. Patchable defects
-will be recorded here before red-first remediation on the review branch.
+generated client changes, and closing documentation. The owner subsequently
+ruled on the two frozen-contract findings; this report records their red-first
+implementation and the independent follow-up review of that remediation.
 
 ## Review range
 
@@ -24,21 +24,26 @@ The expected `sprint-notes.md` conflict was resolved by retaining both main's
 newer B-36 notes and Story 7.3's closing note. No implementation conflict was
 encountered.
 
+Owner remediation was rebased again onto `origin/main` at `c678837`, including
+Story 10.2 and migration 0015. The same historical `sprint-notes.md` conflict
+was resolved by retaining both stories; no implementation conflict occurred.
+
 ## Verdict
 
-Story 7.3 does **not** pass review as done yet. Four patch findings were fixed
-and verified on `story/7-3-review`; two medium frozen-spec findings remain open
-for the owner. The story and sprint status are therefore `in-progress`, not
-`done`. Nothing was merged to `main`.
+Story 7.3 **passes review**. The four patch findings were fixed red-first; the
+owner amended F-6's incorrect frozen row and selected F-4's PUT-only recovery
+contract, which was also implemented red-first. A three-layer follow-up review
+added queued-state and all-choice recovery coverage plus typed, documented
+response state. Nothing was merged to `main`.
 
 | Finding | Triage | Result |
 | --- | --- | --- |
 | F-1 | patch | Fixed in `9d2806d` |
 | F-2 | patch | Fixed in `5f40110` |
 | F-3 | patch | Fixed in `108c749` |
-| F-4 | decision needed | Open — frozen retry contract |
+| F-4 | owner decision | Fixed in `0e40546`; hardened in `d3115c0` |
 | F-5 | patch | Fixed in `08f3ad9` |
-| F-6 | decision needed | Open — frozen key-space row |
+| F-6 | owner decision | Spec amended in `0e40546`; implementation retained |
 
 ## Findings
 
@@ -116,13 +121,13 @@ for the owner. The story and sprint status are therefore `in-progress`, not
   OpenAPI/client behavior with the slash regression test.
 - Result: Fixed red-first and verified in `108c749`.
 
-### F-4 — A failed speaker rerun has no curator-level retry path — OPEN (frozen spec)
+### F-4 — A failed speaker rerun has no curator-level retry path — RESOLVED
 
 - Location: `_bmad-output/implementation-artifacts/spec-7-3-speaker-assignment.md`
   (`<intent-contract>`, “Evidence not settled” row);
   `server/meetingminer/api/moments.py:451-480`;
   `server/meetingminer/api/ingests.py:890-925`
-- Severity: Medium — Open; owner/spec decision required
+- Severity: Medium — resolved by owner decision dated 2026-08-30
 - Finding: An accepted assignment persists its alias before the worker runs.
   If `align` or `moments` then fails, the failed evidence stage makes
   `_require_viewable` reject every meeting read and every later speaker PUT.
@@ -147,6 +152,13 @@ for the owner. The story and sprint status are therefore `in-progress`, not
   assignment's restricted stage scope. Story 7.4 then needs to expose that
   choice beside the failed-stage state. Do not silently relax the current
   evidence gate in this review lane.
+- Result: The owner selected the same-PUT recovery contract. The route now
+  accepts a known, non-running meeting with unsettled evidence, exposes
+  `acceptedWhileUnviewable` and `previousJobStatus`, and re-arms the assignment
+  stages. Unknown meetings remain 404, running jobs remain busy, and the shared
+  viewability gate is unchanged for every other read/write. Verified red-first
+  for failed and queued reruns, all three assignment choices, and the boundary
+  endpoints in `0e40546`/`d3115c0`.
 
 ### F-5 — The citation test did not detect assignment-only segment reordering
 
@@ -174,11 +186,11 @@ for the owner. The story and sprint status are therefore `in-progress`, not
   require that new assertion to fail before accepting the test change.
 - Result: Fixed by a mutation-proved regression assertion in `08f3ad9`.
 
-### F-6 — The frozen new-name matrix row should be amended — OPEN (frozen spec)
+### F-6 — The frozen new-name matrix row should be amended — RESOLVED
 
 - Location: `_bmad-output/implementation-artifacts/spec-7-3-speaker-assignment.md`
   (`<intent-contract>`, “Assign a new display name” row)
-- Severity: Medium — Open; owner/spec amendment required
+- Severity: Medium — resolved by owner decision dated 2026-08-30
 - Finding: The row still requires the minted participant's `identity_key` to
   equal the speaker alias key. That is not merely stale implementation detail;
   it specifies the known unmergeable design. `participants.py` determines that
@@ -199,25 +211,26 @@ for the owner. The story and sprint status are therefore `in-progress`, not
   separately keyed as `speaker:<meetingId>:<tag>`, and retain the current
   non-name-shaped `normalized_name`. Do not alter the implementation to match
   the obsolete row.
+- Result: The owner amended the frozen matrix to require the separate
+  `curated:<meetingId>:<tag>` identity space and recorded the self-merge reason
+  in the spec Change Log. The already-correct implementation and merge
+  regression were retained unchanged in `0e40546`.
 
 ## Verification
 
 - `uv run --project server pytest -m "" server/tests/test_api_speaker_assignment.py -q`
-  — 30 passed after remediation.
+  — 34 passed after owner remediation and follow-up review hardening.
 - `uv run --project server pytest server/tests/test_api_speakers.py
   server/tests/test_api_registry.py server/tests/test_api_participants.py -q`
   — 44 passed.
 - `uv run --project server pytest -m "" server/tests/test_augmentation.py
   server/tests/test_worker_transcripts.py -q` — 39 passed.
-- `make test-fast` — lint and mypy green; puller 128 passed; web 294 passed;
-  evals 643 passed; server 2,031 passed, 3 named skips, 384 deselected.
 - `make test` — puller 128 passed; web 294 passed; evals 643 passed;
   diarization/STT extra 92 passed; test-store reachability passed; full server
-  2,415 passed with 3 named environment/network skips; production web build
-  succeeded.
-- `make check-client` — passed; the `{tag:path}` runtime converter preserves
-  the existing `/meetings/{meeting_id}/speakers/{tag}` OpenAPI path, so no
-  generated-client delta was required.
+  2,510 passed with 3 named environment/network skips; production web build
+  succeeded. This foreground gate ran after the final follow-up review patch.
+- Client generation used this branch's in-process `app.openapi()` schema; the
+  additive response fields and closed previous-status union are committed.
 - `python3 _bmad/scripts/branch_conflicts.py --against story/7-3` — reported
   only expected overlaps: review fixes against their source Story 7.3 files,
   the known `sprint-notes.md` conflict, and Story 8.2's three generated-client
@@ -245,6 +258,7 @@ Mutation checks:
 ## Closeout
 
 - Review branch: `story/7-3-review` (pushed after every coherent unit).
-- Story/spec status: `in-progress`; follow-up review recommended.
-- Main integration: not performed, per the review-lane instruction and because
-  F-4 and F-6 remain open.
+- Spec status: `done`; sprint status: `review`; follow-up review not recommended.
+- Verdict: **Pass** — all six findings are resolved and both owner rulings are
+  recorded in the frozen spec's Change Log.
+- Main integration: not performed, per the owner's instruction.
