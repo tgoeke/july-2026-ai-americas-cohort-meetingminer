@@ -4,6 +4,7 @@ import {
   fitView,
   panByPixels,
   panByWindow,
+  TIMELINE_GUTTER_PX,
   zoomAbout,
   ZOOM_EASE_MS,
   type Span,
@@ -150,7 +151,7 @@ export function useTimelineView(initial: View, epochMs: number): TimelineViewApi
       if (node === null) return
       paint(drawnRef.current)
       const measure = () => {
-        const measured = node.clientWidth
+        const measured = node.clientWidth - TIMELINE_GUTTER_PX
         setWidth(measured > 0 ? measured : FALLBACK_WIDTH)
       }
       measure()

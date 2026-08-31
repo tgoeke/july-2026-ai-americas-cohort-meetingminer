@@ -7,8 +7,12 @@ import {
   densityAlpha,
   isoDay,
   KEY_ZOOM_STEP,
+  MOMENT_CELL_WIDTH_PX,
   offsetLabel,
   TIER_MAX_SCALE,
+  TIMELINE_GUTTER_PX,
+  TIMELINE_ROW_GAP_PX,
+  TIMELINE_ROW_HEADER_PX,
   visibleSpan,
   WHEEL_ZOOM_STEP,
   xOf,
@@ -123,9 +127,12 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   } = props
 
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  const gridRef = useRef<HTMLDivElement | null>(null)
+  const dragRef = useRef<{ pointerId: number; x: number } | null>(null)
   const cellRefs = useRef(new Map<string, HTMLElement>())
   const [focusedCellId, setFocusedCellId] = useState<string | null>(null)
   const [announcement, setAnnouncement] = useState('')
+  const [activeCell, setActiveCell] = useState<Cell | null>(null)
   const lastTierRef = useRef<Tier>(tier)
   const focusTimeRef = useRef<number | null>(null)
   // Whether the reader has ever put keyboard focus on a cell. Once they have,
@@ -153,7 +160,11 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   // focus stops existing — focus moves to the cell whose span contains the
   // previous cell's instant, so the reader stays where they were looking.
   useEffect(() => {
-    if (cells.length === 0) return
+    if (cells.length === 0) {
+      setFocusedCellId(null)
+      if (hadCellFocusRef.current) gridRef.current?.focus()
+      return
+    }
     if (focusedCellId !== null && cells.some((c) => c.id === focusedCellId)) return
     const anchor = focusTimeRef.current ?? visibleSpan(view, width).from + (width * view.scale) / 2
     const containing = cells.find((c) => c.span.from <= anchor && anchor <= c.span.to)
@@ -209,17 +220,29 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       switch (event.key) {
         case 'ArrowRight':
           event.preventDefault()
+          if (event.shiftKey) {
+            onPan(0.8)
+            return
+          }
           moveFocus(row[Math.min(row.length - 1, index + 1)] ?? null)
           return
         case 'ArrowLeft':
           event.preventDefault()
+          if (event.shiftKey) {
+            onPan(-0.8)
+            return
+          }
           moveFocus(row[Math.max(0, index - 1)] ?? null)
           return
         case 'ArrowDown':
         case 'ArrowUp': {
           event.preventDefault()
           const delta = event.key === 'ArrowDown' ? 1 : -1
-          const target = rows[(focusedCell?.rowIndex ?? 0) + delta]
+          let targetIndex = (focusedCell?.rowIndex ?? 0) + delta
+          while (targetIndex >= 0 && targetIndex < rows.length && rows[targetIndex].length === 0) {
+            targetIndex += delta
+          }
+          const target = rows[targetIndex]
           if (target === undefined || target.length === 0) return
           const anchor = focusedCell === null ? 0 : midOf(focusedCell.span)
           moveFocus(
@@ -245,7 +268,10 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
           return
         case 'Enter':
           event.preventDefault()
-          if (focusedCell !== null) onFitTo(focusedCell.span)
+          if (focusedCell !== null) {
+            if (focusedCell.kind === 'bucket') onFocusThread(focusedCell.threadId)
+            onFitTo(focusedCell.span)
+          }
           return
         case 'Backspace': {
           event.preventDefault()
@@ -272,6 +298,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       moveFocus,
       onFitAll,
       onFitTo,
+      onFocusThread,
       onOpenMoment,
       onZoomAt,
       rows,
@@ -289,8 +316,12 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     const onWheel = (event: WheelEvent) => {
       if (event.ctrlKey || event.metaKey) {
         event.preventDefault()
-        const rect = node.getBoundingClientRect()
-        const focusX = event.clientX - rect.left
+        const grid = gridRef.current
+        if (grid === null) return
+        const focusX = Math.max(
+          0,
+          Math.min(width, event.clientX - grid.getBoundingClientRect().left - TIMELINE_GUTTER_PX),
+        )
         onZoomAt(event.deltaY > 0 ? WHEEL_ZOOM_STEP : 1 / WHEEL_ZOOM_STEP, focusX)
         return
       }
@@ -301,7 +332,15 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     }
     node.addEventListener('wheel', onWheel, { passive: false })
     return () => node.removeEventListener('wheel', onWheel)
-  }, [onPanPixels, onZoomAt])
+  }, [onPanPixels, onZoomAt, width])
+
+  const setGridRoot = useCallback(
+    (node: HTMLDivElement | null) => {
+      gridRef.current = node
+      rootRef(node)
+    },
+    [rootRef],
+  )
 
   const registerCell = useCallback((id: string) => {
     return (node: HTMLElement | null) => {
@@ -321,7 +360,13 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       hadCellFocusRef.current = true
       if (!restoringRef.current) focusTimeRef.current = midOf(cell.span)
       setFocusedCellId(cell.id)
+      setActiveCell(cell)
     },
+    onBlur: () => setActiveCell((current) => (current?.id === cell.id ? null : current)),
+    onPointerEnter: () => setActiveCell(cell),
+    onPointerLeave: () => setActiveCell((current) => (current?.id === cell.id ? null : current)),
+    onDoubleClick: () => onFitTo(cell.span),
+    title: cell.label,
   })
 
   return (
@@ -354,15 +399,34 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         role="region"
         aria-label="Scrollable Threads timeline data"
         tabIndex={-1}
+        onPointerDown={(event) => {
+          if (event.button !== 0) return
+          dragRef.current = { pointerId: event.pointerId, x: event.clientX }
+          event.currentTarget.setPointerCapture?.(event.pointerId)
+        }}
+        onPointerMove={(event) => {
+          const drag = dragRef.current
+          if (drag === null || drag.pointerId !== event.pointerId) return
+          const dx = event.clientX - drag.x
+          drag.x = event.clientX
+          if (dx !== 0) onPanPixels(dx)
+        }}
+        onPointerUp={(event) => {
+          if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null
+        }}
+        onPointerCancel={() => {
+          dragRef.current = null
+        }}
         className="relative overflow-x-auto rounded-md border bg-card p-4"
       >
         {pending ? <div className="mm-progress" role="presentation" /> : null}
         <div
-          ref={rootRef}
+          ref={setGridRoot}
           role="grid"
           aria-label={gridLabel(tier, view, width)}
           aria-rowcount={rows.length}
           aria-busy={pending || undefined}
+          tabIndex={cells.length === 0 ? 0 : -1}
           data-tier={tier}
           data-from={String(view.from)}
           data-scale={String(view.scale)}
@@ -372,12 +436,31 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         >
           <AxisRow view={view} width={width} epochMs={epochMs} />
 
+          {activeCell !== null ? (
+            <>
+              <div
+                aria-hidden="true"
+                className="mm-at mm-cursor-line"
+                style={atStyle(midOf(activeCell.span), epochMs)}
+              />
+              <div
+                role="tooltip"
+                className="mm-at z-20 -translate-x-1/2 rounded-md border bg-popover px-2 py-1 text-[11px]"
+                style={{ ...atStyle(midOf(activeCell.span), epochMs), top: 24 }}
+              >
+                {activeCell.label}
+              </div>
+            </>
+          ) : null}
+
           <div key={tier} className="mm-layer">
             {tier === 'bands' ? (
               <BandsTier
                 rows={rows}
                 threads={threads}
                 bands={bands}
+                view={view}
+                width={width}
                 epochMs={epochMs}
                 focusedThreadId={focusedThreadId}
                 onFocusThread={onFocusThread}
@@ -452,7 +535,11 @@ function AxisRow({ view, width, epochMs }: { view: View; width: number; epochMs:
   const span = visibleSpan(view, width)
   const withinDay = span.to - span.from < 86_400_000
   return (
-    <div role="row" className="mm-track relative mb-2 h-6 border-b">
+    <div
+      role="row"
+      className="mm-track relative mb-2 h-6 border-b"
+      style={{ marginLeft: TIMELINE_GUTTER_PX, width }}
+    >
       {ticks.map((t) => (
         <div
           key={t}
@@ -471,17 +558,40 @@ function BandsTier(props: {
   rows: Array<Array<Cell>>
   threads: Array<ThreadSummary>
   bands: Record<string, Array<BandBucket>> | null
+  view: View
+  width: number
   epochMs: number
   focusedThreadId: string | null
   onFocusThread: (threadId: string) => void
   cellProps: (cell: Cell) => Record<string, unknown>
   onActivate: (cell: Cell) => void
 }) {
-  const { rows, threads, bands, epochMs, focusedThreadId, onFocusThread, cellProps, onActivate } =
-    props
+  const {
+    rows,
+    threads,
+    bands,
+    view,
+    width,
+    epochMs,
+    focusedThreadId,
+    onFocusThread,
+    cellProps,
+    onActivate,
+  } = props
+  const visible = visibleSpan(view, width)
   const alphaOf = useMemo(
-    () => densityAlpha(Object.values(bands ?? {}).flatMap((b) => b.map((x) => x.mentionCount))),
-    [bands],
+    () =>
+      densityAlpha(
+        Object.values(bands ?? {}).flatMap((buckets) =>
+          buckets
+            .filter(
+              (bucket) =>
+                Date.parse(bucket.to) >= visible.from && Date.parse(bucket.from) <= visible.to,
+            )
+            .map((bucket) => bucket.mentionCount),
+        ),
+      ),
+    [bands, visible.from, visible.to],
   )
 
   if (bands === null) {
@@ -498,14 +608,19 @@ function BandsTier(props: {
             key={thread.threadId}
             role="row"
             className="flex items-center"
-            style={{ gap: 12, marginBottom: BAND_GAP }}
+            style={{ gap: TIMELINE_ROW_GAP_PX, marginBottom: BAND_GAP }}
           >
             <button
               type="button"
               role="rowheader"
               onClick={() => onFocusThread(thread.threadId)}
-              className={`mm-focusable w-[150px] shrink-0 truncate text-left text-xs font-medium ${thread.threadId === focusedThreadId ? 'underline' : ''}`}
-              style={{ color: paint.name }}
+              className="mm-focusable shrink-0 truncate text-left text-xs font-medium"
+              data-focused={thread.threadId === focusedThreadId || undefined}
+              style={{
+                color: paint.name,
+                width: TIMELINE_ROW_HEADER_PX,
+                textDecoration: thread.threadId === focusedThreadId ? 'underline' : undefined,
+              }}
             >
               {thread.name}
             </button>
@@ -563,11 +678,11 @@ function MeetingsTier(props: {
   return (
     <div>
       <CollapsedStrips threads={threads} focusedThreadId={focusedThread.threadId} />
-      <div role="row" className="flex items-center" style={{ gap: 12 }}>
+      <div role="row" className="flex items-center" style={{ gap: TIMELINE_ROW_GAP_PX }}>
         <span
           role="rowheader"
-          className="w-[150px] shrink-0 truncate text-xs font-medium"
-          style={{ color: paint.name }}
+          className="shrink-0 truncate text-xs font-medium"
+          style={{ color: paint.name, width: TIMELINE_ROW_HEADER_PX }}
         >
           {focusedThread.name}
         </span>
@@ -599,7 +714,7 @@ function MeetingsTier(props: {
                   className="mm-hit mm-focusable overflow-hidden whitespace-nowrap px-2 text-left text-[11px]"
                 >
                   <span className="font-medium" style={{ color: paint.name }}>
-                    {meeting.title}
+                    {meeting.title ?? isoDay(Date.parse(meeting.occurredAt))}
                   </span>
                   <span className="ml-1 font-mono tabular-nums text-muted-foreground">
                     · {meeting.mentionCount} mentions
@@ -637,11 +752,11 @@ function MomentsTier(props: {
   return (
     <div>
       <CollapsedStrips threads={threads} focusedThreadId={focusedThread.threadId} />
-      <div role="row" className="flex items-start" style={{ gap: 12 }}>
+      <div role="row" className="flex items-start" style={{ gap: TIMELINE_ROW_GAP_PX }}>
         <span
           role="rowheader"
-          className="w-[150px] shrink-0 truncate text-xs font-medium"
-          style={{ color: paint.name }}
+          className="shrink-0 truncate text-xs font-medium"
+          style={{ color: paint.name, width: TIMELINE_ROW_HEADER_PX }}
         >
           {focusedThread.name}
         </span>
@@ -654,7 +769,9 @@ function MomentsTier(props: {
               style={{
                 ...spanStyle(
                   Date.parse(meeting.occurredAt),
-                  Date.parse(meeting.occurredAt) + meeting.durationMs,
+                  meeting.lastOccurredAt === undefined
+                    ? Date.parse(meeting.occurredAt) + meeting.durationMs
+                    : Date.parse(meeting.lastOccurredAt),
                   epochMs,
                 ),
                 top: 0,
@@ -692,7 +809,8 @@ function MomentsTier(props: {
                   type="button"
                   {...(cellProps(cell) as object)}
                   onClick={() => onActivate(cell)}
-                  className="mm-focusable absolute top-7 w-[120px] -translate-x-1/2 rounded-md px-1 py-0.5 text-center"
+                  className="mm-focusable absolute top-7 -translate-x-1/2 rounded-md px-1 py-0.5 text-center"
+                  style={{ width: MOMENT_CELL_WIDTH_PX }}
                 >
                   <span className="block font-mono text-[10px] tabular-nums text-muted-foreground">
                     {moment === null
@@ -755,7 +873,9 @@ function bandRows(
   bands: Record<string, Array<BandBucket>> | null,
 ): Array<Array<Cell>> {
   return threads.map((thread, rowIndex) =>
-    (bands?.[thread.threadId] ?? []).map((bucket) => ({
+    (bands?.[thread.threadId] ?? [])
+      .filter((bucket) => bucket.mentionCount > 0)
+      .map((bucket) => ({
       id: `${thread.threadId}:${bucket.from}`,
       rowIndex,
       threadId: thread.threadId,
@@ -763,7 +883,7 @@ function bandRows(
       label: `${thread.name}, ${bucket.from.slice(0, 10)} to ${bucket.to.slice(0, 10)}, ${bucket.mentionCount} mentions`,
       kind: 'bucket' as const,
       count: bucket.mentionCount,
-    })),
+      })),
   )
 }
 
@@ -782,8 +902,14 @@ function meetingRows(
           id: meeting.meetingId,
           rowIndex: 0,
           threadId: focusedThread.threadId,
-          span: { from, to: from + meeting.durationMs },
-          label: `${meeting.title}, ${isoDay(from)}, ${meeting.mentionCount} mentions`,
+          span: {
+            from,
+            to:
+              meeting.lastOccurredAt === undefined
+                ? from + meeting.durationMs
+                : Date.parse(meeting.lastOccurredAt),
+          },
+          label: `${meeting.title ?? 'Meeting'}, ${isoDay(from)}, ${meeting.mentionCount} mentions`,
           kind: 'meeting' as const,
           count: meeting.mentionCount,
         }
@@ -798,7 +924,12 @@ function momentRows(
   view: View,
 ): Array<Array<Cell>> {
   if (focusedThread === null || moments === null) return []
-  const clustered = clusterByX(moments, (m) => Date.parse(m.occurredAt), view)
+  const clustered = clusterByX(
+    moments,
+    (m) => Date.parse(m.occurredAt),
+    view,
+    MOMENT_CELL_WIDTH_PX,
+  )
   return [
     clustered.map((entry) => {
       const span = clusterSpan(entry)

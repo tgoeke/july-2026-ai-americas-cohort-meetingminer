@@ -58,6 +58,12 @@ export const KEY_ZOOM_STEP = 1.5
 export const ZOOM_EASE_MS = 120
 export const TIER_FADE_MS = 160
 
+/** Fixed geometry shared by measurement, axis, tracks, and pointer anchoring. */
+export const TIMELINE_ROW_HEADER_PX = 150
+export const TIMELINE_ROW_GAP_PX = 12
+export const TIMELINE_GUTTER_PX = TIMELINE_ROW_HEADER_PX + TIMELINE_ROW_GAP_PX
+export const MOMENT_CELL_WIDTH_PX = 120
+
 /** A visible window: its left edge in epoch ms, and ms per pixel. */
 export interface View {
   /** The instant at x = 0, in epoch milliseconds. */
