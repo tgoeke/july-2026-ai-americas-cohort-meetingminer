@@ -74,7 +74,7 @@ describe('F11 owner ruling: complete searchable thread source', () => {
       </MemoryRouter>,
     )
 
-    expect(await screen.findByRole('status', { name: 'Thread catalog unavailable' })).toHaveTextContent(
+    expect(await screen.findByRole('alert', { name: 'Thread catalog unavailable' })).toHaveTextContent(
       'unavailable',
     )
     expect(screen.getByTestId('filter-thread')).toHaveValue('thread-deep')
