@@ -247,7 +247,32 @@ without a valid reason, and only then computes `total`, `offset` and the page.
 
 ## Review Triage Log
 
-_(none yet — this spec has not been reviewed.)_
+### Review Findings — 2026-08-31
+
+- [ ] [Review][Decision] F9 — Offset pages have no stable ranking snapshot
+  across requests. Each request chooses a new `now`; fixing multi-request
+  duplicate/skip behavior requires an `asOf`, cursor, or an explicit contract
+  relaxation, all of which are frozen-wire decisions.
+- [ ] [Review][Patch] F1 — Recency contributions disappear after one half-life
+  instead of decaying. [`server/meetingminer/api/moments_feed.py:472`]
+- [ ] [Review][Patch] F2 — Multiple timed action rows multiply a categorical
+  weight. [`server/meetingminer/api/moments_feed.py:408`]
+- [ ] [Review][Patch] F3 — Thread count, invalid names, and uncapped wire chips
+  violate the thread contract. [`server/meetingminer/api/moments_feed.py:517`]
+- [ ] [Review][Patch] F4 — Timed action items disappear from the
+  `kind=action-item` feed. [`server/meetingminer/api/moments_feed.py:408`]
+- [ ] [Review][Patch] F5 — Free-text timing parsing both misses and invents
+  urgency. [`server/meetingminer/api/moments_feed.py:247`]
+- [ ] [Review][Patch] F6 — The production extraction-to-feed handoff and
+  replacement rules are unverified.
+  [`server/meetingminer/pipeline/stages/extract.py:653`]
+- [ ] [Review][Patch] F7 — Ranking configuration accepts infinity.
+  [`server/meetingminer/config.py:933`]
+- [ ] [Review][Patch] F8 — Conflicting duplicate signal IDs are silently
+  discarded. [`server/meetingminer/pipeline/extraction.py:1112`]
+
+Known B-46 prompt relocation remains a remediation obligation, not a new review
+discovery. The review report carries the full evidence and triage.
 
 ## Design Notes
 
