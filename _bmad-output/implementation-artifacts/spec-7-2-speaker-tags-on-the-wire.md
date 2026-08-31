@@ -157,6 +157,18 @@ path (story 7.3); no UI (story 7.4); no hand-edit of `api/main.py`, a registry, 
   byte-identical; the diff is additive only — `listMeetingSpeakers`,
   `MeetingSpeakersResponse`, `SpeakerTag` and the `ListMeetingSpeakers*` types.
 
+- 2026-08-30 (rebase onto `main` at `7a1076d`): story 6.3 landed mid-build, so the
+  "Zoom transcript converted by story 6.3" half of the second acceptance clause is
+  no longer forward-looking. 6.3 converts a Zoom `.vtt` at acquisition into a
+  legacy-lineage `transcript.txt` and leaves `pipeline/transcripts.py` and
+  `pipeline/stages/align.py` unchanged, so a Zoom name resolves through the
+  roster by the same path a Teams label takes and reaches
+  `transcript_segment.speaker_label`/`participant_id` identically. This route
+  reads those columns and never the source lineage, so the named-source tests
+  cover both origins by construction; no lineage-specific test was added, and no
+  drop fixture is needed to prove it. The rebase also unioned `sprint-notes.md`
+  (both entries appended at EOF, both kept whole) and re-ran the full gate.
+
 ## Review Triage Log
 
 ## Design Notes

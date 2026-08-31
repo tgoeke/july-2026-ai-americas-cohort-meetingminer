@@ -44,11 +44,14 @@ terminal but not filed does not exist.
 
 - Repo: `/Users/devopsterus/current/cohort/meetingminer` (main checkout — do not
   work in it). Your worktree: `make worktree STORY=7-2-review`.
-- Branch under review: `story/7-2`. Range: `main..HEAD`, three commits:
-  - `8073a756589abeecf2981e0a5897ad7a2f0041f1` docs(7-2): frozen spec for Speaker Tags on the Wire
-  - `f68fa7fcece23bab1acca0501995e10d87265800` feat(7-2): GET /meetings/{id}/speakers puts the speaker tags on the wire
-  - `0e738f98854bca260c3217becaadf47a42f591c7` chore(7-2): regenerate the typed TS client for listMeetingSpeakers
-  - plus the closing tracking commit (spec status `review`, sprint status, notes).
+- Branch under review: `story/7-2`, rebased onto `main` at `7a1076d` (story
+  6.3 landed during this build). Range: `main..HEAD`, four commits:
+  - `a784db55f1caf33366b170d956f77418ae0113bc` docs(7-2): frozen spec for Speaker Tags on the Wire
+  - `5f5436da3b2920bbff4dd77b81519a3db19068f8` feat(7-2): GET /meetings/{id}/speakers puts the speaker tags on the wire
+  - `0c66bbcd340076ae0941d78939fbd45d15d37d6f` chore(7-2): regenerate the typed TS client for listMeetingSpeakers
+  - `a6b3be4c3350c6ec7590197c414b527de202f867` docs(7-2): close the build — spec at review, tracking, reviewer handoff
+    (this commit also carries the review prompt you are reading; its own SHA
+    therefore names the tree as of the final push).
 - Every commit in the range belongs to this story. None belongs to another.
 
 ## Spec
