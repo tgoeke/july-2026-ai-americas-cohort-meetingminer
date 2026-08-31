@@ -99,7 +99,8 @@ Adversarial review of the Story 7.4 web implementation, with emphasis on unsettl
 
 - **Location:** `web/src/features/speakers/SpeakerNaming.tsx:274`; `web/src/features/speakers/SpeakerNaming.tsx:281`
 - **Severity:** High
-- **Status:** Confirmed — patch required
+- **Status:** Fixed on `story/7-4-review`
 - **Finding:** Selection reconciliation only chooses the first row when `selectedTag` is `null`. If a successful settled reread returns honest rows that no longer contain the selected tag, `selectedTag` remains stale, `selected` becomes `null`, and the screen hides the naming controls and transcript even though other speaker rows are present.
 - **Evidence:** `selected` is derived with `find(...) ?? null`, while the effect returns every non-null current tag without checking membership in the new `rows`. A rerun can legitimately change diarization output or concurrent recovery work can replace the tag set; this is exactly the state-retention boundary where stale evidence must remain usable without preserving an invalid pointer.
 - **Suggested direction:** Preserve selection only while the refreshed rows still contain it; otherwise select the first available row, and retain `null` only for an empty result. Verify a landed reread that removes the active tag moves selection to a remaining tag.
+- **Red/green evidence:** A landed reread returning only `SPEAKER_03` first left that row unselected and removed the naming region because selection still pointed to absent `SPEAKER_00`. Reconciliation now preserves a tag only while it exists in the refreshed rows and otherwise selects the first remaining row; the regression restores the `SPEAKER_03` naming region.

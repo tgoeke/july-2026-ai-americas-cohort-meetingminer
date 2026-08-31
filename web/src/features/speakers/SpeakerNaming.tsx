@@ -276,11 +276,13 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
 
   // The loudest voice is the one a curator names first; selecting it saves a
   // click on arrival and gives the clips and transcript columns something to
-  // show. Only ever on the first answered read — a re-read after a rerun must
-  // not move the selection out from under whoever is mid-naming.
+  // show. A reread preserves any tag it still contains, but must not strand
+  // selection on a tag that the refreshed diarization no longer returned.
   useEffect(() => {
     setSelectedTag((current) => {
-      if (current !== null) return current
+      if (current !== null && rows.some((row) => row.speakerLabel === current)) {
+        return current
+      }
       return rows.length > 0 ? rows[0].speakerLabel : null
     })
   }, [rows])
