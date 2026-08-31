@@ -283,3 +283,10 @@ Final verification on the rebased branch:
 The branch is rebased onto `origin/main` at `37cc543e`; it is intentionally not
 merged to `main`, because the owner reserved integration to the `integrate`
 step.
+
+## Closeout
+
+- `make check-reviews` -- passed: every dispatched review has a committed
+  report.
+- Final verdict: **pass after remediation**, with 29 findings closed and no
+  open review finding.
