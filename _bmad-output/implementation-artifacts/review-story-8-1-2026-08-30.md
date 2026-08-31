@@ -51,3 +51,11 @@ Adversarial review of Story 8.1 on `story/8-1-review`, including the eight chang
 - **Finding:** AD-10 records the catalog/default declarations and load-time refusals, but omits the accepted rules that a selection is user-declared Postgres data, is resolved at call time by API and worker, is recorded beside file values in eval snapshots, cannot name anything outside the catalog, and is never a fallback.
 - **Evidence:** The owner-approved wording in `_bmad-output/planning-artifacts/sprint-change-proposal-2026-08-29.md` §2 contains all of those clauses, and `epics.md` repeats them as the Epic 8 architecture amendment. The current Design Notes deferred them to 8.2 because code does not implement them yet. AD-10 is the normative decision 8.2 builds from, not an implementation-status report; leaving half out removes the constraints the downstream story is supposed to satisfy.
 - **Suggested direction:** Complete AD-10 with the approved selection, resolution, snapshot, catalog-boundary, and no-fallback sentences while preserving Story 11.2's private-stack environment wording verbatim in the same paragraph.
+
+### Finding 6 — Epic 8 context says the new provider validation does not exist (patch)
+
+- **Location:** `_bmad-output/implementation-artifacts/epic-8-context.md:32`
+- **Severity:** Medium
+- **Finding:** The generated Epic 8 context lists “bindings are not validated against declared providers” as a known gap, contradicting Story 8.1's primary authored-catalog validation and the technical-decision bullets immediately above it.
+- **Evidence:** `Settings._catalog_providers_are_declared` refuses every authored catalog entry whose resolved provider is absent from `providers:`, and the story tests cover explicit and derived undeclared providers. Story 8.2 is named as a consumer of this context; stale guidance could make it duplicate or bypass the existing contract. The narrower residual gaps are synthesized legacy entries and the live `fallback`, not authored catalog entries generally.
+- **Suggested direction:** Replace the broad false statement with the actual residual boundary: authored catalog entries are checked, while synthesized compatibility entries and `fallback` remain exempt pending later decisions.
