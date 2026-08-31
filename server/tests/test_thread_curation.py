@@ -93,6 +93,19 @@ class StubEmbedder:
         return self._vector(text)
 
 
+class CohesiveEmbedder:
+    """Every name joins one cluster, so a new seed can move its identity key."""
+
+    model = "cohesive-stub"
+    dimension = 2
+
+    def embed_documents(self, texts: Sequence[str]) -> tuple[Vector, ...]:
+        return tuple((1.0, 0.0) for _ in texts)
+
+    def embed_query(self, text: str) -> Vector:
+        return (1.0, 0.0)
+
+
 # --- seeding ---------------------------------------------------------------
 
 
@@ -528,6 +541,48 @@ def test_a_split_survives_a_rerun_without_the_derivation_reclaiming_its_thread(
     assert rows[str(curated_id)]["mentionCount"] == 1
 
 
+def test_identity_key_movement_reuses_the_machine_row_not_the_attached_split_row(
+    client: TestClient, pool: ConnectionPool, app_config: AppConfig
+) -> None:
+    """AD-18's exclusion is necessary and narrow. Once a first pass has
+    attached a pinned topic to its split row, a later cluster-key change sees
+    both that row and the ordinary machine row as attachments. The ordinary
+    row must remain reusable; only the split-minted row is unavailable."""
+    with pool.connection() as conn:
+        first = seed_meeting(conn, "m1")
+        second = seed_meeting(conn, "m2", offset_days=1)
+        stay = add_topic(conn, first, "Vendor Feed")
+        move = add_topic(conn, second, "Vendor Feed")
+        derive(conn, app_config)
+        conn.commit()
+        original = thread_of(conn, stay)
+
+    split = client.post(
+        f"/threads/{original}/split",
+        json={"topicIds": [str(move)], "name": "Vendor feed (billing)"},
+    )
+    assert split.status_code == 201
+    curated_id = UUID(split.json()["threadId"])
+
+    with pool.connection() as conn:
+        # First make the curated row a real stored attachment, then introduce
+        # a lexicographically earlier subject that moves the cluster key.
+        derive(conn, app_config)
+        third = seed_meeting(conn, "m3", offset_days=2)
+        added = add_topic(conn, third, "Accounts Payable")
+        derive(conn, app_config, CohesiveEmbedder())
+        conn.commit()
+
+        assert thread_of(conn, stay) == original
+        assert thread_of(conn, added) == original
+        assert thread_of(conn, move) == curated_id
+        assert thread_row(conn, original)[0] == "accounts payable"
+        curated_key, curated_name, curated_rule, _ = thread_row(conn, curated_id)
+        assert is_curated_identity_key(curated_key)
+        assert curated_name == "Vendor feed (billing)"
+        assert curated_rule == CURATED_LINK_RULE
+
+
 def test_a_split_invalidates_only_the_meetings_whose_topics_move(
     client: TestClient, pool: ConnectionPool, app_config: AppConfig
 ) -> None:
@@ -685,6 +740,68 @@ def test_curation_leaves_an_unchanged_rerun_writing_nothing(
             conn.execute("SELECT id, updated_at FROM thread ORDER BY id").fetchall()
             == thread_before
         )
+
+
+def test_merge_split_and_rename_together_leave_no_row_written_on_unchanged_rerun(
+    client: TestClient, pool: ConnectionPool, app_config: AppConfig
+) -> None:
+    """The compound shape requested by the review handoff, checked with xmin
+    so an UPDATE that rewrites the same values still counts as a write."""
+    with pool.connection() as conn:
+        first = seed_meeting(conn, "m1")
+        second = seed_meeting(conn, "m2", offset_days=1)
+        third = seed_meeting(conn, "m3", offset_days=2)
+        fourth = seed_meeting(conn, "m4", offset_days=3)
+        stay = add_topic(conn, first, "Vendor Feed")
+        move = add_topic(conn, second, "Vendor Feed")
+        merge_source_topic = add_topic(conn, third, "Billing Portal")
+        merge_target_topic = add_topic(conn, fourth, "Ledger Export")
+        derive(conn, app_config)
+        conn.commit()
+        split_source = thread_of(conn, stay)
+        merge_source = thread_of(conn, merge_source_topic)
+        merge_target = thread_of(conn, merge_target_topic)
+
+    assert client.post(
+        f"/threads/{split_source}/split",
+        json={"topicIds": [str(move)], "name": "Vendor feed (billing)"},
+    ).status_code == 201
+    assert client.patch(
+        f"/threads/{split_source}", json={"name": "Vendor feed (inbound)"}
+    ).status_code == 200
+    assert client.post(
+        f"/threads/{merge_source}/merge",
+        json={"intoThreadId": str(merge_target)},
+    ).status_code == 200
+
+    tables = (
+        "thread",
+        "topic_thread",
+        "thread_curation",
+        "thread_alias",
+        "thread_topic_pin",
+    )
+    with pool.connection() as conn:
+        derive(conn, app_config)
+        conn.commit()
+        before = {
+            table: conn.execute(
+                f"SELECT xmin::text, row_to_json(t)::text FROM {table} t ORDER BY 2"
+            ).fetchall()
+            for table in tables
+        }
+
+    with pool.connection() as conn:
+        derive(conn, app_config)
+        conn.commit()
+        after = {
+            table: conn.execute(
+                f"SELECT xmin::text, row_to_json(t)::text FROM {table} t ORDER BY 2"
+            ).fetchall()
+            for table in tables
+        }
+
+    assert after == before
 
 
 def test_a_split_then_a_merge_of_its_product_resolves_through_both(

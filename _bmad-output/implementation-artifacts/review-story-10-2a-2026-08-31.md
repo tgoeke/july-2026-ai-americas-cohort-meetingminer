@@ -74,6 +74,38 @@ The review branch must be rebased onto the then-current `origin/main` before clo
 - **Suggested direction:** Make curated provenance part of the derived output: permit `curated` in the membership constraint, and when `ThreadCuration.thread_for` says a pin fired, upsert `linked_by = 'curated'` with no similarity. Keep the API-owned durable pin immutable; derivation should derive its output from that input rather than mutate the UUID hint.
 - **Remediation:** Migration 0021 extends the membership provenance constraint with `curated`, and the single derivation UPSERT writes that leg with no machine similarity whenever pin resolution fired. The API-owned pin and its deliberately stale UUID hint remain untouched. The focused re-extraction regression is green (**1 passed**).
 
+### F8 — Open, spec/design decision required: the first merge permanently freezes its survivor
+
+- **Location:** `server/meetingminer/migrations/0021_thread_curation.sql` (`thread_alias_is_flat`); `server/meetingminer/api/thread_curation.py` (`merge_threads`, `_HAS_ABSORBED` refusal)
+- **Severity:** Major
+- **Finding:** After A is merged into B, visible canonical thread B is prohibited from later merging into C because it has absorbed A. A is also prohibited as a source because it is already merged away. The migration comment and API refusal say the cure for avoiding A→B→C is to merge A directly into C, but neither endpoint operation can perform that cure. A normal corpus that later reveals B and C are one subject is permanently uncorrectable without direct database surgery.
+- **Evidence:** Both the database trigger and API explicitly reject a source appearing as any alias target; the API additionally rejects an already-absorbed source before insertion. Thus there is no permitted sequence from A→B to effective A→C and B→C. This materially changes B-54: unmerge/retarget is not only an optional undo gesture; some form of transactional alias flattening is required for iterative correction.
+- **Suggested direction:** Amend the contract to define canonical-merge retargeting. A B→C action should atomically retarget every alias currently ending at B to C and add B→C (or store canonical equivalence in a representation whose record constraints flatten it), with sorted locking and one projection invalidation set. Until that policy exists, this cannot be patched safely in the review lane.
+
+### F9 — Open, deletion-policy decision required: cascades silently erase every kind of curation
+
+- **Location:** `server/meetingminer/migrations/0021_thread_curation.sql` (all curation foreign keys use `ON DELETE CASCADE`); `server/meetingminer/domain/threads.py` (future dead-thread sweep is explicitly anticipated)
+- **Severity:** Moderate
+- **Finding:** Deleting a thread erases its rename, its outgoing/incoming aliases, and split pins that target it. A later derivation can then recreate the machine grouping with neither `unmatched_pins` nor any surviving record that a correction existed, contradicting the module's unconditional “nothing is discarded quietly” claim. There is no current delete route, but the thread model explicitly reserves deletion for a future dead-row sweep, so the record is unsafe for the lifecycle it documents.
+- **Evidence:** Direct thread deletion reaches only cascading foreign keys; no tombstone, refusal trigger, or audit row survives. In particular, deleting a merge survivor cascades aliases whose absorbed source rows still exist, so those source clusters reappear on the next pass without an AD-18 signal.
+- **Suggested direction:** Define curation-aware thread retention before adding the anticipated sweep: refuse deletion of any thread participating in curation, or preserve/retarget the human decision in durable tombstone/audit state. This is a data-lifecycle choice, not a safe review-time guess.
+
+### F10 — Confirmed, remediation in progress: merge success discarded the canonical survivor identity
+
+- **Location:** `web/src/features/threads/ThreadCuration.tsx` (`settle`); `web/src/features/threads/Threads.tsx` (focused thread and route ownership)
+- **Severity:** Moderate
+- **Finding:** The merge API deliberately returns the survivor, but `settle` discards the parsed response and calls a parameterless callback. When the absorbed row was focused, the fine-tier canvas remains focused on an empty UUID; on `/threads/:absorbed`, the next list read replaces the entire screen with “may have been merged away” instead of continuing on the canonical thread.
+- **Evidence:** A component regression is being added to require merge completion to pass both the returned thread and the operation to its owner. The unchanged implementation calls `onCurated()` with no arguments.
+- **Suggested direction:** Propagate the parsed result and action through `ThreadList`; after a merge, focus the returned survivor and replace a focused route with `/threads/{survivor}` while preserving its anchor query. Then invalidate both list and timeline as F6 requires.
+
+### F11 — Confirmed, remediation in progress: malformed curation success bodies were silently accepted
+
+- **Location:** `web/src/features/threads/threadsApi.ts` (`parseCuratedThread`); `web/src/features/threads/ThreadCuration.tsx` (`settle`)
+- **Severity:** Moderate
+- **Finding:** The purportedly strict response parser converts a missing or non-boolean `nameIsCurated` to `false` and a missing `mergedIntoThreadId` to `null`. A malformed 2xx therefore closes the editor and announces success, losing the user's draft, instead of surfacing a contract refusal.
+- **Evidence:** A component regression is being added with a successful write body whose `nameIsCurated` is a string. The unchanged parser treats it as `false`, so `onCurated` fires and the panel closes.
+- **Suggested direction:** Require an actual boolean and require the nullable merge field to be present and either a string or `null`, using the same named `ThreadsContractError` path as every other response field. A contract error must keep the panel and draft intact.
+
 ## Verification
 
 Pending.

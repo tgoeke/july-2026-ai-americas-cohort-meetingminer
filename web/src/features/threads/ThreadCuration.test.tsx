@@ -102,7 +102,7 @@ beforeEach(() => {
           ),
         )
       }
-      return Promise.resolve(response(CURATED, status))
+      return Promise.resolve(response(served.writeBody ?? CURATED, status))
     }),
   )
 })
@@ -197,6 +197,23 @@ it('merges into another thread and never offers itself as the target', async () 
   expect(writes()[0].url).toContain('/threads/th-a/merge')
   expect(writes()[0].body).toEqual({ intoThreadId: 'th-b' })
   await waitFor(() => expect(onCurated).toHaveBeenCalled())
+  expect(onCurated).toHaveBeenCalledWith(CURATED, 'merge')
+})
+
+it('keeps the merge panel open when a malformed success body violates the contract', async () => {
+  const user = userEvent.setup()
+  served.writeBody = { ...CURATED, nameIsCurated: 'yes' }
+  const onCurated = mount()
+  await user.click(screen.getByRole('button', { name: 'Merge into…' }))
+  await user.selectOptions(
+    screen.getByRole('combobox', { name: /merge retrieval split into/i }),
+    'th-b',
+  )
+  await user.click(screen.getByRole('button', { name: 'Merge' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('nameIsCurated')
+  expect(screen.getByRole('combobox', { name: /merge retrieval split into/i })).toHaveValue('th-b')
+  expect(onCurated).not.toHaveBeenCalled()
 })
 
 it('cannot merge before a target is chosen', async () => {
