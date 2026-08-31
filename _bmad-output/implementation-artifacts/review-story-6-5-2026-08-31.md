@@ -93,6 +93,15 @@ Date: 2026-08-31
 - **Suggested direction** — Give the YouTube panel native form submission semantics, keep non-submit actions as buttons, and test Enter after the current probe has answered.
 - **Disposition** — fixed red-first. The keyboard regression observed zero `startAcquisition` calls against the original click-only controls; it passed after the panel gained native form submission with Submit as its submit button.
 
+### F10 — Posted job label truncates to four characters instead of eight
+
+- **Location** — `web/src/features/acquisitions/acquisitions.ts:178`
+- **Severity** — low
+- **Finding** — The posted step shows only four job-id characters, while the frozen posted-state matrix requires the first eight before the ellipsis.
+- **Evidence** — `postedWordFor` uses `jobId.slice(0, 4)` and its unit test pins `8f3c…`; the contract requires `posted — job <8 chars>…`. Four characters are materially less useful when correlating the visible acquisition with logs or status output.
+- **Suggested direction** — Render the first eight characters and update the unit and component assertions to pin the contract.
+- **Disposition** — patchable; remediation in progress.
+
 ## Disposition
 
 Review in progress. No pass/fail verdict has been assigned.
