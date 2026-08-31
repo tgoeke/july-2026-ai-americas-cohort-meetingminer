@@ -160,6 +160,118 @@ export function ModelSelect({ role: roleName = ASK_BOX_ROLE, compact = false }: 
     }
   }
 
+  // The notices about the binding — where it came from, a discarded choice, a
+  // refusal, a write in flight. One box, always mounted, so a `role="alert"`
+  // refusal is announced once rather than re-announced every time the popover
+  // is toggled.
+  const noticesLayer = (
+    <span
+      className={
+        compact
+          ? 'flex w-72 flex-col gap-1 rounded-md border bg-popover p-2 text-xs shadow-md empty:hidden'
+          : 'contents'
+      }
+    >
+      {options.length === 0 && (
+        <span data-testid="model-select-empty" className="text-xs text-muted-foreground">
+          {NO_MODELS_CONFIGURED}
+        </span>
+      )}
+
+      {busyBinding !== undefined && (
+        <span data-testid="model-select-pending" className="text-xs text-muted-foreground">
+          binding {role.role} to {busyBinding}…
+        </span>
+      )}
+
+      {open && (
+        // Where the binding in force came from: a stored choice that applies
+        // to the next call, or the file default it inherited. Never restart
+        // language — a selection needs none.
+        <span data-testid="model-select-source" className="text-xs text-muted-foreground">
+          {sourceNotice(role)}
+        </span>
+      )}
+
+      {stale !== null && (
+        <span data-testid="model-select-stale" className="text-xs text-muted-foreground">
+          {stale}
+        </span>
+      )}
+
+      {refusal !== undefined && (
+        // In place, under the select, with the rule first — never a toast
+        // (EXPERIENCE.md § Refusal box).
+        <span
+          role="alert"
+          data-testid="model-select-refusal"
+          className="rounded-md border border-destructive/40 p-2 text-xs text-destructive"
+        >
+          {refusal}
+        </span>
+      )}
+    </span>
+  )
+
+  // The catalog panel. In the compact ask box it is laid out in a column
+  // with the notices below it, so it positions itself only in the full
+  // view, where it still overlays whatever follows the trigger.
+  const panel = open && options.length > 0 && (
+    <div
+      data-testid="model-select-popover"
+      className={`flex max-h-[min(24rem,70vh)] w-max max-w-[min(28rem,90vw)] flex-col gap-1 overflow-y-auto rounded-md border bg-popover p-2 shadow-md ${
+        compact ? '' : 'absolute top-full right-0 z-50 mt-1'
+      }`}
+    >
+      <div
+        ref={listRef}
+        id={listboxId}
+        role="listbox"
+        tabIndex={0}
+        aria-label={`Choose the model bound to the ${role.role} role`}
+        aria-activedescendant={optionId(activeIndex)}
+        aria-busy={busyBinding !== undefined}
+        data-testid="model-select-listbox"
+        onKeyDown={onListKeyDown}
+        className="flex flex-col gap-1"
+      >
+        {providerGroups.map((group, groupIndex) => {
+          const groupId = `model-select-${role.role}-provider-${groupIndex}`
+          return (
+            <div key={groupId} role="group" aria-labelledby={groupId}>
+              <span id={groupId} className="px-1.5 text-xs font-medium text-muted-foreground">
+                {group.provider ?? 'provider not identified'}
+              </span>
+              {group.entries.map(({ option, index }) => (
+                <div
+                  key={option.binding}
+                  id={optionId(index)}
+                  role="option"
+                  aria-selected={option.active}
+                  aria-label={optionAccessibleName(option)}
+                  aria-description={optionAccessibleDescription(option)}
+                  data-testid={`model-option-${option.binding}`}
+                  className={`flex cursor-pointer items-start gap-2 rounded-sm p-1.5 ${
+                    index === activeIndex ? 'bg-muted' : ''
+                  }`}
+                  onClick={() => {
+                    setActiveIndex(index)
+                    void choose(option.binding)
+                  }}
+                >
+                  <OptionBody option={option} />
+                </div>
+              ))}
+            </div>
+          )
+        })}
+      </div>
+      <a href="/settings" className="mt-1 border-t px-1.5 pt-2 text-xs underline">
+        All roles… (Settings)
+      </a>
+    </div>
+  )
+
   return (
     <span className={compact ? 'relative inline-flex min-w-0 max-w-full' : 'flex flex-col gap-1'}>
       <span ref={containerRef} className="relative inline-flex self-end">
@@ -195,107 +307,20 @@ export function ModelSelect({ role: roleName = ASK_BOX_ROLE, compact = false }: 
           <span aria-hidden="true">{parts.health}</span>
         </button>
 
-        {open && options.length > 0 && (
-          <div
-            data-testid="model-select-popover"
-            className="absolute top-full right-0 z-50 mt-1 flex max-h-[min(24rem,70vh)] w-max max-w-[min(28rem,90vw)] flex-col gap-1 overflow-y-auto rounded-md border bg-popover p-2 shadow-md"
-          >
-            <div
-              ref={listRef}
-              id={listboxId}
-              role="listbox"
-              tabIndex={0}
-              aria-label={`Choose the model bound to the ${role.role} role`}
-              aria-activedescendant={optionId(activeIndex)}
-              aria-busy={busyBinding !== undefined}
-              data-testid="model-select-listbox"
-              onKeyDown={onListKeyDown}
-              className="flex flex-col gap-1"
-            >
-              {providerGroups.map((group, groupIndex) => {
-                const groupId = `model-select-${role.role}-provider-${groupIndex}`
-                return (
-                  <div key={groupId} role="group" aria-labelledby={groupId}>
-                    <span id={groupId} className="px-1.5 text-xs font-medium text-muted-foreground">
-                      {group.provider ?? 'provider not identified'}
-                    </span>
-                    {group.entries.map(({ option, index }) => (
-                      <div
-                        key={option.binding}
-                        id={optionId(index)}
-                        role="option"
-                        aria-selected={option.active}
-                        aria-label={optionAccessibleName(option)}
-                        aria-description={optionAccessibleDescription(option)}
-                        data-testid={`model-option-${option.binding}`}
-                        className={`flex cursor-pointer items-start gap-2 rounded-sm p-1.5 ${
-                          index === activeIndex ? 'bg-muted' : ''
-                        }`}
-                        onClick={() => {
-                          setActiveIndex(index)
-                          void choose(option.binding)
-                        }}
-                      >
-                        <OptionBody option={option} />
-                      </div>
-                    ))}
-                  </div>
-                )
-              })}
-            </div>
-            <a href="/settings" className="mt-1 border-t px-1.5 pt-2 text-xs underline">
-              All roles… (Settings)
-            </a>
-          </div>
+        {compact ? (
+          // One positioned column under the trigger: the catalog, then the
+          // notices beneath it. Two layers anchored separately to the same
+          // corner covered the list the reader had just asked to see.
+          <span className="absolute top-full right-0 z-50 mt-1 flex flex-col items-end gap-1">
+            {panel}
+            {noticesLayer}
+          </span>
+        ) : (
+          panel
         )}
       </span>
 
-      <span
-        className={
-          compact
-            ? 'absolute top-[calc(100%+0.25rem)] right-0 z-50 flex w-72 flex-col gap-1 rounded-md border bg-popover p-2 text-xs shadow-md empty:hidden'
-            : 'contents'
-        }
-      >
-        {options.length === 0 && (
-          <span data-testid="model-select-empty" className="text-xs text-muted-foreground">
-            {NO_MODELS_CONFIGURED}
-          </span>
-        )}
-
-        {busyBinding !== undefined && (
-          <span data-testid="model-select-pending" className="text-xs text-muted-foreground">
-            binding {role.role} to {busyBinding}…
-          </span>
-        )}
-
-        {open && (
-          // Where the binding in force came from: a stored choice that applies
-          // to the next call, or the file default it inherited. Never restart
-          // language — a selection needs none.
-          <span data-testid="model-select-source" className="text-xs text-muted-foreground">
-            {sourceNotice(role)}
-          </span>
-        )}
-
-        {stale !== null && (
-          <span data-testid="model-select-stale" className="text-xs text-muted-foreground">
-            {stale}
-          </span>
-        )}
-
-        {refusal !== undefined && (
-          // In place, under the select, with the rule first — never a toast
-          // (EXPERIENCE.md § Refusal box).
-          <span
-            role="alert"
-            data-testid="model-select-refusal"
-            className="rounded-md border border-destructive/40 p-2 text-xs text-destructive"
-          >
-            {refusal}
-          </span>
-        )}
-      </span>
+      {!compact && noticesLayer}
     </span>
   )
 }
