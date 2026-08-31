@@ -406,6 +406,15 @@ def test_the_route_documents_the_runtime_422_problem_contract(client) -> None:
     }
 
 
+def test_nullable_attribution_fields_are_required_by_the_schema(client) -> None:
+    """One shape means explicit nulls, not fields a generated client may omit."""
+    schema = client.app.openapi()["components"]["schemas"]["SpeakerTag"]
+
+    assert {"participantId", "displayName"} <= set(schema["required"])
+    for field in ("participantId", "displayName"):
+        assert {"type": "null"} in schema["properties"][field]["anyOf"]
+
+
 def test_the_route_is_registered_by_discovery_alone(client) -> None:
     """Adding the endpoint was adding a file: `api/main.py` is untouched and
     the registry (story 2.8) finds and serves the route."""

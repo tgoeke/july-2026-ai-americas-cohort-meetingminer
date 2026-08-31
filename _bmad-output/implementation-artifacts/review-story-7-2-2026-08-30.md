@@ -35,4 +35,7 @@ decisions in the handoff.
   fields (no default), add an OpenAPI contract assertion that they are required
   and nullable, then regenerate the TypeScript client so both properties lose
   the optional marker while retaining `| null`.
-- **Disposition:** Patchable in the review lane; fix pending.
+- **Disposition:** Fixed in the review lane. The new schema assertion was
+  observed failing against the unfixed model, then passed after the fields were
+  made required nullable; all 17 speaker-route tests and the web production
+  build passed after client regeneration.

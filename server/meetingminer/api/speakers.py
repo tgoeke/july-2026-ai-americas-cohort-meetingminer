@@ -126,8 +126,8 @@ class SpeakerTag(BaseModel):
     # One of `pipeline/speakers.RESOLUTIONS` — resolved, unresolved,
     # ambiguous, placeholder — as the column's CHECK constrains it.
     speaker_resolution: str
-    participant_id: UUID | None = None
-    display_name: str | None = None
+    participant_id: UUID | None
+    display_name: str | None
     # Summed `end_ms - start_ms` over this tag's segments. Wall-clock talk
     # time as the transcript timed it, not a speaking-rate estimate.
     talk_time_ms: int

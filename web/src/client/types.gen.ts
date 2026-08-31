@@ -1799,11 +1799,11 @@ export type SpeakerTag = {
     /**
      * Participantid
      */
-    participantId?: string | null;
+    participantId: string | null;
     /**
      * Displayname
      */
-    displayName?: string | null;
+    displayName: string | null;
     /**
      * Talktimems
      */
