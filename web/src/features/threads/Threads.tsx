@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { useOpenPath } from '@/routes/navigation'
-import { ThreadList, type ThreadSort } from './ThreadList'
+import { sortThreads, ThreadList, type ThreadSort } from './ThreadList'
 import { TimelineCanvas } from './TimelineCanvas'
 import './threads.css'
 import {
   cacheKey,
   fetchSpan,
   fitView,
+  TIER_MIN_SCALE,
   tierForScale,
   visibleSpan,
   type Span,
@@ -42,6 +43,8 @@ import { useTimelineView } from './useTimelineView'
 /** The tier currently drawn, with the data that drew it. */
 interface Drawn {
   tier: Tier
+  /** Fine-tier payloads stay paired with the thread that supplied them. */
+  threadId: string | null
   /** The anchor the layer's `--t` values are relative to. */
   epochMs: number
   bands: Record<string, Array<BandBucket>> | null
@@ -67,11 +70,14 @@ export function Threads() {
   const [drawn, setDrawn] = useState<Drawn | null>(null)
   const [pending, setPending] = useState(false)
   const [tierFailure, setTierFailure] = useState<ThreadsFailure | null>(null)
+  const [retryVersion, setRetryVersion] = useState(0)
 
   const corpusSpan = useMemo<Span | null>(() => corpusSpanOf(threads), [threads])
 
   const view = useTimelineView(
-    corpusSpan === null ? { from: Date.now(), scale: 7_200_000 } : fitView(corpusSpan, 1000),
+    corpusSpan === null
+      ? { from: Date.now(), scale: TIER_MIN_SCALE.bands }
+      : fitView(corpusSpan, 1000, TIER_MIN_SCALE.bands),
     drawn?.epochMs ?? 0,
   )
 
@@ -84,7 +90,11 @@ export function Threads() {
   const cacheRef = useRef(new Map<string, Drawn>())
   const generationRef = useRef(0)
   const requestedKeyRef = useRef<string | null>(null)
-  const meetingsRef = useRef<Array<TimelineMeeting> | null>(null)
+  const meetingsRef = useRef(new Map<string, Array<TimelineMeeting>>())
+
+  useEffect(() => {
+    setFocusedThreadId(routeThreadId ?? null)
+  }, [routeThreadId])
 
   // --- the thread list ------------------------------------------------------
 
@@ -108,7 +118,7 @@ export function Threads() {
   useEffect(() => {
     if (corpusSpan === null || fittedRef.current) return
     fittedRef.current = true
-    view.fitTo(corpusSpan)
+    view.fitTo(corpusSpan, TIER_MIN_SCALE.bands)
   }, [corpusSpan, view])
 
   // --- the tier fetch -------------------------------------------------------
@@ -127,19 +137,24 @@ export function Threads() {
   }, [threads, tier, focusedThreadId, view.view, view.width])
 
   useEffect(() => {
-    if (wanted === null) return
+    const generation = generationRef.current + 1
+    generationRef.current = generation
+    if (wanted === null) {
+      requestedKeyRef.current = null
+      setPending(false)
+      return
+    }
     if (requestedKeyRef.current === wanted.key) return
 
     const cached = cacheRef.current.get(wanted.key)
     if (cached !== undefined) {
       requestedKeyRef.current = wanted.key
       setDrawn(cached)
+      setTierFailure(null)
       setPending(false)
       return
     }
 
-    const generation = generationRef.current + 1
-    generationRef.current = generation
     requestedKeyRef.current = wanted.key
     setPending(true)
 
@@ -158,7 +173,7 @@ export function Threads() {
         // Asynchronous ownership: a response may only touch visible state when
         // its generation is still the current one. A late success is discarded
         // exactly as a late failure is.
-        if (generationRef.current !== generation) return
+        if (generationRef.current !== generation || requestedKeyRef.current !== wanted.key) return
         const failed = results.find((r) => r.error !== undefined)
         if (failed?.error !== undefined) {
           setPending(false)
@@ -184,7 +199,7 @@ export function Threads() {
       clearTimeout(timer)
       controller.abort()
     }
-  }, [wanted, tier])
+  }, [wanted, tier, retryVersion])
 
   // --- interaction ----------------------------------------------------------
 
@@ -207,7 +222,7 @@ export function Threads() {
   )
 
   const fitAll = useCallback(() => {
-    if (corpusSpan !== null) view.fitTo(corpusSpan)
+    if (corpusSpan !== null) view.fitTo(corpusSpan, TIER_MIN_SCALE.bands)
   }, [corpusSpan, view])
 
   const focusThread = useCallback((threadId: string) => {
@@ -224,6 +239,7 @@ export function Threads() {
   const retry = useCallback(() => {
     setTierFailure(null)
     requestedKeyRef.current = null
+    setRetryVersion((version) => version + 1)
   }, [])
 
   // Activity means mentions *in the visible window*, which only the bands tier
@@ -239,6 +255,13 @@ export function Threads() {
     }
     return out
   }, [drawn, view.view, view.width])
+
+  const orderedThreads = useMemo(
+    () => sortThreads(threads ?? [], sort, activity),
+    [threads, sort, activity],
+  )
+
+  const displayedThreadId = drawn?.tier === 'bands' ? focusedThreadId : (drawn?.threadId ?? null)
 
   if (listFailure !== null) {
     return (
@@ -289,7 +312,7 @@ export function Threads() {
       <h1 className="text-3xl font-semibold tracking-tight">Threads</h1>
       <div className="mt-8 flex flex-col gap-8 md:flex-row">
         <ThreadList
-          threads={threads}
+          threads={orderedThreads}
           query={query}
           onQueryChange={setQuery}
           sort={sort}
@@ -305,8 +328,8 @@ export function Threads() {
             width={view.width}
             epochMs={drawn?.epochMs ?? 0}
             rootRef={view.rootRef}
-            threads={threads}
-            focusedThreadId={focusedThreadId}
+            threads={orderedThreads}
+            focusedThreadId={displayedThreadId}
             bands={drawn?.bands ?? null}
             meetings={drawn?.meetings ?? null}
             moments={drawn?.moments ?? null}
@@ -364,7 +387,7 @@ function drawnFrom(
   ids: Array<string>,
   results: Array<{ data?: TimelinePayload }>,
   span: Span,
-  meetingsRef: { current: Array<TimelineMeeting> | null },
+  meetingsRef: { current: Map<string, Array<TimelineMeeting>> },
 ): Drawn | null {
   const epochMs = Math.floor(span.from)
   if (tier === 'bands') {
@@ -373,23 +396,28 @@ function drawnFrom(
       const payload = result.data
       if (payload?.level === 'bands') bands[ids[i]] = payload.buckets
     })
-    return { tier, epochMs, bands, meetings: null, moments: null }
+    return { tier, threadId: null, epochMs, bands, meetings: null, moments: null }
   }
   if (tier === 'meetings') {
     const payload = results[0]?.data
     if (payload?.level !== 'meetings') return null
-    meetingsRef.current = payload.meetings
-    return { tier, epochMs, bands: null, meetings: payload.meetings, moments: null }
+    const threadId = ids[0]
+    if (threadId === undefined) return null
+    meetingsRef.current.set(threadId, payload.meetings)
+    return { tier, threadId, epochMs, bands: null, meetings: payload.meetings, moments: null }
   }
   const payload = results[0]?.data
   if (payload?.level !== 'moments') return null
+  const threadId = ids[0]
+  if (threadId === undefined) return null
   return {
     tier,
+    threadId,
     epochMs,
     bands: null,
     // The brackets are the meetings the meetings tier already served — real
     // rows, not spans reconstructed from the moments inside them.
-    meetings: meetingsRef.current,
+    meetings: meetingsRef.current.get(threadId) ?? null,
     moments: payload.moments,
   }
 }

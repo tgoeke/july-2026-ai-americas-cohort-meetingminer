@@ -160,14 +160,14 @@ export function clampScale(scale: number): number {
  * mention) would divide to a zero scale, so it is widened to a minute either
  * side before the division — a fit must always produce a drawable window.
  */
-export function fitView(span: Span, width: number): View {
+export function fitView(span: Span, width: number, minimumScale = MIN_SCALE): View {
   const usable = width > 0 ? width : 1
   let { from, to } = span
   if (!(to > from)) {
     from -= 60_000
     to += 60_000
   }
-  const scale = clampScale((to - from) / usable)
+  const scale = Math.max(minimumScale, clampScale((to - from) / usable))
   // Centred on the span's midpoint rather than anchored at its left edge. For a
   // span that fits, the two are the same number; for one so short that the
   // scale clamps at the evidence threshold, only centring puts the thing the

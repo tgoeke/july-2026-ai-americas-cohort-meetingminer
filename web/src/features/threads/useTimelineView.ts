@@ -51,7 +51,7 @@ export interface TimelineViewApi {
   /** Pan by a pixel delta (a drag, or a wheel's horizontal component). */
   panPixels: (dx: number) => void
   /** Zoom and pan so `span` fills the canvas. */
-  fitTo: (span: Span) => void
+  fitTo: (span: Span, minimumScale?: number) => void
 }
 
 function prefersReducedMotion(): boolean {
@@ -187,9 +187,9 @@ export function useTimelineView(initial: View, epochMs: number): TimelineViewApi
   }, [])
 
   const fitTo = useCallback(
-    (span: Span) => {
+    (span: Span, minimumScale?: number) => {
       setView(() => {
-        const fitted = fitView(span, width)
+        const fitted = fitView(span, width, minimumScale)
         return { from: fitted.from, scale: clampScale(fitted.scale) }
       })
     },

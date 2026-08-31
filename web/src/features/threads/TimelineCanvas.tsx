@@ -57,6 +57,8 @@ export interface Cell {
   count: number
   /** Set on a moments-tier cell that stands for exactly one moment. */
   momentId?: string
+  /** Set on a cluster so its visible and accessible content names its members. */
+  momentIds?: Array<string>
 }
 
 export interface TimelineCanvasProps {
@@ -437,20 +439,11 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
           <AxisRow view={view} width={width} epochMs={epochMs} />
 
           {activeCell !== null ? (
-            <>
-              <div
-                aria-hidden="true"
-                className="mm-at mm-cursor-line"
-                style={atStyle(midOf(activeCell.span), epochMs)}
-              />
-              <div
-                role="tooltip"
-                className="mm-at z-20 -translate-x-1/2 rounded-md border bg-popover px-2 py-1 text-[11px]"
-                style={{ ...atStyle(midOf(activeCell.span), epochMs), top: 24 }}
-              >
-                {activeCell.label}
-              </div>
-            </>
+            <div
+              aria-hidden="true"
+              className="mm-at mm-cursor-line"
+              style={atStyle(midOf(activeCell.span), epochMs)}
+            />
           ) : null}
 
           <div key={tier} className="mm-layer">
@@ -794,6 +787,12 @@ function MomentsTier(props: {
           ) : null}
           {rowCells.map((cell) => {
             const moment = cell.momentId === undefined ? null : (byId.get(cell.momentId) ?? null)
+            const clusteredMoments = (cell.momentIds ?? [])
+              .map((id) => byId.get(id))
+              .filter((item): item is TimelineMoment => item !== undefined)
+            const clusterSpeakers = Array.from(
+              new Set(clusteredMoments.flatMap((item) => item.speakers)),
+            )
             return (
               <div
                 key={cell.id}
@@ -820,9 +819,15 @@ function MomentsTier(props: {
                   <span className="block text-[11px] leading-tight">
                     {moment === null ? `${cell.count} moments` : moment.title}
                   </span>
-                  {moment !== null ? (
+                  {moment !== null || clusteredMoments.length > 0 ? (
                     <span className="block text-[10px] text-muted-foreground">
-                      {moment.speakers.length > 0 ? moment.speakers.join(', ') : 'speaker unknown'}
+                      {moment !== null
+                        ? moment.speakers.length > 0
+                          ? moment.speakers.join(', ')
+                          : 'speaker unknown'
+                        : clusterSpeakers.length > 0
+                          ? clusterSpeakers.join(', ')
+                          : 'speaker unknown'}
                     </span>
                   ) : null}
                 </button>
@@ -952,9 +957,10 @@ function momentRows(
         rowIndex: 0,
         threadId: focusedThread.threadId,
         span,
-        label: `${entry.items.length} moments, ${offsetLabel(entry.items[0].startMs)} to ${offsetLabel(entry.items[entry.items.length - 1].startMs)}`,
+        label: `${entry.items.length} moments, ${offsetLabel(entry.items[0].startMs)} to ${offsetLabel(entry.items[entry.items.length - 1].startMs)}: ${entry.items.map((item) => item.title).join('; ')}`,
         kind: 'cluster' as const,
         count: entry.items.length,
+        momentIds: entry.items.map((item) => item.momentId),
       }
     }),
   ]
