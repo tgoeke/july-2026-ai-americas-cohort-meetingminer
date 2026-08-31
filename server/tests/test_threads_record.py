@@ -472,8 +472,12 @@ def test_an_earlier_embedding_linked_backfill_keeps_the_existing_thread_id(
             " WHERE topic_id = ANY(%s) ORDER BY topic_id",
             ([original_topic, backfilled_topic],),
         ).fetchall()
+        identity_key = conn.execute(
+            "SELECT identity_key FROM thread WHERE id = %s", (original_thread,)
+        ).fetchone()[0]
 
     assert {row[1] for row in memberships} == {original_thread}
+    assert identity_key == "purchase order approvals"
 
 
 def test_replace_all_topic_rerun_keeps_an_unchanged_singleton_thread_id(
