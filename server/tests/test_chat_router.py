@@ -16,6 +16,7 @@ import pytest
 
 from meetingminer.api.chat_router import (
     CLASSIFIER_VALUE_MAX_LENGTH,
+    DEFERRED_TEMPLATES,
     FALLBACK_REASONS,
     TEMPLATE_ANCHORS,
     build_classifier_prompt,
@@ -39,12 +40,34 @@ SCREEN = {
 # --- the registry and the anchor map stay in step -------------------------
 
 
-def test_every_registered_template_declares_its_anchors() -> None:
+def test_every_registered_template_is_either_routable_or_declared_deferred() -> None:
     """3.2 owns the registry; this router owns the natural-language anchors for
-    it. A template added there without anchors here would be a template the
+    it. A template added there and left out of both maps here would be one the
     classifier could name and the code could never dispatch — so it fails here
-    rather than in a request."""
-    assert set(TEMPLATE_ANCHORS) == set(TRAVERSAL_TEMPLATES)
+    rather than in a request.
+
+    Two maps rather than one since story 10.2: `thread-timeline` is registered
+    but returns a result shape `chat.py` cannot read yet, so it is deliberately
+    unroutable until 10.2b adapts the orchestrator. Deferring is a declaration,
+    not an omission, and the tripwire still catches the omission.
+    """
+    assert set(TEMPLATE_ANCHORS) | set(DEFERRED_TEMPLATES) == set(TRAVERSAL_TEMPLATES)
+    assert not set(TEMPLATE_ANCHORS) & set(DEFERRED_TEMPLATES), (
+        "a template cannot be both routable and deferred"
+    )
+    assert all(reason.strip() for reason in DEFERRED_TEMPLATES.values()), (
+        "every deferred template names the story that will make it routable"
+    )
+
+
+def test_a_deferred_template_degrades_to_search_only_rather_than_dispatching() -> None:
+    """The behaviour the deferral rests on: a model that names a deferred
+    template must reach the search-only route, never `_traversal_leg` — which
+    would read `result.rows` off a shape that has none."""
+    for name in DEFERRED_TEMPLATES:
+        decision = parse_route(json.dumps({"template": name, "searchTerms": "vendor feed"}))
+        assert decision.template is None, name
+        assert decision.fallback_reason in FALLBACK_REASONS
 
 
 def test_each_anchor_map_covers_exactly_its_templates_cypher_parameters() -> None:
@@ -53,10 +76,14 @@ def test_each_anchor_map_covers_exactly_its_templates_cypher_parameters() -> Non
         assert keywords == set(TRAVERSAL_TEMPLATES[name].parameters), name
 
 
-def test_the_prompt_names_every_registered_template_and_carries_the_question() -> None:
+def test_the_prompt_names_every_routable_template_and_carries_the_question() -> None:
     prompt = build_classifier_prompt("  did I explain this to Clarence?  ")
-    for name in TRAVERSAL_TEMPLATES:
+    for name in TEMPLATE_ANCHORS:
         assert name in prompt
+    # And offers none the code would refuse: naming a deferred template in the
+    # prompt would invite exactly the classification `parse_route` throws away.
+    for name in DEFERRED_TEMPLATES:
+        assert name not in prompt
     assert "did I explain this to Clarence?" in prompt
     # The braces of the example JSON survived `str.format`.
     assert '{"template"' in prompt

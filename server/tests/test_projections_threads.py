@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import dataclasses
 from datetime import datetime, timedelta, timezone
-from typing import Any, Sequence
+from typing import Any, Self, Sequence
 from uuid import UUID, uuid4
 
 import neo4j.exceptions
@@ -63,10 +63,10 @@ class _CannedDriver:
     def __init__(self, records: Sequence[dict[str, Any]]) -> None:
         self._records = list(records)
 
-    def session(self) -> "_CannedDriver":
+    def session(self) -> Self:
         return self
 
-    def __enter__(self) -> "_CannedDriver":
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *_exc: object) -> None:
@@ -85,10 +85,10 @@ class _CannedRecord:
 
 
 class _DownDriver:
-    def session(self) -> "_DownDriver":
+    def session(self) -> Self:
         return self
 
-    def __enter__(self) -> "_DownDriver":
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *_exc: object) -> None:
@@ -102,7 +102,7 @@ class _UntouchableDriver:
     """Any use at all is a test failure — for the refusals that must happen
     before the store is reached."""
 
-    def session(self) -> "_UntouchableDriver":
+    def session(self) -> Self:
         raise AssertionError("the store must not be touched for this input")
 
 

@@ -32,12 +32,14 @@ from typing import Any, Mapping
 from meetingminer.projections.traversals import (
     PARTICIPANT_TOPIC_MOMENTS,
     SCREEN_HISTORY,
+    THREAD_TIMELINE,
     TRAVERSAL_TEMPLATES,
 )
 
 __all__ = [
     "CLASSIFIER_VALUE_MAX_LENGTH",
     "CLASSIFIER_PROMPT",
+    "DEFERRED_TEMPLATES",
     "FALLBACK_REASONS",
     "RouteDecision",
     "TEMPLATE_ANCHORS",
@@ -70,14 +72,34 @@ class TemplateAnchors:
         return tuple(self.resolved) + tuple(self.literal)
 
 
-# One entry per registered traversal (`test_chat_router.py` asserts the two
-# mappings stay in step, so 3.2's registry cannot grow a template this router
-# would silently never dispatch).
+# One entry per *routable* registered traversal (`test_chat_router.py` asserts
+# that these anchors and `DEFERRED_TEMPLATES` together cover the whole registry,
+# so 3.2's registry cannot grow a template this router would silently never
+# dispatch).
 TEMPLATE_ANCHORS: Mapping[str, TemplateAnchors] = {
     SCREEN_HISTORY: TemplateAnchors(resolved={"screen": "screen_id"}),
     PARTICIPANT_TOPIC_MOMENTS: TemplateAnchors(
         resolved={"participant": "participant_id"}, literal={"topic": "topic"}
     ),
+}
+
+# Registered traversals this router deliberately does not classify onto yet,
+# each naming the story that will make it routable. Declared rather than merely
+# absent, so "the registry grew a template and nobody wired it" and "the
+# registry grew a template we chose not to wire yet" stay different facts and
+# the coverage test keeps catching the first.
+#
+# `thread-timeline` (story 10.2) returns a `ThreadTimelineResult` — meetings
+# carrying per-level aggregates — where `_traversal_leg` in `chat.py` reads
+# `result.rows` and `result.screen`/`result.participant`. Giving it anchors
+# today would let the classifier route a question onto a shape the orchestrator
+# cannot read, turning a chat request into an AttributeError. Story 10.2b
+# ("Thread Questions in Chat") is the story that adapts the orchestrator and
+# adds the anchors. Until it lands, a model that names this template falls
+# through `parse_route`'s registry check onto the search-only route — the
+# module's designed degradation, not a new failure mode.
+DEFERRED_TEMPLATES: Mapping[str, str] = {
+    THREAD_TIMELINE: "story 10.2b — Thread Questions in Chat",
 }
 
 # Why a reply produced no template. Logged on every classification, so "the
