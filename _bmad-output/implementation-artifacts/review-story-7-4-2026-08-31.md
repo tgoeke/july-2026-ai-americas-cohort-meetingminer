@@ -25,3 +25,12 @@ Adversarial review of the Story 7.4 web implementation, with emphasis on unsettl
 - **Evidence:** Commit `7d8d93e` rules that the read must receive the same narrow, route-local recovery exception while drilldown and unrelated operations remain gated. The route still returns `meeting-not-viewable`, and `test_only_speaker_put_bypasses_the_failed_evidence_gate` currently asserts that obsolete 409 for the speakers read.
 - **Suggested direction:** Red-first, change the failed-rerun boundary test to require a successful speakers response with the meeting's tags while retaining 409 for drilldown/moments and unrelated writes; implement the exception locally in the speakers read without changing `_require_viewable`.
 - **Red/green evidence:** The revised boundary test first failed with `409 meeting-not-viewable`; after the route-local exception it passed. The adjacent fast API suites passed: 45 passed, 6 slow tests deselected.
+
+### F2 — `job.done` cannot prove that extraction landed
+
+- **Location:** `web/src/features/speakers/speakers.ts:342`; `server/meetingminer/api/events.py:235`; `server/meetingminer/domain/jobs.py:120`; `_bmad-output/implementation-artifacts/spec-7-4-speaker-naming-ui.md:74`
+- **Severity:** High
+- **Status:** Open — frozen-spec/owner decision required; not patched
+- **Finding:** `applyJobEvent()` treats `job.done` as completion of every re-armed stage, including `extract`, and `landedSentence()` then states that extractions now carry the name. The wire deliberately emits `job.done` when evidence through `moments` becomes complete; `extract` is explicitly outside `EVIDENCE_STAGES` and may still be queued or running.
+- **Evidence:** `_done_event()` contains no stage completion data and fires from `snapshot.complete`; `EVIDENCE_STAGES` ends at `moments`. The event stream also regards evidence-complete jobs as settled and may close after that transition. The frozen Story 7.4 matrix nevertheless defines `job.done` as the rerun-landed trigger and requires a sentence claiming extraction completed, so the implementation follows an internally incompatible contract.
+- **Suggested direction:** Owner must amend one side of the contract: either provide a wire signal/status read that proves all `rearmedStages` (including `extract`) settled and make the UI wait for it, or narrow the landed claim to what `job.done` actually proves. Do not silently reinterpret `job.done` in the client.
