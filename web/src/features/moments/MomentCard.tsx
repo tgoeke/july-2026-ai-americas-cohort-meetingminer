@@ -271,7 +271,16 @@ export function MomentCard({
           “{item.preview.trim()}”
         </p>
       )}
-      <div className="mt-auto flex flex-wrap items-center gap-2">
+      <div
+        className={cn(
+          'flex flex-wrap items-center gap-2',
+          // Collapsed, the action row is bottom-aligned so a row of cards with
+          // excerpts of different lengths keeps its Replay buttons on one line.
+          // Expanded, the card is as tall as the player beside it, and the
+          // same rule would strand the actions a screen below the excerpt.
+          expanded ? 'mt-1' : 'mt-auto',
+        )}
+      >
         {affordance.kind === 'replay' && (
           <Button
             size="sm"
