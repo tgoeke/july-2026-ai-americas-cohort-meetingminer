@@ -200,18 +200,38 @@ describe('filterEmptySentence', () => {
 
 describe('threadPaletteOf', () => {
   it('maps ordinals 1–8 onto the eight hues at lap 1', () => {
-    expect(threadPaletteOf(1)).toEqual({ hue: 1, lap: 1, cssVar: '--thread-1-band' })
-    expect(threadPaletteOf(8)).toEqual({ hue: 8, lap: 1, cssVar: '--thread-8-band' })
+    expect(threadPaletteOf(1)).toEqual({
+      hue: 1,
+      lap: 1,
+      textCssVar: '--thread-1-band',
+      swatchCssVar: '--thread-1-band',
+    })
+    expect(threadPaletteOf(8)).toEqual({
+      hue: 8,
+      lap: 1,
+      textCssVar: '--thread-8-band',
+      swatchCssVar: '--thread-8-band',
+    })
   })
 
   it('maps 9–16 onto the same hues at lap 2', () => {
-    expect(threadPaletteOf(9)).toEqual({ hue: 1, lap: 2, cssVar: '--thread-1-band-lap2' })
-    expect(threadPaletteOf(16)).toEqual({ hue: 8, lap: 2, cssVar: '--thread-8-band-lap2' })
+    expect(threadPaletteOf(9)).toEqual({
+      hue: 1,
+      lap: 2,
+      textCssVar: '--thread-1-band',
+      swatchCssVar: '--thread-1-band-lap2',
+    })
+    expect(threadPaletteOf(16)).toEqual({
+      hue: 8,
+      lap: 2,
+      textCssVar: '--thread-8-band',
+      swatchCssVar: '--thread-8-band-lap2',
+    })
   })
 
   it('goes grey past the palette rather than recycling a hue', () => {
     for (const ordinal of [17, 40, 0, -1, 2.5]) {
-      expect(threadPaletteOf(ordinal).cssVar).toBe('--thread-beyond-band')
+      expect(threadPaletteOf(ordinal).textCssVar).toBe('--thread-beyond-band')
       expect(threadPaletteOf(ordinal).hue).toBeNull()
     }
   })
@@ -220,7 +240,7 @@ describe('threadPaletteOf', () => {
     // The api owns identity; the client owns only this mapping. A thread that
     // sorts differently must keep its hue.
     expect(threadPaletteOf(3)).toEqual(threadPaletteOf(3))
-    expect(threadPaletteOf(3).cssVar).not.toBe(threadPaletteOf(4).cssVar)
+    expect(threadPaletteOf(3).textCssVar).not.toBe(threadPaletteOf(4).textCssVar)
   })
 })
 

@@ -74,7 +74,7 @@ function ThreadChip({ thread, onOpen }: { thread: FeedThread; onOpen: () => void
       data-testid={`thread-chip-${thread.threadId}`}
       aria-label={threadChipName(thread)}
       className="inline-flex min-h-6 cursor-pointer items-center rounded-full border px-2 py-0.5 text-xs"
-      style={{ color: `var(${palette.cssVar})`, borderColor: 'currentColor' }}
+      style={{ color: `var(${palette.textCssVar})`, borderColor: 'currentColor' }}
     >
       <span aria-hidden="true">#</span>
       {thread.name}
@@ -85,6 +85,7 @@ function ThreadChip({ thread, onOpen }: { thread: FeedThread; onOpen: () => void
           aria-hidden="true"
           data-testid={`thread-lap2-${thread.threadId}`}
           className="ml-1.5 h-3 w-1.5 rounded-[1px] bg-[repeating-linear-gradient(135deg,currentColor_0_3px,transparent_3px_7px)]"
+          style={{ color: `var(${palette.swatchCssVar})` }}
         />
       )}
     </button>
