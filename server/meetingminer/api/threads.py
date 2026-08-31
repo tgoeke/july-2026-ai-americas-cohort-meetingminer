@@ -49,7 +49,7 @@ other by test.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, get_args
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
@@ -408,19 +408,19 @@ class _TimelineEnvelope(_Camel):
 
 
 class BandsTimeline(_TimelineEnvelope):
-    level: Literal["bands"] = "bands"
+    level: Literal["bands"]
     bucket_ms: int | None = None
     bucket_count: int
     bands: list[TimelineBand]
 
 
 class MeetingsTimeline(_TimelineEnvelope):
-    level: Literal["meetings"] = "meetings"
+    level: Literal["meetings"]
     meetings: list[TimelineMeeting]
 
 
 class MomentsTimeline(_TimelineEnvelope):
-    level: Literal["moments"] = "moments"
+    level: Literal["moments"]
     # True when the window holds more moments than `MOMENT_LEVEL_LIMIT`.
     # Reported rather than silent: a short list must be distinguishable from a
     # complete one.
@@ -429,7 +429,7 @@ class MomentsTimeline(_TimelineEnvelope):
 
 
 class EvidenceTimeline(_TimelineEnvelope):
-    level: Literal["evidence"] = "evidence"
+    level: Literal["evidence"]
     truncated: bool
     evidence: list[TimelineEvidence]
 
@@ -614,12 +614,18 @@ def _empty_timeline(
         "moment_count": 0,
     }
     if level == "bands":
-        return BandsTimeline(**envelope, bucket_ms=None, bucket_count=0, bands=[])
+        return BandsTimeline(
+            **envelope, level="bands", bucket_ms=None, bucket_count=0, bands=[]
+        )
     if level == "meetings":
-        return MeetingsTimeline(**envelope, meetings=[])
+        return MeetingsTimeline(**envelope, level="meetings", meetings=[])
     if level == "moments":
-        return MomentsTimeline(**envelope, truncated=False, moments=[])
-    return EvidenceTimeline(**envelope, truncated=False, evidence=[])
+        return MomentsTimeline(
+            **envelope, level="moments", truncated=False, moments=[]
+        )
+    return EvidenceTimeline(
+        **envelope, level="evidence", truncated=False, evidence=[]
+    )
 
 
 def _bands(
@@ -661,7 +667,11 @@ def _bands(
             )
         )
     return BandsTimeline(
-        **envelope, bucket_ms=bucket_ms, bucket_count=bucket_count, bands=bands
+        **envelope,
+        level="bands",
+        bucket_ms=bucket_ms,
+        bucket_count=bucket_count,
+        bands=bands,
     )
 
 
@@ -695,7 +705,7 @@ def _meetings(
             last_at,
         ) in rows
     ]
-    return MeetingsTimeline(**envelope, meetings=meetings)
+    return MeetingsTimeline(**envelope, level="meetings", meetings=meetings)
 
 
 def _fine(
@@ -744,6 +754,7 @@ def _fine(
     if level == "moments":
         return MomentsTimeline(
             **envelope,
+            level="moments",
             truncated=truncated,
             moments=[TimelineMoment(**item) for item in base],
         )
@@ -770,14 +781,16 @@ def _fine(
         )
         for item in base
     ]
-    return EvidenceTimeline(**envelope, truncated=truncated, evidence=evidence)
+    return EvidenceTimeline(
+        **envelope, level="evidence", truncated=truncated, evidence=evidence
+    )
 
 
 # A hard check rather than an `assert` (`python -O` strips asserts): the
 # discriminated union and the level vocabulary must name the same four tiers,
 # or a level the domain declares would have no response model to serve it.
 _UNION_LEVELS = tuple(
-    model.model_fields["level"].default
+    get_args(model.model_fields["level"].annotation)[0]
     for model in (BandsTimeline, MeetingsTimeline, MomentsTimeline, EvidenceTimeline)
 )
 if _UNION_LEVELS != LEVELS:
