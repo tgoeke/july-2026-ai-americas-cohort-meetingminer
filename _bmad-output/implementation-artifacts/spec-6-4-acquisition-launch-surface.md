@@ -39,37 +39,6 @@ deferred:
       server/meetingminer/api/acquisitions.py - probe_acquisition
     severity: medium
   - summary: >-
-      A config failure inside the detached child is explained only by the log.
-    evidence: |-
-      The child resolves its own `AppConfig` through
-      `mintdrop._load_cli_config()`, because an `AppConfig` cannot cross a
-      process boundary. Until that call returns there is no
-      `.logs/acquisitions` path to write to, so a `ConfigError` at child start
-      prints to stderr - which is the acquisition's log - and exits 1, leaving
-      the record `queued` with a pid that is no longer alive. Every other
-      failure path carries `refusal` as fields; this one does not, which is
-      the single exception to "the log tail is never the source for why".
-      A later story could pass the resolved status-file path on the command
-      line, or the status route could report a `queued` record whose pid is
-      dead as abandoned.
-    location: >-
-      server/meetingminer/acquisitions.py - main()
-    severity: medium
-  - summary: >-
-      A path-traversal acquisition id answers 404, not the matrix's 422.
-    evidence: |-
-      `GET /acquisitions/..%2F..%2Fetc%2Fpasswd` is refused one step earlier
-      than the I/O matrix predicted: the ASGI scope carries the *decoded*
-      path, so the `{acquisition_id}` segment pattern (`[^/]+`) matches
-      nothing and no route is reached at all. The substance the matrix row
-      asserts holds - problem+json, and nothing read - and a non-UUID segment
-      with no separators (`not-a-uuid`) is the 422 the matrix names. Recorded
-      because the row's literal status differs from what ships;
-      `test_a_path_that_is_not_a_uuid_never_becomes_a_filename` pins both.
-    location: >-
-      server/tests/test_api_acquisitions.py
-    severity: low
-  - summary: >-
       Nothing reaps or cancels a status file, and nothing lists them.
     evidence: |-
       `.logs/acquisitions/` grows by two files per acquisition forever. The
@@ -154,11 +123,11 @@ not start — recorded below as a named gap for integration).
 | Probe refusal, host | `yt-dlp` not on PATH | 503 problem, `rule:"tool-missing"` | Problem Details |
 | Probe side effects | any probe | no `.logs/acquisitions` entry, no mint, no download, no child process | Asserted by must-not-run stubs |
 | Status, unknown id | a well-formed UUID with no file | 404 problem | Problem Details |
-| Status, non-UUID id | `/acquisitions/..%2F..%2Fetc%2Fpasswd` | 422 from path validation; nothing read | Problem Details |
+| Status, non-UUID id | `/acquisitions/not-a-uuid`; encoded-separator traversal such as `/acquisitions/..%2F..%2Fetc%2Fpasswd` | Plain non-UUID segment: 422 from UUID path validation. Encoded separator: 404 before the route matches. Nothing read in either case | Problem Details |
 | Status, posted/created | runner wrote `posted`, `result:"created"`, a job id whose meeting row exists | `meetingId` resolved from Postgres; `source` carried from provenance | No error expected |
 | Status, posted/exists | drop already minted | `result:"exists"`, existing `jobId`/`meetingId`; runner made no yt-dlp call | No error expected |
 | Status, failed | runner refused | `refusal:{rule,detail,remediation}` present and correct **with an empty or missing log file** | No error expected |
-| Intake failed | drop finalized, `POST /ingests` unreachable | `failed`, `rule:"unclassified"` (6.2a's classifier), intake-specific remediation naming the re-POST command | No error expected |
+| Intake failed | drop finalized, `POST /ingests` unreachable | `failed`, `rule:"intake-failed"`, intake-specific remediation naming the re-POST command | No error expected |
 | Log tail | a log longer than the cap | last lines only, bounded bytes | No error expected |
 
 </intent-contract>
@@ -330,6 +299,22 @@ not start — recorded below as a named gap for integration).
     `read_record` id guard makes equivalent — defence in depth rather than
     uncovered behaviour. This is a deviation from the build prompt's stated
     discipline and is named here rather than in the report only.
+
+- **2026-08-30, coordinator footprint clarification.** The coordinator who
+  authored this story's footprint clarified that adding `intake-failed` to
+  `youtube.REFUSAL_RULES` is inside the intended footprint: the story must
+  reuse the existing closed vocabulary rather than invent a second one. The
+  intake regression was observed red first, then the existing classifier and
+  the exhaustive literal remediation/status tables were extended. This
+  supersedes the build-time `unclassified` choice above and is not recorded as
+  an owner decision.
+- **2026-08-30, owner-precedent matrix amendment.** Applied the owner's ruling
+  on Story 7.3 F-6: when a frozen matrix row disagrees with correct code, amend
+  the row and leave the code alone. The status-id row now names both refusal
+  points: 422 for a plain non-UUID segment and 404 for an encoded separator
+  rejected before route matching, with no file read in either case. One test
+  pins both. The owner has not reviewed this specific Story 6.4 row and may
+  reverse the application of that precedent.
 
 ## Review Triage Log
 
