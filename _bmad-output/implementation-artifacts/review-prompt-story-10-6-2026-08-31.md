@@ -27,7 +27,7 @@ every thread as a band across the corpus span and one continuous zoom carries
 the reader down through meetings to moments without changing screens.
 
 Footprint: `web/src/features/threads/` (all new) and an append to
-`docs/backlog.md` (B-41, B-42, B-43), which the build prompt authorises
+`docs/backlog.md` (B-44, B-45), which the build prompt authorises
 explicitly. Nothing else was touched.
 
 ## Where to push hardest
@@ -52,9 +52,13 @@ explicitly. Nothing else was touched.
    listed in the spec's Code Map. **If `story/10-3` has landed by the time you
    read this, reconcile against what it actually serves** — that is the single
    most likely thing to be wrong, and it is one file.
-5. **`Threads.route.tsx` may collide with story 10.5's placeholder.** Route
-   discovery is a Vite glob over `features/**/*.route.tsx`. Check whether 10.5
-   landed a `/threads` placeholder and that exactly one module claims the path.
+5. **Route ranking against story 10.5's placeholder.** 10.5 mounts a
+   `/threads/*` splat from its own `Threads.route.tsx`; this story adds
+   `ThreadsTimeline.route.tsx` (`/threads`) and `ThreadFocus.route.tsx`
+   (`/threads/:threadId`) beside it rather than editing 10.5's file. Confirm
+   react-router really does rank the literal and the param above the splat once
+   both branches are on one tree — that is a claim taken from 10.5's comment and
+   it has not been verified with both modules mounted together.
 6. **Accessibility floor.** `role="grid"` with the tier and window in its name;
    every cell's accessible name carries its own data; ≥ 24 × 24 hit areas via
    `.mm-hit` on drawn geometry that may be 3px wide; roving tabindex; the polite
@@ -67,7 +71,7 @@ explicitly. Nothing else was touched.
 
 ## Verification to reproduce
 
-`make test-fast` was green at `39ccfba`: ruff `All checks passed!`, mypy
+`make test-fast` was green at `39ccfba` and re-run after the route change: ruff `All checks passed!`, mypy
 `Success: no issues found in 13 source files`, vitest `353 passed (20 files)`,
 pytest `2173 passed, 3 skipped, 411 deselected in 103.27s` (the three skips are
 the standing named ones). `pnpm exec tsc -b --force` exits 0.
@@ -80,8 +84,8 @@ it**, and consider whether it should become a checked-in browser test.
 ## Deliberately not here
 
 The evidence tier and inline replay (story 10.6a), curation (10.2a), pins
-(B-42), `/threads/:threadId` (B-43), and a corpus-wide bands level (B-41). Do
-not build them; do check they were the right things to leave.
+(B-45) and a corpus-wide bands level (B-44). Do not build them; do check they
+were the right things to leave.
 
 ## Rules
 

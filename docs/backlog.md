@@ -761,3 +761,31 @@ semantics without a wire mechanism.
 
 **Done when:** one paging session has a documented stable-snapshot token and
 tests prove that ranking movement cannot repeat or skip candidates inside it.
+---
+
+### B-44 · The bands tier is one request per thread — S
+
+`GET /threads/{id}/timeline?level=bands` is per-thread, and the bands tier draws
+*every* thread, so opening the Threads screen issues one request per thread for
+the same window. Eleven threads is eleven requests; a corpus with sixty is
+sixty. They are issued together and the screen discards a stale generation as a
+unit, so correctness is unaffected and the measured cost at demo scale is not
+noticeable — but it is the wrong shape.
+
+The fix is a corpus-wide bands level: one call that returns buckets for every
+thread over one window, with the per-thread route kept for the entered thread's
+finer levels. That is an api change (story 10.3's surface), not a client one,
+which is why story 10.6 did not make it.
+
+### B-45 · Threads timeline has no pins — S
+
+`EXPERIENCE.md` · Semantic Zoom · Multi-thread specifies up to three threads
+pinned with `p`, kept at full-height bands while the others collapse, with the
+pins living in the URL. Story 10.6's acceptance criteria do not include it and
+it was not built.
+
+The client is ready for it: the tier-fetch cache key already takes a list of
+thread ids and sorts it, so pin membership is part of request identity the
+moment more than one id is passed (`timeline.ts` · `cacheKey`, tested). What is
+missing is the `p` handler, the URL parameter, and drawing more than one
+full-height band at the meetings and moments tiers.

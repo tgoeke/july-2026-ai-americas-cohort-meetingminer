@@ -81,11 +81,12 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function mount() {
+function mount(at = '/threads') {
   return render(
-    <MemoryRouter initialEntries={['/threads']}>
+    <MemoryRouter initialEntries={[at]}>
       <Routes>
         <Route path="/threads" element={<Threads />} />
+        <Route path="/threads/:threadId" element={<Threads />} />
         <Route path="/moments/:momentId" element={<p>moment view</p>} />
       </Routes>
     </MemoryRouter>,
@@ -354,5 +355,26 @@ describe('the timeline controls', () => {
     await user.click(screen.getByRole('button', { name: 'Fit (Home)' }))
     expect(viewOf().from).toBeCloseTo(opening.from, 6)
     expect(viewOf().scale).toBeCloseTo(opening.scale, 6)
+  })
+})
+
+describe('the deep link every thread chip points at', () => {
+  it('opens /threads/:threadId with that thread already entered', async () => {
+    mount(`/threads/${RETRIEVAL_SPLIT.threadId}`)
+    await screen.findByRole('gridcell', { name: /^retrieval split, 2026-03-01/ })
+    const list = screen.getByRole('complementary', { name: 'Threads' })
+    const entered = within(list)
+      .getAllByRole('listitem')
+      .find((li) => li.getAttribute('aria-current') === 'true')
+    expect(entered).toBeDefined()
+    expect(entered?.textContent).toContain('retrieval split')
+  })
+
+  it('says so when the id resolves to nothing, and offers the way back', async () => {
+    mount('/threads/th-merged-away')
+    expect(
+      await screen.findByText(/No thread has this id — it may have been merged away\./),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'All threads' })).toHaveAttribute('href', '/threads')
   })
 })
