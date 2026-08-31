@@ -7,7 +7,7 @@ import {
   type Failure,
   IN_PROGRESS_PROBLEM,
   failureOf,
-  isLive,
+  isKnownAcquisitionStatus,
   postedWordFor,
   probeSummary,
   refusalOfStatus,
@@ -186,11 +186,16 @@ export function AddMeeting({ onOpenMeeting, onNameSpeakers }: AddMeetingProps = 
     [],
   )
 
-  // Locked from Submit until the acquisition settles. `status === null` is the
-  // window between the 202 and the first poll — live, not idle.
+  // Locked from Submit until the acquisition explicitly settles. `status ===
+  // null` is the window between the 202 and first poll; an unknown served
+  // status is also nonterminal because only `posted | failed` may unlock.
   const locked =
-    submitting || (acquisitionId !== null && (status === null || isLive(status.status)))
+    submitting ||
+    (acquisitionId !== null &&
+      (status === null || (status.status !== 'posted' && status.status !== 'failed')))
   const posted = status?.status === 'posted'
+  const unknownStatus =
+    status !== null && !isKnownAcquisitionStatus(status.status) ? status.status : null
   const statusRefusal = status === null ? null : refusalOfStatus(status)
   const submitDisabled = locked || probeState.kind !== 'answered'
 
@@ -416,6 +421,22 @@ export function AddMeeting({ onOpenMeeting, onNameSpeakers }: AddMeetingProps = 
                   </Button>
                 }
               />
+            )}
+
+            {unknownStatus !== null && (
+              <div
+                data-testid="unknown-acquisition-status"
+                role="alert"
+                className="flex flex-col items-start gap-2 rounded-lg border border-fuchsia-700/50 bg-fuchsia-500/10 p-3 text-sm"
+              >
+                <p>
+                  The api reported an acquisition status this client does not recognize:{' '}
+                  <span className="font-mono">{unknownStatus}</span>.
+                </p>
+                <Button type="button" size="sm" variant="outline" onClick={retry}>
+                  Retry
+                </Button>
+              </div>
             )}
 
             {statusRefusal !== null && (

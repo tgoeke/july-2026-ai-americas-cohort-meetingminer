@@ -136,7 +136,7 @@ Date: 2026-08-31
 - **Finding** — If the api returns any status outside this client's four known values, polling stops, the running step is drawn as queued, and the URL field unlocks with no explanation. A state the client cannot interpret is therefore presented as if the acquisition were no longer active.
 - **Evidence** — The generated `AcquisitionStatus.status` is an open `string`. `useAcquisitionStatus` intentionally stops when `isLive` is false, including an unknown value; `locked` uses the same live-only predicate, and `stepperSteps` falls through to queued bars. This conflicts with AD-18's named-failure rule and with the existing ingestion-stage convention in `stageStyles.ts`, where unknown served values render loudly as `unknown` instead of being disguised. It also violates the frozen lock boundary: the form unlocks before a served `posted | failed` terminal state.
 - **Suggested direction** — Keep the form locked unless the served value is exactly `posted` or `failed`, render the raw unknown value with the existing visual `unknown` state and a named compatibility notice, and offer an explicit poll Retry rather than inferring a terminal outcome.
-- **Disposition** — confirmed; remediation in progress.
+- **Disposition** — fixed red-first. The regressions observed both an unlocked field and a queued-looking bar against the original handling. After remediation, only explicit `posted | failed` unlocks the form; an open-string status outside the known vocabulary renders fuchsia `unknown`, preserves its raw value in a compatibility alert, and offers Retry to read the acquisition again.
 
 ## Disposition
 

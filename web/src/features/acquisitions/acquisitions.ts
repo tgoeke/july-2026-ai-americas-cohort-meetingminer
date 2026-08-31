@@ -125,6 +125,12 @@ export interface Step {
 
 /** The acquisition statuses story 6.4 defines (`acquisitions.py:96`). */
 const LIVE = new Set(['queued', 'running'])
+const KNOWN = new Set(['queued', 'running', 'posted', 'failed'])
+
+/** True only for a state this client can interpret. The generated field is an open string. */
+export function isKnownAcquisitionStatus(status: string | null | undefined): boolean {
+  return status != null && KNOWN.has(status)
+}
 
 /** True while `GET /acquisitions/{id}` is still worth polling. */
 export function isLive(status: string | null | undefined): boolean {
@@ -156,12 +162,19 @@ export function stepperSteps(
 ): Array<Step> {
   const failed = status === 'failed'
   const posted = status === 'posted'
+  const unknown = status !== null && !isKnownAcquisitionStatus(status)
   return [
     { name: 'launch', label: 'launch', status: 'done' },
     {
       name: 'running',
-      label: 'running',
-      status: status === 'running' ? 'running' : posted || failed ? 'done' : 'queued',
+      label: unknown ? `running — unknown (${status})` : 'running',
+      status: unknown
+        ? 'unknown'
+        : status === 'running'
+          ? 'running'
+          : posted || failed
+            ? 'done'
+            : 'queued',
     },
     {
       name: 'posted',
