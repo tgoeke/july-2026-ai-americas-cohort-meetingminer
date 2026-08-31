@@ -45,6 +45,13 @@ BASELINE_ROUTER_ORDER = [
     "config_view",
     "extraction",
     "participants",
+    # Story 7.2: `speakers.py` is default-order too, sorting between
+    # `participants` and `stats` by name. `/meetings/{meeting_id}/speakers`
+    # is a literal leaf under a parameterized meeting id — the same shape the
+    # already-registered `/meetings/{meeting_id}/moments` has — and no
+    # `/meetings/{meeting_id}/{anything}` catch-all exists, so its position
+    # carries no matching hazard.
+    "speakers",
     # Story ui-1: `/corpus/stats` — no parameterized sibling under `/corpus`
     # exists anywhere, so default order and the name sort are safe.
     "stats",
