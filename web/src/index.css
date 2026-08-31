@@ -128,3 +128,99 @@
     @apply font-sans;
     }
 }
+
+/* ==========================================================================
+   Ember & Ink — the adopted visual identity (story 10.5).
+
+   `DESIGN.md` (ux-meetingminer-2026-08-29) states its delta from this file
+   rather than replacing it, and this block is that delta: six base values of
+   `.dark` above, plus the semantic token families the design spends its whole
+   colour budget on — moment kind, thread identity, and the control border.
+   Dark is the only mode; the light `:root` values above are left untouched
+   and unsupported, and the shell applies `.dark` at the `html` element.
+
+   Appended as a second `.dark` block rather than edited into the first, for
+   two reasons: the same selector later in the same sheet wins, so the
+   override is exact; and it keeps the shadcn block above byte-identical to
+   what the generator emits, so a future `shadcn` update is a clean overwrite
+   rather than a merge of hand edits.
+
+   Every pair below is measured in `DESIGN.md` · Colors · Contrast. A new
+   text-on-surface pair gets measured and added to that table before it is
+   used — never assumed.
+   ========================================================================== */
+.dark {
+    /* Base — warm greys with a trace of 60° hue behind the glass. */
+    --background: oklch(0.15 0.006 60);
+    --foreground: oklch(0.98 0.004 60);
+    --card: oklch(0.21 0.008 60);
+    --card-foreground: oklch(0.98 0.004 60);
+    --popover: oklch(0.21 0.008 60);
+    --popover-foreground: oklch(0.98 0.004 60);
+    --muted: oklch(0.27 0.008 60);
+    --muted-foreground: oklch(0.71 0.012 60);
+    --secondary: oklch(0.27 0.008 60);
+    --secondary-foreground: oklch(0.98 0.004 60);
+    --accent: oklch(0.27 0.008 60);
+    --accent-foreground: oklch(0.98 0.004 60);
+
+    /* Ember at 50° — the one brand hue. The primary action and keyboard
+       focus share it, and nothing else uses it; it is not a data meaning. */
+    --primary: oklch(0.76 0.158 50);
+    --primary-foreground: oklch(0.18 0.03 50);
+    --ring: oklch(0.76 0.158 50);
+
+    /* shadcn's 10% `border` identifies a card well enough, but an input or an
+       outline button identified only by a ~1.25:1 line fails WCAG 1.4.11.
+       Controls take this one (3.03:1 on the page, 3.12:1 on a card). */
+    --control-border: oklch(1 0 0 / 34%);
+
+    /* Moment kinds — four hue families, told apart inside a family by the
+       glyph (`KindGlyph.tsx`): records at 290°, actions at 55°, backlog at
+       190°, corrections at 345°. Each kind keeps its own three tokens so a
+       family can be split later without renaming anything. */
+    --kind-decision-fill: oklch(0.28 0.05 290);
+    --kind-decision-text: oklch(0.86 0.0741 290);
+    --kind-decision-border: oklch(0.58 0.1 290);
+    --kind-adr-fill: oklch(0.28 0.05 290);
+    --kind-adr-text: oklch(0.86 0.0741 290);
+    --kind-adr-border: oklch(0.58 0.1 290);
+    --kind-action-item-fill: oklch(0.28 0.05 55);
+    --kind-action-item-text: oklch(0.86 0.0884 55);
+    --kind-action-item-border: oklch(0.58 0.1 55);
+    --kind-story-fill: oklch(0.28 0.0495 190);
+    --kind-story-text: oklch(0.86 0.11 190);
+    --kind-story-border: oklch(0.58 0.1 190);
+    --kind-requirement-fill: oklch(0.28 0.0495 190);
+    --kind-requirement-text: oklch(0.86 0.11 190);
+    --kind-requirement-border: oklch(0.58 0.1 190);
+    --kind-bug-fix-fill: oklch(0.28 0.05 345);
+    --kind-bug-fix-text: oklch(0.86 0.0955 345);
+    --kind-bug-fix-border: oklch(0.58 0.1 345);
+    --kind-change-request-fill: oklch(0.28 0.05 345);
+    --kind-change-request-text: oklch(0.86 0.0955 345);
+    --kind-change-request-border: oklch(0.58 0.1 345);
+
+    /* Thread identity — eight hues 45° apart. Lap 2 (ordinals 9–16) is the
+       same hue darker and hatched; past 16 the name alone identifies the
+       thread. The hue comes from the api's persisted immutable
+       `colorOrdinal`, never from list position (`feed.ts`). */
+    --thread-1-band: oklch(0.75 0.12 0);
+    --thread-1-band-lap2: oklch(0.58 0.08 0);
+    --thread-2-band: oklch(0.75 0.12 45);
+    --thread-2-band-lap2: oklch(0.58 0.08 45);
+    --thread-3-band: oklch(0.75 0.12 90);
+    --thread-3-band-lap2: oklch(0.58 0.08 90);
+    --thread-4-band: oklch(0.75 0.12 135);
+    --thread-4-band-lap2: oklch(0.58 0.08 135);
+    --thread-5-band: oklch(0.75 0.12 180);
+    --thread-5-band-lap2: oklch(0.58 0.08 180);
+    --thread-6-band: oklch(0.75 0.12 225);
+    --thread-6-band-lap2: oklch(0.58 0.08 225);
+    --thread-7-band: oklch(0.75 0.12 270);
+    --thread-7-band-lap2: oklch(0.58 0.08 270);
+    --thread-8-band: oklch(0.75 0.12 315);
+    --thread-8-band-lap2: oklch(0.58 0.08 315);
+    --thread-beyond-band: oklch(0.71 0.012 60);
+    --thread-on-band: oklch(0.15 0 0);
+}
