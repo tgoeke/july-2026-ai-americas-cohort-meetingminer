@@ -302,6 +302,10 @@ def test_thread_list_serves_the_acceptance_criteria_fields(
         "firstMentionAt": "2026-08-05T12:00:49Z",
         "lastMentionAt": "2026-08-07T12:01:49Z",
         "colorOrdinal": ordinal,
+        # Story 10.2a. False here because nothing curated this thread. The
+        # field is served on every row, not only curated ones, so a client can
+        # tell a human name from a derived one without a second request.
+        "nameIsCurated": False,
     }
 
 

@@ -21,6 +21,11 @@ from uuid import UUID
 from psycopg import Connection
 
 from meetingminer.domain.jobs import evidence_complete
+from meetingminer.domain.thread_curation import (
+    CURATED_NAME_EXPR,
+    CURATED_NAME_JOIN,
+    EFFECTIVE_MEMBERSHIP,
+)
 from meetingminer.projections.chunking import Turn
 
 
@@ -417,6 +422,15 @@ def read_meeting(conn: Connection, meeting_id: UUID) -> MeetingEvidence:
     # topic with no `topic_thread` row is an un-threaded topic, not a missing
     # one. An INNER JOIN here would silently drop every topic of a meeting
     # extracted since the last derivation.
+    #
+    # Read through `EFFECTIVE_MEMBERSHIP` and `CURATED_NAME_EXPR` (story
+    # 10.2a), so the `Thread` node the graph writes is the thread the user
+    # sees under the name the user gave it. Without this the graph and the
+    # Threads view would disagree about the same thread after every merge,
+    # split or rename, and a traversal would answer from the machine's
+    # grouping while the screen showed the human's. `projections` remains the
+    # sole store writer (AD-4); this is a change of what it reads, not of who
+    # writes.
     topics = tuple(
         TopicRow(
             id=r[0],
@@ -427,10 +441,11 @@ def read_meeting(conn: Connection, meeting_id: UUID) -> MeetingEvidence:
             mentions=tuple(mentions_by_topic.get(r[0], ())),
         )
         for r in conn.execute(
-            "SELECT t.id, t.name, t.gist, th.id, th.name"
+            f"SELECT t.id, t.name, t.gist, th.id, {CURATED_NAME_EXPR}"
             " FROM topic t"
-            " LEFT JOIN topic_thread tt ON tt.topic_id = t.id"
+            f" LEFT JOIN ({EFFECTIVE_MEMBERSHIP}) tt ON tt.topic_id = t.id"
             " LEFT JOIN thread th ON th.id = tt.thread_id"
+            f"{CURATED_NAME_JOIN}"
             " WHERE t.meeting_id = %s ORDER BY t.name, t.id",
             (meeting_id,),
         ).fetchall()
