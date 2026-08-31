@@ -329,7 +329,7 @@ describe('the three assignment paths', () => {
     const user = userEvent.setup()
     await loaded()
 
-    const field = screen.getByRole('combobox')
+    const field = await screen.findByRole('combobox')
     await user.type(field, 'pri')
     await user.click(await screen.findByRole('option', { name: 'Priya Natarajan' }))
     await user.type(field, '  ')
@@ -345,7 +345,7 @@ describe('the three assignment paths', () => {
     const user = userEvent.setup()
     await loaded()
 
-    const field = screen.getByRole('combobox')
+    const field = await screen.findByRole('combobox')
     await user.type(field, 'pri')
     await user.click(await screen.findByRole('option', { name: 'Priya Natarajan' }))
     await user.clear(field)
@@ -370,7 +370,7 @@ describe('the three assignment paths', () => {
     const user = userEvent.setup()
     await loaded()
 
-    const field = screen.getByRole('combobox')
+    const field = await screen.findByRole('combobox')
     await user.type(field, 'pri')
     const options = await screen.findAllByRole('option', { name: 'Priya Natarajan' })
     await user.click(options[1])
@@ -441,7 +441,7 @@ describe('the three assignment paths', () => {
     const user = userEvent.setup()
     await loaded()
 
-    const field = screen.getByRole('combobox')
+    const field = await screen.findByRole('combobox')
     await user.type(field, 'Alice Chen')
     field.focus()
 
@@ -457,7 +457,7 @@ describe('the three assignment paths', () => {
     const user = userEvent.setup()
     await loaded()
 
-    const field = screen.getByRole('combobox')
+    const field = await screen.findByRole('combobox')
     await user.type(field, 'pri')
 
     // The suggestion is on screen and highlighted by nothing; the field still
@@ -479,7 +479,7 @@ describe('the three assignment paths', () => {
     const user = userEvent.setup()
     await loaded()
 
-    const field = screen.getByRole('combobox')
+    const field = await screen.findByRole('combobox')
     await user.type(field, 'pri')
     await user.click(await screen.findByRole('option', { name: 'Priya Natarajan' }))
     await user.clear(field)
@@ -773,7 +773,7 @@ describe('the rerun a naming starts', () => {
     const user = userEvent.setup()
     await loaded()
 
-    const field = screen.getByRole('combobox')
+    const field = await screen.findByRole('combobox')
     await user.type(field, 'First Name')
     await user.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(sdk.assignMeetingSpeaker).toHaveBeenCalledTimes(1))
