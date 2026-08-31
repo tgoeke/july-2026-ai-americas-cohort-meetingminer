@@ -18,7 +18,7 @@ import {
   type FeedFilters,
   type MomentFeedItem,
 } from './feed'
-import { fetchThreadOptions, type ThreadOption } from './threads'
+import { fetchThreadOptions, THREADS_TIMEOUT_MS, type ThreadOption } from './threads'
 
 /** The corpus tags a drop is recorded under (`docs/glossary.md`). The select
  * also carries any other tag the served items actually use, so a corpus this
@@ -98,6 +98,7 @@ export function MomentsFeed({
   const generation = useRef(0)
   const controller = useRef<AbortController | null>(null)
   const loadedFilterKey = useRef<string | null>(null)
+  const threadController = useRef<AbortController | null>(null)
 
   const filterKey = JSON.stringify(filters)
 
@@ -175,20 +176,32 @@ export function MomentsFeed({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, filterKey])
 
-  useEffect(() => {
+  const readThreadCatalog = useCallback(() => {
+    threadController.current?.abort()
     const own = new AbortController()
-    void fetchThreadOptions(own.signal).then(
+    threadController.current = own
+    const timeout = AbortSignal.timeout(THREADS_TIMEOUT_MS)
+    setThreadCatalog({ kind: 'loading' })
+    void fetchThreadOptions(AbortSignal.any([own.signal, timeout])).then(
       (options) => setThreadCatalog({ kind: 'ready', options }),
       (error: unknown) => {
-        if (own.signal.aborted) return
+        if (own.signal.aborted && !timeout.aborted) return
         setThreadCatalog({
           kind: 'error',
-          message: error instanceof Error ? error.message : String(error),
+          message: timeout.aborted
+            ? `timed out after ${THREADS_TIMEOUT_MS}ms`
+            : error instanceof Error
+              ? error.message
+              : String(error),
         })
       },
     )
-    return () => own.abort()
   }, [])
+
+  useEffect(() => {
+    readThreadCatalog()
+    return () => threadController.current?.abort()
+  }, [readThreadCatalog])
 
   const setFilter = useCallback(
     (name: keyof FeedFilters, value: string | null) => {
@@ -304,9 +317,11 @@ export function MomentsFeed({
           <ThreadFilter
             value={filters.thread}
             options={threadOptions}
+            selectedName={threadName}
             query={threadQuery}
             onQueryChange={setThreadQuery}
             unavailable={threadCatalog.kind === 'error' ? threadCatalog.message : null}
+            onRetry={readThreadCatalog}
             onChange={(value) => setFilter('thread', value)}
           />
           <FilterSelect
@@ -407,21 +422,25 @@ export function MomentsFeed({
 function ThreadFilter({
   value,
   options,
+  selectedName,
   query,
   onQueryChange,
   unavailable,
+  onRetry,
   onChange,
 }: {
   value: string | null
   options: Array<[string, string]>
+  selectedName: string | null
   query: string
   onQueryChange: (value: string) => void
   unavailable: string | null
+  onRetry: () => void
   onChange: (value: string | null) => void
 }) {
   const visibleOptions: Array<[string, string]> =
     value !== null && value !== '' && !options.some(([id]) => id === value)
-      ? [[value, value], ...options]
+      ? [[value, selectedName ?? value], ...options]
       : options
   return (
     <span className="inline-flex min-h-6 items-center gap-1.5 rounded-md border px-2 py-1 text-xs" style={{ borderColor: 'var(--control-border)' }}>
@@ -452,11 +471,17 @@ function ThreadFilter({
       </select>
       {unavailable !== null && (
         <span
+          role="status"
+          aria-label="Thread catalog unavailable"
           data-testid="thread-filter-unavailable"
-          className="text-muted-foreground"
+          className="inline-flex items-center gap-1 text-muted-foreground"
           title={unavailable}
         >
           unavailable
+          <button type="button" className="underline" onClick={onRetry}>
+            <span className="sr-only">Retry thread catalog</span>
+            <span aria-hidden="true">retry</span>
+          </button>
         </span>
       )}
     </span>
