@@ -111,6 +111,15 @@ Date: 2026-08-31
 - **Suggested direction** — Add a single atomic polite region for the acquisition stepper's current transition and one for this card's stage list, leaving the noisy log `off`; pin posted and streamed-stage announcements in tests.
 - **Disposition** — fixed red-first. The posted-state test could not find an acquisition announcer against the original stepper; after adding the polite regions, posted announces its served job prefix and a streamed `frames done` event updates the ingestion announcement.
 
+### F12 — Auto-caption probes hide the speaker-label consequence
+
+- **Location** — `web/src/features/acquisitions/AddMeeting.tsx:310`
+- **Severity** — medium
+- **Finding** — When the probe reports `captions.kind: "auto"`, the screen prints only `captions: auto en`. It never tells the user that YouTube auto-generated captions carry no speaker attribution, so the most common corpus outcome—segments arriving as `Unknown`—is hidden until after the acquisition is committed.
+- **Evidence** — `ProbeResult.captions.kind` is a served field and the owner's live probe returned `auto`; the owner also confirmed those captions carry no speaker labels. `EXPERIENCE.md:305` makes the probe's captions answer part of the pre-submit contract, and Flow 1's eventual `Name speakers` action is specifically for captions that carried no speakers (`EXPERIENCE.md:374`). The current answered branch renders only `probeSummary(...)` plus `Nothing has been written.` even though it has enough data to state the limitation without guessing.
+- **Suggested direction** — When and only when the served probe kind is `auto`, put a concise pre-submit warning next to the probe answer that speaker labels are absent and segments will initially appear as `Unknown`; pin both its presence for auto captions and its absence for manual captions.
+- **Disposition** — confirmed; remediation in progress.
+
 ## Disposition
 
 Review in progress. No pass/fail verdict has been assigned.
