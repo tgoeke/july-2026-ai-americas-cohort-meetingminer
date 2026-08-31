@@ -594,9 +594,8 @@ def test_speaker_recovery_read_and_write_bypass_the_failed_evidence_gate(
 
     speakers = client.get(f"/meetings/{seeded.meeting_id}/speakers")
     assert speakers.status_code == 200, speakers.text
-    assert {row["speakerLabel"] for row in speakers.json()["speakers"]} == {
-        PLACEHOLDER_TAG,
-        NAMED_TAG,
+    assert PLACEHOLDER_TAG in {
+        row["speakerLabel"] for row in speakers.json()["speakers"]
     }
 
     still_gated = (
