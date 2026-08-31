@@ -16,5 +16,23 @@ decisions in the handoff.
 
 ## Findings
 
-No confirmed findings yet.
+### F-1 — Nullable attribution fields are optional in the published schema
 
+- **Location:** `server/meetingminer/api/speakers.py:129`
+- **Severity:** medium
+- **Finding:** `participant_id` and `display_name` have `None` defaults, so
+  Pydantic omits them from `SpeakerTag.required`. The runtime route currently
+  supplies both keys, but the generated TypeScript contract exposes
+  `participantId?` and `displayName?`. That breaks the story's one-shape
+  contract at the consumer boundary: a conforming server or mock may omit the
+  fields entirely instead of carrying explicit nullable attribution.
+- **Evidence:** `SpeakerTag.model_json_schema()` lists only `speakerLabel`,
+  `speakerResolution`, `talkTimeMs`, `segmentCount`, and `sampleOffsetsMs` in
+  `required`; `web/src/client/types.gen.ts` consequently declares
+  `participantId?: string | null` and `displayName?: string | null`. The
+  runtime field-set tests do not inspect the OpenAPI required set.
+- **Suggested direction:** Declare both fields as required nullable Pydantic
+  fields (no default), add an OpenAPI contract assertion that they are required
+  and nullable, then regenerate the TypeScript client so both properties lose
+  the optional marker while retaining `| null`.
+- **Disposition:** Patchable in the review lane; fix pending.
