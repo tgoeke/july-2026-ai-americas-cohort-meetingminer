@@ -45,3 +45,11 @@ Adversarial review of Story 8.2 implementation and its stated footprint against 
 - **Finding** — `PUT /settings/roles/{role}` emits a named 404 `unknown-role` and a named 422 `binding-not-in-catalog`, both as `ProblemDetails`, but the route declares neither. FastAPI consequently documents no 404 and documents 422 only as its default `HTTPValidationError`; the regenerated client's `SelectRoleBindingErrors` omits the unknown-role case and gives the catalog refusal the wrong body type.
 - **Evidence** — `app.openapi()["paths"]["/settings/roles/{role}"]["put"]["responses"]` returned only 200 and the default validation 422. `web/src/client/types.gen.ts:2608-2613` contains only `422: HttpValidationError`, while `server/tests/test_api_settings.py:174-201` proves the actual responses are RFC 9457 problem documents with story-specific slugs.
 - **Suggested direction** — explicitly declare 404 and 422 problem responses on the route, preserve the custom validation handler's same `ProblemDetails` wire shape, add schema assertions, and regenerate the client.
+
+### Finding 5 — the API-level non-mutation assertion is tautological
+
+- **Location** — `server/tests/test_api_settings.py:323`
+- **Severity** — low
+- **Finding** — `test_a_selection_never_mutates_the_configured_role` compares `_roles(app_config).chat.model` to itself, so the assertion passes even if selection resolution mutates the process-wide configured model. The identity assertion beside it only proves the object handed to `build_llm` is distinct; it does not prove the configured object's value stayed unchanged.
+- **Evidence** — the test line is `assert _roles(app_config).chat.model == _roles(app_config).chat.model`. A repository-wide symbol/import search found the pure-domain test does correctly pin non-mutation, but this API-level test's stated per-request invariant is not independently observed at its boundary.
+- **Suggested direction** — capture the configured model before the `PUT`/chat request and compare that saved value with the configured model afterward; mutation-test the assertion against a deliberately mutating resolver before restoring the production code.
