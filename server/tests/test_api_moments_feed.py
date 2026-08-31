@@ -402,6 +402,24 @@ def test_the_thread_filter_selects_only_members_of_that_thread(
     assert "colorOrdinal" in chips[0]
 
 
+def test_thread_chips_are_bounded_by_the_ranking_config(client, test_pool) -> None:
+    """F3: the card and its reasons use the same configured membership cap."""
+    seeded = _seed(test_pool, source_id="feed-thread-cap", started_at=NOW)
+    for index in range(5):
+        _thread(test_pool, seeded, name=f"thread-{index}")
+
+    item = client.get("/moments/feed").json()["items"][0]
+    thread_reasons = [
+        reason for reason in item["reasons"] if reason["kind"] == "thread"
+    ]
+
+    assert len(item["threads"]) == 3
+    assert len(thread_reasons) == 3
+    assert [thread["threadId"] for thread in item["threads"]] == [
+        reason["ref"] for reason in thread_reasons
+    ]
+
+
 def test_the_kind_filter_keeps_only_items_carrying_that_reason(
     client, test_pool
 ) -> None:

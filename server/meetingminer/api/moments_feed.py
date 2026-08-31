@@ -242,6 +242,22 @@ class DroppedCandidate:
     detail: str = ""
 
 
+def _card_threads(
+    candidate: FeedCandidate, max_thread_reasons: int
+) -> tuple[CandidateThread, ...]:
+    """The valid, deterministic membership set used by score and wire alike."""
+    return tuple(
+        sorted(
+            (thread for thread in candidate.threads if thread.name.strip()),
+            key=lambda thread: (
+                thread.name.strip().casefold(),
+                thread.name.strip(),
+                str(thread.thread_id),
+            ),
+        )[:max_thread_reasons]
+    )
+
+
 # --- stated timing ----------------------------------------------------------
 
 # Which body label carries an action item's timing. The action-items prompt
@@ -554,17 +570,15 @@ def score_candidate(
             hidden_score += contribution
 
     # --- thread membership --------------------------------------------------
-    if candidate.threads:
-        chips = sorted(candidate.threads, key=lambda thread: (thread.name, str(thread.thread_id)))
-        counted = min(len(chips), ranking.max_thread_reasons)
-        share = weights.thread_membership * counted / ranking.max_thread_reasons
-        for position, thread in enumerate(chips[: ranking.max_thread_reasons]):
+    chips = _card_threads(candidate, ranking.max_thread_reasons)
+    if chips:
+        for position, thread in enumerate(chips):
             terms.append(
                 _Term(
-                    share if position == 0 else 0.0,
+                    weights.thread_membership if position == 0 else 0.0,
                     FeedReason(
                         kind="thread",
-                        label=thread.name,
+                        label=thread.name.strip(),
                         ref=str(thread.thread_id),
                     ),
                 )
@@ -650,7 +664,7 @@ def rank_and_validate(
     return kept, dropped
 
 
-def to_item(scored: ScoredCandidate) -> FeedItem:
+def to_item(scored: ScoredCandidate, max_thread_reasons: int) -> FeedItem:
     """One surviving candidate as the wire model. Never called for a dropped row."""
     candidate = scored.candidate
     assert candidate.moment_id is not None
@@ -673,12 +687,10 @@ def to_item(scored: ScoredCandidate) -> FeedItem:
         threads=[
             FeedThread(
                 thread_id=thread.thread_id,
-                name=thread.name,
+                name=thread.name.strip(),
                 color_ordinal=thread.color_ordinal,
             )
-            for thread in sorted(
-                candidate.threads, key=lambda t: (t.name, str(t.thread_id))
-            )
+            for thread in _card_threads(candidate, max_thread_reasons)
         ],
         reasons=list(scored.reasons),
     )
@@ -943,7 +955,7 @@ def moments_feed(
         kind=kind,
     )
     return MomentsFeedResponse(
-        items=[to_item(scored) for scored in page],
+        items=[to_item(scored, ranking.max_thread_reasons) for scored in page],
         total=total,
         limit=page_size,
         offset=offset,

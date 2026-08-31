@@ -30,6 +30,7 @@ from meetingminer.api.moments_feed import (
     CandidateThread,
     FeedCandidate,
     FeedReason,
+    _thread_of,
     due_urgency,
     rank_and_validate,
     recency_factor,
@@ -411,6 +412,50 @@ def test_repeated_signals_do_not_multiply_the_score(ranking) -> None:
     assert len(one_reasons) == 1
     # The reasons are capped by `max_signal_reasons`, so the card stays a card.
     assert len(nine_reasons) == ranking.max_signal_reasons
+
+
+def test_thread_membership_scores_once_and_ignores_blank_names(ranking) -> None:
+    """F3: membership is categorical, not a count, and needs a valid chip."""
+    old = NOW - timedelta(days=365)
+    one = candidate(
+        meeting_started_at=old,
+        threads=(CandidateThread(thread_id=uuid4(), name="alpha"),),
+    )
+    many = candidate(
+        meeting_started_at=old,
+        threads=tuple(
+            CandidateThread(thread_id=uuid4(), name=name)
+            for name in ("alpha", "beta", "gamma", "delta")
+        ),
+    )
+    blank = candidate(
+        meeting_started_at=old,
+        threads=(CandidateThread(thread_id=uuid4(), name="   "),),
+    )
+
+    one_score, _ = score_candidate(one, ranking, NOW)
+    many_score, many_reasons = score_candidate(many, ranking, NOW)
+    blank_score, blank_reasons = score_candidate(blank, ranking, NOW)
+
+    assert many_score == one_score
+    assert len(many_reasons) == ranking.max_thread_reasons
+    assert blank_score == score_candidate(
+        candidate(meeting_started_at=old), ranking, NOW
+    )[0]
+    assert blank_reasons == ()
+
+
+def test_thread_ordinal_text_survives_beyond_32_bits() -> None:
+    """Story 10.3's bigint travels through JSON text into Python without loss."""
+    thread_id = uuid4()
+    ordinal = 2**40 + 17
+
+    thread = _thread_of(
+        {"id": str(thread_id), "name": "long-lived", "color_ordinal": str(ordinal)}
+    )
+
+    assert thread.thread_id == thread_id
+    assert thread.color_ordinal == ordinal
 
 
 def test_a_recency_reason_is_only_claimed_while_it_is_true(ranking) -> None:
