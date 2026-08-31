@@ -3,7 +3,7 @@ title: 'Story 12.2: The Meeting Summary'
 type: 'feature'
 created: '2026-08-31'
 baseline_revision: 'd250cf89ee5eb40e401e7f2f8ded74d9fab81a33'
-status: 'in-progress'
+status: 'review'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -334,3 +334,77 @@ reappear if another meeting-scoped kind is added later.
 - `make web-test` — expected: the existing suite unchanged.
 - `make test` — the full gate, against this worktree's private stack.
 - `python3 _bmad/scripts/branch_conflicts.py --against story/12-2` — expected: `main × story/12-2` clean; any introduced pair named.
+
+## Auto Run Result
+
+Completed 2026-08-31 on `story/12-2`, cut from `d250cf89`. Status `review`, not
+`done`: the review lane has not run and this lane does not merge.
+
+**Commits (pushed to `origin/story/12-2`):**
+
+- `858b7373` — the frozen spec and the compiled Epic 12 context.
+- `d5aa77bb` — migration 0022, the parser's `summary` field, the stage's
+  meeting-scoped insert, the publish-gate exclusion, the digest scoping.
+- `0f7e6b89` — `GET /meetings/{id}/summary`, `POST /meetings/{id}/artifacts/approve`,
+  and `api/artifact_publish.py` (the shared gesture the per-moment route now calls).
+- `a927818a` — the constraint matrix, the parser cases, the stage cases.
+- `dbff6854` — the route tests and the two projection tests.
+- `44dc0768` — the AD-6 sync, the split error-response maps, the regenerated client.
+
+**Gates, run in the foreground against this worktree's private stack
+(`meetingminer-12-2`):**
+
+- `make lint` — all checks passed, no new baseline entry.
+- `make typecheck` — success, no issues in 13 source files.
+- `uv run --project server pytest -m "" server/tests/test_extraction_core.py -q` — 115 passed.
+- `uv run --project server pytest -m "" server/tests/test_worker_extract.py -q` — 38 passed.
+- `uv run --project server pytest -m "" server/tests/test_artifact_publish.py -q` — 25 passed.
+- `uv run --project server pytest -m "" server/tests/test_migrations_artifact_scope.py -q` — 6 passed.
+- `make test` — **1 failed, 2794 passed, 3 skipped**, 784.12s (13m04s). See below.
+
+**The one gate failure is a contention artifact on an untouched test, and it is
+recorded rather than waved away.** `test_mint_drop.py::test_independent_processes_share_the_source_identity_lock`
+*passed* but its call phase took **2.61s** against the 2.00s
+`mm_fast_test_budget_seconds`, which `fast_budget.py` reports as a failure. The
+budget message names this exact case: "If it only exceeds the budget while
+another suite, a rebuild, or the worker is running, re-run it alone before
+marking it slow: contention is not a reason to mark." Story 12.4's full suite
+was running in a sibling worktree for the whole of this gate (verified with
+`pgrep` during and after). Re-run alone at the same revision, the same test's
+call phase is **1.18s** — 1 passed in 1.93s, comfortably inside the budget.
+
+The test is untouched by this branch (`git diff d250cf89..HEAD --
+server/tests/test_mint_drop.py` is empty) and concerns drop minting and a source
+identity lock, which this story does not reach. **No `slow` mark was added**:
+marking it would be the thing the budget message forbids, and it would hide a
+real budget signal from a later run that is not contended. The three skips are
+the suite's standing named skips, unchanged from story 12.1's gate.
+
+- `python3 _bmad/scripts/branch_conflicts.py --against story/12-2` —
+  **`main × story/12-2` clean.** The pairs this branch introduces against other
+  live branches are all on the generated TS client: `story/12-4` and
+  `story/6-4a-review` on `web/src/client/index.ts` (plus `sdk.gen.ts` for the
+  latter), both of which are clean against `main` today. This is story 12.1's
+  recorded shape and the resolution is the same: `make client` is regenerated
+  at integration. Every other conflicting pair listed already conflicts with
+  `main` and is not introduced here.
+
+**Not run, deliberately:** `make evals-run`, the shared worker, the shared api.
+A corpus ingest is running on the main stack and `llm.roles.extraction` is bound
+to a paid model; **no real model call was made anywhere in this lane.**
+`config.yaml` in the main checkout was never touched.
+
+**One deviation from the workflow, stated plainly.** Step 03 directs the
+implementation to a subagent invoked synchronously. This harness only launches
+agents in the background, and the dispatch for this story forbids background
+agents outright. The implementation was therefore done directly in this lane
+with the spec as the contract, which the dispatch anticipated ("if unavailable,
+follow them directly with the same rigor"). The epic-context compilation *was*
+delegated, and returned before it was used.
+
+**Two things the code showed that the plan had not.** Both are in the Spec
+Change Log above and both are the reason this story touched files beyond the
+obvious ones: the `NOT IN` that goes three-valued the moment a NULL `moment_id`
+exists, and the `(None,)` moment tuple that would have reached both stores. The
+first is a pre-existing statement whose latent defect this story would have
+*activated*; it is fixed rather than worked around.
