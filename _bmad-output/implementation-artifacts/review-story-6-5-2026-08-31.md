@@ -102,6 +102,15 @@ Date: 2026-08-31
 - **Suggested direction** — Render the first eight characters and update the unit and component assertions to pin the contract.
 - **Disposition** — fixed red-first. The strengthened unit assertion received `posted — job 8f3c…` from the original helper, then passed after the prefix changed to eight characters; the component assertion pins the same output.
 
+### F11 — Acquisition and ingestion transitions are not announced
+
+- **Location** — `web/src/features/acquisitions/AcquisitionStepper.tsx:59`
+- **Severity** — medium
+- **Finding** — Visible progress bars update, but neither acquisition transitions nor the handed-off job-stage transitions write to a polite live region. Screen-reader users receive the initial labels only when navigating back to them and miss the live flow.
+- **Evidence** — `AcquisitionStepper` has no live announcer; its only `aria-live` is deliberately `off` on the diagnostic log. `IngestingMeetingCard` patches `StageProgress` without an announcement. The adopted Accessibility Floor requires acquisition and ingestion progress to announce politely once per transition through one region per stepper/list (`EXPERIENCE.md:215`).
+- **Suggested direction** — Add a single atomic polite region for the acquisition stepper's current transition and one for this card's stage list, leaving the noisy log `off`; pin posted and streamed-stage announcements in tests.
+- **Disposition** — patchable; remediation in progress.
+
 ## Disposition
 
 Review in progress. No pass/fail verdict has been assigned.
