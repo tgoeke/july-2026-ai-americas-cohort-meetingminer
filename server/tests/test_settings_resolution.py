@@ -472,3 +472,106 @@ def test_the_worker_resolves_the_selection_on_every_job(
     with test_pool.connection() as conn:
         conn.execute("DELETE FROM app_setting")
         conn.commit()
+
+
+def test_a_discarded_stale_selection_is_logged_where_it_is_resolved(
+    test_pool: Any,
+    app_config: Any,
+) -> None:
+    """The discard has to be findable after the fact, not only in a payload.
+
+    `GET /settings/models` reports it to whoever is looking at the settings
+    page; this event is what tells an operator reading the worker's or the
+    api's log *why* a job ran on the file's default instead of the choice
+    somebody made.
+    """
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    def _log(event: str, **fields: Any) -> None:
+        events.append((event, fields))
+
+    with test_pool.connection() as conn:
+        conn.execute("DELETE FROM app_setting")
+        model_selection.write_selection(conn, "chat", "openai/withdrawn-model")
+        _, effective = model_selection.resolve_role(
+            conn, "chat", app_config.settings.llm.roles.chat, log=_log
+        )
+        conn.execute("DELETE FROM app_setting")
+        conn.commit()
+
+    assert effective.stale_selection == "openai/withdrawn-model"
+    stale = [fields for name, fields in events if name == "llm.selection_stale"]
+    assert len(stale) == 1
+    assert stale[0]["role"] == "chat"
+    assert stale[0]["stale_selection"] == "openai/withdrawn-model"
+    assert stale[0]["effective_binding"] == app_config.settings.llm.roles.chat.default
+
+
+def test_a_worker_job_on_an_unserved_binding_fails_the_stage_by_name(
+    test_pool: Any,
+    app_config: Any,
+    content_root: Any,
+    make_drop: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The worker's half of the no-substitution rule.
+
+    Chat turns the refusal into a problem document; the worker has no wire, so
+    it must reach the operator as the job's own stage failure, carrying the
+    same sentence — provider, endpoint and model — rather than an anonymous
+    "extraction failed".
+    """
+    from meetingminer.pipeline.stage import StageError
+    from meetingminer.pipeline.stages import extract as extract_stage
+
+    from conftest import truncate_evidence
+    from projection_seed import seed_meeting
+
+    class _NotServed:
+        def complete(self, prompt: str, options: Any = None) -> Any:
+            raise LlmModelNotServedError(
+                "provider 'ollama' at 'http://10.77.0.52:11434' does not serve"
+                " model 'ollama/absent:70b' — the host answered HTTP 404",
+                provider="ollama",
+                model="ollama/absent:70b",
+                api_base="http://10.77.0.52:11434",
+                upstream_status=404,
+            )
+
+    # A *real* composer with a working fallback, not a bare completer: this is
+    # where the worker would silently answer from `llm.roles.extraction.fallback`
+    # if the refusal were absorbed, so the fallback has to be present and has to
+    # be watched.
+    fallback = _RecordingLlm()
+    monkeypatch.setattr(
+        extract_stage,
+        "build_llm",
+        lambda *_a, **_kw: FallbackLlm(_NotServed(), fallback),
+    )
+
+    truncate_evidence(test_pool)
+    with test_pool.connection() as conn:
+        seeded = seed_meeting(conn, source_id="settings-selection-worker-unserved")
+        conn.commit()
+
+    with pytest.raises(StageError) as caught:
+        _run_extract(
+            test_pool,
+            app_config,
+            content_root,
+            make_drop(),
+            seeded.job_id,
+            seeded.meeting_id,
+        )
+
+    message = str(caught.value)
+    assert "does not serve model 'ollama/absent:70b'" in message
+    assert "http://10.77.0.52:11434" in message
+    assert "'ollama'" in message
+    assert fallback.calls == 0, "the worker must not extract from a substitute model"
+    # And the job records no artifacts from a run that refused.
+    with test_pool.connection() as conn:
+        proposed = conn.execute(
+            "SELECT count(*) FROM artifact WHERE meeting_id = %s", (seeded.meeting_id,)
+        ).fetchone()[0]
+    assert proposed == 0
