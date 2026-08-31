@@ -106,7 +106,18 @@ survive re-ingests. `app_setting` is api-owned — only `api/settings.py` writes
 it, the worker only reads it (AD-10). `topic`, `topic_mention`, `thread` and
 `topic_thread` are worker-owned and machine-derived, and every reader must
 label them as such; human thread curation arrives as separate api-owned rows on
-top, the same split participants already use.
+top, the same split participants already use. Story 10.2a's three tables
+(migration 0021) are those rows, and `derive_threads` resolves them *before* it
+writes — so a correction the next pass would otherwise overwrite is an input to
+that pass rather than a casualty of it. One narrow exception is named rather
+than left implied: a **split** mints one `thread` row from the api, because its
+product needs a `thread.id` for the timeline to address and a `color_ordinal`
+for the view to colour, and neither can come from a curation table. It is the
+same exception `api/speakers.py` already holds against worker-owned
+`participant`, where a curator mints the identity the machine could not
+produce. That row's `identity_key` is namespaced into a key space the
+derivation can neither mint nor reuse, so no later pass can claim it; the api
+writes nothing else in `thread`, and never writes `topic_thread` at all.
 
 **AD-6 — Citations are Postgres-minted moment ids, gated in code.** A moment id
 is minted once and carried verbatim into graph nodes, search documents, and
