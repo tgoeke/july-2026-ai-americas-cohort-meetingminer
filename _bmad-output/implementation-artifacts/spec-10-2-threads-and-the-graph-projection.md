@@ -154,7 +154,7 @@ Verification actually run, in the foreground, with the worktree's private stack
 | `pytest server/tests/test_threads_record.py` | **20 passed** |
 | `pytest -m "" server/tests/test_projections_threads.py` | **26 passed**, 46s |
 | `pytest -m "" test_projections_traversals + graph + single_writer + compose_contract + lint_contract` | **125 passed**, 107s |
-| `branch_conflicts.py --against story/10-2` | `main × story/10-2` **clean** |
+| `branch_conflicts.py --against story/10-2` | `main × story/10-2` **clean** for every code, test, config, migration and doc file; after the `sprint-notes.md` entry it reports that one file and nothing else — no merge driver, main gained 6.3's entry after this branch was cut, and integrate unions it by wave rule |
 
 The two skips are pre-existing and named: `pyannote.audio` is not installed,
 and the real-network yt-dlp test needs `MM_YOUTUBE_NETWORK_TEST=1`.

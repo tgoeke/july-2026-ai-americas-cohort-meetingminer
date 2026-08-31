@@ -246,16 +246,32 @@ listed here is a finding, not noise.
 | `uv run --project server pytest -m "" server/tests/test_projections_threads.py -q` | **26 passed** in 46s |
 | `uv run --project server pytest -m "" server/tests/test_projections_traversals.py server/tests/test_projections_graph.py server/tests/test_projections_single_writer.py server/tests/test_compose_contract.py server/tests/test_lint_contract.py -q` | **125 passed** in 107s |
 | `make test` (the full gate, private stack up) | **2287 passed, 2 skipped**, exit 0, web build succeeded, in 643s (10m43s) |
-| `python3 _bmad/scripts/branch_conflicts.py --against story/10-2` | `main × story/10-2` **clean**; 8 clean pairs, 3 conflicting — see below |
+| `python3 _bmad/scripts/branch_conflicts.py --against story/10-2` | every **code** pair clean; `sprint-notes.md` conflicts — see below |
 
-On the conflict report: the three conflicting pairs are `main × story/6-2a`
-(`sprint-notes.md`), `main × story/8-1` (`sprint-notes.md`,
-`docs/architecture.md`) and `story/10-2 × story/8-1` (the same two files).
-`story/8-1` already conflicts with **`main` itself** on exactly those files, so
-it is stale against main and must rebase regardless; this branch adds no file
-to that pair. `sprint-notes.md` has no merge driver and integrate unions it by
-design (wave rule). After `story/8-1` rebases, its `docs/architecture.md` hunk
-is in AD-10 and this story's is in AD-4, ~36 lines apart.
+**On the conflict report, stated precisely rather than as "clean".** Measured
+twice. Before this story's `sprint-notes.md` entry existed, `main × story/10-2`
+was **`clean`** — that is the meaningful result, and it is the state of every
+source, test, config, migration and doc file in the range.
+
+After the entry, `main × story/10-2` reports `CONFLICT:
+_bmad-output/implementation-artifacts/sprint-notes.md`, and nothing else. That
+file has **no merge driver**; `main` gained story 6.3's entry after this branch
+was cut, so any append lands at the same base position as 6.3's. The wave rules
+anticipate exactly this — "keep your entry short and at the end; expect
+integrate to union it" — and `main × story/6-2a` conflicts on the same file for
+the same reason. Rebuilding the entry on top of main's current content was
+tried and does **not** help (git still sees an add/add at one base position,
+and it risks duplicating 6.3's entry at integrate), so that attempt was dropped
+rather than left in the history.
+
+The remaining pairs: `story/10-2 × story/8-1` also lists
+`docs/architecture.md`. `story/8-1` already conflicts with **`main` itself** on
+that file, so it is stale against main and must rebase regardless — this branch
+adds no file to that pair. After 8-1 rebases, its hunk is in AD-10 and this
+story's is in AD-4, ~36 lines apart.
+
+**So: if you see a conflict on anything other than `sprint-notes.md`, that is a
+finding.**
 
 **Never** run `make evals-run` (paid judge role), `make up`, or the shared
 worker/api, and never call the `chat` or `judge` roles.
