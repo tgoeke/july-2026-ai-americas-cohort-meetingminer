@@ -27,3 +27,11 @@ Adversarial review of Story 8.1 on `story/8-1-review`, including the eight chang
 - **Finding:** An authored role can declare `catalog: [a, b]`, `default: a`, and `model: z`; the file loads while `z` remains the binding every current call path uses. The system therefore runs a binding outside the catalog AD-10 calls allowed.
 - **Evidence:** `_default_is_a_catalog_binding` validates only `default in catalog` and then leaves `model` untouched. The frozen intent says the catalog contains bindings the role may be served by and simultaneously says `model` remains the active field until Story 8.2. This is not an 8.2 selection question: before 8.2, the active binding must still be inside the boundary the new catalog declares. Legacy roles remain compatible because their synthesized one-entry catalog already contains their model.
 - **Suggested direction:** Refuse an authored catalog whose active `model` is absent, with a named error listing the catalog bindings. Keep synthesized legacy roles exempt from any new spelling/normalization rule beyond their existing one-entry projection.
+
+### Finding 3 — The shipped config still makes two stale Anthropic claims (patch)
+
+- **Location:** `config.yaml:195-202`
+- **Severity:** High
+- **Finding:** AC clause 3 remains unmet: the committed chat comment says the Anthropic key was deliberately invalidated and that `claude-sonnet-5` is AD-10's superseded default, although the key was restored and the catalog amendment replaced that history.
+- **Evidence:** Both statements remain verbatim after rebasing onto the main that contains Story 10.1, so the former line-overlap blocker is gone. The surrounding rules are still true: OpenAI remains the owner-selected chat model, chat has no runtime fallback, and `_BARE_OPENAI_PREFIXES` does not include `gpt-5`, so the `openai/` prefix is still required for configured endpoint resolution.
+- **Suggested direction:** Delete only the invalidated-key and superseded-default claims. Preserve the current OpenAI choice, no-fallback rule, and `openai/` prefix rationale.
