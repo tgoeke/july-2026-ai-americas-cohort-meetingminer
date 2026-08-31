@@ -47,6 +47,14 @@ BASELINE_ROUTER_ORDER = [
     # resolved *inside* the router by declaration order, the `media.py` way,
     # so its position among the modules carries none.
     "acquisitions",
+    # Story 12.2: `artifacts.py` declares no `ROUTER_ORDER` either, so it is
+    # default-order and sorts by name — after `acquisitions`, before
+    # `config_view`. Its position carries no matching hazard: both its paths
+    # (`/meetings/{meeting_id}/summary` and
+    # `/meetings/{meeting_id}/artifacts/approve`) have a literal second
+    # segment, as does every other `/meetings/{meeting_id}/…` route in the
+    # app, so no parameterized sibling can swallow either one.
+    "artifacts",
     # Story 4.2: `extraction.py` declares no `ROUTER_ORDER`, so it sorts at
     # `DEFAULT_ROUTER_ORDER` (100) — after every module above, which all
     # declare an explicit order below that — with the module name as the

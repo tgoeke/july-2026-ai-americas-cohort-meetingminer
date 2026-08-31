@@ -46,11 +46,11 @@ from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
 from meetingminer import logs, projections
+from meetingminer.api.artifact_publish import publish_extracted
 from meetingminer.api.problems import Problem, ProblemDetails
 from meetingminer.domain.jobs import augmentation_in_flight
 from meetingminer.projections.evidence import meeting_evidence_complete
-from meetingminer.projections.publish_gate import ARTIFACT_STATES, PUBLISHED_STATE
-from meetingminer.publish import export
+from meetingminer.projections.publish_gate import ARTIFACT_STATES
 
 router = APIRouter()
 ROUTER_ORDER = 40
@@ -146,10 +146,11 @@ _EXTRACTED_ARTIFACTS_FOR_UPDATE = (
     " FOR UPDATE"
 )
 
-_PUBLISH_ARTIFACT = (
-    "UPDATE artifact SET state = %s, approved_at = now(), published_at = now(),"
-    " publish_relative_path = %s, publish_commit_sha = %s WHERE id = %s"
-)
+# The export → git → `UPDATE` sequence itself moved to
+# `api/artifact_publish.py` (story 12.2) so the meeting-scoped approve route
+# performs the identical gesture rather than a similar one. This route's
+# observable behaviour is unchanged: same order, same failure modes, same
+# columns written together.
 
 # The drill-down's header: the moments-list header plus the meeting-level
 # `sourceDeepLink` — `provenance->>'url'` verbatim, raw and nullable. The drop
@@ -639,36 +640,7 @@ def approve_moment_artifacts(moment_id: UUID, request: Request) -> list[MomentAr
                 " it is already approved or published",
             )
 
-        for artifact_id, kind, title, body in pending:
-            try:
-                relative_path = export.export_artifact(
-                    publish_root, artifact_id, kind, title, body
-                )
-            except OSError as exc:
-                raise Problem(
-                    500,
-                    "publish-export-failed",
-                    f"artifact {artifact_id} could not be exported: {exc}",
-                    artifactId=str(artifact_id),
-                ) from exc
-            commit_sha: str | None = None
-            if kind == "adr":
-                try:
-                    commit_sha = export.publish_adr(
-                        publish_root, relative_path, title, artifact_id
-                    )
-                except export.GitExportError as exc:
-                    raise Problem(
-                        500,
-                        "publish-git-failed",
-                        f"artifact {artifact_id} could not be committed to"
-                        f" the publish git repo: {exc.stderr.strip()}",
-                        artifactId=str(artifact_id),
-                    ) from exc
-            conn.execute(
-                _PUBLISH_ARTIFACT,
-                (PUBLISHED_STATE, str(relative_path), commit_sha, artifact_id),
-            )
+        publish_extracted(conn, publish_root, pending)
 
         # Re-read *every* artifact this moment has — not just the rows this
         # call just published — on the same connection/transaction, so the

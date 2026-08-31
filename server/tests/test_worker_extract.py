@@ -603,7 +603,10 @@ def test_a_document_whose_populated_section_yields_nothing_is_named(
     assert zeros[0]["populated_sections"] == ["Decisions and open questions"]
     assert zeros[0]["origin"] == "adopted"
     [summary] = [r for r in records if r["event"] == "stage.extract.summary"]
-    assert summary["artifacts"] == {"action-item": 0, "adr": 0}
+    # `summary` joined the counter with story 12.2: it is an artifact kind
+    # like the other two, differing only in scope, so it is counted here
+    # rather than reported separately.
+    assert summary["artifacts"] == {"action-item": 0, "adr": 0, "summary": 0}
     assert summary["adopted"] == 2, "both artifact documents came from the drop"
     assert summary["generated"] == 2, (
         "the topics and ranking-signals documents are always generated"
@@ -1173,7 +1176,10 @@ def test_a_meeting_with_nothing_to_extract_from_completes_without_a_call(
     [summary] = [r for r in records if r["event"] == "stage.extract.summary"]
     assert summary["skipped_reason"] == reason
     assert summary["documents"] == {}
-    assert summary["artifacts"] == {"action-item": 0, "adr": 0}
+    # `summary` joined the counter with story 12.2: it is an artifact kind
+    # like the other two, differing only in scope, so it is counted here
+    # rather than reported separately.
+    assert summary["artifacts"] == {"action-item": 0, "adr": 0, "summary": 0}
     assert summary["models"] == []
     # The skip is a counted outcome, not a quiet return: the summary says how
     # much evidence it found before deciding there was nothing to extract.
