@@ -153,7 +153,7 @@ export COREPACK_ENABLE_DOWNLOAD_PROMPT := 0
 .NOTPARALLEL:
 
 .PHONY: help bootstrap up down test test-fast diarize-extra-test puller-test puller-sync puller-archive-check web-test evals-test evals-run migrate api worker web client \
-        rebuild purge digest backfill-drop-paths mint-drop test-db-prune check-reviews check-tools check-docker check-env check-client check-stores check-dev-stores check-test-stores check-api \
+        rebuild threads purge digest backfill-drop-paths mint-drop test-db-prune check-reviews check-tools check-docker check-env check-client check-stores check-dev-stores check-test-stores check-api \
         infra-up start-api start-worker start-web \
         stop-api stop-worker stop-web \
         worktree worktree-list worktree-remove worktree-prune worktree-provision worktree-start check-stack check-stack-record check-compose-identity
@@ -216,6 +216,7 @@ help:
 	@echo "                     Each worktree owns its five stores, so server suites and rebuilds in"
 	@echo "                     two worktrees never contend. The api (:$(API_PORT)) and web (:$(WEB_PORT)) ports"
 	@echo "                     are still fixed, and make evals-run remains serial (see AGENTS.md)."
+	@echo "  make threads     - derive threads from stored topics, corpus-wide. Run after an ingest and BEFORE rebuild: a moment's thread is null until it has run. Idempotent"
 	@echo "  make rebuild     - regenerate the Neo4j + Meilisearch projections from Postgres + config.yaml"
 	@echo "                     SINGLE-FLIGHT per stack: it takes the same endpoint-keyed file lock as"
 	@echo "                     the projection tests before writing, queues on a holder up to"
@@ -1122,6 +1123,16 @@ ARGS ?= --all
 rebuild: check-env | infra-up migrate
 	@[ -x "$(VENV)/bin/rebuild" ] || { echo "error: the 'rebuild' console script is missing from the server venv — run 'make bootstrap' first."; exit 1; }
 	cd $(ROOT) && $(VENV)/bin/rebuild $(ARGS)
+
+# Threading is corpus-wide and writes Postgres, so it is deliberately NOT part
+# of `rebuild` — that command regenerates the two retrieval stores *from*
+# Postgres and does not change primary data. Run this after an ingest and
+# BEFORE `make rebuild`: a moment's thread is null until it has run, and the
+# graph projection copies whatever it finds at the time it runs. Idempotent,
+# so re-running after every ingest is the intended use.
+threads: check-env | infra-up migrate
+	@[ -x "$(VENV)/bin/derive-threads" ] || { echo "error: the 'derive-threads' console script is missing from the server venv — run 'make bootstrap' first."; exit 1; }
+	cd $(ROOT) && $(VENV)/bin/derive-threads $(ARGS)
 
 # The keep-set has no default: `prune` itself refuses an unscoped run, and
 # supplying one here would defeat that. `make purge` with no PURGE_ARGS is

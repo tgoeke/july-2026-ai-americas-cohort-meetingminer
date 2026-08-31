@@ -230,6 +230,7 @@ every target to [`infra/Makefile`](infra/Makefile), where the logic lives.
 | `make migrate` | apply pending migrations from `server/meetingminer/migrations/` — writes this checkout's dev database; in the main checkout that is the live one, so announce it |
 | `make mint-drop MINT_ARGS='...'` | mint a drop from a local recording and/or transcript and POST it |
 | `make ingest-drop DROP=<dir>` | ingest a drop finalized elsewhere and already copied under `MM_DROPS_ROOT` |
+| `make threads` | derive threads from the stored topics, corpus-wide. Run after an ingest and **before** `make rebuild` — a moment's thread is null until it has run. Idempotent |
 | `make rebuild` | regenerate the Neo4j + Meilisearch projections from Postgres + `config.yaml` |
 | `make client` | regenerate `web/src/client/` from the live OpenAPI schema (needs the api up) |
 | `make digest DIGEST_ARGS='--output /tmp/digest.txt'` | write one example Morning Digest email from every published artifact; the output path is required |

@@ -72,6 +72,10 @@ diarize = ["pyannote.audio>=4,<5"]
 # `uv run rebuild` — regenerate Neo4j + Meilisearch from Postgres + config.yaml
 # alone (FR24, AD-4). Sits beside `make rebuild`, which is the same entry point.
 rebuild = "meetingminer.projections.cli:main"
+# `uv run derive-threads` — derive threads from stored topics, corpus-wide.
+# Runs after an ingest and BEFORE `rebuild`: a moment's thread is null until
+# this has run, and the graph projection copies whatever it finds.
+derive-threads = "meetingminer.domain.threads_cli:main"
 # `uv run backfill drop-paths` — one-shot conversion of pre-2.1a absolute drop
 # paths to paths anchored to MM_DROPS_ROOT. Fails closed: any row it cannot
 # place under the configured root is named and the exit code is non-zero.
