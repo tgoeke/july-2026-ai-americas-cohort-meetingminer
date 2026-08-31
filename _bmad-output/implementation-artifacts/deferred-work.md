@@ -329,3 +329,10 @@ also edits the pinned sets in `server/tests/test_lint_contract.py`.
   summary: DEFERRED — whole-second legacy stamps can erase a speaker turn's duration. Do not amend the truncation contract and do not change the converter until the corpus establishes that this occurs in genuine Zoom exports.
   evidence: Exact input: cues at 1.100s and 1.900s. Observed: `merge_vtt_end_timings() -> (None, 2200)`. Both converted legacy starts are 1.000s, so the first turn's fallback is bounded by the following 1.000s start, producing the resulting zero-duration boundary `(start_ms, end_ms) == (1000, 1000)`; the second turn ends at 2200ms. The mechanism is preserved unchanged. Story 6.3 review adds only the named structured warning `stage.align.zero-duration-fallback`, carrying the meeting, affected turn, and both colliding stamps.
   revisit_trigger: Real Zoom exports in the new corpus showing sub-second speaker changes.
+
+## Deferred from: Story 6.3 review finding F1 (2026-08-30, owner ruling)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-6-3-local-files-acquisition-with-transcript-dialect-conversion.md`
+  summary: DEFERRED — transcript-only identity can ignore corrected speaker attribution. Do not amend the identity contract and do not change code unless the observed trigger occurs.
+  evidence: Exact reproduction: the two exports `Alice: identical words` and `Bob: identical words` produce the identical `sha256:d53bde...` identity. `transcript.vtt` sorts before `transcript.txt` in `_digest_supplied(classify_supplied(...))`, so the speaker-less artifact determines the identity; `_evidence_not_in()` cannot warn because the existing drop already carries the canonical filename. Preserve both candidate fixes for a future decision: derive identity from the operator's original supplied file, or derive a deterministic digest over both converted artifacts.
+  revisit_trigger: An operator re-mints a corrected Zoom export and the system reports `exists` while keeping the old attribution.

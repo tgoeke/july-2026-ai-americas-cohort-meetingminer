@@ -339,29 +339,47 @@ boundary where the meeting identity and structured logger are available.
   `resolve_end_times()`, converter output, accepted inputs, or stored timing
   behavior. Assert the reproduced result remains the zero-duration first
   boundary followed by 2200ms.
-- [x] Update the owner/spec handoff so F1 is the only open decision. Do not act
-  on F1 and do not merge to `main`.
+- [x] Update the owner/spec handoff after the F6 ruling. The later F1 ruling is
+  recorded below; do not merge to `main`.
+
+## Owner ruling follow-up — F1 (2026-08-30)
+
+The owner **deferred** F1. Do not amend the identity contract and do not change
+code or tests. The reproduction remains real: `Alice: identical words` and
+`Bob: identical words` produce the same `sha256:d53bde...` identity because
+`transcript.vtt` sorts before `transcript.txt` in
+`_digest_supplied(classify_supplied(...))`; `_evidence_not_in()` cannot warn
+because the existing drop already carries the canonical filename.
+
+Revisit only when an operator re-mints a corrected Zoom export and the system
+reports `exists` while keeping the old attribution. Preserve both candidate
+fixes for that future decision: identity from the operator's original supplied
+file, or a deterministic digest over both converted artifacts. The full
+reproduction and trigger are recorded in `deferred-work.md`.
 
 ## Suggested Review Order
 
 **Owner ruling and observability**
 
-- Start with the ruling that constrains every follow-up change.
-  [`spec-6-3-local-files-acquisition-with-transcript-dialect-conversion.md:310`](spec-6-3-local-files-acquisition-with-transcript-dialect-conversion.md#L310)
+- Start with the final identity ruling that clears the last open finding.
+  [`spec-6-3-local-files-acquisition-with-transcript-dialect-conversion.md:345`](spec-6-3-local-files-acquisition-with-transcript-dialect-conversion.md#L345)
 
 - Inspect the warning-only boundary; timing decisions remain in the pure core.
   [`align.py:587`](../../server/meetingminer/pipeline/stages/align.py#L587)
 
-**Deferred evidence and open decision**
+**Deferred evidence and landing state**
 
-- Confirm the exact reproduction and corpus-based revisit trigger remain intact.
+- Confirm F1's exact collision, trigger, and both candidate fixes remain intact.
+  [`deferred-work.md:272`](deferred-work.md#L272)
+
+- Confirm F6's exact reproduction and corpus-based revisit trigger remain intact.
   [`deferred-work.md:265`](deferred-work.md#L265)
 
-- Verify F6 is deferred while the review verdict still blocks on F1.
-  [`review-story-6-3-2026-08-30.md:62`](review-story-6-3-2026-08-30.md#L62)
+- Verify both owner deferrals leave no finding open for remediation.
+  [`review-story-6-3-2026-08-30.md:168`](review-story-6-3-2026-08-30.md#L168)
 
-- Review the sole remaining owner decision and explicit no-merge handoff.
-  [`build-prompt-story-6-3-2026-08-30.md:22`](build-prompt-story-6-3-2026-08-30.md#L22)
+- Review the ready-to-land state and explicit owner-operated integration handoff.
+  [`build-prompt-story-6-3-2026-08-30.md:3`](build-prompt-story-6-3-2026-08-30.md#L3)
 
 **Regression coverage**
 

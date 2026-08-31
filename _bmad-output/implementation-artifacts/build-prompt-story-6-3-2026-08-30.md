@@ -1,9 +1,9 @@
 # Owner/spec handoff — Story 6.3 review decisions
 
-Story 6.3 **does not pass review** and must not merge yet. The review lane fixed
-all unambiguous code findings itself, and the owner deferred F6 with a named
-warning for observability. F1 is the only finding still awaiting an owner
-decision.
+Story 6.3 **passes review and is ready to land**. The review lane fixed every
+patchable finding. The owner deferred F1 and F6 on 2026-08-30 with their exact
+reproductions and revisit triggers preserved. No finding remains open for
+remediation; integration remains owner-operated.
 
 - Repository: `/Users/devopsterus/current/cohort/meetingminer`
 - Source branch: `story/6-3`
@@ -19,12 +19,7 @@ decision.
 Read the report first. Its Location / Severity / Finding / Evidence / Suggested
 direction entries are authoritative.
 
-## Specification decision required
-
-Do not ask a builder to guess this decision. Amend the frozen intent, then
-re-derive the implementation task.
-
-### F1 — Choose transcript-only Zoom identity
+## F1 owner ruling — deferred 2026-08-30
 
 - **Anchor:** `server/meetingminer/transcripts/dialects.py:220-225` and
   `server/meetingminer/mintdrop.py:652-679` in the reviewed source.
@@ -32,10 +27,11 @@ re-derive the implementation task.
   speaker labels generate the same speaker-less VTT. Because that VTT is the
   primary converted file, they receive the same `sourceId`; the corrected
   attribution returns `exists` and is silently ignored.
-- **Why the spec owns it:** The frozen contract explicitly says identity remains
-  the digest of the converted bytes and deliberately declines the available
-  `source_id` override.
-- **Decision options:**
+- **Ruling:** Defer. Do not amend the identity contract and do not change code
+  unless the observed trigger occurs.
+- **Revisit trigger:** An operator re-mints a corrected Zoom export and the
+  system reports `exists` while keeping the old attribution.
+- **Candidate fixes preserved for that future decision:**
   1. Use the original operator-file digest as transcript-only source identity.
      This treats the declared export as the stable occurrence source and makes
      speaker-label changes distinct, but an improved converter applied to the
@@ -43,9 +39,7 @@ re-derive the implementation task.
   2. Use a deterministic composite digest covering both generated transcript
      artifacts. This includes attribution in identity, but converter changes can
      mint a new occurrence for the same original export.
-- **Required outcome:** Corrected speaker attribution cannot resolve to an
-  existing drop that carries different attributed text without a named,
-  actionable outcome.
+- **Action now:** None. The reproduction is retained in `deferred-work.md`.
 
 ## F6 owner ruling — deferred 2026-08-30
 
@@ -82,9 +76,9 @@ No builder action is requested for these findings:
 Every regression was observed failing against the unfixed code before its fix.
 The final dialect suite has 46 tests.
 
-## Verification after the F1 owner decision
+## Closeout verification
 
-After resolving F1, rerun:
+Before landing, run:
 
 ```bash
 uv run --project server pytest server/tests/test_transcript_dialects.py -q
@@ -97,15 +91,14 @@ make check-reviews
 The current review branch passed the post-F6 gates: the combined transcript
 surface passed 78 tests, `make test-fast` passed 1449 server tests with 326 slow
 tests deselected, and the full server gate passed 1775 tests plus the web
-production build. `make check-reviews` remains reserved for the final committed
-report closeout.
+production build. F1 changes documentation only, so no code or test rerun is
+required; `make check-reviews` closes the committed report.
 
 ## Explicitly out of scope
 
 Do not widen into Stories 6.4/6.4a/6.5/6.5a, Teams content inference,
 `pipeline/speakers.py`, unrelated alignment policy, Story 6.2's override
 mechanism, shared test fixtures, configuration, root documentation, or the
-known deferred `Dr.`-style-name and unbounded same-speaker-gap items. Do not
-merge to `main` until a fresh follow-up review sees F1 resolved and all gates
-green. F6 is deferred and does not require a contract change before that
-review.
+known deferred `Dr.`-style-name and unbounded same-speaker-gap items. The story
+is ready to land, but this review branch must not merge to `main`; the owner is
+running `integrate`.

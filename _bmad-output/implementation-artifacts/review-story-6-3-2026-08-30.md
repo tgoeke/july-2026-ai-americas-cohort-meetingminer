@@ -20,8 +20,8 @@ Story 6.3 footprint and treats the verbatim Story 6.2 override hunk as context.
 - **Severity:** high
 - **Finding:** A transcript-only Zoom conversion derives `sourceId` from the generated speaker-less VTT, not from the original export or both generated artifacts. Two exports with identical timings and words but different speaker labels therefore collide. The second mint reports `exists`, and `_evidence_not_in()` cannot warn about the different `transcript.txt` because the existing drop already has that canonical filename.
 - **Evidence:** A direct reproduction converted `Alice: identical words` and `Bob: identical words`. Their generated `transcript.txt` bytes and original-file digests differed, but `_digest_supplied(classify_supplied(...))[0]` produced the same `sha256:d53bde...` identity for both because `transcript.vtt` is ordered before `transcript.txt`. This is also why pinning deterministic output bytes does not protect attribution: it pins the collision-producing VTT bytes.
-- **Suggested direction:** **Open — frozen-spec decision required.** Amend the identity contract so transcript-only Zoom drops use the operator's original-file digest, or a deterministic digest covering both converted transcript artifacts. Do not silently patch around the frozen statement that identity remains the converted bytes' primary digest.
-- **Resolution:** **OPEN.** No code change was made because the frozen identity contract must be amended first.
+- **Suggested direction:** **Deferred by owner ruling dated 2026-08-30.** Do not amend the identity contract or change code unless the observed trigger occurs. Preserve both candidate fixes for that future decision: identity from the operator's original supplied file, or a deterministic digest over both converted artifacts.
+- **Resolution:** **DEFERRED.** The reproduction, trigger, and both candidate fixes are recorded in `deferred-work.md`. Revisit only when an operator re-mints a corrected Zoom export and the system reports `exists` while keeping the old attribution. No code or test changed for F1.
 
 ### F2 — Malformed cue delimiter silently drops evidence
 
@@ -133,7 +133,7 @@ Story 6.3 footprint and treats the verbatim Story 6.2 override hunk as context.
 
 ## Triage and verification
 
-- Triage: 1 decision-needed, 11 patch, 1 deferred, 11 dismissed as noise,
+- Triage: 0 decision-needed, 11 patch, 2 deferred, 11 dismissed as noise,
   by-design behavior, known deferred work, or out-of-scope Story 6.2 mechanics.
 - Pipeline footprint: `git diff d72c658..story/6-3 --
   server/meetingminer/pipeline/` was empty.
@@ -167,9 +167,8 @@ Story 6.3 footprint and treats the verbatim Story 6.2 override hunk as context.
 
 ## Verdict
 
-**CHANGES REQUESTED.** Twelve patchable or owner-directed findings are fixed or
-deferred with observability. The story does not pass review and must not merge
-while F1 remains open: transcript-only identity can ignore corrected speaker
-attribution, and resolving that requires a separate owner ruling and frozen-spec
-amendment. F6 is deferred under the 2026-08-30 owner ruling and is not an open
-merge decision.
+**APPROVED — READY TO LAND.** All patchable findings are fixed and fully green;
+F1 and F6 are deferred by explicit owner rulings dated 2026-08-30, with their
+reproductions and revisit triggers preserved. No findings remain open for
+remediation. Integration remains owner-operated; this review branch must not
+merge itself.
