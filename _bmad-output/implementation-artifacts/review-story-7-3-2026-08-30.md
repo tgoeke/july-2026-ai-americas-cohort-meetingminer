@@ -123,3 +123,28 @@ implementation through the builder's closing documentation commit.
   assignment's restricted stage scope. Story 7.4 then needs to expose that
   choice beside the failed-stage state. Do not silently relax the current
   evidence gate in this review lane.
+
+### F-5 — The citation test did not detect assignment-only segment reordering
+
+- Location: `server/tests/test_api_speaker_assignment.py:646-729`
+- Severity: Medium
+- Finding: The primary rerun test strongly pins moment ids and artifact
+  lifecycle, but it did not snapshot the transcript's immutable structural
+  fields. A regression that changes `transcript_segment.ordinal` only when an
+  assignment exists can reverse the drilldown and chat transcript while every
+  moment id and protected artifact remains unchanged. That violates the
+  story's “re-attribute only” design and AD-13 without tripping the claimed
+  citation-safety coverage.
+- Evidence: Re-ran the builder's 1 ms timing mutation first; it correctly made
+  the test fail by replacing `transcript:40000` with `transcript:40001`. Then
+  applied an independent mutation at `align.py`'s insert mapping:
+  `ordinal = total - index if speaker_assignments else index + 1`. The initial
+  ingest remained normal and only the assignment rerun reversed the three
+  segment ordinals. The full primary test still passed. `api/moments.py` and
+  `api/chat.py` both order transcript output by `ts.ordinal`, so the mutation
+  is externally observable despite unchanged citations.
+- Suggested direction: In the primary rerun test, snapshot and compare the
+  structural segment fields that an assignment must not alter — ordinal,
+  start/end timing, text, and speaker label — while separately asserting the
+  intended participant/resolution change. Re-run the ordering mutation and
+  require that new assertion to fail before accepting the test change.
