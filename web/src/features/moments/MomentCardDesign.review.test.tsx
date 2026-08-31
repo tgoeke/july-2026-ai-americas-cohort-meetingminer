@@ -46,7 +46,7 @@ describe('review F6 — adopted card and control treatments', () => {
       />,
     )
 
-    const screenshotLink = screen.getByRole('button', { name: 'Open screenshot for Design review' })
+    const screenshotLink = screen.getByRole('button', { name: 'Open moment Design review' })
     await userEvent.click(screenshotLink)
     expect(onOpenMoment).toHaveBeenCalledTimes(1)
     expect(screen.getByAltText('slide at 0:01, Design review')).toHaveClass('object-contain')

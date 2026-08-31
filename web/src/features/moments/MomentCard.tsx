@@ -270,71 +270,40 @@ export function MomentCard({
     </div>
   )
 
-  const media = (
-    <div className="flex flex-col gap-2.5">
+  return (
+    <article
+      data-testid={`moment-card-${item.momentId}`}
+      className={cn(
+        'flex flex-col gap-3 rounded-lg border border-border bg-card p-4 transition-colors hover:border-white/20',
+        expanded && 'col-span-full',
+      )}
+    >
+      {/* The screenshot and title are one first focus stop. This keeps the
+          visible evidence target generous without creating a duplicate
+          keyboard action before the title (Accessibility Floor). */}
       <button
         type="button"
-        aria-label={`Open screenshot for ${title}`}
-        className="block w-full cursor-pointer text-left"
         onClick={openMoment}
-      >
-        {frame}
-      </button>
-      {expanded && affordance.kind === 'replay' && (
-        <CaptionedReplayPlayer
-          meetingId={item.meetingId}
-          startMs={item.startMs}
-          label={`Recording of ${title} at ${offset}`}
-          className="w-full rounded-md border border-border bg-background"
-          captions={
-            captionsSrc === null
-              ? undefined
-              : { src: captionsSrc, label: `Transcript captions for ${title}` }
-          }
-        />
-      )}
-    </div>
-  )
-
-  const body = (
-    <div className="flex min-w-0 flex-col">
-      <div className="mt-3">
-        <button
-          type="button"
-          onClick={openMoment}
-          data-testid={`moment-title-${item.momentId}`}
-          data-moment-title-id={item.momentId}
-          className="cursor-pointer text-left text-[15px] leading-snug font-semibold hover:underline"
-        >
-          {title}
-        </button>
-        <div className="mt-0.5 font-mono text-xs tabular-nums text-muted-foreground">
-          {cardMetaLabel(item)}
-        </div>
-      </div>
-      <div className="my-3">
-        <ReasonLine
-          reasons={item.reasons}
-          threads={item.threads}
-          onSelectKind={onSelectKind}
-          onOpenThread={onOpenThread}
-        />
-      </div>
-      {item.preview?.trim() && (
-        <p className="mb-3.5 line-clamp-2 text-sm leading-relaxed text-foreground/90">
-          “{item.preview.trim()}”
-        </p>
-      )}
-      <div
+        data-testid={`moment-title-${item.momentId}`}
+        data-moment-title-id={item.momentId}
+        aria-label={`Open moment ${title}`}
         className={cn(
-          'flex flex-wrap items-center gap-2',
-          // Collapsed, the action row is bottom-aligned so a row of cards with
-          // excerpts of different lengths keeps its Replay buttons on one line.
-          // Expanded, the card is as tall as the player beside it, and the
-          // same rule would strand the actions a screen below the excerpt.
-          expanded ? 'mt-1' : 'mt-auto',
+          'grid w-full cursor-pointer gap-3 text-left',
+          expanded && 'lg:grid-cols-[1.15fr_1fr] lg:items-start',
         )}
       >
+        {frame}
+        <span className="block min-w-0">
+          <span className="block text-[15px] leading-snug font-semibold hover:underline">
+            {title}
+          </span>
+          <span className="mt-0.5 block font-mono text-xs tabular-nums text-muted-foreground">
+            {cardMetaLabel(item)}
+          </span>
+        </span>
+      </button>
+
+      <div className="flex flex-wrap items-center gap-2">
         {affordance.kind === 'replay' && (
           <Button
             size="sm"
@@ -383,21 +352,33 @@ export function MomentCard({
           <span className="text-xs text-muted-foreground">{TRANSCRIPT_ONLY}</span>
         )}
       </div>
-    </div>
-  )
 
-  return (
-    <article
-      data-testid={`moment-card-${item.momentId}`}
-      className={cn(
-        'rounded-lg border border-border bg-card p-4 transition-colors hover:border-white/20',
-        // Expanded: the card spans the grid and lays media beside the body, so
-        // the player is large without pushing the reason line off screen.
-        expanded && 'col-span-full grid gap-6 lg:grid-cols-[1.15fr_1fr]',
+      {expanded && affordance.kind === 'replay' && (
+        <CaptionedReplayPlayer
+          meetingId={item.meetingId}
+          startMs={item.startMs}
+          label={`Recording of ${title} at ${offset}`}
+          className="w-full rounded-md border border-border bg-background"
+          captions={
+            captionsSrc === null
+              ? undefined
+              : { src: captionsSrc, label: `Transcript captions for ${title}` }
+          }
+        />
       )}
-    >
-      {media}
-      {body}
+
+      <ReasonLine
+        reasons={item.reasons}
+        threads={item.threads}
+        onSelectKind={onSelectKind}
+        onOpenThread={onOpenThread}
+      />
+
+      {item.preview?.trim() && (
+        <p className="line-clamp-2 text-sm leading-relaxed text-foreground/90">
+          “{item.preview.trim()}”
+        </p>
+      )}
     </article>
   )
 }
