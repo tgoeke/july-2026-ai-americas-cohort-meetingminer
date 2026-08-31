@@ -272,7 +272,7 @@ All paths under `web/src/features/threads/`, all new.
   33 targeted tests green after it. Final foreground rerun:
   `pnpm --dir web exec vitest run src/features/threads` — 111 passed across 10
   files; forced TypeScript build — exit 0; `make test-fast` — ruff and mypy
-  green, puller 128 passed, web 552 passed, evals 655 passed, server 2178
+  green, puller 128 passed, web 552 passed, evals 655 passed, server 2315
   passed / 3 standing named skips / 411 slow tests deselected.
 - `make test-fast` — green at `39ccfba`: ruff `All checks passed!`, mypy
   `Success: no issues found in 13 source files`, vitest `353 passed (20 files)`,

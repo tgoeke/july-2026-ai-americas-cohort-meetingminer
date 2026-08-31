@@ -4158,5 +4158,5 @@ The implementation and two adversarial hardening passes are `35e0bfad`,
 `occurredAt` remains valid outside the requested envelope because the mention
 anchor owns membership. Final foreground gates: Threads 111 passed, forced
 TypeScript build passed, and `make test-fast` passed with ruff/mypy green,
-puller 128, web 552, evals 655, and server 2178 passed / 3 named skips / 411
+puller 128, web 552, evals 655, and server 2315 passed / 3 named skips / 411
 deselected.
