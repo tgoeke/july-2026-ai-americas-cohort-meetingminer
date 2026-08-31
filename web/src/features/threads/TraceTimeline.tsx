@@ -73,7 +73,10 @@ export default function TraceTimeline({
 }) {
   const viewport = useRef<HTMLDivElement | null>(null)
   const drag = useRef<{ x: number; panX: number } | null>(null)
-  const [width, setWidth] = useState(1000)
+  // Zero means "not measured yet". Starting with the jsdom fallback here lets
+  // the first passive fit consume it before the layout effect can publish the
+  // real width, permanently fitting a narrow browser as though it were 1000px.
+  const [width, setWidth] = useState(0)
   // Altitude and origin are ONE value. Held as two pieces of state they can be
   // updated from different snapshots inside one handler, and a zoom that reads
   // a stale pan is exactly the drift that stops the cursor anchoring.
@@ -114,11 +117,18 @@ export default function TraceTimeline({
     // container would otherwise pin the view to the minimum altitude and cull
     // every stop off screen. The last real width stands until a real one
     // replaces it.
-    const measure = (value: number) => {
-      if (value > 0) setWidth(value)
+    const measure = (value: number): boolean => {
+      if (value <= 0) return false
+      setWidth(value)
+      return true
     }
-    measure(element.clientWidth)
-    if (typeof ResizeObserver !== 'function') return
+    const measured = measure(element.clientWidth)
+    if (typeof ResizeObserver !== 'function') {
+      // jsdom has neither layout nor ResizeObserver. Preserve a deterministic
+      // width there without letting that fallback win a race in a real browser.
+      if (!measured) setWidth(1000)
+      return
+    }
     const observer = new ResizeObserver(([entry]) => measure(entry.contentRect.width))
     observer.observe(element)
     return () => observer.disconnect()
@@ -126,13 +136,14 @@ export default function TraceTimeline({
 
   // Open at the altitude where the whole span is visible: the point of the view
   // is that you start by seeing the shape, then choose where to descend.
+  const fitKey = `${trace.mode}:${trace.threadId ?? ''}:${trace.label}:${epochMs}:${spanDays}:${placed.length}`
   const fitted = useRef<string | null>(null)
   useEffect(() => {
-    if (fitted.current !== trace.label && width > 0) {
-      fitted.current = trace.label
+    if (fitted.current !== fitKey && width > 0) {
+      fitted.current = fitKey
       fit()
     }
-  }, [trace.label, width, fit])
+  }, [fitKey, width, fit])
 
   const zoomAt = useCallback((pointerClientX: number, factor: number) => {
     const element = viewport.current
