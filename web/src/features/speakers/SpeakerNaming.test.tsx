@@ -667,7 +667,7 @@ describe('clips and the tag-filtered transcript', () => {
     const user = userEvent.setup()
     await loaded()
 
-    const clipButton = screen.getByRole('button', {
+    const clipButton = await screen.findByRole('button', {
       name: 'Play clip 1 of SPEAKER_00 at 4:12',
     })
     await user.click(clipButton)

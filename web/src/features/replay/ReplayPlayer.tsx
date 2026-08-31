@@ -17,6 +17,8 @@ export interface ReplayPlayerProps {
    * not run into the next speaker's turn and teach the wrong voice.
    */
   endMs?: number
+  /** Start from `startMs` on mount. Speaker clips opt in; other callers do not. */
+  autoPlay?: boolean
   /** What assistive tech announces instead of the raw url. */
   label?: string
   className?: string
@@ -39,6 +41,7 @@ export function ReplayPlayer({
   meetingId,
   startMs,
   endMs,
+  autoPlay = false,
   label,
   className,
 }: ReplayPlayerProps) {
@@ -54,8 +57,16 @@ export function ReplayPlayer({
     // from an offset that turned out to be absent hands over NaN, and opening
     // at the top of the recording is the honest answer to "no known moment".
     const seconds = Number.isFinite(startMs) ? Math.max(0, startMs / 1000) : 0
+    let playbackRequested = false
     const seek = () => {
       video.currentTime = seconds
+      if (!autoPlay || playbackRequested) return
+      playbackRequested = true
+      void video.play().catch(() => {
+        // A browser may refuse until metadata is available. Let the
+        // loadedmetadata listener below make the one retry it can justify.
+        playbackRequested = false
+      })
     }
     // Assigned twice on purpose, because the effect runs in two different
     // states and there is only one event to hang off.
@@ -76,7 +87,7 @@ export function ReplayPlayer({
     }
     // `startMs` only: a re-render that changes neither the recording nor the
     // moment must not yank the playhead back from wherever the viewer scrubbed.
-  }, [src, startMs])
+  }, [src, startMs, autoPlay])
 
   useEffect(() => {
     const video = videoRef.current
