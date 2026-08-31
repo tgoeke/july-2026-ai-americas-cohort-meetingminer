@@ -46,6 +46,9 @@ function emit(event: Partial<JobEvent> & Pick<JobEvent, 'event' | 'jobId'>) {
 }
 
 const MEETING = '0190a0f0-7c1e-7000-8000-0000000000aa'
+const playMedia = vi
+  .spyOn(HTMLMediaElement.prototype, 'play')
+  .mockResolvedValue(undefined)
 
 function tag(overrides: Partial<SpeakerTag> = {}): SpeakerTag {
   return {
@@ -160,6 +163,7 @@ beforeEach(() => {
   sdk.listParticipants.mockReset()
   sdk.assignMeetingSpeaker.mockReset()
   stream.onEvent = null
+  playMedia.mockClear()
 })
 
 describe('the speakers rail', () => {
@@ -656,6 +660,24 @@ describe('clips and the tag-filtered transcript', () => {
 
     const player = screen.getByTestId('replay-player')
     expect(player).toHaveAttribute('aria-label', 'Clip 2 of SPEAKER_00 at 19:40')
+  })
+
+  it('plays on activation and restarts when the same clip is pressed again', async () => {
+    answers()
+    const user = userEvent.setup()
+    await loaded()
+
+    const clipButton = screen.getByRole('button', {
+      name: 'Play clip 1 of SPEAKER_00 at 4:12',
+    })
+    await user.click(clipButton)
+    await waitFor(() => expect(playMedia).toHaveBeenCalledTimes(1))
+    const firstPlayer = screen.getByTestId('replay-player')
+
+    await user.click(clipButton)
+
+    await waitFor(() => expect(playMedia).toHaveBeenCalledTimes(2))
+    expect(screen.getByTestId('replay-player')).not.toBe(firstPlayer)
   })
 
   it('offers no clip for a transcript-only meeting, and says so', async () => {
