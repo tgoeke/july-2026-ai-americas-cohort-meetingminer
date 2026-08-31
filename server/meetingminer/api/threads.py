@@ -56,12 +56,31 @@ from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
+from meetingminer import logs
+from meetingminer.adapters.embed import EmbedderError, EmbedderUnavailableError
 from meetingminer.api.problems import Problem, ProblemDetails
 from meetingminer.domain.thread_timeline import (
     LEVELS,
     Level,
     format_rfc3339,
     plan_buckets,
+)
+from meetingminer.domain.thread_trace import (
+    CANDIDATE_LIMIT,
+    PER_MEETING_DEFAULT,
+    SUGGESTION_LIMIT_DEFAULT,
+    SUGGESTION_MAX_MEETINGS,
+    SUGGESTION_MIN_MEETINGS,
+    SUGGESTION_MIN_SPAN_DAYS,
+    completeness_note,
+    drop_near_duplicates,
+    span_days,
+)
+from meetingminer.projections.query import search_moments
+from meetingminer.projections.stores import (
+    ProjectionError,
+    StoreUnavailableError,
+    meili_client,
 )
 
 router = APIRouter()
@@ -86,6 +105,20 @@ EXCERPT_MAX_CHARS = 300
 # than was served, so a caller narrows the window rather than believing a
 # short list.
 MOMENT_LEVEL_LIMIT = 500
+
+# How many ranked subjects the suggestion query reads before near-duplicate
+# dropping picks from them. A scan bound, not the answer: dropping duplicates
+# from exactly `limit` rows would return fewer than `limit` subjects whenever
+# any two of them were the same concern.
+_SUGGESTION_SCAN = 200
+
+# The sample leg's top-k. Large enough that a wording with a real history fills
+# a timeline, small enough that it is plainly a sample — which is what the
+# response says it is.
+_SAMPLE_LIMIT_DEFAULT = 60
+
+# Adjacent subjects offered beneath a trace.
+_RELATED_LIMIT = 8
 
 
 def _occurred_at_sql(offset_column: str, meeting_alias: str = "mt") -> str:
@@ -142,6 +175,193 @@ _THREAD_SPAN = (
     " JOIN topic_mention tm ON tm.topic_id = tt.topic_id"
     " JOIN meeting mt ON mt.id = tm.meeting_id"
     " WHERE tt.thread_id = %(thread_id)s"
+)
+
+
+# --- story 10.7: threads as a query ----------------------------------------
+#
+# The other way in. Story 10.3 above serves one *derived* thread at four levels
+# of detail, which is the right shape for a reader who already knows which
+# thread they want. It is the wrong shape for the reader the acceptance
+# criteria describe, who knows a subject and not a thread id, and who wants
+# every meeting where it surfaced on one timeline.
+#
+# **One payload, every altitude.** The trace below is served once and the
+# client re-renders it as it zooms. It is deliberately not the level-of-detail
+# endpoint: a semantic zoom that refetches at each threshold cannot keep what
+# is under the cursor under the cursor, and the payload for one subject is
+# small enough that tiering it buys nothing.
+
+# Subjects worth tracing, for the empty state.
+#
+# Ranked by the calendar time they span, inside a band on the meeting count —
+# never by mention frequency, which surfaces only the generic subjects that
+# appear in nearly every meeting and whose thread is the whole corpus. The
+# band and the sort are `domain/thread_trace.py`'s; this query applies them.
+# `LIMIT` here is a scan bound, not the answer: near-duplicate dropping needs
+# more rows than it returns.
+_SUGGESTIONS = (
+    "SELECT s.id, s.name, s.color_ordinal, s.meetings, s.mentions,"
+    " s.first_at, s.last_at FROM ("
+    " SELECT th.id, th.name, th.color_ordinal,"
+    " COUNT(DISTINCT tm.meeting_id) AS meetings, COUNT(*) AS mentions,"
+    f" MIN({_occurred_at_sql('tm.anchor_ms')}) AS first_at,"
+    f" MAX({_occurred_at_sql('tm.anchor_ms')}) AS last_at"
+    " FROM thread th"
+    " JOIN topic_thread tt ON tt.thread_id = th.id"
+    " JOIN topic_mention tm ON tm.topic_id = tt.topic_id"
+    " JOIN meeting mt ON mt.id = tm.meeting_id"
+    " GROUP BY th.id, th.name, th.color_ordinal"
+    ") s"
+    " WHERE s.meetings >= %(min_meetings)s AND s.meetings <= %(max_meetings)s"
+    " AND s.last_at - s.first_at >= %(min_span_days)s * INTERVAL '1 day'"
+    " ORDER BY s.last_at - s.first_at DESC, s.meetings DESC, s.id"
+    " LIMIT %(scan)s"
+)
+
+# Does this wording plainly name one known subject?
+#
+# Exact and unambiguous only. A fuzzy match here would silently answer a
+# different question than the one typed, which is the failure the two-legged
+# design exists to remove: the exhaustive leg's whole claim is "every time this
+# came up", and it may only be made about the thing that was actually asked
+# for. The typed phrase is matched against the thread's display name, its
+# content-derived identity key, and the names of the topics it was built from —
+# a reader types the subject as they heard it, which is a topic name far more
+# often than a thread name.
+_EXACT_SUBJECT = (
+    "SELECT DISTINCT th.id, th.name, th.color_ordinal"
+    " FROM thread th"
+    " JOIN topic_thread tt ON tt.thread_id = th.id"
+    " JOIN topic t ON t.id = tt.topic_id"
+    " WHERE lower(th.name) = %(phrase)s"
+    " OR lower(th.identity_key) = %(phrase)s"
+    " OR lower(t.name) = %(phrase)s"
+    " LIMIT 5"
+)
+
+# The adjacent subjects a wording adjoins, offered rather than guessed between.
+# Only threads that actually span meetings are offered: a one-meeting row is a
+# durable identity kept as a reuse target (migration 0015), not a thread by
+# `domain/threads.py`'s own definition, and offering one as a trace would send
+# the reader to a timeline with a single point on it.
+_CANDIDATES = (
+    "SELECT s.id, s.name, s.color_ordinal, s.meetings, s.first_at, s.last_at"
+    " FROM ("
+    " SELECT th.id, th.name, th.color_ordinal,"
+    " COUNT(DISTINCT tm.meeting_id) AS meetings,"
+    f" MIN({_occurred_at_sql('tm.anchor_ms')}) AS first_at,"
+    f" MAX({_occurred_at_sql('tm.anchor_ms')}) AS last_at"
+    " FROM thread th"
+    " JOIN topic_thread tt ON tt.thread_id = th.id"
+    " JOIN topic_mention tm ON tm.topic_id = tt.topic_id"
+    " JOIN meeting mt ON mt.id = tm.meeting_id"
+    " WHERE th.name ILIKE %(like)s OR th.id IN ("
+    " SELECT tt2.thread_id FROM topic_thread tt2"
+    " JOIN topic t2 ON t2.id = tt2.topic_id WHERE t2.name ILIKE %(like)s)"
+    " GROUP BY th.id, th.name, th.color_ordinal"
+    ") s"
+    " WHERE s.meetings >= 2"
+    " ORDER BY s.meetings DESC, s.last_at DESC, s.id"
+    " LIMIT %(limit)s"
+)
+
+# Every meeting that mentions the subject — the stops, whole.
+#
+# There is no window and no overall limit on this query, and that is the point.
+# An overall cap cuts the tail off a long-running subject and shows the first
+# months as though they were the whole history; the capping happens in
+# `_TRACE_MOMENTS` below, per meeting, so every stop survives.
+#
+# `moment` is joined rather than aggregated from the mention alone (which the
+# coarse timeline levels can do) because superseded moments must be excluded
+# here: these counts are printed beside the quoted ones, and two figures that
+# count different row sets would misreport the cap as data loss.
+_TRACE_STOPS = (
+    "SELECT tm.meeting_id, mt.title, mt.corpus, mt.has_recording,"
+    " mt.started_at_precision,"
+    " COUNT(*), COUNT(DISTINCT tm.moment_id),"
+    f" MIN({_occurred_at_sql('tm.anchor_ms')}),"
+    f" MAX({_occurred_at_sql('tm.anchor_ms')})"
+    " FROM topic_thread tt"
+    " JOIN topic_mention tm ON tm.topic_id = tt.topic_id"
+    " JOIN moment mo ON mo.id = tm.moment_id"
+    " JOIN meeting mt ON mt.id = tm.meeting_id"
+    " WHERE tt.thread_id = %(thread_id)s"
+    " AND COALESCE(mo.provenance->>'superseded', '') <> 'true'"
+    " GROUP BY tm.meeting_id, mt.title, mt.corpus, mt.has_recording,"
+    " mt.started_at_precision"
+    f" ORDER BY MIN({_occurred_at_sql('tm.anchor_ms')}), tm.meeting_id"
+)
+
+# The moments quoted at each stop, capped per meeting by a window function so
+# the cap is a property of the row set rather than of a Python loop that a
+# later edit could reorder. Earliest first inside each meeting: the reader is
+# reading a history, and the first thing said about a subject in a meeting is
+# the one that places it.
+_TRACE_MOMENTS = (
+    "SELECT q.moment_id, q.meeting_id, q.start_ms, q.screenshot_id,"
+    " q.occurred_at, q.precision FROM ("
+    " SELECT mo.id AS moment_id, mo.meeting_id, mo.start_ms, mo.screenshot_id,"
+    " mt.started_at_precision AS precision,"
+    f" {_occurred_at_sql('mo.start_ms')} AS occurred_at,"
+    " ROW_NUMBER() OVER (PARTITION BY mo.meeting_id"
+    " ORDER BY mo.start_ms, mo.id) AS rn"
+    " FROM moment mo JOIN meeting mt ON mt.id = mo.meeting_id"
+    " WHERE mo.id IN (SELECT tm.moment_id FROM topic_thread tt"
+    " JOIN topic_mention tm ON tm.topic_id = tt.topic_id"
+    " WHERE tt.thread_id = %(thread_id)s)"
+    " AND COALESCE(mo.provenance->>'superseded', '') <> 'true'"
+    ") q WHERE q.rn <= %(per_meeting)s"
+    " ORDER BY q.occurred_at, q.meeting_id, q.moment_id"
+)
+
+# The sample leg's twin of the two queries above, over the moment ids the
+# index ranked. Meilisearch ranks and Postgres cites (AD-2/AD-6): not one
+# field below comes from the index, and a ranked moment Postgres no longer
+# holds simply does not appear.
+_SAMPLE_STOPS = (
+    "SELECT mo.meeting_id, mt.title, mt.corpus, mt.has_recording,"
+    " mt.started_at_precision, COUNT(*), COUNT(*),"
+    f" MIN({_occurred_at_sql('mo.start_ms')}),"
+    f" MAX({_occurred_at_sql('mo.start_ms')})"
+    " FROM moment mo JOIN meeting mt ON mt.id = mo.meeting_id"
+    " WHERE mo.id = ANY(%(moment_ids)s)"
+    " AND COALESCE(mo.provenance->>'superseded', '') <> 'true'"
+    " GROUP BY mo.meeting_id, mt.title, mt.corpus, mt.has_recording,"
+    " mt.started_at_precision"
+    f" ORDER BY MIN({_occurred_at_sql('mo.start_ms')}), mo.meeting_id"
+)
+
+_SAMPLE_MOMENTS = (
+    "SELECT q.moment_id, q.meeting_id, q.start_ms, q.screenshot_id,"
+    " q.occurred_at, q.precision FROM ("
+    " SELECT mo.id AS moment_id, mo.meeting_id, mo.start_ms, mo.screenshot_id,"
+    " mt.started_at_precision AS precision,"
+    f" {_occurred_at_sql('mo.start_ms')} AS occurred_at,"
+    " ROW_NUMBER() OVER (PARTITION BY mo.meeting_id"
+    " ORDER BY mo.start_ms, mo.id) AS rn"
+    " FROM moment mo JOIN meeting mt ON mt.id = mo.meeting_id"
+    " WHERE mo.id = ANY(%(moment_ids)s)"
+    " AND COALESCE(mo.provenance->>'superseded', '') <> 'true'"
+    ") q WHERE q.rn <= %(per_meeting)s"
+    " ORDER BY q.occurred_at, q.meeting_id, q.moment_id"
+)
+
+# The subjects that co-occur with what is on screen, so a trace leads
+# somewhere instead of dead-ending. Keyed on the moments actually quoted, so
+# what is offered is adjacent to what the reader can see rather than to the
+# subject in the abstract.
+_TRACE_RELATED = (
+    "SELECT th.id, th.name, th.color_ordinal, COUNT(DISTINCT tm.moment_id)"
+    " FROM topic_mention tm"
+    " JOIN topic_thread tt ON tt.topic_id = tm.topic_id"
+    " JOIN thread th ON th.id = tt.thread_id"
+    " WHERE tm.moment_id = ANY(%(moment_ids)s)"
+    " AND (%(exclude_thread)s::uuid IS NULL OR th.id <> %(exclude_thread)s::uuid)"
+    " GROUP BY th.id, th.name, th.color_ordinal"
+    " ORDER BY COUNT(DISTINCT tm.moment_id) DESC, th.id"
+    " LIMIT %(limit)s"
 )
 
 
@@ -318,6 +538,161 @@ class ThreadsResponse(_Camel):
     threads: list[ThreadSummary]
 
 
+# --- story 10.7 wire models ------------------------------------------------
+
+
+class SubjectReach(_Camel):
+    """How far a subject runs, which is the whole basis for offering it.
+
+    Both numbers are shown to the reader rather than only ranked on: "9
+    meetings over 118 days" is what makes a suggestion a considered choice
+    instead of a button whose label is the only thing known about it.
+    """
+
+    meeting_count: int
+    span_days: int
+    first_mention_at: str
+    last_mention_at: str
+
+
+class SuggestedSubject(_Camel):
+    thread_id: UUID
+    name: str
+    color_ordinal: int
+    mention_count: int
+    reach: SubjectReach
+
+
+class SuggestionsResponse(_Camel):
+    """The empty state's offer, with the band it was drawn from.
+
+    The band travels with the answer because an empty list means something
+    specific — no subject in this corpus recurs across meetings for long enough
+    to be worth tracing — and a client that cannot see the bounds would have to
+    render that as a blank.
+    """
+
+    subjects: list[SuggestedSubject]
+    min_meetings: int
+    max_meetings: int
+    min_span_days: int
+
+
+class SubjectCandidate(_Camel):
+    """An adjacent subject the typed wording could have meant."""
+
+    thread_id: UUID
+    name: str
+    color_ordinal: int
+    meeting_count: int
+    span_days: int
+
+
+class TraceMoment(_Camel):
+    """One quoted moment at a stop."""
+
+    moment_id: UUID
+    start_ms: int
+    occurred_at: str
+    occurred_at_precision: str
+    # Only `resolved` speaker labels, in first-appearance order (migration
+    # 0005): the other three resolutions are not names and a timeline may not
+    # print them as though they were.
+    speakers: list[str]
+    excerpt: str | None = None
+    # Opaque (AD-17). NULL on a transcript-only meeting, or on a moment past
+    # the last capture — the two are not distinguishable here and are not
+    # reported as though they were.
+    screenshot_id: UUID | None = None
+
+
+class TraceStop(_Camel):
+    """One meeting where the subject surfaced.
+
+    `mentionCount` and `momentCount` describe the meeting; `quotedCount` is how
+    many of them are carried in `moments`. The three are all present so a
+    reader is never shown six moments from a meeting that held forty without
+    being told which they are looking at.
+
+    `hasRecording` and `screenCount` are carried as facts rather than as a
+    rendered sentence about them: a stop with no screens must state its reason,
+    and the reason turns on whether the absence was established (transcript-only
+    ingest) or merely observed (no capture covers these moments). A client that
+    derived the state from the presence of prose would be one wording change
+    away from claiming the wrong one (AD-18).
+    """
+
+    meeting_id: UUID
+    title: str | None = None
+    corpus: str
+    has_recording: bool
+    occurred_at: str
+    last_occurred_at: str
+    occurred_at_precision: str
+    mention_count: int
+    moment_count: int
+    quoted_count: int
+    screen_count: int
+    moments: list[TraceMoment]
+
+
+class TraceSpan(_Camel):
+    from_at: str
+    to_at: str
+    days: int
+    meetings: int
+
+
+class TraceCounts(_Camel):
+    stops: int
+    moments_quoted: int
+    mention_total: int
+    meetings_mentioning: int
+    with_screen: int
+
+
+class RelatedSubject(_Camel):
+    thread_id: UUID
+    name: str
+    color_ordinal: int
+    shared_moments: int
+
+
+class ThreadTrace(_Camel):
+    """One subject, traced across every meeting where it surfaced.
+
+    **`mode` is the closed set; `completenessNote` is the prose.** Both are
+    carried because a client that inferred completeness from the wording would
+    be one edit away from presenting a sample as a full history — the same
+    unverified-absence failure as claiming no recording exists, in the one view
+    whose entire claim is that it shows the corpus's true shape (AD-18).
+    """
+
+    mode: Literal["exhaustive", "sample"]
+    label: str
+    # Present on the exhaustive leg only: a sample is not a thread and has no
+    # identity to carry, and inventing one would make it linkable as though it
+    # were a derived subject.
+    thread_id: UUID | None = None
+    color_ordinal: int | None = None
+    # Set when a typed phrase was answered as a named subject, so the view is
+    # never quietly showing something other than what was asked for.
+    resolved_from: str | None = None
+    # `keyword` or `hybrid` on the sample leg; NULL on the exhaustive leg,
+    # which does not rank at all.
+    ranking: Literal["hybrid", "keyword"] | None = None
+    complete: bool
+    completeness_note: str
+    per_meeting_limit: int
+    span: TraceSpan | None = None
+    counts: TraceCounts
+    # Offered on the sample leg so an ambiguous wording is disambiguated by the
+    # reader rather than guessed at here.
+    candidates: list[SubjectCandidate]
+    related_subjects: list[RelatedSubject]
+    stops: list[TraceStop]
+
+
 class TimelineBand(_Camel):
     """One bucket of the density strip. Half-open `[startAt, endAt)`, except
     the band's last bucket, which is closed on the window's own end."""
@@ -468,6 +843,27 @@ _PROBLEM_RESPONSES: dict[int | str, dict[str, Any]] = {
 }
 
 
+_TRACE_PROBLEMS: dict[int | str, dict[str, Any]] = {
+    400: {
+        "model": ProblemDetails,
+        "content": {"application/problem+json": {}},
+        "description": "`invalid-request` — neither `q` nor `threadId` was given.",
+    },
+    404: {
+        "model": ProblemDetails,
+        "content": {"application/problem+json": {}},
+        "description": "`not-found` — no thread with that id.",
+    },
+    503: {
+        "model": ProblemDetails,
+        "content": {"application/problem+json": {}},
+        "description": "`thread-trace-store-unavailable`,"
+        " `thread-trace-store-unusable` or `embedder-unusable` — the sample leg"
+        " could not be served, and is refused rather than degraded to silence.",
+    },
+}
+
+
 # --- helpers ---------------------------------------------------------------
 
 
@@ -494,6 +890,226 @@ def _group(rows: list[tuple]) -> dict[UUID, list[tuple]]:
     for row in rows:
         grouped.setdefault(row[0], []).append(row[1:])
     return grouped
+
+
+def _rank_sample(
+    request: Request, phrase: str, limit: int
+) -> tuple[tuple[UUID, ...], Literal["hybrid", "keyword"]]:
+    """Rank the moments index for a wording and return the ids, in rank order.
+
+    The two embedder failures get two answers, exactly as `GET /search` gives
+    them: an unavailable host degrades to keyword and *says so* in the response
+    (`ranking`) as well as in the log, because keyword-only is a good answer
+    rather than a broken one; a model that answers wrongly is a configuration
+    error no retry fixes and is refused by name. A degraded search that looked
+    identical to a healthy one would be an AD-18 violation in the view whose
+    whole job is to be honest about what it is showing.
+    """
+    config = request.app.state.config
+    ranking: Literal["hybrid", "keyword"] = "keyword"
+    query_vector = None
+    if config.settings.api.search.semantic_ratio != 0.0:
+        embedder = request.app.state.embedder
+        try:
+            query_vector = embedder.embed_query(phrase)
+            ranking = "hybrid"
+        except EmbedderUnavailableError as exc:
+            logs.log_event(
+                "threads.trace_degraded",
+                reason="embedder_unavailable",
+                model=getattr(embedder, "model", None),
+                detail=str(exc),
+            )
+        except EmbedderError as exc:
+            raise Problem(
+                503,
+                "embedder-unusable",
+                f"the configured embedder {getattr(embedder, 'model', 'unknown')!r}"
+                f" could not embed the subject: {exc}",
+                title="Service Unavailable",
+                model=getattr(embedder, "model", None),
+            ) from exc
+
+    try:
+        client = meili_client(config)
+        result = search_moments(
+            client, config, query=phrase, limit=limit, query_vector=query_vector
+        )
+    except StoreUnavailableError as exc:
+        raise Problem(
+            503,
+            "thread-trace-store-unavailable",
+            f"the search index could not be reached: {exc}",
+            title="Service Unavailable",
+            store="meilisearch",
+        ) from exc
+    except ProjectionError as exc:
+        # `StoreUnavailableError` is a subclass, so this clause must stay after
+        # it or every outage would be reported under the wrong slug.
+        raise Problem(
+            503,
+            "thread-trace-store-unusable",
+            f"the search index could not be queried: {exc}",
+            title="Service Unavailable",
+            store="meilisearch",
+        ) from exc
+
+    if result.index_missing:
+        logs.log_event("threads.trace_index_missing", subject=phrase)
+    return tuple(hit.moment_id for hit in result.hits), ranking
+
+
+def _assemble_trace(
+    conn: Any,
+    *,
+    mode: Literal["exhaustive", "sample"],
+    label: str,
+    thread_id: UUID | None,
+    color_ordinal: int | None,
+    stop_rows: list[tuple],
+    moment_rows: list[tuple],
+    per_meeting: int,
+    resolved_from: str | None,
+    ranking: Literal["hybrid", "keyword"] | None,
+    candidates: list[SubjectCandidate],
+) -> ThreadTrace:
+    """Both legs converge here: same stops, same counts, same sentence.
+
+    The two legs differ only in which rows they arrived with. Assembling them
+    through one function is what keeps the sample from acquiring the
+    exhaustive leg's vocabulary by accident — the counts and the note are
+    computed once, from the rows actually present.
+
+    Stops are ordered by time and never by relevance. Ranking order is what the
+    sample leg was given and it is deliberately discarded here: relevance order
+    destroys exactly the sequence this view exists to show.
+    """
+    moment_ids = [row[0] for row in moment_rows]
+    lookup = {"moment_ids": moment_ids}
+    speakers = (
+        _group(conn.execute(_MOMENT_SPEAKERS, lookup).fetchall()) if moment_ids else {}
+    )
+    excerpts = (
+        dict(conn.execute(_MOMENT_EXCERPTS, lookup).fetchall()) if moment_ids else {}
+    )
+    related_rows = (
+        conn.execute(
+            _TRACE_RELATED,
+            {
+                "moment_ids": moment_ids,
+                "exclude_thread": thread_id,
+                "limit": _RELATED_LIMIT,
+            },
+        ).fetchall()
+        if moment_ids
+        else []
+    )
+
+    quoted: dict[UUID, list[TraceMoment]] = {}
+    for (
+        moment_id,
+        meeting_id,
+        start_ms,
+        screenshot_id,
+        occurred,
+        precision,
+    ) in moment_rows:
+        quoted.setdefault(meeting_id, []).append(
+            TraceMoment(
+                moment_id=moment_id,
+                start_ms=start_ms,
+                occurred_at=format_rfc3339(occurred),
+                occurred_at_precision=precision,
+                speakers=[label_ for label_, _ in speakers.get(moment_id, [])],
+                excerpt=excerpts.get(moment_id),
+                screenshot_id=screenshot_id,
+            )
+        )
+
+    stops: list[TraceStop] = []
+    for (
+        meeting_id,
+        title,
+        corpus,
+        has_recording,
+        precision,
+        mention_count,
+        moment_count,
+        first_at,
+        last_at,
+    ) in stop_rows:
+        moments = quoted.get(meeting_id, [])
+        stops.append(
+            TraceStop(
+                meeting_id=meeting_id,
+                title=title,
+                corpus=corpus,
+                has_recording=has_recording,
+                occurred_at=format_rfc3339(first_at),
+                last_occurred_at=format_rfc3339(last_at),
+                occurred_at_precision=precision,
+                mention_count=mention_count,
+                moment_count=moment_count,
+                quoted_count=len(moments),
+                screen_count=sum(1 for m in moments if m.screenshot_id is not None),
+                moments=moments,
+            )
+        )
+
+    moments_quoted = sum(stop.quoted_count for stop in stops)
+    mention_total = sum(stop.mention_count for stop in stops)
+    with_screen = sum(stop.screen_count for stop in stops)
+    complete = mode == "exhaustive" and moments_quoted >= mention_total
+
+    span = None
+    if stop_rows:
+        first = stop_rows[0][7]
+        last = max(row[8] for row in stop_rows)
+        span = TraceSpan(
+            from_at=format_rfc3339(first),
+            to_at=format_rfc3339(last),
+            days=span_days(first, last),
+            meetings=len(stops),
+        )
+
+    return ThreadTrace(
+        mode=mode,
+        label=label,
+        thread_id=thread_id,
+        color_ordinal=color_ordinal,
+        resolved_from=resolved_from,
+        ranking=ranking,
+        complete=complete,
+        completeness_note=completeness_note(
+            mode=mode,
+            stops=len(stops),
+            moments_quoted=moments_quoted,
+            mention_total=mention_total,
+            meetings_mentioning=len(stops),
+            per_meeting=per_meeting,
+            ranking=ranking,
+        ),
+        per_meeting_limit=per_meeting,
+        span=span,
+        counts=TraceCounts(
+            stops=len(stops),
+            moments_quoted=moments_quoted,
+            mention_total=mention_total,
+            meetings_mentioning=len(stops),
+            with_screen=with_screen,
+        ),
+        candidates=candidates,
+        related_subjects=[
+            RelatedSubject(
+                thread_id=related_id,
+                name=related_name,
+                color_ordinal=ordinal,
+                shared_moments=shared,
+            )
+            for related_id, related_name, ordinal, shared in related_rows
+        ],
+        stops=stops,
+    )
 
 
 # --- routes ----------------------------------------------------------------
@@ -532,6 +1148,204 @@ def list_threads(request: Request) -> ThreadsResponse:
             ) in rows
         ]
     )
+
+
+@router.get(
+    "/threads/suggestions",
+    operation_id="listThreadSuggestions",
+    response_model=SuggestionsResponse,
+)
+def list_thread_suggestions(
+    request: Request,
+    limit: Annotated[int, Query(ge=1, le=24)] = SUGGESTION_LIMIT_DEFAULT,
+    min_meetings: Annotated[
+        int, Query(alias="minMeetings", ge=1)
+    ] = SUGGESTION_MIN_MEETINGS,
+    max_meetings: Annotated[
+        int, Query(alias="maxMeetings", ge=1)
+    ] = SUGGESTION_MAX_MEETINGS,
+    min_span_days: Annotated[
+        int, Query(alias="minSpanDays", ge=0)
+    ] = SUGGESTION_MIN_SPAN_DAYS,
+) -> SuggestionsResponse:
+    """Subjects worth tracing, for the view's empty state.
+
+    Not the most-mentioned subjects. Those are the generic ones — they appear
+    in nearly every meeting, so their thread is the whole corpus and no story
+    at all. What is offered instead is the subjects that recur across a
+    middling number of meetings, ranked by how much calendar time they span,
+    with near-duplicates dropped so one concern does not consume two slots.
+    """
+    pool = request.app.state.pool
+    with pool.connection() as conn:
+        rows = conn.execute(
+            _SUGGESTIONS,
+            {
+                "min_meetings": min_meetings,
+                "max_meetings": max_meetings,
+                "min_span_days": min_span_days,
+                "scan": _SUGGESTION_SCAN,
+            },
+        ).fetchall()
+
+    keep = drop_near_duplicates([row[1] for row in rows], limit=limit)
+    subjects = []
+    for index in keep:
+        thread_id, name, color_ordinal, meetings, mentions, first_at, last_at = rows[
+            index
+        ]
+        subjects.append(
+            SuggestedSubject(
+                thread_id=thread_id,
+                name=name,
+                color_ordinal=color_ordinal,
+                mention_count=mentions,
+                reach=SubjectReach(
+                    meeting_count=meetings,
+                    span_days=span_days(first_at, last_at),
+                    first_mention_at=format_rfc3339(first_at),
+                    last_mention_at=format_rfc3339(last_at),
+                ),
+            )
+        )
+    return SuggestionsResponse(
+        subjects=subjects,
+        min_meetings=min_meetings,
+        max_meetings=max_meetings,
+        min_span_days=min_span_days,
+    )
+
+
+@router.get(
+    "/threads/trace",
+    operation_id="traceThread",
+    response_model=ThreadTrace,
+    responses=_TRACE_PROBLEMS,
+)
+def trace_thread(
+    request: Request,
+    q: Annotated[str | None, Query(max_length=120)] = None,
+    thread_id: Annotated[UUID | None, Query(alias="threadId")] = None,
+    per_meeting: Annotated[
+        int, Query(alias="perMeeting", ge=1, le=50)
+    ] = PER_MEETING_DEFAULT,
+    limit: Annotated[int, Query(ge=1, le=200)] = _SAMPLE_LIMIT_DEFAULT,
+) -> ThreadTrace:
+    """One subject across every meeting where it surfaced.
+
+    **Two ways in, and the answer says which one it took.** A `threadId`, or a
+    phrase that plainly names one known subject, walks the stored mentions and
+    is exhaustive within the corpus. Anything else is a top-k retrieval sample,
+    ranked by relevance and then re-sorted by time, carrying the adjacent
+    subjects the wording could have meant so the reader disambiguates rather
+    than this route guessing.
+
+    The whole trace is served once, at every altitude the client will draw it
+    at. It is deliberately not `GET /threads/{threadId}/timeline`: that
+    endpoint answers one level of detail per request, which a semantic zoom
+    cannot use without the view flickering between tiers it has not fetched.
+    """
+    phrase = (q or "").strip()
+    if thread_id is None and not phrase:
+        raise Problem(
+            400,
+            "invalid-request",
+            "name a subject with `q`, or trace a known one with `threadId`",
+        )
+
+    pool = request.app.state.pool
+    resolved_from: str | None = None
+    with pool.connection() as conn:
+        conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        if thread_id is None:
+            # Exact and unambiguous only. Two subjects that both answer to this
+            # wording are two different questions, and picking one would make
+            # the exhaustive leg's claim about the other silently false.
+            matches = conn.execute(
+                _EXACT_SUBJECT, {"phrase": phrase.lower()}
+            ).fetchall()
+            if len(matches) == 1:
+                thread_id = matches[0][0]
+                resolved_from = phrase
+        if thread_id is not None:
+            row = conn.execute(_THREAD_ROW, {"thread_id": thread_id}).fetchone()
+            if row is None:
+                raise Problem(404, "not-found", f"no thread with id {thread_id}")
+            _, name, color_ordinal = row
+            stop_rows = conn.execute(
+                _TRACE_STOPS, {"thread_id": thread_id}
+            ).fetchall()
+            moment_rows = conn.execute(
+                _TRACE_MOMENTS,
+                {"thread_id": thread_id, "per_meeting": per_meeting},
+            ).fetchall()
+            return _assemble_trace(
+                conn,
+                mode="exhaustive",
+                label=name,
+                thread_id=thread_id,
+                color_ordinal=color_ordinal,
+                stop_rows=stop_rows,
+                moment_rows=moment_rows,
+                per_meeting=per_meeting,
+                resolved_from=resolved_from,
+                ranking=None,
+                candidates=[],
+            )
+
+    # The sample leg. The index is queried outside any open transaction: a
+    # `REPEATABLE READ` snapshot held across a call to another service would
+    # hold a Postgres transaction open for the length of a network round trip.
+    ranked, ranking = _rank_sample(request, phrase, limit)
+
+    with pool.connection() as conn:
+        conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        candidate_rows = conn.execute(
+            _CANDIDATES, {"like": f"%{phrase}%", "limit": CANDIDATE_LIMIT}
+        ).fetchall()
+        moment_ids = list(ranked)
+        stop_rows = (
+            conn.execute(_SAMPLE_STOPS, {"moment_ids": moment_ids}).fetchall()
+            if moment_ids
+            else []
+        )
+        moment_rows = (
+            conn.execute(
+                _SAMPLE_MOMENTS,
+                {"moment_ids": moment_ids, "per_meeting": per_meeting},
+            ).fetchall()
+            if moment_ids
+            else []
+        )
+        return _assemble_trace(
+            conn,
+            mode="sample",
+            label=phrase,
+            thread_id=None,
+            color_ordinal=None,
+            stop_rows=stop_rows,
+            moment_rows=moment_rows,
+            per_meeting=per_meeting,
+            resolved_from=None,
+            ranking=ranking,
+            candidates=[
+                SubjectCandidate(
+                    thread_id=candidate_id,
+                    name=candidate_name,
+                    color_ordinal=ordinal,
+                    meeting_count=meetings,
+                    span_days=span_days(first_at, last_at),
+                )
+                for (
+                    candidate_id,
+                    candidate_name,
+                    ordinal,
+                    meetings,
+                    first_at,
+                    last_at,
+                ) in candidate_rows
+            ],
+        )
 
 
 @router.get(
