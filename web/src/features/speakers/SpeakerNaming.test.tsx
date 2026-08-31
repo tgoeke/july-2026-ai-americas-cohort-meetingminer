@@ -414,6 +414,28 @@ describe('the three assignment paths', () => {
     expect(sdk.assignMeetingSpeaker.mock.calls[0][0].body).toEqual({ unresolved: true })
   })
 
+  it('does not let the u shortcut replace an assignment that is still pending', async () => {
+    answers()
+    sdk.assignMeetingSpeaker.mockReturnValue(new Promise<never>(() => {}))
+    const user = userEvent.setup()
+    await loaded()
+
+    await user.type(screen.getByRole('combobox'), 'Alice Chen')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(sdk.assignMeetingSpeaker).toHaveBeenCalledTimes(1))
+
+    const clip = screen.getByRole('button', {
+      name: 'Play clip 1 of SPEAKER_00 at 4:12',
+    })
+    clip.focus()
+    await user.keyboard('u')
+
+    expect(sdk.assignMeetingSpeaker).toHaveBeenCalledTimes(1)
+    expect(sdk.assignMeetingSpeaker.mock.calls[0][0].body).toEqual({
+      displayName: 'Alice Chen',
+    })
+  })
+
   it('shows suggestions but never applies one', async () => {
     answers()
     sdk.assignMeetingSpeaker.mockResolvedValue({ data: assignment(), error: undefined })
