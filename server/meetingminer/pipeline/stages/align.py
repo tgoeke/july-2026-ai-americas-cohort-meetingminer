@@ -725,10 +725,6 @@ def run(ctx: StageContext) -> None:
         )
         for segment in base
     ]
-    for resolution in resolutions:
-        if resolution.status == speakers.RESOLVED and resolution.match_key in by_key:
-            by_key[resolution.match_key].spoke = True
-
     _resolve_participants(ctx, roster)
 
     # The label exactly as it will be stored, computed once: it is both the
@@ -741,6 +737,23 @@ def run(ctx: StageContext) -> None:
         for segment in base
     ]
     speaker_assignments = _speaker_assignments(ctx, stored_labels)
+
+    # Attendance provenance follows the final attribution, after a human
+    # assignment has had its chance to override the source's roster match.
+    # The old source match remains an attendee through the drop graph, but it
+    # must not stay marked ``both`` once the curator says somebody else spoke.
+    # Conversely, when the assigned participant is already in the graph
+    # roster, that row is ``both`` rather than requiring a second minimal row.
+    assigned_participant_ids: set[UUID] = set()
+    for label, resolution in zip(stored_labels, resolutions):
+        assigned = speaker_assignments.get(label)
+        if assigned is not None:
+            assigned_participant_ids.add(assigned)
+        elif resolution.status == speakers.RESOLVED and resolution.match_key in by_key:
+            by_key[resolution.match_key].spoke = True
+    for entry in roster:
+        if entry.participant_id in assigned_participant_ids:
+            entry.spoke = True
 
     # Meeting-scoped rows are replaced wholesale, including on the empty path
     # so a rerun over a meeting whose transcript vanished clears what described

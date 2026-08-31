@@ -731,3 +731,58 @@ class TestRerun:
         assert assigned
         for _label, _resolution, participant_id in assigned:
             assert participant_id == survivor
+
+    def test_correcting_a_source_named_tag_moves_transcript_provenance(
+        self, client, test_pool, app_config, content_root, make_drop
+    ) -> None:
+        """The corrected person, not the source's old match, spoke in transcript.
+
+        A source participant remains an attendee after a correction, but its
+        attendance provenance must return to ``drop-graph``. The participant
+        named by the human assignment is the row derived from the transcript.
+        """
+        drop = make_drop(
+            metadata=valid_metadata(
+                "assign-source-correction",
+                participants=[
+                    {
+                        "displayName": NAMED_TAG,
+                        "mail": "indigo.ironside@example.com",
+                    }
+                ],
+            ),
+            files=("transcript.txt",),
+        )
+        (drop / "transcript.txt").write_text(
+            ASSIGNMENT_TRANSCRIPT, encoding="utf-8"
+        )
+        job_id = UUID(
+            client.post("/ingests", json={"dropPath": str(drop)}).json()["jobId"]
+        )
+        assert runner.run_once(test_pool, app_config, content_root) is True
+        [(meeting_id,)] = _rows(
+            test_pool, "SELECT id FROM meeting WHERE job_id = %s", job_id
+        )
+        [(source_participant,)] = _rows(
+            test_pool,
+            "SELECT id FROM participant WHERE identity_key = %s",
+            "mail:indigo.ironside@example.com",
+        )
+
+        response = _put(
+            client, meeting_id, NAMED_TAG, {"displayName": "Corrected Speaker"}
+        )
+        assert response.status_code == 200
+        corrected_participant = UUID(response.json()["participantId"])
+        assert runner.run_once(test_pool, app_config, content_root) is True
+
+        provenance = dict(
+            _rows(
+                test_pool,
+                "SELECT participant_id, derived_from FROM meeting_participant"
+                " WHERE meeting_id = %s",
+                meeting_id,
+            )
+        )
+        assert provenance[source_participant] == "drop-graph"
+        assert provenance[corrected_participant] == "transcript"
