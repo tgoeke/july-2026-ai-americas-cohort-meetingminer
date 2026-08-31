@@ -298,6 +298,59 @@ whose label matches `timing|due|deadline|when|by`, which is what
 
 ## Auto Run Result
 
-_(filled in below at completion.)_
+Status: **review** (2026-08-31). The gate below ran at `03c769e`; every
+commit after it on this branch is documentation only.
+
+Verification actually run, with the worktree's private stack
+(`meetingminer-10-4`, Postgres :20181, twins :20186/:20187) up. No shared api
+or worker was started, no eval run, no real model call.
+
+| Command | Result |
+|---|---|
+| `make test` (full gate) at `07c17de` | **2635 passed, 3 skipped**, web build succeeded, 642s, exit 0 |
+| `make test` (full gate) at `03c769e` (final HEAD) | **exit 0**, web build succeeded, 741s. The invoking `tail -8` clipped the pytest summary line, so the itemized count above is the run one commit earlier; the two commits differ only by one added test, separately observed passing with its whole file (19 passed) |
+| `make test-fast` (includes `make lint` + `make typecheck`) | **2224 passed, 3 skipped, 411 deselected**, 106s |
+| `make lint` | `All checks passed!` — no new ruff baseline entry |
+| `make typecheck` | `Success: no issues found in 13 source files` |
+| `pytest server/tests/test_ranking_signals.py` | **33 passed** |
+| `pytest server/tests/test_api_moments_feed.py` | **19 passed** |
+| `branch_conflicts.py --against story/10-4` | `main x story/10-4` **clean**; every code, test, config and migration file clean against all nine in-flight branches. Two conflicts, both in prose: `sprint-notes.md` against every branch (no merge driver — the build prompt says to expect a union) and `docs/backlog.md` against `story/8-3` (both append entries) |
+
+The three skips are pre-existing and named: `pyannote.audio` is not installed,
+the real-network yt-dlp test needs `MM_YOUTUBE_NETWORK_TEST=1`, and the LAN
+diarization test needs `MM_DIARIZE_REMOTE_NETWORK_TEST=1`.
+
+**Red-first evidence for the clause that carries the risk.** The
+validate-before-paginate order was demonstrated failing before it was claimed
+as coverage: a build computing `total` from the candidate scan instead of from
+the survivors failed exactly four tests —
+`test_an_item_with_no_valid_reason_is_dropped_from_items_and_total`,
+`test_total_and_offsets_count_only_serializable_rows`, and both `kind`-filter
+tests, which are the same ordering bug seen from another angle. The wrong
+build was then reverted and the suite reconfirmed green.
+
+**The wire contract, verified without starting an api.** `app.openapi()` was
+dumped in-process: `getMomentsFeed` takes `corpus`, `thread`, `meeting`,
+`kind`, `limit`, `offset`, all optional, and the schemas are
+`MomentsFeedResponse{items,total,limit,offset}`, `FeedItem{momentId,
+meetingId, meetingTitle, startedAt, startedAtPrecision, startMs, endMs,
+corpus, hasRecording, sourceDeepLink, screenshotId, viewType, preview,
+threads, reasons}`, `FeedReason{kind,label,ref,at}` and
+`FeedThread{threadId,name,colorOrdinal}` — the AC names exactly, which is
+what story 10.5 is building against.
+
+**Owed at integrate:** `make client`. The target requires a live api on
+`:8000` (`infra/Makefile:1139`), which this lane may not start; story 6.4 left
+the same obligation to integration for the same reason. Story 10.5 needs the
+regenerated TS client to consume this endpoint.
+
+**Cross-branch facts measured rather than assumed.** `origin/story/10-3`'s
+migration 0017 declares `thread.color_ordinal` — precisely the key this
+story's query reads through `to_jsonb(t) ->> 'color_ordinal'` — so the
+ordinal should flow once 10.3 lands with no edit here. The wave's backlog
+counter is over-subscribed: `main` already carried a B-41, and the in-flight
+branches claim B-41/B-42 (`7-4`), B-42/B-43 (`8-3`), B-42 (`10-3`) and
+B-44/B-45 (`10-6`); this story took **B-46** to clear them, and the three
+colliding B-42s are named for integrate.
 
 </intent-contract>
