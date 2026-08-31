@@ -84,3 +84,12 @@ Adversarial review of the Story 7.4 web implementation, with emphasis on unsettl
 - **Evidence:** `useJobEvents` documents that missed frames are gone and calls `onResync` only so the consumer can reseed. The speakers screen neither reseeds nor checks current job state. `applyJobEvent` has no generation or stage-snapshot input beyond the reused ID, and the assignment response supplies no distinct rerun ID.
 - **Suggested direction:** Reconcile terminal frames, the immediate post-PUT state, and reconnects through the existing authoritative `GET /jobs/{jobId}` response. Apply the snapshot only if the same rerun object still owns the screen; this rejects delayed frames for a newer re-arm and recovers missed terminal transitions. Surface a lost connection while reconciliation is unavailable.
 - **Red/green evidence:** Three regressions first showed that a reconnect left a completed rerun queued, a delayed terminal frame landed a newer assignment, and a lost stream remained invisible. Terminal frames and resync now reconcile through `GET /jobs/{jobId}` behind an object-identity generation guard, the post-PUT snapshot closes the no-frame gap, and a lost connection is named beside active progress. All 72 speaker tests pass.
+
+### F8 — The `u` shortcut can submit a second assignment while Save is pending
+
+- **Location:** `web/src/features/speakers/SpeakerNaming.tsx:295`; `web/src/features/speakers/SpeakerNaming.tsx:399`; `web/src/features/speakers/SpeakerNaming.tsx:800`
+- **Severity:** High
+- **Status:** Confirmed — patch required
+- **Finding:** `saving` disables the visible buttons, but `save()` itself has no in-flight guard and the panel's `u` shortcut calls it directly. Pressing `u` while a name assignment is pending aborts that request and immediately submits `{unresolved: true}`. The first request may already have committed server-side, so the screen can create two re-arms while displaying only the second result.
+- **Evidence:** Every call to `save()` aborts `saveControllerRef.current` before installing a new controller. React state does not protect imperative callers, and `onPanelKeyDown` does not inspect `saving`; focus on any non-input control inside the naming panel makes the shortcut reachable while both assignment buttons are disabled.
+- **Suggested direction:** Put a synchronous single-flight guard inside `save()` itself, release it only for the request that owns it, and leave disabled controls as presentation rather than the concurrency boundary. Verify that a pending Save followed by `u` issues exactly one PUT.
