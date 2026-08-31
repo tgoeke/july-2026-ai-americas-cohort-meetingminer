@@ -1,8 +1,8 @@
-"""Extraction documents in the search projection — the one exception to the gate.
+"""Extraction documents in the search projection — indexed without the gate.
 
-AD-4's publish gate refuses anything that is not ``published``, and this module
-is the single deliberate exception to it (owner decision 2026-08-31, recorded
-in AD-4). Every extraction document is indexed as soon as it is stored,
+AD-4's publish gate refuses any *artifact* that is not ``published``, and this
+module is the first deliberate exception to it (owner decision 2026-08-31,
+recorded in AD-4). Every extraction document is indexed as soon as it is stored,
 approved or not, because the run whose text somebody needs to read is exactly
 the run that yielded nothing worth approving — gating documents behind approval
 would withhold them in precisely the case they exist for. Story 12.1 stores the
@@ -14,17 +14,31 @@ Pure by construction, like :mod:`publish_gate`: no ``meilisearch``, no
 lives in :mod:`search`, and everything this exception has to be *careful* about
 is here, where a test can hold it without standing a store up.
 
+**The exception is declared, not carved.** ``publish_gate`` holds
+:data:`~meetingminer.projections.publish_gate.UNGATED_INDEXED_ROW_TYPES`, a
+mapping of row type to the reason it was granted, and this module reads its
+permission out of it at import (:data:`GATE_EXCEPTION_REASON`). So the gate
+remains the one place that says who may skip it, a second row type joining is
+an entry rather than a second bypass, and deleting the entry breaks this path
+by name instead of leaving a silent hole. Story 12.5 — artifacts indexed before
+publish — is the second entry, and it is genuinely citable where a document is
+not; the declaration keeps those separate facts separate.
+
 Two constraints ride with the exception. Neither is a polish item; both follow
 from invariants already in force.
 
 **The exception is to reach, never to legibility.** AD-18 forbids unreviewed
-output that reads the same as reviewed output. So the record carries its
-unreviewed, machine-written status *in itself* — :data:`REVIEW_STATE`,
-:data:`AUTHORSHIP` and the human sentence :data:`REVIEW_LABEL` are written onto
-every document, and :func:`assert_carries_review_label` refuses one that lost
-them. A surface that renders a document reads the label off the record rather
-than knowing to add it, which is what keeps the labelling from depending on
-each renderer remembering.
+output that reads the same as reviewed output. So the record carries its review
+status *in itself*, through the generic marking in
+:mod:`meetingminer.projections.review`: ``reviewState``, ``authorship``,
+``reviewLabel`` and ``citable``, refused by
+:func:`assert_carries_review_label` if any is lost. A surface that renders a
+document reads the label off the record rather than knowing to add it, which is
+what keeps the labelling from depending on each renderer remembering. The
+marking is generic because the obligation is: a document has no lifecycle and
+reports :data:`~meetingminer.projections.review.NO_LIFECYCLE`, while an
+artifact indexed before publish reports whichever state it is actually in — one
+mechanism, two rules about what a row may report.
 
 **A document is never a citation target.** It is a claim *about* evidence, not
 evidence: citing it would establish that the model said something, not that the
@@ -61,6 +75,16 @@ from typing import Any, Mapping
 from uuid import UUID
 
 from meetingminer.projections.evidence import ExtractionDocumentRow
+from meetingminer.projections.publish_gate import require_ungated
+from meetingminer.projections.review import (
+    MACHINE,
+    NO_LIFECYCLE,
+    REVIEW_KEYS,
+    ReviewMarkingRefused,
+    apply_marking,
+    assert_carries_marking,
+    marking,
+)
 
 # The Meilisearch index extraction documents land in. A third index rather than
 # a corner of `artifacts`: that one is filtered to `state = 'published'` by
@@ -69,24 +93,37 @@ from meetingminer.projections.evidence import ExtractionDocumentRow
 # or inventing a lifecycle for documents that nothing in Postgres backs.
 DOCUMENTS_INDEX = "documents"
 
-# The status every record carries, and the sentence a surface renders.
+# This module's row type, and the permission it reads out of the gate.
 #
-# `review_state` is a closed value a filter can pin; `authorship` says who
-# wrote it; `review_label` is the words. All three, not one: a machine-written
-# document that a human later reads is still unreviewed, and a filter on a slug
-# and a sentence for a person are different jobs. AD-18 is satisfied by the
-# sentence being *in the record* — a renderer displays what it was given rather
-# than being trusted to remember to add it.
-REVIEW_STATE = "unreviewed"
-AUTHORSHIP = "machine"
-REVIEW_LABEL = (
-    "Unreviewed — machine-written extraction output. No human approved this"
-    " text, and it is not citable evidence."
+# Asserted at import rather than assumed: this module writes rows into a store
+# without passing the publish gate, and the gate is where that permission is
+# recorded. Removing the declaration makes importing this module a named
+# failure, which is the point — a bypass nobody can find is the failure mode a
+# declaration exists to prevent.
+ROW_TYPE = "extraction-document"
+GATE_EXCEPTION_REASON = require_ungated(ROW_TYPE)
+
+# What every document record says about its own review status.
+#
+# `NO_LIFECYCLE`, not `'extracted'`: an artifact sitting at `extracted` is
+# awaiting a human, while a document is not waiting for anything — nothing
+# approves an extraction document, because there is no lifecycle behind it to
+# move through. `citable=False` in every state, which for a document means
+# every state there is (AD-6).
+MARKING = marking(
+    review_state=NO_LIFECYCLE,
+    authorship=MACHINE,
+    citable=False,
+    subject="extraction output",
 )
 
-# The record keys that state the above. Named as a set so the guard below and
-# the test that pins it read the same list.
-REVIEW_KEYS: tuple[str, ...] = ("reviewState", "authorship", "reviewLabel", "citable")
+# Kept as module constants because they are what consumers import — the api's
+# document hit, story 12.1's endpoint and the tests all read these rather than
+# re-deriving a sentence, so two surfaces cannot describe one document
+# differently.
+REVIEW_STATE = MARKING.review_state
+AUTHORSHIP = MARKING.authorship
+REVIEW_LABEL = MARKING.review_label
 
 # Field names the citation path resolves. A document record may carry none of
 # them: `momentId`/`momentIds` are what `api/search.py` and
@@ -98,13 +135,17 @@ FORBIDDEN_CITATION_KEYS: frozenset[str] = frozenset(
 )
 
 
-class DocumentRecordRefused(RuntimeError):
+class DocumentRecordRefused(ReviewMarkingRefused):
     """A document record was built in a shape this module forbids.
 
     A named refusal, not a bug: indexing a document without its unreviewed
     label is an AD-18 violation, and emitting a citation field on one would
     make a claim about evidence citable as evidence (AD-6). Either is refused
     before a store sees it.
+
+    A subclass of the generic :class:`ReviewMarkingRefused` so a caller can
+    catch "this row cannot say whether anybody reviewed it" across every row
+    type, while this module's own refusals stay distinguishable.
     """
 
 
@@ -120,7 +161,14 @@ def document_id(row: ExtractionDocumentRow) -> str:
 
 
 def assert_carries_review_label(record: Mapping[str, Any]) -> None:
-    """Refuse a record that does not state it is unreviewed and machine-written."""
+    """Refuse a record that does not state it is unreviewed and machine-written.
+
+    The **document's own** rule, layered on the generic one. `review.py` checks
+    that a record can say *something* explicable about its review status; this
+    checks that a document says the only thing a document may say. An artifact
+    indexed before publish passes the first and would rightly fail this one,
+    which is why the two are separate functions rather than one.
+    """
     missing = [key for key in REVIEW_KEYS if key not in record]
     if missing:
         raise DocumentRecordRefused(
@@ -130,6 +178,12 @@ def assert_carries_review_label(record: Mapping[str, Any]) -> None:
             " must carry its unreviewed, machine-written status in the record"
             " itself (AD-4's exception, AD-18)"
         )
+    # The generic guard first: a state this system cannot explain to a reader
+    # is refused before the document-specific check narrows it further.
+    try:
+        assert_carries_marking(record)
+    except ReviewMarkingRefused as exc:
+        raise DocumentRecordRefused(str(exc)) from exc
     if record["reviewState"] != REVIEW_STATE or record["authorship"] != AUTHORSHIP:
         raise DocumentRecordRefused(
             f"an extraction-document record claims reviewState"
@@ -215,15 +269,13 @@ def document_record(
         "itemCount": row.item_count,
         "artifactCount": row.artifact_count,
         "byteSize": row.byte_size,
-        # AD-18, in the record itself.
-        "reviewState": REVIEW_STATE,
-        "authorship": AUTHORSHIP,
-        "reviewLabel": REVIEW_LABEL,
-        # AD-6, in the record itself: stated rather than merely implied by the
-        # absence of a moment id, so a consumer reading this index can refuse
-        # to cite without knowing the architecture.
-        "citable": False,
     }
+    # AD-18 and AD-6, in the record itself, through the generic marking: the
+    # state a reader needs, who wrote it, the sentence to render, and whether
+    # it may be cited — the last stated rather than merely implied by the
+    # absence of a moment id, so a consumer reading this index can refuse to
+    # cite without knowing the architecture.
+    apply_marking(record, MARKING)
     assert_carries_review_label(record)
     assert_not_citable(record)
     return record

@@ -440,7 +440,15 @@ def test_unprojecting_removes_the_meeting_from_both_stores(
             == 0
         )
     assert query(driver, "MATCH (m:Meeting) RETURN m.id AS id") == []
-    assert search.counts(client) == {"moments": 0, "chunks": 0, "artifacts": 0}
+    assert search.counts(client) == {
+        "moments": 0,
+        "chunks": 0,
+        "artifacts": 0,
+        # Story 12.4's fourth index. Counted here for the same reason the
+        # other three are: a stale document surviving a wipe is exactly
+        # what an equivalence check over a partial index set would miss.
+        "documents": 0,
+    }
 
 
 def test_a_screenshot_that_cannot_be_linked_to_a_screen_is_a_named_failure(
