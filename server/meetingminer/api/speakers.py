@@ -21,11 +21,11 @@ next ``align`` run, the documented AD-5 lag (``api/participants.py``).
 ``displayName`` is read live off ``participant.display_name``, so a curator's
 rename — which keeps the id — shows on the next request.
 
-Read-only over evidence (AD-5/AD-11): one SELECT, no writes, no store client.
-The 404/409/422 contract and the viewability gate are the sibling meeting
-reads' own — ``moments._require_viewable`` is imported rather than restated,
-so the two reads of one meeting cannot drift into disagreeing about whether
-that meeting is viewable.
+Read-only over evidence (AD-5/AD-11): no writes, no store client. This read and
+the assignment write form one narrow recovery path: when a failed or queued
+speaker rerun leaves evidence unsettled but the worker is not running, the
+curator may still list the tags needed to correct it. Every sibling meeting
+read retains ``moments._require_viewable`` unchanged.
 """
 
 from __future__ import annotations
@@ -55,6 +55,15 @@ router = APIRouter()
 # that answers the question rather than the six `moments._MEETING_HEADER`
 # needs for its header.
 _MEETING_EXISTS = "SELECT id FROM meeting WHERE id = %s"
+
+# The same status boundary the assignment route uses, without its row lock:
+# a reader never re-arms the job, so it needs a stable snapshot rather than a
+# write exclusion. This query stays local to the speakers router because the
+# recovery exception must not widen `_require_viewable` for sibling reads.
+_JOB_STATUS_FOR_MEETING = (
+    "SELECT j.status FROM job j JOIN meeting m ON m.job_id = j.id"
+    " WHERE m.id = %s"
+)
 
 # At most this many sample offsets per speaker, and never padded to it: a
 # speaker with two segments gets two. Story 7.4 plays clip *n* of what is
@@ -174,11 +183,12 @@ _PROBLEM_RESPONSES = {
     409: {
         "model": ProblemDetails,
         "content": {"application/problem+json": {}},
-        "description": "`meeting-not-viewable` — the meeting exists but an"
-        " evidence stage has not settled; first ingest or augmentation is in"
-        " flight. Transient: retry once ingestion settles. Carries the same"
-        " extensions as the sibling meeting reads: `meetingId`, `augmenting`"
-        " (bool) and `jobStatus` (str).",
+        "description": "`meeting-not-viewable` — the meeting exists but its"
+        " worker is running with unsettled evidence. Transient: retry once"
+        " ingestion settles. A non-running unsettled job is served only by"
+        " this route as the speaker-recovery read. The refusal carries the"
+        " sibling reads' `meetingId`, `augmenting` (bool) and `jobStatus`"
+        " (str) extensions.",
     },
 }
 
@@ -208,7 +218,17 @@ def list_meeting_speakers(
         conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
         if conn.execute(_MEETING_EXISTS, (meeting_id,)).fetchone() is None:
             raise Problem(404, "not-found", f"no meeting with id {meeting_id}")
-        _require_viewable(conn, meeting_id)
+        if not meeting_evidence_complete(conn, meeting_id):
+            (job_status,) = conn.execute(
+                _JOB_STATUS_FOR_MEETING, (meeting_id,)
+            ).fetchone()
+            # Route-local recovery exception, paired with the PUT below: an
+            # unsettled meeting whose worker is no longer running may expose
+            # only its speaker aggregates so a cold screen can name a tag and
+            # re-arm the failed rerun. Drilldown and every sibling read still
+            # call `_require_viewable`; do not move this policy there.
+            if job_status == "running":
+                _require_viewable(conn, meeting_id)
         rows = conn.execute(_MEETING_SPEAKERS, (meeting_id,)).fetchall()
 
     speakers = [
@@ -410,7 +430,8 @@ _ASSIGNMENT_PROBLEM_RESPONSES = {
         " re-arming it would race the worker; carries `jobId` and `jobStatus`."
         " Retry once the job settles. An unviewable meeting whose job is not"
         " running is deliberately accepted by this PUT as the curator's"
-        " recovery path; no other meeting read or write receives that exception.",
+        " recovery path; only the paired speakers GET receives the read half"
+        " of that exception.",
     },
 }
 
@@ -460,11 +481,12 @@ def assign_meeting_speaker(
                 jobStatus=job_status,
             )
         # Deliberate, route-local recovery exception: every other meeting read
-        # and write still calls `_require_viewable`, including the GET beside
-        # this PUT. A failed speaker rerun is unviewable because of the
-        # assignment the curator must correct, so gating this exact action on
-        # viewability would make the lockout self-perpetuating. Do not move
-        # this policy into `_require_viewable` or generalize it to the router.
+        # and write still calls `_require_viewable`, except the speakers GET
+        # paired with this PUT. A failed speaker rerun is unviewable because
+        # of the assignment the curator must correct, so gating either half
+        # of this exact recovery path would make the lockout self-perpetuating.
+        # Do not move this policy into `_require_viewable` or generalize it to
+        # the router.
         accepted_while_unviewable = not meeting_evidence_complete(conn, meeting_id)
         if conn.execute(_SPEAKER_TAG_EXISTS, (meeting_id, tag)).fetchone() is None:
             raise Problem(
