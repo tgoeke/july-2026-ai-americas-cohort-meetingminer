@@ -1,18 +1,16 @@
 import type { RouteModule } from '@/routes/registry'
-import { Threads } from './Threads'
+import ThreadTrace from './ThreadTrace'
 
 /**
- * The Threads screen at `/threads` (story 10.6).
+ * The Threads screen at `/threads` (story 10.7).
  *
- * Story 10.5 owns the shell and mounts a `/threads/*` splat placeholder from
- * its own `Threads.route.tsx`. This file is deliberately named differently and
- * claims the *literal* path, which react-router ranks above a splat — so the
- * two land side by side with no edit to 10.5's file and no conflict, exactly as
- * 10.5's own comment anticipates. `ThreadFocus.route.tsx` claims the deep link
- * beside it. Integration can then delete the placeholder module.
+ * It opens **empty**: a box and a handful of subjects the corpus suggests, not
+ * a catalogue of every derived thread. Story 10.6's list screen (`Threads.tsx`)
+ * is no longer mounted anywhere; retiring it, and the `GET /threads` endpoint
+ * it reads, is story 10.7a.
  */
 export const route: RouteModule = {
   path: '/threads',
-  element: <Threads />,
+  element: <ThreadTrace />,
   order: 20,
 }
