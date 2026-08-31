@@ -76,6 +76,12 @@ BASELINE_ROUTER_ORDER = [
     # by name. `/structure` has no parameterized sibling anywhere, so its
     # position carries no matching hazard.
     "structure",
+    # Story 10.3: `threads.py` is default-order too, sorting after `structure`
+    # by name. Its literal `/threads` and parameterized
+    # `/threads/{thread_id}/timeline` are declared literal-first inside the one
+    # router (the `media.py` way) and no other module claims a `/threads`
+    # prefix, so its position carries no matching hazard.
+    "threads",
 ]
 
 
