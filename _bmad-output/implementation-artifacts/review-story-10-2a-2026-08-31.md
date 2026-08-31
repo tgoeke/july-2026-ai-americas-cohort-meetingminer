@@ -21,6 +21,14 @@ The review branch must be rebased onto the then-current `origin/main` before clo
 - **Suggested direction:** Refuse a split whenever any requested durable subject key identifies more than one currently held topic. Name the ambiguity and leave every row unchanged. Supporting a grouped move later would require a read representation that can make all affected topics visible immediately; the current single `topic_id` hint cannot do so honestly.
 - **Remediation:** `split_thread` now indexes every currently held topic by the durable key and refuses a requested key that maps to more than one row before minting a thread or pin. The red regression is green; the complete curation module is **23 passed**.
 
+### F2 — Open, spec/design decision required: topic-name drift makes split and merge corrections disappear
+
+- **Location:** `server/meetingminer/migrations/0021_thread_curation.sql` (`thread_alias` is keyed only by old thread UUID; `thread_topic_pin` is keyed only by `(meeting_id, normalized_name)`); `server/meetingminer/domain/threads.py` (`derive_threads` has no replacement-topic lineage to resolve)
+- **Severity:** Major
+- **Finding:** The central claim is false for a valid Story 10.1 replacement in which the extractor changes a topic's normalized name. A split pin no longer matches and the curated band loses its membership; a merge alias remains attached to the old empty thread while the renamed replacement mints an unaliased thread. In both cases the next derivation changes the grouping the user sees. `unmatched_pins` logs the split's old key but does not preserve the correction or surface it on the Threads view; merges have no equivalent unmatched report at all.
+- **Evidence:** Two review reproductions were run red against the unfixed design. After splitting meeting 2's `Vendor Feed`, replacing that topic with `Vendor billing feed`, and deriving, `ThreadDerivation.unmatched_pins` contained `(meeting_2, "vendor feed")` and the replacement did not belong to the curated thread. After merging `Billing Portal` into `Vendor Feed`, replacing it with `Accounts payable portal`, and deriving, the replacement belonged to a newly minted UUID rather than the survivor. Both states are valid under migration 0014, which replaces topic rows wholesale and has no stable topic-lineage key.
+- **Suggested direction:** Amend the frozen contract with a durable replacement-topic lineage that is independent of both topic UUID and mutable display name (for example an extraction-owned stable subject identity with explicit reconciliation), then re-derive curation against that identity. Until that exists, the product must not promise survival across every re-extraction; unmatched split and orphaned merge corrections also need a user-visible degraded state rather than an operator-only log event. This is not safely fixable by guessing from gist, embeddings, or meeting membership in the review patch.
+
 ## Verification
 
 Pending.
