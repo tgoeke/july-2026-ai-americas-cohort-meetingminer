@@ -320,17 +320,26 @@ whatever serves them for you before the first ingest.
 
 ## Models and cost
 
-Extraction runs locally by default. Cited Q&A does not:
+Three of the four roles call a paid provider:
 
 | Role | Model as committed | Cost | Fallback |
 |---|---|---|---|
-| `extraction` | `ollama/gpt-oss:120b` | local | `ollama/qwen3:30b` |
+| `extraction` | `openai/gpt-5.2` | **paid**, ~$0.47 a meeting | `ollama/gpt-oss:120b` (local) |
 | `embedder` | `qwen3-embedding:0.6b` via Ollama | local | none — search degrades to `ranking: "keyword"` and says so |
 | `chat` | `openai/gpt-5.2` | **paid** | none, by owner decision |
 | `judge` | `openai/gpt-5.2` | **paid** | none |
 
-Every chat turn and every LLM-judge eval run is a billed OpenAI call, so
-`OPENAI_API_KEY` in `.env` is a prerequisite for asking the corpus anything.
+Every chat turn, every LLM-judge eval run, and every meeting's extraction is a
+billed OpenAI call, so `OPENAI_API_KEY` in `.env` is a prerequisite for asking
+the corpus anything and for ingesting a meeting at full speed.
+
+**Extraction is paid for speed, by owner decision 2026-08-31.** It was local for
+cost, and on a 96-minute committee recording the local 120B model was the
+slowest stage in the pipeline. Its fallback stays local and free, so a missing
+or exhausted key degrades to a working model rather than to nothing — and the
+substitution is reported, never silent. To run the whole pipeline free, set
+`llm.roles.extraction.model` to `ollama/gpt-oss:120b`; only cited Q&A then
+needs a key.
 `chat` has no fallback deliberately: a failing primary must surface as an error
 the user sees rather than engage a substitute model silently.
 

@@ -58,17 +58,30 @@ llm:
       # still-active `model` is not one of these bindings, or if a binding's
       # derived provider is absent from `providers:`. Provider is never written
       # beside an entry: config, runtime routing, and status derive it from one
-      # shared spelling rule, and an ambiguous bare spelling is refused. Both
-      # entries here are local Ollama models: extraction is the worker's only
-      # LLM call and stays free.
+      # shared spelling rule, and an ambiguous bare spelling is refused.
+      #
+      # **Extraction is PAID, by owner decision 2026-08-31, for SPEED.** It was
+      # local for cost, and it was measured against the demo corpus: on a
+      # 96-minute committee recording the local 120B model was the slowest
+      # stage in the pipeline, and the paid model returned in a fraction of the
+      # time. The owner's reason is throughput, not output quality — do not
+      # revert this to a local default assuming it was a leftover from the
+      # 2026-08-31 corpus ingest. Cost is roughly $0.47 a meeting, measured
+      # over 58 meetings.
+      #
+      # The fallback stays local and free, so a missing or exhausted
+      # `OPENAI_API_KEY` degrades to a working local model rather than to
+      # nothing. That substitution is reported, never silent (AD-18).
       catalog:
+        - binding: openai/gpt-5.2
+          label: GPT-5.2 (paid, fastest)
         - binding: ollama/gpt-oss:120b
-          label: GPT-OSS 120B (local)
+          label: GPT-OSS 120B (local, free)
         - binding: ollama/qwen3:30b
-          label: Qwen3 30B (local)
-      default: ollama/gpt-oss:120b
-      model: ollama/gpt-oss:120b
-      fallback: ollama/qwen3:30b
+          label: Qwen3 30B (local, free)
+      default: openai/gpt-5.2
+      model: openai/gpt-5.2
+      fallback: ollama/gpt-oss:120b
       # This role's own endpoint for its PRIMARY model, overriding
       # `providers.ollama.base_url` below. The provider entry is a single
       # value the *embedder* also resolves (`adapters/embed/__init__.py`),
@@ -90,7 +103,13 @@ llm:
       # `providers.ollama.base_url` nor the role `base_url` above — exactly the
       # dead fallback this comment warns about. `qwen3:30b` is served on both.
       # Re-check with `curl -s $ENDPOINT/api/tags` before changing either tag.
-      base_url: http://10.77.0.52:11434
+      #
+      # **There is deliberately no `base_url` here.** It overrides the endpoint
+      # of the PRIMARY model, and the primary is now OpenAI — so setting it
+      # would point OpenAI's client at an Ollama box. That is exactly the trap
+      # that had to be avoided when this role was first switched on 2026-08-31.
+      # The LOCAL fallback needs the big box, so it is named on its own key.
+      fallback_base_url: http://10.77.0.52:11434
       # The Ollama context window, in tokens. A correctness setting, not
       # tuning: Ollama's default context silently truncates a 120-minute
       # transcript, and a truncated transcript yields fewer artifacts while
