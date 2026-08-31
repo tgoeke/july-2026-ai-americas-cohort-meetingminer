@@ -147,6 +147,15 @@ Date: 2026-08-31
 - **Suggested direction** — Keep the last served card, but render the same named seed/stream alerts alongside it whenever either source is unavailable; add a regression with an existing row and a lost stream.
 - **Disposition** — fixed red-first. With a served meeting row and a mocked lost stream, the original card kept its bars but contained no outage text. The same regression passed after the populated branch retained the card and rendered both stream-loss and reseed-failure alerts beside it.
 
+### F16 — A timed-out probe loses the timeout's name and message
+
+- **Location** — `web/src/features/acquisitions/acquisitions.ts:105`
+- **Severity** — medium
+- **Finding** — A probe rejected with the platform's `DOMException` timeout remains on the transport component, but its actual message is discarded and replaced with `the api answered with a body this client cannot read`. The UI therefore hides that the request timed out.
+- **Evidence** — `failureOf` preserves a message only for `error instanceof Error` or a string. In the web test environment, `new DOMException('The operation timed out', 'TimeoutError')` is not an `Error` instance, even though it is the standard exception shape used by abort/timeout APIs and exposes a string `message`. The focused delayed-rejection test observed the generic unreadable-body sentence. AD-18 requires failures to surface visibly *and by name*; the review contract specifically requires scrutiny of a probe timing out mid-debounce.
+- **Suggested direction** — After ruling out a parsed Problem Details refusal, preserve a non-empty `message` from an error-like object (including `DOMException`) as a transport failure; keep the Retry path and continue to ensure it never renders as a source refusal.
+- **Disposition** — confirmed; remediation in progress.
+
 ## Disposition
 
 Review in progress. No pass/fail verdict has been assigned.
