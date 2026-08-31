@@ -206,6 +206,47 @@ describe('extraction documents in search', () => {
     await waitFor(() => expect(sdk.searchCorpus).toHaveBeenCalled())
     expect(screen.queryByTestId('search-documents')).toBeNull()
   })
+
+  it('distinguishes a missing documents index from no document matches', async () => {
+    answers(
+      response({
+        documents: [],
+        documentsTotal: 0,
+        documentsIndexMissing: true,
+      }),
+    )
+    render(<CorpusSearch />)
+    await search('feed')
+
+    expect(await screen.findByTestId('search-documents-index-missing')).toHaveTextContent(
+      /rebuild/i,
+    )
+  })
+
+  it('does not claim nothing is indexed when documents matched', async () => {
+    answers(response({ indexMissing: true }))
+    render(<CorpusSearch />)
+    await search('feed')
+
+    expect(await screen.findByTestId('search-empty')).toHaveTextContent(
+      /unreviewed analysis below/i,
+    )
+    expect(screen.queryByTestId('search-index-missing')).toBeNull()
+  })
+
+  it('warns when preserved document-only results belong to a failed prior query', async () => {
+    const user = userEvent.setup()
+    answers(response())
+    render(<CorpusSearch />)
+    await user.type(screen.getByTestId('search-input'), 'feed')
+    await screen.findByTestId('document-document-1')
+
+    sdk.searchCorpus.mockRejectedValue(new Error('connection refused'))
+    await user.type(screen.getByTestId('search-input'), 's')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('may be stale')
+    expect(screen.getByTestId('document-document-1')).toBeInTheDocument()
+  })
 })
 
 describe('document display helpers', () => {
