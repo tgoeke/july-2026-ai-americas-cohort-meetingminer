@@ -4096,3 +4096,49 @@ rows with a pure function and serves the page.
 Verification is in the spec's Auto Run Result: the full `make test` gate, the
 fast loop with lint and typecheck, and a red-first demonstration that a build
 counting `total` from the candidate scan fails four tests.
+## 10-5 built, 2026-08-31 — the front door is Moments
+
+Branch `story/10-5`, `c33dfe0..106461d`, status `review`. The demo's opening
+screen: `/` is the ranked Moments feed, `/threads` is the second primary view
+behind a placeholder story 10.6 fills, and the reimagined home — corpus counts,
+meeting cards, the health panel — moved whole to `/meetings`. The chrome is one
+sticky bar carrying the six standing destinations, Add meeting and the health
+indicator, with search and ask standing under it on every route as before.
+Dark is applied at the root and `index.css` carries the Ember & Ink delta the
+design spine states: six base values plus the kind and thread token families.
+
+**The 294 web tests that existed stayed green in substance, not in text.**
+Thirteen of them asserted what `/` renders, which is the one thing this story
+changes, so they were re-pointed at `/meetings` and at the new nav labels; no
+assertion was weakened or deleted. The suite is now 350 across 19 files.
+
+**B-13 is closed** by `web/src/shellPlacement.test.tsx`, which pins the child
+screen above the search chrome over the discovered route list rather than a
+hand-written one, so a screen added later is covered the day it lands.
+
+**Checked in a browser, not only in jsdom.** Rendered at 1440×900 against a
+throwaway fixture api on private ports and read. That found two real defects
+the test tree could not: the grid drew one column fewer than the design at the
+1280×800 recording target (Tailwind's `xl`/`2xl` are 1280 and 1536, and the
+design's step is 1440), and the expanded card stranded its action row most of a
+screen below the excerpt.
+
+**Three deviations, all recorded and none silent:**
+
+- **Search and ask are not inside the 56px chrome bar.** EXPERIENCE.md · Chrome
+  puts them there; doing it means redesigning `CorpusSearch` and `ChatPanel`,
+  and `ChatPanel` is story 8.3's surface this wave. They stay the persistent
+  block they already were, directly under the bar — same order, more height.
+- **The thread filter's options are the threads the served items carry**, not
+  `GET /threads`. Story 10.3 is the designed source and is not built; offering
+  an invented list would be worse than offering the observed one.
+- **`GET /moments/feed` is read by hand, not through the generated client.**
+  Story 10.4 builds the endpoint in parallel, so regenerating the client here
+  would fight that lane for `client/sdk.gen.ts`. The reader is
+  `features/moments/feed.ts` and collapses to the generated call when 10.4
+  lands; the field names are that story's acceptance criteria verbatim, and
+  every test drives them as fixtures.
+
+The Threads placeholder is registered at `/threads/*` so a thread chip's deep
+link resolves there rather than falling to the catch-all; 10.6 replaces the
+element and may narrow the path.
