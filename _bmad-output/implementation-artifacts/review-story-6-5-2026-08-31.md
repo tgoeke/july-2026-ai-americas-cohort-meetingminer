@@ -73,7 +73,7 @@ Date: 2026-08-31
 - **Finding** — The initial `/meetings` seed can read before a job transition while `/jobs/events` takes its silent baseline after the transition. No event is then emitted. The stream's connected-frame `onAlive` either gets discarded while seed is in flight or declines to reseed once a stale row is held, so the card can remain permanently behind reality.
 - **Evidence** — `server/meetingminer/api/events.py:322-328` explicitly makes the opening snapshot a silent baseline and then emits a connected comment. `seed()` at lines 68–90 returns immediately when `seedingRef` is true without remembering the request; `onAlive` at lines 119–121 requests only while `rowRef` is null. Unlike `MeetingsList.requestSeed` (`web/src/features/meetings/MeetingsList.tsx:90-106`), this consumer has no pending/coalesced follow-up. The acquisition suite's hook mock captures only `onEvent`, so the critical `onAlive` ordering is untested.
 - **Suggested direction** — Coalesce a seed requested during an in-flight seed into one follow-up read, and bracket the stream's first live frame with a seed even when the first response has already produced a row. Extend the hook mock to drive `onAlive` and reproduce a transition between the first seed snapshot and silent stream baseline.
-- **Disposition** — patchable; remediation in progress.
+- **Disposition** — fixed red-first. The deferred-seed test observed only one `/meetings` call against the original consumer; it passed after seed requests became coalesced and the stream's first alive frame always bracketed the initial snapshot with a follow-up read.
 
 ## Disposition
 
