@@ -138,6 +138,21 @@ _THREAD_TOPICS = (
     " WHERE tt.thread_id = %s"
 )
 
+# A curation changes the structural graph input for these meetings. A current
+# `meeting_projection` row makes the ordinary projection scheduler answer
+# `none`, so the write forgets that state in the same transaction as the
+# curation. The next pass performs its normal scoped replacement.
+_THREAD_MEETINGS = (
+    "SELECT DISTINCT t.meeting_id"
+    f" FROM ({EFFECTIVE_MEMBERSHIP}) tt"
+    " JOIN topic t ON t.id = tt.topic_id"
+    " WHERE tt.thread_id = ANY(%s)"
+)
+
+_INVALIDATE_MEETING_PROJECTIONS = (
+    "DELETE FROM meeting_projection WHERE meeting_id = ANY(%s)"
+)
+
 _MINT_CURATED_THREAD = (
     "INSERT INTO thread (identity_key, name, link_rule, derivation)"
     " VALUES (%s, %s, %s, %s) RETURNING id, color_ordinal"
@@ -296,6 +311,18 @@ def _refuse_if_merged_away(conn, thread_id: UUID, *, verb: str) -> None:
         )
 
 
+def _meeting_ids_for_threads(conn, thread_ids: list[UUID]) -> set[UUID]:
+    return {
+        row[0]
+        for row in conn.execute(_THREAD_MEETINGS, (thread_ids,)).fetchall()
+    }
+
+
+def _invalidate_projection_state(conn, meeting_ids: set[UUID]) -> None:
+    if meeting_ids:
+        conn.execute(_INVALIDATE_MEETING_PROJECTIONS, (list(meeting_ids),))
+
+
 @router.patch(
     "/threads/{thread_id}",
     operation_id="renameThread",
@@ -317,10 +344,12 @@ def rename_thread(
     with pool.connection() as conn:
         _fetch_thread(conn, thread_id)
         _refuse_if_merged_away(conn, thread_id, verb="renamed")
+        affected_meetings = _meeting_ids_for_threads(conn, [thread_id])
         if body.name is None:
             conn.execute(_CLEAR_CURATED_NAME, (thread_id,))
         else:
             conn.execute(_UPSERT_CURATED_NAME, (thread_id, body.name))
+        _invalidate_projection_state(conn, affected_meetings)
         result = _refetch(conn, thread_id)
 
     logs.log_event(
@@ -378,6 +407,9 @@ def merge_threads(
                 f"thread {body.into_thread_id} is itself merged away and"
                 " cannot be a merge target",
             )
+        affected_meetings = _meeting_ids_for_threads(
+            conn, [thread_id, body.into_thread_id]
+        )
         try:
             conn.execute(_INSERT_ALIAS, (thread_id, body.into_thread_id))
         except psycopg.errors.UniqueViolation:
@@ -395,6 +427,7 @@ def merge_threads(
             # own checks could not (another request committing between them).
             conn.rollback()
             raise Problem(409, "already-merged", str(exc).strip()) from None
+        _invalidate_projection_state(conn, affected_meetings)
         result = _refetch(conn, body.into_thread_id)
 
     logs.log_event(
@@ -542,6 +575,7 @@ def split_thread(
                     " content key; the split was not recorded",
                 ) from None
 
+        _invalidate_projection_state(conn, {meeting_id for meeting_id, _ in pins})
         result = _refetch(conn, new_thread_id)
 
     logs.log_event(

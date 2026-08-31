@@ -452,6 +452,28 @@ def test_a_merge_survives_a_rerun_and_moves_the_absorbed_memberships(
     assert listed(client)[str(survivor)]["mentionCount"] == 2
 
 
+def test_a_merge_invalidates_projection_state_on_both_effective_sides(
+    client: TestClient, pool: ConnectionPool, app_config: AppConfig
+) -> None:
+    with pool.connection() as conn:
+        first = seed_meeting(conn, "m1")
+        second = seed_meeting(conn, "m2", offset_days=1)
+        source_topic = add_topic(conn, first, "Vendor Feed")
+        target_topic = add_topic(conn, second, "Billing Portal")
+        derive(conn, app_config)
+        record_projection_state(conn, app_config, first)
+        record_projection_state(conn, app_config, second)
+        conn.commit()
+        source = thread_of(conn, source_topic)
+        target = thread_of(conn, target_topic)
+
+    assert client.post(
+        f"/threads/{source}/merge", json={"intoThreadId": str(target)}
+    ).status_code == 200
+    with pool.connection() as conn:
+        assert conn.execute("SELECT count(*) FROM meeting_projection").fetchone()[0] == 0
+
+
 def test_a_split_survives_a_rerun_without_the_derivation_reclaiming_its_thread(
     client: TestClient, pool: ConnectionPool, app_config: AppConfig
 ) -> None:
@@ -504,6 +526,31 @@ def test_a_split_survives_a_rerun_without_the_derivation_reclaiming_its_thread(
     rows = listed(client)
     assert rows[str(original)]["mentionCount"] == 1
     assert rows[str(curated_id)]["mentionCount"] == 1
+
+
+def test_a_split_invalidates_only_the_meetings_whose_topics_move(
+    client: TestClient, pool: ConnectionPool, app_config: AppConfig
+) -> None:
+    with pool.connection() as conn:
+        first = seed_meeting(conn, "m1")
+        second = seed_meeting(conn, "m2", offset_days=1)
+        stay = add_topic(conn, first, "Vendor Feed")
+        move = add_topic(conn, second, "Vendor Feed")
+        derive(conn, app_config)
+        record_projection_state(conn, app_config, first)
+        record_projection_state(conn, app_config, second)
+        conn.commit()
+        original = thread_of(conn, stay)
+
+    assert client.post(
+        f"/threads/{original}/split",
+        json={"topicIds": [str(move)], "name": "Vendor feed (billing)"},
+    ).status_code == 201
+    with pool.connection() as conn:
+        remaining = conn.execute(
+            "SELECT meeting_id FROM meeting_projection ORDER BY meeting_id"
+        ).fetchall()
+    assert remaining == [(first,)]
 
 
 def test_a_split_survives_a_re_extraction_that_replaces_every_topic_row(
