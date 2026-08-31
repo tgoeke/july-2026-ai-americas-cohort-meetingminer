@@ -517,6 +517,23 @@ def _write_topics(tx: neo4j.Transaction, evidence: MeetingEvidence) -> None:
         )
 
 
+def _delete_orphan_threads(tx: neo4j.Transaction) -> None:
+    """Retire cross-meeting thread identities no projected topic still uses.
+
+    A scoped meeting replacement must preserve a thread used by any other
+    meeting, which is why :func:`delete_meeting` cannot delete `Thread` nodes.
+    After current topics and `INCLUDES` edges are back, however, graph-wide
+    orphanhood is decidable.  This is the point at which an absorbed thread's
+    last edge has disappeared and its obsolete node can be removed without
+    harming a survivor shared by another meeting.
+    """
+    tx.run(
+        "MATCH (th:Thread)"
+        " WHERE NOT (th)-[:INCLUDES]->(:Topic)"
+        " DETACH DELETE th"
+    ).consume()
+
+
 def _write_shown_during(
     tx: neo4j.Transaction, evidence: MeetingEvidence, chunks: tuple[Chunk, ...]
 ) -> None:
@@ -664,6 +681,7 @@ def project_meeting(
             # Topics after moments: every `MENTIONS` edge matches a `Moment`
             # node written just above, and the count check depends on it.
             _write_topics(tx, evidence)
+            _delete_orphan_threads(tx)
             _write_shown_during(tx, evidence, chunks)
             # Artifacts last: `CITES` matches the Moment nodes written above.
             # Inside the same transaction, so the meeting and its published
