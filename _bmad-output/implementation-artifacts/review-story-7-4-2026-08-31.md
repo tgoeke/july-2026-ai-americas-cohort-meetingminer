@@ -59,7 +59,8 @@ Adversarial review of the Story 7.4 web implementation, with emphasis on unsettl
 
 - **Location:** `web/src/features/speakers/SpeakerNaming.tsx:282`; `web/src/features/speakers/SpeakerNaming.tsx:523`; `web/src/features/speakers/SpeakerNaming.tsx:769`
 - **Severity:** High
-- **Status:** Confirmed — patch required
+- **Status:** Fixed on `story/7-4-review`
 - **Finding:** After a successful assignment, the screen clears the field and creates a global rerun strip but does not show the saved choice or `rerun · queued` on its row. It also records `choice.displayName` rather than the authoritative `SpeakerAssignmentResponse.displayName`, so a participant renamed since roster load produces a stale landed sentence. After the landed reread, the transcript column still renders only tag, offsets, and text, making the assigned identity visually absent there.
 - **Evidence:** Row rendering is exclusively from the pre-PUT `speakers` array until a later read; the success response's participant/name fields are ignored. The landed effect rereads both sources, but the transcript header/body never calls `resolvedName()`. This violates the matrix requirements that the row show the choice immediately and the change be visible in the transcript when the rerun lands.
 - **Suggested direction:** Store the response-confirmed pending choice per tag and label it as awaiting rerun without claiming resolution; derive rerun copy from the response. On a successful settled reread, clear pending choices and render only `resolvedName(selected)` in the transcript heading, preserving AD-13.
+- **Red/green evidence:** The row test first stayed a nameless placeholder after a response carrying a renamed participant, and the landed transcript remained tag-only. The row now shows the response-confirmed choice as `rerun · queued`; after the settled reread, pending state clears and the transcript displays only the name accepted by `resolvedName()`. Both targeted tests pass.

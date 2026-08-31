@@ -114,13 +114,16 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [rerun, setRerun] = useState<RerunState | null>(null)
+  const [pendingAssignments, setPendingAssignments] = useState<
+    Record<string, { displayName: string | null }>
+  >({})
 
   const readControllerRef = useRef<AbortController | null>(null)
   const saveControllerRef = useRef<AbortController | null>(null)
   const nameInputRef = useRef<HTMLInputElement>(null)
   const rowRefs = useRef(new Map<string, HTMLButtonElement>())
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (settledReread = false) => {
     readControllerRef.current?.abort()
     const controller = new AbortController()
     readControllerRef.current = controller
@@ -143,6 +146,7 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
         if (error !== undefined) return setSpeakersFailure(loadFailureOf(error))
         if (data === undefined) throw new Error('the api answered with no body')
         setSpeakers(data.speakers)
+        if (settledReread) setPendingAssignments({})
         setSpeakersFailure(null)
       } catch (err) {
         if (controller.signal.aborted) return
@@ -213,7 +217,7 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
   const landedAt = rerun?.landedAt ?? null
   useEffect(() => {
     if (landedAt === null) return
-    void load()
+    void load(true)
   }, [landedAt, load])
 
   // Memoized so the empty case is one stable array rather than a fresh one
@@ -261,8 +265,6 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
             ? null
             : assignmentBody(choice)
       if (body === null) return
-      const assignedName = kind === 'unresolved' ? null : (choice?.displayName ?? null)
-
       saveControllerRef.current?.abort()
       const controller = new AbortController()
       saveControllerRef.current = controller
@@ -286,6 +288,11 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
           return
         }
         if (data === undefined) throw new Error('the api answered with no body')
+        const assignedName = data.displayName ?? null
+        setPendingAssignments((current) => ({
+          ...current,
+          [data.speakerLabel]: { displayName: assignedName },
+        }))
         setRerun(
           rerunFrom(
             data.jobId,
@@ -530,8 +537,18 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
           <div className="flex flex-col gap-1">
             {rows.map((row, position) => {
               const percent = talkSharePercent(row, totalMs)
-              const name = resolvedName(row)
+              const resolved = resolvedName(row)
+              const pending = pendingAssignments[row.speakerLabel]
+              const name = pending?.displayName ?? resolved
               const isSelected = row.speakerLabel === selectedTag
+              const accessibleLabel =
+                pending === undefined
+                  ? speakerRowLabel(row, percent, isSelected)
+                  : `${speakerRowLabel(row, percent, isSelected)}, ${
+                      pending.displayName === null
+                        ? 'unresolved choice saved'
+                        : `${pending.displayName} assignment saved`
+                    }, rerun queued`
               return (
                 <div
                   key={row.speakerLabel}
@@ -548,7 +565,7 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
                       else rowRefs.current.set(row.speakerLabel, element)
                     }}
                     aria-pressed={isSelected}
-                    aria-label={speakerRowLabel(row, percent, isSelected)}
+                    aria-label={accessibleLabel}
                     className="w-full cursor-pointer text-left"
                     onClick={() => selectTag(row.speakerLabel)}
                     onKeyDown={(event) => onRowKeyDown(event, position)}
@@ -577,21 +594,23 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
                       </span>
                     </span>
                   </button>
-                  {name !== null && (
+                  {(name !== null || pending !== undefined) && (
                     <div className="mt-1.5 flex items-center justify-between gap-2">
                       {/* The api's own resolution word, not a provenance
                           claim: the wire carries no field saying whether the
                           source or a curator resolved this row (B-42). */}
                       <span className="font-mono text-[11px] text-muted-foreground">
-                        {row.speakerResolution}
+                        {pending === undefined ? row.speakerResolution : 'rerun · queued'}
                       </span>
-                      <Button
-                        variant="outline"
-                        size="xs"
-                        onClick={() => selectTag(row.speakerLabel, true)}
-                      >
-                        Correct
-                      </Button>
+                      {name !== null && (
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          onClick={() => selectTag(row.speakerLabel, true)}
+                        >
+                          Correct
+                        </Button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -781,6 +800,12 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
               <>
                 {' · '}
                 <span className="font-mono">{selected.speakerLabel}</span>
+                {resolvedName(selected) !== null && (
+                  <>
+                    {' · '}
+                    {resolvedName(selected)}
+                  </>
+                )}
               </>
             )}
           </h3>
