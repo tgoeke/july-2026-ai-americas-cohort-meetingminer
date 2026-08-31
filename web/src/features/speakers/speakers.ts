@@ -1,6 +1,7 @@
 import type {
   AssignSpeakerRequest,
   DrilldownSegment,
+  JobResponse,
   ParticipantRow,
   SpeakerTag,
 } from '@/client/types.gen'
@@ -283,6 +284,8 @@ export interface RerunState {
   assignedName: string | null
   stages: Array<RerunStage>
   landedAt: string | null
+  /** A job-level failure whose wire frame named no re-armed stage. */
+  jobError: string | null
   /** Set when the meeting's evidence was already unsettled when the PUT was
    * accepted — story 7.3's recovery exception, worth saying out loud. */
   acceptedWhileUnviewable: boolean
@@ -303,6 +306,7 @@ export function rerunFrom(
     assignedName,
     stages: names.map((name) => ({ name, status: 'queued', error: null })),
     landedAt: null,
+    jobError: null,
     acceptedWhileUnviewable,
   }
 }
@@ -353,21 +357,76 @@ export function applyJobEvent(
   }
   if (event.event === 'job.error') {
     const failing = typeof event.stage === 'string' ? event.stage : null
+    const ownsStage =
+      failing !== null && rerun.stages.some((stage) => stage.name === failing)
     return {
       ...rerun,
       stages: rerun.stages.map((stage) =>
-        failing === null || stage.name === failing
+        ownsStage && stage.name === failing
           ? { ...stage, status: 'failed', error: event.error ?? stage.error }
           : stage,
       ),
+      jobError: ownsStage ? null : (event.error ?? 'no error was recorded'),
     }
   }
   return rerun
 }
 
+/** Re-seed one rerun from the authoritative job route.
+ *
+ * The meeting reuses one job id for every assignment, so an SSE terminal
+ * frame alone cannot say which re-arm it belongs to. Callers compare the
+ * rerun object by identity before installing this result; this function then
+ * applies only the current database snapshot.
+ */
+export function reconcileRerunFromJob(
+  rerun: RerunState,
+  job: JobResponse,
+  at: string,
+): RerunState {
+  if (job.jobId !== rerun.jobId) return rerun
+  const snapshots = new Map(job.stages.map((stage) => [stage.name, stage]))
+  let stages = rerun.stages.map((stage) => {
+    const snapshot = snapshots.get(stage.name)
+    return snapshot === undefined
+      ? stage
+      : {
+          ...stage,
+          status: snapshot.status,
+          error: snapshot.error ?? null,
+        }
+  })
+  const stageFailed = stages.some((stage) => stage.status === 'failed')
+  const jobError =
+    job.status === 'failed' && !stageFailed
+      ? (job.error ?? 'no error was recorded')
+      : null
+  const moments = stages.find((stage) => stage.name === 'moments')
+  const evidenceLanded =
+    job.status === 'done' ||
+    (moments !== undefined && ['done', 'skipped'].includes(moments.status))
+
+  if (evidenceLanded && !stageFailed && jobError === null) {
+    // Mirrors the frozen Story 7.4 `job.done` rule. F2 records that this
+    // overstates extract under the current server semantics.
+    stages = stages.map((stage) => ({ ...stage, status: 'done', error: null }))
+  }
+  return {
+    ...rerun,
+    stages,
+    landedAt: evidenceLanded && !stageFailed && jobError === null ? at : null,
+    jobError,
+  }
+}
+
 /** The stage a rerun failed at, with its recorded error — or `null`. */
 export function failedStage(rerun: RerunState): RerunStage | null {
-  return rerun.stages.find((stage) => stage.status === 'failed') ?? null
+  return (
+    rerun.stages.find((stage) => stage.status === 'failed') ??
+    (rerun.jobError === null
+      ? null
+      : { name: 'job', status: 'failed', error: rerun.jobError })
+  )
 }
 
 /** Whether the rerun is still moving — the sentence that keeps a curator from

@@ -8,6 +8,7 @@ import {
 } from 'react'
 import {
   assignMeetingSpeaker,
+  getJob,
   getMeetingDrilldown,
   listMeetingSpeakers,
   listParticipants,
@@ -34,6 +35,7 @@ import {
   loadFailureOf,
   NO_SPEAKER_TAGS,
   reprocessingSentence,
+  reconcileRerunFromJob,
   resolvedName,
   rerunFrom,
   type RerunState,
@@ -128,6 +130,7 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
   const nameInputRef = useRef<HTMLInputElement>(null)
   const rowRefs = useRef(new Map<string, HTMLButtonElement>())
   const clipSequenceRef = useRef(0)
+  const rerunRef = useRef<RerunState | null>(null)
 
   const load = useCallback(async (settledReread = false) => {
     readControllerRef.current?.abort()
@@ -208,14 +211,51 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
     }
   }, [load])
 
-  // One `/jobs/events` connection for the life of the screen, filtered to the
-  // rerun this screen started. `applyJobEvent` ignores every other job and
-  // every stage the naming did not re-arm.
-  const onJobEvent = useCallback((event: Parameters<typeof applyJobEvent>[1]) => {
-    setRerun((current) => (current === null ? null : applyJobEvent(current, event, stampNow())))
+  const installRerun = useCallback((next: RerunState | null) => {
+    rerunRef.current = next
+    setRerun(next)
   }, [])
-  const noop = useCallback(() => {}, [])
-  useJobEvents({ onEvent: onJobEvent, onResync: noop })
+
+  const reconcileRerun = useCallback(
+    async (expected: RerunState | null) => {
+      if (expected === null) return
+      try {
+        const { data, error } = await getJob({
+          path: { job_id: expected.jobId },
+        })
+        if (error !== undefined || data === undefined) return
+        // Object identity is the rerun generation. The job id is reused, so
+        // a snapshot requested for an older assignment may not overwrite a
+        // newer re-arm even though both responses carry the same id.
+        if (rerunRef.current !== expected) return
+        installRerun(reconcileRerunFromJob(expected, data, stampNow()))
+      } catch {
+        // The live-connection state below names an unavailable stream. A
+        // failed one-shot reconciliation leaves the last honest state drawn.
+      }
+    },
+    [installRerun],
+  )
+
+  // One `/jobs/events` connection for the life of the screen. Stage frames
+  // can fold directly; terminal frames reconcile through GET /jobs because
+  // consecutive assignments reuse this meeting's job id.
+  const onJobEvent = useCallback(
+    (event: Parameters<typeof applyJobEvent>[1]) => {
+      const current = rerunRef.current
+      if (current === null || event.jobId !== current.jobId) return
+      if (event.event === 'job.done' || event.event === 'job.error') {
+        void reconcileRerun(current)
+        return
+      }
+      installRerun(applyJobEvent(current, event, stampNow()))
+    },
+    [installRerun, reconcileRerun],
+  )
+  const onResync = useCallback(() => {
+    void reconcileRerun(rerunRef.current)
+  }, [reconcileRerun])
+  const jobConnection = useJobEvents({ onEvent: onJobEvent, onResync })
 
   // When the rerun lands, both reads become legal again and the transcript
   // that now carries the name is one fetch away. This is Flow 3's climax, and
@@ -299,15 +339,15 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
           ...current,
           [data.speakerLabel]: { displayName: assignedName },
         }))
-        setRerun(
-          rerunFrom(
-            data.jobId,
-            data.speakerLabel,
-            assignedName,
-            data.rearmedStages,
-            data.acceptedWhileUnviewable,
-          ),
+        const startedRerun = rerunFrom(
+          data.jobId,
+          data.speakerLabel,
+          assignedName,
+          data.rearmedStages,
+          data.acceptedWhileUnviewable,
         )
+        installRerun(startedRerun)
+        void reconcileRerun(startedRerun)
         setDraft('')
         setPicked(null)
         setListOpen(false)
@@ -329,7 +369,7 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
         setSaving(false)
       }
     },
-    [choice, meetingId, selected],
+    [choice, installRerun, meetingId, reconcileRerun, selected],
   )
 
   const playClip = useCallback(
@@ -489,6 +529,12 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
           {reprocessing && (
             <p data-testid="reprocessing-note" className="text-sm">
               {reprocessingSentence(rerun)}
+            </p>
+          )}
+          {reprocessing && jobConnection.kind === 'lost' && (
+            <p role="status" className="text-xs text-muted-foreground">
+              Live rerun progress is unavailable — {jobConnection.message}. Reconnecting;
+              the last confirmed stage state remains on screen.
             </p>
           )}
           {rerun.acceptedWhileUnviewable && failed === null && (
