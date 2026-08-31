@@ -174,13 +174,18 @@ Run these; a skip or failure that is not listed here is a finding, not noise.
   — 16 passed, ~1.3s.
 - `uv run --project server pytest server/tests/test_api_registry.py server/tests/test_api_moments.py -q`
   — 46 passed, unchanged by this branch.
-- `make test-fast` — green: 1848 passed, 2 skipped, 378 deselected, ~56s. Both
+- `make test-fast` — green: 1896 passed, 2 skipped, 378 deselected, ~58s. Both
   skips are pre-existing environment skips and are named in the output: no
   `pyannote` module in the default venv, and the network-gated yt-dlp test.
   Lint and typecheck run inside this target and both pass.
-- `make test` — the full gate, result recorded in the spec's Auto Run Result.
-- `python3 _bmad/scripts/branch_conflicts.py --against story/7-2` — result
-  recorded in the spec's Auto Run Result.
+- `make test` — exit 0: 2274 passed, 2 skipped in 930.78s; puller suite
+  `# fail 0`, diarize-extra lane 92 passed, web build succeeded. Run it
+  **unsandboxed**: the puller tests bind a local socket, and a sandboxed run
+  fails them with `listen EPERM` — a harness artifact, not a branch defect.
+- `python3 _bmad/scripts/branch_conflicts.py --against story/7-2` —
+  `main × story/7-2` clean. Remaining pairs involving this branch conflict
+  only on `sprint-notes.md` (no merge driver; integrate unions it), plus
+  `docs/architecture.md` from `story/8-1`, which this branch never touches.
 
 **Coverage was demonstrated, not asserted.** Every behavioral claim was proved
 by mutating the implementation and watching the right tests go red, each

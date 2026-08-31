@@ -221,25 +221,42 @@ Registration is the file (story 2.8): `api/main.py` is untouched.
 - Sprint status (`7-2-speaker-tags-on-the-wire: review`) and sprint notes.
 
 **Verification (all run in this worktree against its private stack
-`meetingminer-7-2`).**
+`meetingminer-7-2`, on the rebased tree, base `origin/main` at `7a1076d`).**
 - `uv run --project server pytest server/tests/test_api_speakers.py -q` — 16
   passed, 1.28s.
 - `uv run --project server pytest server/tests/test_api_speakers.py
   server/tests/test_api_registry.py server/tests/test_api_moments.py -q` — 62
   passed.
-- `make test-fast` — 1848 passed, 2 skipped, 378 deselected, 55.64s; lint and
-  typecheck green inside the target. Both skips are pre-existing environment
-  skips named in the output (no `pyannote` in the default venv; the
-  network-gated yt-dlp test).
-- `make test` — exit 0: 2226 passed, 2 skipped in 608.86s, web build succeeded.
+- `make test-fast` — 1896 passed, 2 skipped, 378 deselected, 57.75s; lint,
+  typecheck, puller, web and eval suites all inside the target.
+- `uv run --project server pytest -m "slow" server/tests -q -rs` — 378 passed,
+  1898 deselected, 844.88s (the twin-bound half, run separately because the
+  whole gate exceeds one foreground call).
+- `make test` — **exit 0**: 2274 passed, 2 skipped in 930.78s, puller suite
+  `# fail 0`, diarize-extra lane 92 passed, web build succeeded. 1896 + 378 =
+  2274, so the fast and slow halves account for the gate exactly.
+- The two skips are pre-existing environment skips named in the output: no
+  `pyannote` module in the default venv, and the network-gated yt-dlp test.
 - `python3 _bmad/scripts/branch_conflicts.py --against story/7-2` —
-  `main × story/7-2` clean; clean against `story/10-2`, `story/6-2a`,
-  `story/6-2a-review`, `story/8-1-review`. The one conflicting pair,
-  `story/7-2 × story/8-1`, is on `sprint-notes.md` and `docs/architecture.md`:
-  this branch never touches `docs/architecture.md` (`git diff --name-only
-  main...HEAD`), and `main × story/8-1` conflicts on the same two files
-  independently. `sprint-notes.md` is the append the wave rules say to expect
-  integrate to union.
+  **`main × story/7-2` clean**, and clean against `story/10-2-review`,
+  `story/6-2a-review`, `story/8-1-review`. Every remaining pair involving this
+  branch conflicts only on `sprint-notes.md`, the file the wave rules say has no
+  merge driver and that integrate unions — `main × story/10-2`,
+  `main × story/6-2a` and `main × story/8-1` each conflict on it independently.
+  The `docs/architecture.md` half of the `story/8-1` pair is that branch's own
+  conflict with `main`: this branch never touches the file
+  (`git diff --name-only main...HEAD`).
+
+**Two observations that are not defects in this branch.**
+- `test_youtube.py::test_makefile_passes_a_hostile_url_as_one_data_argument[shell]`
+  tripped the 2.0s fast-set budget once at 2.92s during a run concurrent with a
+  sibling worktree's suite, and passed at 0.24s re-run alone. Contention, which
+  the budget plugin's own message says is not a reason to mark a test slow. It
+  is a story 6.2 test, untouched here.
+- One gate run failed at `puller-test` with `listen EPERM: operation not
+  permitted 127.0.0.1`. That was a harness error, not a code failure: the puller
+  tests bind a local HTTP socket and that run was launched inside the tool
+  sandbox. Re-run unsandboxed, the puller suite reports `# fail 0`.
 
 **Coverage was demonstrated, not asserted.** Each behavioral claim was proved by
 mutating the implementation, observing the named tests fail, and reverting:
