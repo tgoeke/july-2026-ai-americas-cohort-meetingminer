@@ -148,3 +148,29 @@ implementation through the builder's closing documentation commit.
   start/end timing, text, and speaker label — while separately asserting the
   intended participant/resolution change. Re-run the ordering mutation and
   require that new assertion to fail before accepting the test change.
+
+### F-6 — The frozen new-name matrix row should be amended — OPEN (frozen spec)
+
+- Location: `_bmad-output/implementation-artifacts/spec-7-3-speaker-assignment.md`
+  (`<intent-contract>`, “Assign a new display name” row)
+- Severity: Medium — Open; owner/spec amendment required
+- Finding: The row still requires the minted participant's `identity_key` to
+  equal the speaker alias key. That is not merely stale implementation detail;
+  it specifies the known unmergeable design. `participants.py` determines that
+  a participant is merged away when its own identity key appears as an alias
+  key. Giving a newly minted participant the key used by its own speaker
+  assignment therefore makes it appear merged into itself and permanently
+  closes the documented recovery path for cross-meeting splits.
+- Evidence: The implementation correctly separates
+  `speaker:<meetingId>:<tag>` from `curated:<meetingId>:<tag>`.
+  `test_a_minted_participant_can_still_be_merged_away` passes with that split,
+  and the builder's red-first result plus the spec Change Log document the
+  failure with a shared key. The review also rechecked every
+  `participant_alias` reader: `_IS_ALIASED` remains safe only because a
+  `speaker:` key is never a participant identity key, while
+  `_HAS_ABSORBED_ALIASES` correctly excludes the speaker namespace.
+- Suggested direction: The owner should amend and re-freeze the matrix row to
+  require `identity_key = curated:<meetingId>:<tag>`, with the assignment alias
+  separately keyed as `speaker:<meetingId>:<tag>`, and retain the current
+  non-name-shaped `normalized_name`. Do not alter the implementation to match
+  the obsolete row.
