@@ -4,7 +4,7 @@ type: 'feature'
 created: '2026-08-31'
 baseline_revision: '3211a7f96b86d7df496cefa451b2cbd431e6d8b4'
 baseline_commit: '1e3728ac3a307ac8bff92027c75631ade10ebd4f'
-status: 'in-progress'
+status: 'done'
 review_loop_iteration: 1
 followup_review_recommended: true
 context:
@@ -260,11 +260,12 @@ All paths under `web/src/features/threads/`, all new.
 
 ## Verification
 
-- Owner-ruling implementation: `pnpm --dir web exec vitest run` over
-  `src/features/threads` — 90 passed; `pnpm --dir web exec tsc -b --force` —
-  exit 0; `make web-test` — 531 passed; `make test-fast` — ruff and mypy green,
-  puller 128 passed, web 531 passed, evals 655 passed, server 2178 passed / 3
-  standing named skips / 411 slow tests deselected.
+- Owner-ruling implementation and adversarial remediation (`edc63178`,
+  `a8af8e04`): targeted owner-ruling and Story 10.3 contract tests — 19 passed;
+  all Threads tests — 99 passed; `pnpm --dir web exec tsc -b --force` — exit 0;
+  `make test-fast` — ruff and mypy green, puller 128 passed, web 540 passed,
+  evals 655 passed, server 2178 passed / 3 standing named skips / 411 slow
+  tests deselected.
 - `make test-fast` — green at `39ccfba`: ruff `All checks passed!`, mypy
   `Success: no issues found in 13 source files`, vitest `353 passed (20 files)`,
   pytest `2173 passed, 3 skipped, 411 deselected in 103.27s`. The three skips
@@ -281,3 +282,34 @@ All paths under `web/src/features/threads/`, all new.
 
 B-44 (per-thread bands fetch — an api-shape question) and B-45 (pins). The
 evidence tier and inline replay are story 10.6a. Curation is story 10.2a.
+
+## Suggested Review Order
+
+**Route semantics**
+
+- Start with route parsing, refusal precedence, and selected-thread defaults.
+  [`Threads.tsx:65`](../../web/src/features/threads/Threads.tsx#L65)
+
+- Validate strict RFC 3339 anchors and emit the shared integration URL.
+  [`threadTimelinePath.ts:14`](../../web/src/features/threads/threadTimelinePath.ts#L14)
+
+**Viewport ownership**
+
+- Apply anchored and bare defaults only after current canvas measurement.
+  [`Threads.tsx:128`](../../web/src/features/threads/Threads.tsx#L128)
+
+- Reset measurement ownership when the timeline canvas leaves the DOM.
+  [`useTimelineView.ts:147`](../../web/src/features/threads/useTimelineView.ts#L147)
+
+**Contract evidence**
+
+- Prove mention-window membership never discards the served evidence instant.
+  [`threadsApi.story103-contract.test.ts:104`](../../web/src/features/threads/threadsApi.story103-contract.test.ts#L104)
+
+- Pin URL construction, route changes, refusals, measurement, and request windows.
+  [`Threads.owner-rulings.review.test.tsx:143`](../../web/src/features/threads/Threads.owner-rulings.review.test.tsx#L143)
+
+**Deferred boundary**
+
+- Keep the accepted browser-layout harness gap visible as B-51.
+  [`backlog.md:740`](../../docs/backlog.md#L740)
