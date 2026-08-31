@@ -318,7 +318,16 @@ export async function fetchMomentsFeed(
       problem: body,
     })
   }
-  return parseFeedResponse(body)
+  const page = parseFeedResponse(body)
+  if (page.limit !== limit || page.offset !== offset) {
+    throw new FeedContractError('the feed response page does not match the request')
+  }
+  if (!hasActiveFilters(filters) && page.total !== page.unfilteredTotal) {
+    throw new FeedContractError(
+      'the unfiltered feed response: total must equal unfilteredTotal',
+    )
+  }
+  return page
 }
 
 /**
