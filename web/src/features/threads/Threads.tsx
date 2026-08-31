@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router'
 import { useOpenPath } from '@/routes/navigation'
 import { sortThreads, ThreadList, type ThreadSort } from './ThreadList'
+import type { CurationAction } from './ThreadCuration'
 import { TimelineCanvas } from './TimelineCanvas'
 import './threads.css'
 import {
@@ -19,6 +20,7 @@ import {
   fetchTimeline,
   listThreads,
   type BandBucket,
+  type CuratedThread,
   type ThreadsFailure,
   type ThreadSummary,
   type TimelineMeeting,
@@ -112,13 +114,22 @@ export function Threads() {
   // outgoing tier stays drawn while the authoritative list and timeline are
   // fetched again, avoiding flicker without showing cached membership as if
   // it reflected the correction.
-  const reReadThreads = useCallback(() => {
-    cacheRef.current.clear()
-    meetingsRef.current.clear()
-    requestedKeyRef.current = null
-    setRetryVersion((version) => version + 1)
-    setListRetryVersion((version) => version + 1)
-  }, [])
+  const reReadThreads = useCallback(
+    (curated: CuratedThread, action: CurationAction) => {
+      if (action === 'merge') {
+        setFocusedThreadId(curated.threadId)
+        if (routeThreadId !== undefined) {
+          openPath(`/threads/${curated.threadId}${location.search}`)
+        }
+      }
+      cacheRef.current.clear()
+      meetingsRef.current.clear()
+      requestedKeyRef.current = null
+      setRetryVersion((version) => version + 1)
+      setListRetryVersion((version) => version + 1)
+    },
+    [location.search, openPath, routeThreadId],
+  )
 
   useEffect(() => {
     setFocusedThreadId(routeThreadId ?? null)

@@ -1,6 +1,6 @@
 import { BEYOND_PALETTE_NOTE, paintFor, swatchStyle } from './palette'
-import { ThreadCuration } from './ThreadCuration'
-import type { ThreadSummary } from './threadsApi'
+import { ThreadCuration, type CurationAction } from './ThreadCuration'
+import type { CuratedThread, ThreadSummary } from './threadsApi'
 
 /**
  * The list column: every thread, searchable by name and sortable by activity or
@@ -35,7 +35,7 @@ export interface ThreadListProps {
    * list showing the grouping the user just corrected, which reads as the
    * correction having failed.
    */
-  onCurated?: () => void
+  onCurated?: (thread: CuratedThread, action: CurationAction) => void
 }
 
 /** Search matches on the name, case-insensitively, as a substring. */

@@ -4,6 +4,7 @@ import {
   mergeThreads,
   renameThread,
   splitThread,
+  type CuratedThread,
   type ThreadsFailure,
   type ThreadSummary,
   type ThreadTopicGroup,
@@ -33,14 +34,15 @@ import {
  */
 
 /** Which panel is open. Only one at a time, per row. */
-type Mode = 'idle' | 'rename' | 'merge' | 'split'
+type Mode = 'idle' | CurationAction
+export type CurationAction = 'rename' | 'merge' | 'split'
 
 export interface ThreadCurationProps {
   thread: ThreadSummary
   /** Every other thread, as merge targets. Already excludes this one. */
   mergeTargets: ReadonlyArray<ThreadSummary>
   /** Re-read `GET /threads` after a write landed. */
-  onCurated: () => void
+  onCurated: (thread: CuratedThread, action: CurationAction) => void
 }
 
 /** The date a split-panel group header prints, from an RFC 3339 instant. */
@@ -134,9 +136,12 @@ export function ThreadCuration({ thread, mergeTargets, onCurated }: ThreadCurati
   )
 
   const settle = useCallback(
-    async (write: Promise<{ error?: ThreadsFailure }>, returnTo: 'rename' | 'merge' | 'split') => {
+    async (
+      write: Promise<{ data?: CuratedThread; error?: ThreadsFailure }>,
+      returnTo: CurationAction,
+    ) => {
       setBusy(true)
-      const { error } = await write
+      const { data, error } = await write
       setBusy(false)
       if (error !== undefined) {
         // The panel stays open and the input keeps its text: a refusal is
@@ -144,13 +149,14 @@ export function ThreadCuration({ thread, mergeTargets, onCurated }: ThreadCurati
         setFailure(error)
         return
       }
+      if (data === undefined) return
       close(returnTo)
-      onCurated()
+      onCurated(data, returnTo)
     },
     [close, onCurated],
   )
 
-  const onKeyDown = (event: React.KeyboardEvent, returnTo: 'rename' | 'merge' | 'split') => {
+  const onKeyDown = (event: React.KeyboardEvent, returnTo: CurationAction) => {
     if (event.key === 'Escape') {
       event.stopPropagation()
       close(returnTo)

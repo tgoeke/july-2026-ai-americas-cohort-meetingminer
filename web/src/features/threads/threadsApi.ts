@@ -432,17 +432,23 @@ export interface CuratedThread {
 
 function parseCuratedThread(body: unknown, where: string): CuratedThread {
   const row = requireRow(body, where)
+  if (typeof row.nameIsCurated !== 'boolean') {
+    throw new ThreadsContractError(`${where}: \`nameIsCurated\` must be a boolean`)
+  }
+  if (!Object.hasOwn(row, 'mergedIntoThreadId')) {
+    throw new ThreadsContractError(`${where}: missing \`mergedIntoThreadId\``)
+  }
   const mergedInto = row.mergedIntoThreadId
-  if (mergedInto !== null && mergedInto !== undefined && typeof mergedInto !== 'string') {
+  if (mergedInto !== null && typeof mergedInto !== 'string') {
     throw new ThreadsContractError(`${where}: \`mergedIntoThreadId\` must be a string or null`)
   }
   return {
     threadId: requireString(row, 'threadId', where),
     name: requireString(row, 'name', where),
     derivedName: requireString(row, 'derivedName', where),
-    nameIsCurated: row.nameIsCurated === true,
+    nameIsCurated: row.nameIsCurated,
     colorOrdinal: requireNumber(row, 'colorOrdinal', where),
-    mergedIntoThreadId: typeof mergedInto === 'string' ? mergedInto : null,
+    mergedIntoThreadId: mergedInto,
   }
 }
 

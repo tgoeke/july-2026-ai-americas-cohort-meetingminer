@@ -90,21 +90,23 @@ The review branch must be rebased onto the then-current `origin/main` before clo
 - **Evidence:** Direct thread deletion reaches only cascading foreign keys; no tombstone, refusal trigger, or audit row survives. In particular, deleting a merge survivor cascades aliases whose absorbed source rows still exist, so those source clusters reappear on the next pass without an AD-18 signal.
 - **Suggested direction:** Define curation-aware thread retention before adding the anticipated sweep: refuse deletion of any thread participating in curation, or preserve/retarget the human decision in durable tombstone/audit state. This is a data-lifecycle choice, not a safe review-time guess.
 
-### F10 — Confirmed, remediation in progress: merge success discarded the canonical survivor identity
+### F10 — Remediated: merge success discarded the canonical survivor identity
 
 - **Location:** `web/src/features/threads/ThreadCuration.tsx` (`settle`); `web/src/features/threads/Threads.tsx` (focused thread and route ownership)
 - **Severity:** Moderate
 - **Finding:** The merge API deliberately returns the survivor, but `settle` discards the parsed response and calls a parameterless callback. When the absorbed row was focused, the fine-tier canvas remains focused on an empty UUID; on `/threads/:absorbed`, the next list read replaces the entire screen with “may have been merged away” instead of continuing on the canonical thread.
-- **Evidence:** A component regression is being added to require merge completion to pass both the returned thread and the operation to its owner. The unchanged implementation calls `onCurated()` with no arguments.
+- **Evidence:** Added a component regression requiring merge completion to pass both the returned thread and the operation to its owner. Against the unfixed client it failed red: the callback's only call had an empty argument list rather than the parsed survivor and `merge`.
 - **Suggested direction:** Propagate the parsed result and action through `ThreadList`; after a merge, focus the returned survivor and replace a focused route with `/threads/{survivor}` while preserving its anchor query. Then invalidate both list and timeline as F6 requires.
+- **Remediation:** The curation callback now carries the strict parsed thread and operation. `Threads` focuses the returned survivor, replaces a thread-specific route while retaining its query anchor, and then performs F6's list/timeline invalidation. The focused callback and timeline regressions are green.
 
-### F11 — Confirmed, remediation in progress: malformed curation success bodies were silently accepted
+### F11 — Remediated: malformed curation success bodies were silently accepted
 
 - **Location:** `web/src/features/threads/threadsApi.ts` (`parseCuratedThread`); `web/src/features/threads/ThreadCuration.tsx` (`settle`)
 - **Severity:** Moderate
 - **Finding:** The purportedly strict response parser converts a missing or non-boolean `nameIsCurated` to `false` and a missing `mergedIntoThreadId` to `null`. A malformed 2xx therefore closes the editor and announces success, losing the user's draft, instead of surfacing a contract refusal.
-- **Evidence:** A component regression is being added with a successful write body whose `nameIsCurated` is a string. The unchanged parser treats it as `false`, so `onCurated` fires and the panel closes.
+- **Evidence:** Added a component regression with a successful write body whose `nameIsCurated` is a string. Against the unfixed client it failed red by closing the merge panel, firing `onCurated`, and rendering no refusal.
 - **Suggested direction:** Require an actual boolean and require the nullable merge field to be present and either a string or `null`, using the same named `ThreadsContractError` path as every other response field. A contract error must keep the panel and draft intact.
+- **Remediation:** The parser now requires a boolean provenance field and a present string-or-null merge field. A malformed 2xx follows the existing contract-error path; the panel stays open with its selected target and the owner callback is not fired. The focused regression is green.
 
 ## Verification
 
