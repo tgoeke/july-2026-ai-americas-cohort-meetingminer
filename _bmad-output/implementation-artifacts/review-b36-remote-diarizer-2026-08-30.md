@@ -19,4 +19,10 @@ The report skeleton commit `74cbf2b` follows that reviewed builder range and is 
 
 ## Findings
 
-No confirmed findings yet.
+### Finding 1 — non-finite and oversized timestamps escape the port error taxonomy
+
+- **Location:** `server/meetingminer/adapters/diarize/remote_http.py:109-117,232-256`
+- **Severity:** Medium
+- **Finding:** Open — patch planned. `_number` accepts every Python `int`/`float` without requiring finiteness or handling conversion overflow. Python's JSON decoder accepts `NaN` and `Infinity`, and an arbitrarily large JSON integer is also reachable. Those values raise raw `ValueError`/`OverflowError` during float conversion or rounding instead of the frozen contract's named `DiarizerError`.
+- **Evidence:** Against the unfixed rebased code, direct calls through `_to_turns` produced `ValueError: cannot convert float NaN to integer`, `OverflowError: cannot convert float infinity to integer`, and `OverflowError: int too large to convert to float`. `transcribe.py:180-182` catches only `DiarizerError`, so these malformed host responses bypass the adapter's promised diagnostic boundary. No test in the repository covers non-finite or oversized remote turn timestamps; the symbol/import search found remote coverage only in `server/tests/test_diarize_remote.py`.
+- **Suggested direction:** Make numeric coercion reject non-finite and unrepresentable values as malformed turns, add regression rows for `NaN`, infinities, and an oversized integer, and verify each raises `DiarizerError` naming the endpoint and offending turn.
