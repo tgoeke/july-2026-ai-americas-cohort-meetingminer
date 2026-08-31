@@ -200,3 +200,43 @@ The review will also account for the required rebase onto `origin/main` before c
 - **Finding:** `_complete_upload_record()` removes the session before writing the terminal record. If that write fails, the runner's `finally` only retries deletion; the previous `running` record remains with a dead PID even when mint and intake succeeded.
 - **Evidence:** `main()` catches the resulting acquisition error and exits, but there is no second durable status path after the session is already gone. The status surface therefore reports stale progress rather than terminal degradation.
 - **Suggested direction:** Make terminal publication recoverable without exposing a reusable session—preserve enough state for a retry/compensating failed write—and add an injected write-failure regression that cannot leave a live-looking record.
+
+### F-24 — Identity parity is not pinned for multi-file and non-Zoom acquisition paths
+
+- **Location:** `server/tests/test_api_uploads.py:1338-1448`
+- **Severity:** Medium
+- **Finding:** Exact hand-mint/upload equality is asserted only for Zoom VTT. Plain VTT, Teams VTT, TXT, and recording assert upload-side timestamp fields without comparing the winning drop, and no runner test supplies multiple evidence files.
+- **Evidence:** Hard-coding Zoom conversion for every VTT or returning only the first staged path would leave the current identity matrix green while changing source identity or silently dropping secondary evidence.
+- **Suggested direction:** Compare upload and hand mint for every supported primary/dialect shape and at least one recording-plus-transcript combination, asserting `sourceId`, `startedAt`, precision, `exists`, and the complete evidence set.
+
+### F-25 — Launch-to-child argument composition is still mocked away
+
+- **Location:** `server/tests/test_api_uploads.py:946-1038`
+- **Severity:** Medium
+- **Finding:** `child_command()` and CLI dispatch are tested independently, but successful API launch replaces `child_command()` wholesale. No assertion proves `launch_upload()` supplies the claimed session id and resolved upload root to the real command builder.
+- **Evidence:** Passing the acquisition id as `upload_session_id`, or the acquisition-state root as `sessions_root`, would leave both isolated tests green.
+- **Suggested direction:** Exercise a real launch while replacing only `Popen`, capture its argv, and assert both ownership arguments.
+
+### F-26 — The ownership protocol is verified only sequentially
+
+- **Location:** `server/tests/test_api_uploads.py:1117-1164`
+- **Severity:** High
+- **Finding:** Launch, DELETE, sweep, and terminal cleanup rely on one lock, but tests perform every competing action only after launch completes. They cannot detect a removed or misplaced critical section.
+- **Evidence:** Removing the sweep's lock leaves the current protected-session test green because its snapshot is already live; a real interleaving can take the snapshot before launch and delete after the claim.
+- **Suggested direction:** Use barriers to interleave launch with DELETE/sweep and terminal cleanup with a second launch, then assert no claimed bytes disappear and no consumed session launches twice.
+
+### F-27 — Slow-upload TTL behavior is unobserved
+
+- **Location:** `server/tests/test_api_uploads.py:880-918`
+- **Severity:** Medium
+- **Finding:** No test proves TTL starts after body completion or that active child-file writes keep an incomplete staging directory alive. The existing incomplete-session test uses an empty directory and only proves eventual deletion.
+- **Evidence:** Capturing `now` before streaming or reducing activity age to directory mtime would leave the suite green and can publish a nearly expired session or sweep a request still writing.
+- **Suggested direction:** Drive `create_session()` with a controlled async body/clock and test an old directory containing a freshly modified in-progress file.
+
+### F-28 — Rebase documentation still assigns this story other lanes' backlog IDs
+
+- **Location:** `_bmad-output/implementation-artifacts/spec-6-4a-upload-sessions.md:224,297-300` and this report's F-15
+- **Severity:** Low
+- **Finding:** After the required rebase, the backlog correctly assigns Story 6.4a B-57/B-58, but the spec still claims B-55/B-56 and warns that B-56 remains unresolved. The report's original suggested direction is likewise stale.
+- **Evidence:** Current main owns B-55/B-56 for Story 12.1; `docs/backlog.md` contains the upload entries at B-57/B-58 with no duplicate headings.
+- **Suggested direction:** Update only Story 6.4a's spec/report references to B-57/B-58 and record that the integration collision is resolved.
