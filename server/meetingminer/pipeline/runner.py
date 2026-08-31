@@ -475,6 +475,59 @@ def _maybe_project(
     )
 
 
+def _maybe_project_documents(
+    conn: Connection,
+    config: AppConfig,
+    meeting_id: UUID,
+    statuses: dict[str, str],
+    log: logs.BoundLogger,
+    attempted: set[UUID],
+) -> None:
+    """Index this meeting's extraction documents once `extract` has settled.
+
+    **A second settle point, because the documents have a second trigger.**
+    :func:`_maybe_project` fires at evidence-complete and writes the whole
+    bundle; `extract` runs *after* that and is not an evidence stage, so its
+    `extraction_source` rows do not exist yet when the bundle is projected.
+    Story 12.4 requires a document to be indexed as soon as it is stored, so
+    this fires where the rows actually appear: when `extract` has settled.
+
+    Ungated on purpose (AD-4's one deliberate exception): every extraction
+    document is indexed approved or not, because the run whose text somebody
+    needs to read is exactly the run that yielded nothing worth approving. It
+    is still not a citation target — the records carry no moment id — so this
+    widens *reach* and nothing else.
+
+    Same three properties as :func:`_maybe_project`, for the same reasons: a
+    failure never fails the job (the rows are durable and `rebuild` re-indexes
+    them), one attempt per meeting per pass, and it is called from inside the
+    stage loop rather than after it, because a job that pauses at an
+    unimplemented stage never reaches the code below the loop.
+    """
+    if statuses.get("extract") not in _SETTLED_STAGE_STATUSES:
+        return
+    if meeting_id in attempted:
+        return
+    attempted.add(meeting_id)
+    try:
+        written = projections.project_extraction_documents(
+            conn, config, meeting_id, log=log
+        )
+    except Exception as exc:  # noqa: BLE001 - never fail an ingest over a store
+        try:
+            conn.rollback()
+        except Exception:  # noqa: BLE001 - a broken connection must not escape
+            pass
+        log.error(
+            "projection.documents_failed",
+            meeting_id=meeting_id,
+            error=f"{type(exc).__name__}: {exc}",
+            recovery="run 'rebuild --meeting <id>' once the store is back",
+        )
+        return
+    log("projection.documents_done", meeting_id=meeting_id, documents=written)
+
+
 def run_job(
     conn: Connection,
     job: ClaimedJob,
@@ -542,6 +595,10 @@ def run_job(
     # Meetings this pass already offered to the projection module (see
     # `_maybe_project`). Per-pass, not per-process: a later claim retries.
     projection_attempted: set[UUID] = set()
+    # A second per-pass set: the document projection has its own trigger
+    # (`extract` settling) and its own failure, so one meeting may legitimately
+    # be attempted once for each.
+    document_projection_attempted: set[UUID] = set()
     for name in STAGE_NAMES:
         stage_log = log.bind(stage=name)
         if statuses.get(name) in _SETTLED_STAGE_STATUSES:
@@ -550,6 +607,10 @@ def run_job(
             # claim: nothing settles in this pass, so without a check here the
             # projection would never fire for it.
             _maybe_project(conn, config, meeting_id, statuses, stage_log, projection_attempted)
+            _maybe_project_documents(
+                conn, config, meeting_id, statuses, stage_log,
+                document_projection_attempted,
+            )
             continue
 
         if not drop.has_recording and name in VIDEO_ONLY_STAGES:
@@ -620,6 +681,13 @@ def run_job(
         # The settle point that actually fires for a normal run: `moments`
         # finishing is what completes the evidence bundle.
         _maybe_project(conn, config, meeting_id, statuses, stage_log, projection_attempted)
+        # And the one that fires for `extract`: its `extraction_source` rows
+        # do not exist until it settles, so this is where a stored document
+        # becomes searchable (story 12.4).
+        _maybe_project_documents(
+            conn, config, meeting_id, statuses, stage_log,
+            document_projection_attempted,
+        )
 
     # Reached only once every stage in STAGE_NAMES is built; today every job
     # pauses at `extract`, whichever kind of drop it carries.

@@ -27,6 +27,7 @@ from meilisearch.errors import (
 from psycopg import Connection
 
 from meetingminer.config import AppConfig, SearchIndexConfig
+from meetingminer.projections.documents import DOCUMENTS_INDEX
 from meetingminer.projections.publish_gate import ARTIFACTS_INDEX
 
 # --- index and label vocabulary ------------------------------------------
@@ -38,11 +39,16 @@ from meetingminer.projections.publish_gate import ARTIFACTS_INDEX
 MOMENTS_INDEX = "moments"
 CHUNKS_INDEX = "chunks"
 # The two *vectored* indexes. `ARTIFACTS_INDEX` (publish_gate.py, story 4.4)
-# is deliberately not in this tuple: it is keyword-only — no embedder is ever
-# declared on it — so the embedder-dimension asserts and the embed-only
-# rebuild pass must not touch it. Schema creation and `drop_all` name it
-# explicitly instead.
+# and `DOCUMENTS_INDEX` (documents.py, story 12.4) are deliberately not in
+# this tuple: both are keyword-only — no embedder is ever declared on either —
+# so the embedder-dimension asserts and the embed-only rebuild pass must not
+# touch them. Schema creation and `drop_all` name them explicitly instead.
 SEARCH_INDEXES = (MOMENTS_INDEX, CHUNKS_INDEX)
+
+# Every index this module creates, in the order schema is declared. Named once
+# so `drop_all` and the rebuild equivalence check cannot drift from it — a new
+# index missing from the drop is a stale document surviving a full rebuild.
+ALL_SEARCH_INDEXES = (*SEARCH_INDEXES, ARTIFACTS_INDEX, DOCUMENTS_INDEX)
 
 # The one embedder Meilisearch knows about, and it is `userProvided`: the
 # module computes every vector itself through the `Embedder` port, so no
@@ -465,12 +471,44 @@ def ensure_artifact_search_schema(
         await_task(client, artifacts_index.reset_embedders())
 
 
+def ensure_document_search_schema(
+    client: meilisearch.Client, config: AppConfig
+) -> None:
+    """Create/configure only the keyword-only extraction-documents index.
+
+    The same shape as :func:`ensure_artifact_search_schema` and for the same
+    reason: no vector-width check, no embedder, and a stale embedder on an
+    existing index is actively removed rather than merely omitted from the new
+    settings. Keyword-only is deliberate — a document is never cited and never
+    ranked against a moment, so paying an embedder pass for it would make an
+    Ollama outage able to withhold the very documents this index exists to keep
+    reachable (AD-4's exception; `retrieval-prior-art.md` 3 rule 4).
+    """
+    search = config.settings.projections.search
+    synonyms = {key: list(values) for key, values in search.synonyms.items()}
+    # Inspected before any task is submitted, like the artifacts index: a
+    # transport failure here is not evidence that no embedder exists.
+    existing_embedders = declared_embedders(client, DOCUMENTS_INDEX)
+    await_task(
+        client,
+        client.create_index(DOCUMENTS_INDEX, {"primaryKey": "id"}),
+        tolerate=("index_already_exists",),
+    )
+    documents_index = client.index(DOCUMENTS_INDEX)
+    document_settings = _index_settings(search.documents)
+    document_settings["synonyms"] = synonyms
+    await_task(client, documents_index.update_settings(document_settings))
+    if existing_embedders:
+        await_task(client, documents_index.reset_embedders())
+
+
 def ensure_search_schema(
     client: meilisearch.Client, config: AppConfig, *, dimension: int
 ) -> None:
     """Declare all search schemas for structural/full projection."""
     ensure_vector_search_schema(client, config, dimension=dimension)
     ensure_artifact_search_schema(client, config)
+    ensure_document_search_schema(client, config)
 
 
 def drop_all(driver: neo4j.Driver, client: meilisearch.Client) -> None:
@@ -490,7 +528,7 @@ def drop_all(driver: neo4j.Driver, client: meilisearch.Client) -> None:
             ).consume()
             if summary.counters.nodes_deleted == 0:
                 break
-    for index_uid in (*SEARCH_INDEXES, ARTIFACTS_INDEX):
+    for index_uid in ALL_SEARCH_INDEXES:
         # Absent is the state the drop wanted.
         await_task(
             client, client.delete_index(index_uid), tolerate=("index_not_found",)

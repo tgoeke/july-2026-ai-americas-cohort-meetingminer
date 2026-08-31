@@ -700,7 +700,14 @@ class SearchConfig(_StrictModel):
     # never declares an embedder on it, so unlike the two above its settings
     # carry no vector implications and an embedder swap never invalidates it.
     artifacts: SearchIndexConfig
-    # Domain synonyms, applied to both indexes. Meilisearch treats each entry
+    # The extraction-documents index (story 12.4). Keyword-only for the same
+    # reason `artifacts` is, and ungated for a reason nothing else here is:
+    # every extraction document is indexed as soon as it is stored, approved or
+    # not — AD-4's one deliberate exception to the publish gate. Its records
+    # carry their unreviewed, machine-written status and no citation field
+    # (`projections/documents.py`).
+    documents: SearchIndexConfig
+    # Domain synonyms, applied to every index. Meilisearch treats each entry
     # one-way, so a symmetric pair needs both directions written out.
     synonyms: dict[NonEmptyText, list[NonEmptyText]] = Field(default_factory=dict)
 
@@ -734,6 +741,56 @@ class SearchConfig(_StrictModel):
             raise ValueError(
                 "projections.search.artifacts.filterable_attributes must include"
                 " 'state' — every artifact query filters to published state"
+            )
+        document_missing_search = [
+            attribute
+            for attribute in ("title", "text")
+            if attribute not in self.documents.searchable_attributes
+        ]
+        if document_missing_search:
+            raise ValueError(
+                "projections.search.documents.searchable_attributes must include "
+                + ", ".join(repr(attribute) for attribute in document_missing_search)
+                + " — extraction-document search matches and highlights the"
+                " meeting title and the document body"
+            )
+        # `reviewState` is filterable because AD-18's requirement is that a
+        # document's unreviewed status is a property of the record, not of the
+        # renderer: a caller that wants only unreviewed material — or wants to
+        # prove the index holds nothing else — must be able to say so in a
+        # filter rather than by inspecting every hit.
+        document_missing_filters = [
+            attribute
+            for attribute in ("kind", "reviewState")
+            if attribute not in self.documents.filterable_attributes
+        ]
+        if document_missing_filters:
+            raise ValueError(
+                "projections.search.documents.filterable_attributes must include "
+                + ", ".join(repr(attribute) for attribute in document_missing_filters)
+                + " — the extraction-document lane scopes by kind and pins the"
+                " unreviewed review state in its own filter (AD-18)"
+            )
+        # The gate exception is to reach, never to legibility: an index that
+        # could rank a document but not surface a moment id is fine, one that
+        # could surface a moment id is not. Refused at load rather than at
+        # query time, because a filterable `momentId` here is a citation path
+        # opening up (AD-6).
+        forbidden = [
+            attribute
+            for attribute in (
+                *self.documents.filterable_attributes,
+                *self.documents.sortable_attributes,
+                *self.documents.searchable_attributes,
+            )
+            if attribute in ("momentId", "momentIds", "artifactId")
+        ]
+        if forbidden:
+            raise ValueError(
+                "projections.search.documents must not name "
+                + ", ".join(sorted(set(repr(a) for a in forbidden)))
+                + " — an extraction document is a claim about evidence and is"
+                " never a citation target (AD-6)"
             )
         return self
 
