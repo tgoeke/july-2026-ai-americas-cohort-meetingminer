@@ -170,6 +170,12 @@ describe('stepperSteps', () => {
     ])
   })
 
+  it('renders an unrecognised acquisition status loudly instead of as queued', () => {
+    const steps = stepperSteps('warming-cache', 'queued')
+    expect(statuses(steps)).toEqual(['done', 'unknown', 'queued', 'queued'])
+    expect(steps[1].label).toBe('running — unknown (warming-cache)')
+  })
+
   it('hands the fourth bar to the ingesting job once posted', () => {
     expect(statuses(stepperSteps('posted', 'running'))).toEqual([
       'done',

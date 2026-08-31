@@ -777,6 +777,24 @@ describe('Add-meeting, progress', () => {
       expect(screen.getByTestId('step-posted')).toHaveAttribute('data-status', 'done'),
     )
   })
+
+  it('keeps the form locked and names an unrecognised acquisition status', async () => {
+    await launch(acquisition({ status: 'warming-cache' }))
+
+    expect(screen.getByTestId('youtube-url')).toHaveAttribute('readonly')
+    expect(screen.getByTestId('step-running')).toHaveAttribute('data-status', 'unknown')
+    expect(screen.getByTestId('unknown-acquisition-status')).toHaveTextContent(
+      'The api reported an acquisition status this client does not recognize: warming-cache.',
+    )
+
+    queueStatuses(acquisition({ status: 'posted', result: 'created', jobId: JOB }))
+    await user.click(within(screen.getByTestId('unknown-acquisition-status')).getByRole('button', {
+      name: 'Retry',
+    }))
+    await waitFor(() =>
+      expect(screen.getByTestId('step-posted')).toHaveAttribute('data-status', 'done'),
+    )
+  })
 })
 
 describe('Add-meeting, the source tabs', () => {
