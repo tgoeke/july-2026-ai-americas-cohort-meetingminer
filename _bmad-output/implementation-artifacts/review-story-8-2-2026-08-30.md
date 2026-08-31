@@ -77,3 +77,11 @@ Adversarial review of Story 8.2 implementation and its stated footprint against 
 - **Finding** — the request-only `SelectedBinding` type caps a model tag at 200 characters, while `config.CatalogEntry.binding` uses `NonEmptyText` with no maximum. The API can therefore serve a valid catalog entry from `GET /settings/models` and then reject that exact entry as an invalid request before the shared catalog membership rule runs, violating the promise that any catalog binding can be persisted.
 - **Evidence** — `server/meetingminer/config.py:169` defines `NonEmptyText` with only stripping and `min_length=1`; `CatalogEntry.binding` uses it at line 238. The PUT body independently adds `max_length=200`, and existing tests cover blank and out-of-catalog values but no catalog entry beyond that boundary.
 - **Suggested direction** — make the writable value domain identical to the catalog value domain (preferably by removing the independent request cap and letting catalog membership bound accepted values), then add a route-level regression using a valid catalog entry longer than 200 characters.
+
+### Finding 9 — the settings wire uses `fileModel` instead of the frozen `fileBinding`
+
+- **Location** — `server/meetingminer/api/settings.py:71`
+- **Severity** — medium
+- **Finding** — the frozen I/O matrix requires each settings role to expose `fileBinding`, but `RoleSelectionView` defines `file_model`, serialized as `fileModel`. The eval adapter and generated client have adopted the same non-contract name, so the implementation is internally consistent but externally inconsistent with the preservation-locked wire.
+- **Evidence** — `_bmad-output/implementation-artifacts/spec-8-2-persisted-selection.md:119` names `fileBinding`. `app.openapi()` and `web/src/client/types.gen.ts` expose `fileModel`; `evals/harness/run.py:280` reads `row.get("fileModel")`; the API and eval tests assert that spelling rather than the frozen one.
+- **Suggested direction** — rename the response field to `fileBinding`, update the eval snapshot adapter and fixtures to consume it, add a negative/positive wire assertion, and regenerate the client.
