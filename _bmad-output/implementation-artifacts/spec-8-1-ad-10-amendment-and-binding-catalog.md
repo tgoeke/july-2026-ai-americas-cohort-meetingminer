@@ -366,8 +366,9 @@ Declaration only — `model` remains what `build_llm`,
   `catalog`/`default` fields and their two validators on `LlmRoleBinding`, and
   the catalog×providers cross-check on `Settings` (placed with the `providers`
   field, not the class tail, which story 6-2 appends to).
-- `server/tests/test_config_catalog.py` — NEW; 12 tests, one per I/O-matrix row
-  plus the committed-file check and the back-compat regression.
+- `server/tests/test_config_catalog.py` — NEW; 13 tests covering every
+  I/O-matrix row, the committed file, and the back-compat and active-model
+  review regressions.
 - `server/tests/test_failfast.py` — fixture only; drops the authored catalogs
   along with the provider it removes. Outside the build prompt's footprint,
   recorded in the Spec Change Log.

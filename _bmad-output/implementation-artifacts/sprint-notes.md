@@ -3261,10 +3261,10 @@ the two local Ollama bindings it already names; chat and judge: `openai/gpt-5.2`
 beside the free local `ollama/gpt-oss:120b`), with each `default` equal to the
 `model` that role already used, so which model runs is unchanged.
 
-Coverage is a new module, `server/tests/test_config_catalog.py` — ten tests,
-one per row of the spec's I/O matrix plus the committed-file check; each was
-observed failing against the unfixed loader first. `test_config.py` was not
-touched (11-2 appends there).
+Coverage is a new module, `server/tests/test_config_catalog.py` — 13 tests
+covering the spec's I/O matrix, the committed file, and review regressions;
+each behavior-changing test was observed failing against the unfixed loader
+first. `test_config.py` was not touched (11-2 appends there).
 
 **Gap closed by the follow-up review after Story 10.1 landed.** At build time,
 the stale invalidated-Anthropic-key and superseded-`claude-sonnet-5` claims were
