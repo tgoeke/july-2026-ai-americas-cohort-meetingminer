@@ -9,7 +9,7 @@
 
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router'
+import { Link, MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ThreadTrace from './ThreadTrace'
@@ -187,6 +187,7 @@ afterEach(() => {
 function mount(at = '/threads') {
   return render(
     <MemoryRouter initialEntries={[at]}>
+      <Link to="/threads">Threads root</Link>
       <Routes>
         <Route path="/threads" element={<ThreadTrace />} />
         <Route path="/threads/:threadId" element={<ThreadTrace />} />
@@ -300,6 +301,18 @@ describe('the two ways in', () => {
     expect(await screen.findByText(/12 of 31 moments/)).toBeInTheDocument()
     // Deep links name a known thread, so they never take the sampling leg.
     expect(String(vi.mocked(fetch).mock.calls[1]?.[0])).toContain('threadId=thread-trail')
+  })
+
+  it('returns to the empty front door from a deep-linked subject', async () => {
+    const user = userEvent.setup()
+    mount('/threads/thread-trail')
+    expect(await screen.findByText(/12 of 31 moments/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('link', { name: 'Threads root' }))
+
+    expect(await screen.findByText('Trace one subject across your meetings')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: /^Timeline for/ })).toBeNull()
+    expect(screen.getByLabelText('Subject to trace')).toHaveValue('')
   })
 })
 

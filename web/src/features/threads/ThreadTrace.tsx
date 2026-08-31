@@ -74,8 +74,20 @@ export default function ThreadTrace() {
   }, [])
 
   // A deep link to a known subject traces it; `/threads` alone stays empty.
+  // React Router may reuse this component across the two sibling routes, so
+  // absence is an explicit state transition rather than something mount-time
+  // initialization can own. Advancing the generation also prevents a deep-link
+  // response that lost the race with navigation from repainting the bare route.
   useEffect(() => {
-    if (threadId !== undefined) void load({ threadId })
+    if (threadId !== undefined) {
+      void load({ threadId })
+      return
+    }
+    generation.current += 1
+    setTyped('')
+    setTrace(null)
+    setFailure(null)
+    setBusy(false)
   }, [threadId, load])
 
   const openMeeting = useCallback(
