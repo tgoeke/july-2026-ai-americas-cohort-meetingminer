@@ -24,12 +24,12 @@ describe('F3 owner ruling: one-response corpus count', () => {
     expect(() => parseFeedResponse(envelope(overrides))).toThrow(message)
   })
 
-  it('rejects unequal totals only when the request has no active filter', async () => {
+  it('rejects unequal totals when no item filter narrows the selected corpus', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(JSON.stringify(
       envelope({ total: 6, corpusTotal: 24 }),
     )))))
     await expect(fetchMomentsFeed(NO_FILTERS, 24, 0)).rejects.toThrow(
-      'unfiltered feed response: total must equal corpusTotal',
+      'corpus-scoped feed response: total must equal corpusTotal',
     )
     await expect(fetchMomentsFeed({ ...NO_FILTERS, kind: 'decision' }, 24, 0)).resolves.toMatchObject({
       total: 6,

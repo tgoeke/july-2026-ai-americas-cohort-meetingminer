@@ -71,10 +71,18 @@ export const FEED_PAGE_SIZE = 24
  * `MOMENT_TIMEOUT_MS` on the moment view. */
 export const FEED_TIMEOUT_MS = 8000
 
+type FeedQuery = NonNullable<GetMomentsFeedData['query']>
+export type FeedCorpus = Exclude<FeedQuery['corpus'], null | undefined>
+
+/** Narrow an untrusted URL value to the generated corpus vocabulary. */
+export function feedCorpusFromParam(value: string | null): FeedCorpus | null {
+  return value === 'real' || value === 'scripted' ? value : null
+}
+
 /** The three filters the feed is narrowed by, plus the hidden meeting filter
  * set when arriving from a meeting. `null` is "any". */
 export interface FeedFilters {
-  corpus: string | null
+  corpus: FeedCorpus | null
   thread: string | null
   kind: string | null
   meeting: string | null
@@ -91,26 +99,6 @@ export function hasActiveFilters(filters: FeedFilters): boolean {
     filters.kind !== null ||
     filters.meeting !== null
   )
-}
-
-/**
- * The query string for one page. Filters are URL query params on this screen
- * so a filtered view is a link (EXPERIENCE.md · Filters row); they are passed
- * through to the api under the same names story 10.4 accepts.
- */
-export function feedSearchParams(
-  filters: FeedFilters,
-  limit: number,
-  offset: number,
-): URLSearchParams {
-  const params = new URLSearchParams()
-  if (filters.corpus !== null) params.set('corpus', filters.corpus)
-  if (filters.thread !== null) params.set('thread', filters.thread)
-  if (filters.kind !== null) params.set('kind', filters.kind)
-  if (filters.meeting !== null) params.set('meeting', filters.meeting)
-  params.set('limit', String(limit))
-  params.set('offset', String(offset))
-  return params
 }
 
 /**
@@ -292,15 +280,17 @@ export async function fetchMomentsFeed(
   offset: number,
   signal?: AbortSignal,
 ): Promise<MomentFeedResponse> {
-  type FeedQuery = NonNullable<GetMomentsFeedData['query']>
   const query: FeedQuery = { limit, offset }
-  if (filters.corpus !== null) query.corpus = filters.corpus as FeedQuery['corpus']
+  if (filters.corpus !== null) query.corpus = filters.corpus
   if (filters.thread !== null) query.thread = filters.thread
   if (filters.kind !== null) query.kind = filters.kind
   if (filters.meeting !== null) query.meeting = filters.meeting
 
   const result = await getMomentsFeed({ query, signal, parseAs: 'json' })
   if (result.error !== undefined) {
+    if (result.response?.ok) {
+      throw new FeedContractError('the feed response must be valid JSON')
+    }
     if (result.response === undefined) {
       if (result.error instanceof Error) throw result.error
       throw new Error(String(result.error))
@@ -314,9 +304,14 @@ export async function fetchMomentsFeed(
   if (page.limit !== limit || page.offset !== offset) {
     throw new FeedContractError('the feed response page does not match the request')
   }
-  if (!hasActiveFilters(filters) && page.total !== page.corpusTotal) {
+  if (
+    filters.thread === null &&
+    filters.kind === null &&
+    filters.meeting === null &&
+    page.total !== page.corpusTotal
+  ) {
     throw new FeedContractError(
-      'the unfiltered feed response: total must equal corpusTotal',
+      'the corpus-scoped feed response: total must equal corpusTotal',
     )
   }
   return page

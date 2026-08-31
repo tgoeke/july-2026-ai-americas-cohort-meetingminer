@@ -3,7 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 
-vi.mock('@/client/sdk.gen', () => ({
+vi.mock('@/client/sdk.gen', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/client/sdk.gen')>()),
   getHealth: vi.fn(() => Promise.reject(new Error('offline'))),
   listMeetings: vi.fn(() => Promise.resolve({ data: { meetings: [] }, error: undefined })),
   streamJobEvents: vi.fn(() => Promise.reject(new Error('offline'))),
