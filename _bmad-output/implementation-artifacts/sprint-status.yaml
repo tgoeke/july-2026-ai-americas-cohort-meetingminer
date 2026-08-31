@@ -112,14 +112,14 @@ development_status:
   7-1-diarizer-engine-behind-the-port: done
   7-2-speaker-tags-on-the-wire: done
   7-3-speaker-assignment: done
-  7-4-speaker-naming-ui: review
+  7-4-speaker-naming-ui: done
   epic-7-retrospective: optional
 
   epic-8: in-progress
   8-1-ad-10-amendment-and-binding-catalog: done
   8-2-persisted-selection: done
   8-2a-provider-health-on-the-status-surface: backlog
-  8-3-model-picker-ui: review
+  8-3-model-picker-ui: done
   epic-8-retrospective: optional
 
   epic-9: backlog

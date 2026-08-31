@@ -593,7 +593,9 @@ another lock anyway; the key is what makes the test's own assertions exact.
 
 ---
 
-### B-39 · A source-attributed speaker label cannot be pushed back to unresolved — S
+### B-47 · A source-attributed speaker label cannot be pushed back to unresolved — S
+
+*Renumbered from B-39 on 2026-08-31: four parallel lanes filed against a stale counter on the same day, so B-39 was claimed twice. Review reports and commit messages from that day cite the old id.*
 
 Story 7.3's `PUT /meetings/{id}/speakers/{tag}` records `unresolved` by
 *deleting* the `speaker:<meetingId>:<tag>` alias row, because
@@ -616,7 +618,9 @@ attribution and remove one it added, not overrule the source.
 
 ---
 
-### B-40 · A curator's typed speaker name splits one person across meetings — S
+### B-48 · A curator's typed speaker name splits one person across meetings — S
+
+*Renumbered from B-40 on 2026-08-31: four parallel lanes filed against a stale counter on the same day, so B-40 was claimed twice. Review reports and commit messages from that day cite the old id.*
 
 Story 7.3 mints a `participant` row for a display name typed into the speakers
 screen, keyed `curated:<meetingId>:<tag>`. The key is per-meeting, so the same
@@ -639,7 +643,11 @@ holding when this was found.
 
 ---
 
-### B-41 · A cold load into an unsettled meeting cannot list its speaker tags — M
+### B-49 · A cold load into an unsettled meeting cannot list its speaker tags — M
+
+**Closed 2026-08-31 by `2a86e69` (story 7.4 review, finding F1), under the owner ruling recorded below.** `GET /meetings/{id}/speakers` now serves an unsettled meeting whose job is not `running`, paired with the PUT that already did. The exception stayed route-local: `_require_viewable` is unchanged and every sibling read, drilldown included, still calls it.
+
+*Renumbered from B-41 on 2026-08-31: four parallel lanes filed against a stale counter on the same day, so B-41 was claimed twice. Review reports and commit messages from that day cite the old id.*
 
 Story 7.3's `PUT /meetings/{id}/speakers/{tag}` is deliberately admitted while
 a meeting's evidence is unsettled, so a curator can correct the naming that
@@ -676,7 +684,9 @@ second half of the same recovery path.
 
 ---
 
-### B-42 · The speakers wire carries no provenance for a resolution — S
+### B-50 · The speakers wire carries no provenance for a resolution — S
+
+*Renumbered from B-42 on 2026-08-31: four parallel lanes filed against a stale counter on the same day, so B-42 was claimed twice. Review reports and commit messages from that day cite the old id.*
 
 `GET /meetings/{id}/speakers` returns `speakerResolution` and, when resolved,
 a `participantId` and `displayName`. It carries nothing saying *who* resolved

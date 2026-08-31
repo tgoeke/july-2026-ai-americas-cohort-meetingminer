@@ -3879,3 +3879,61 @@ file default is never dressed up as a deliberate pick.
 `make test-fast` had one failure and it was not this story's: a frame-image
 test blew the 2.00s fast-set budget at 2.15s under six concurrent worktree
 builds, and runs in 0.01s alone.
+
+## Integrate pass, 2026-08-31 — 7.4 and 8.3 landed
+
+Both landed from their **review** branches, which carry the builder commits plus
+the review lane's red-first remediation. Both reviews returned "changes
+requested"; in both cases every patchable finding was already fixed on the
+review branch and what remained were owner decisions, so the branch that landed
+is the remediated one, not the raw story branch.
+
+| story | landed | gate at integrate |
+|---|---|---|
+| 7.4 Speaker Naming UI | `b1d4d36` | `make test-fast` 2178 passed, 3 named skips |
+| 8.3 Model Picker UI | `fe251a1` | `make test-fast` 2178 passed, 3 named skips |
+
+**Deliberately not landed in this pass:** 10-3 and 10-6. 10-3's review verdict is
+"the story does not pass review as it stands" — F2 and F3 are open and rooted in
+a frozen contract that contradicts itself (see below). 10-6 depends on 10-3's
+endpoints and its own F1 was "timeline parser rejects Story 10.3's actual
+response shapes", so landing 10-6 without 10-3 would ship a screen calling
+routes that do not exist. They land together, after the F2 ruling. 10-4 and 10-5
+were still under review when this pass ran.
+
+**A flake was found at integrate that no lane could have found.**
+`SpeakerNaming.test.tsx > moves selection when the settled reread no longer
+contains the active tag` awaited `listMeetingSpeakers` having been *called*
+twice and then asserted the DOM immediately. A call landing is not a re-render
+landing. It failed about one run in three with two review lanes and the corpus
+ingest competing for the machine, and passed alone — which is why the lane's own
+three-run flake check cleared it. Fixed by moving the assertion inside
+`waitFor` (`826c3f4`); six consecutive full web runs green after, against a
+reproducible failure before. **The lesson is about the check, not the test:**
+a three-run flake check on an idle machine does not exercise the contention that
+makes these races visible.
+
+**Post-merge operations.** No migration was owed — neither story touches
+`server/meetingminer/migrations/`. `make client` *was* owed and has run: story
+7.4's B-49 fix changed two response descriptions on the speakers routes, and
+descriptions are part of the schema. The api was restarted onto merged main to
+regenerate from a live schema (`stop-api`/`start-api` only — the worker was
+never touched, because the corpus ingest was running throughout). Regenerated
+client committed at the same time.
+
+**Backlog ids were reconciled here.** Four ids had been claimed twice on
+2026-08-31 by lanes filing against a stale counter: B-39, B-40, B-41 and B-42.
+The earlier-landed group keeps its numbers; story 7.4's four entries were
+renumbered to **B-47, B-48, B-49 and B-50**, each carrying a note naming its
+original id, because review reports and commit messages from that day cite the
+old ones. Ids 44, 45 and 46 were left free — 10-6 and 10-4 have already claimed
+them on their unlanded branches. **B-49** (formerly B-41) is closed by
+`2a86e69` under the owner ruling: the speakers read now serves an unsettled
+meeting whose job is not running, route-local, with `_require_viewable`
+unchanged for every sibling read.
+
+**Open owner decisions carried by the two landed stories**, neither of which
+blocks anything already merged: 7.4 F2 (`job.done` cannot prove extraction
+landed) and F11 (the all-rows-tabbable deviation is not a roving group); 8.3 F12
+(the frozen contract and the adopted experience spine require incompatible DOM
+placement).
