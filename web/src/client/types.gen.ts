@@ -917,6 +917,22 @@ export type MeetingSeriesAssignment = {
 };
 
 /**
+ * MeetingSpeakersResponse
+ *
+ * Every speaker tag of one meeting, talk time descending.
+ */
+export type MeetingSpeakersResponse = {
+    /**
+     * Meetingid
+     */
+    meetingId: string;
+    /**
+     * Speakers
+     */
+    speakers: Array<SpeakerTag>;
+};
+
+/**
  * MeetingsResponse
  */
 export type MeetingsResponse = {
@@ -1755,6 +1771,54 @@ export type SnippetRunModel = {
 };
 
 /**
+ * SpeakerTag
+ *
+ * One voice in one meeting, as the transcript labelled it.
+ *
+ * ``speakerLabel`` is ``transcript_segment.speaker_label`` verbatim — the
+ * diarizer's ``SPEAKER_00``, or the source's ``Goeke, Timothy`` — never a
+ * normalized or prettified form, and never replaced by the participant's
+ * display name: the label is what the reader has to recognize in the
+ * transcript beside it.
+ *
+ * ``participantId``/``displayName`` are populated exactly when
+ * ``transcript_segment.participant_id`` is, which migration 0005 constrains
+ * to ``speakerResolution == 'resolved'``. A ``placeholder``, ``unresolved``
+ * or ``ambiguous`` tag is listed with both null: an absent attribution, not
+ * a guessed one (AD-13).
+ */
+export type SpeakerTag = {
+    /**
+     * Speakerlabel
+     */
+    speakerLabel: string;
+    /**
+     * Speakerresolution
+     */
+    speakerResolution: string;
+    /**
+     * Participantid
+     */
+    participantId?: string | null;
+    /**
+     * Displayname
+     */
+    displayName?: string | null;
+    /**
+     * Talktimems
+     */
+    talkTimeMs: number;
+    /**
+     * Segmentcount
+     */
+    segmentCount: number;
+    /**
+     * Sampleoffsetsms
+     */
+    sampleOffsetsMs: Array<number>;
+};
+
+/**
  * StatusResponse
  */
 export type StatusResponse = {
@@ -2424,6 +2488,44 @@ export type MergeParticipantsResponses = {
 };
 
 export type MergeParticipantsResponse = MergeParticipantsResponses[keyof MergeParticipantsResponses];
+
+export type ListMeetingSpeakersData = {
+    body?: never;
+    path: {
+        /**
+         * Meeting Id
+         */
+        meeting_id: string;
+    };
+    query?: never;
+    url: '/meetings/{meeting_id}/speakers';
+};
+
+export type ListMeetingSpeakersErrors = {
+    /**
+     * `not-found` — no such meeting; it was never ingested.
+     */
+    404: unknown;
+    /**
+     * `meeting-not-viewable` — the meeting exists but an evidence stage has not settled; first ingest or augmentation is in flight. Transient: retry once ingestion settles. Carries the same extensions as the sibling meeting reads: `meetingId`, `augmenting` (bool) and `jobStatus` (str).
+     */
+    409: unknown;
+    /**
+     * `invalid-request` — the route parameter is not a UUID.
+     */
+    422: ProblemDetails;
+};
+
+export type ListMeetingSpeakersError = ListMeetingSpeakersErrors[keyof ListMeetingSpeakersErrors];
+
+export type ListMeetingSpeakersResponses = {
+    /**
+     * Successful Response
+     */
+    200: MeetingSpeakersResponse;
+};
+
+export type ListMeetingSpeakersResponse = ListMeetingSpeakersResponses[keyof ListMeetingSpeakersResponses];
 
 export type GetCorpusStatsData = {
     body?: never;
