@@ -512,6 +512,15 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
           aria-label={`Rerun progress for ${rerun.speakerLabel}`}
           className="flex flex-col gap-2 rounded-md border border-border bg-card p-3"
         >
+          <p role="status" aria-atomic="true" className="sr-only">
+            {failed !== null
+              ? failedSentence(failed)
+              : rerun.landedAt !== null
+                ? landedSentence(rerun)
+                : `${rerun.speakerLabel} rerun — ${rerun.stages
+                    .map((stage) => `${stage.name} ${asStageStatus(stage.status)}`)
+                    .join(', ')}.`}
+          </p>
           <ol className="flex flex-wrap items-center gap-x-6 gap-y-2">
             {rerun.stages.map((stage) => {
               const status = asStageStatus(stage.status)
@@ -814,14 +823,14 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
               </div>
 
               <div className="flex flex-wrap items-center gap-2.5">
+                <Button variant="outline" disabled={saving} onClick={() => void save('unresolved')}>
+                  Unresolved — keep the tag
+                </Button>
                 <Button
                   disabled={choice === null || saving}
                   onClick={() => void save('choice')}
                 >
                   {saving ? 'Saving…' : 'Save'}
-                </Button>
-                <Button variant="outline" disabled={saving} onClick={() => void save('unresolved')}>
-                  Unresolved — keep the tag
                 </Button>
                 <p className="w-full text-[11px] text-muted-foreground">
                   {choice === null
