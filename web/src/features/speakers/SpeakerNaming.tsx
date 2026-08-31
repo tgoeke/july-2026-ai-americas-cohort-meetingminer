@@ -681,9 +681,11 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
                   className="w-full rounded-md border border-input bg-card px-2.5 py-2 text-sm"
                   onChange={(event) => {
                     setDraft(event.target.value)
-                    // Typing after picking drops the pick: the id and the
-                    // text on screen must never name two different people.
-                    setPicked(null)
+                    // Keep the pick as provenance while the field changes.
+                    // `choiceOf` applies its id only while trimmed text still
+                    // equals that row's name, so typing another name is safe,
+                    // while harmless whitespace or restoring the exact name
+                    // does not lose an identity the curator explicitly chose.
                     setHighlighted(-1)
                     setListOpen(true)
                     setSaveError(null)

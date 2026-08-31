@@ -49,7 +49,8 @@ Adversarial review of the Story 7.4 web implementation, with emphasis on unsettl
 
 - **Location:** `web/src/features/speakers/SpeakerNaming.tsx:675`; `web/src/features/speakers/speakers.ts:217`
 - **Severity:** Medium
-- **Status:** Confirmed — patch required
+- **Status:** Fixed on `story/7-4-review`
 - **Finding:** Every input change unconditionally clears `picked`, even though `choiceOf()` is designed to keep the participant choice while the trimmed field still equals that participant's display name. Adding whitespace, or editing and restoring the original text, therefore changes the body from `{participantId}` to `{displayName}`. With two participants sharing a display name, the field text cannot recover which person the curator selected.
 - **Evidence:** The suggestion click stores the exact `ParticipantRow`; the next `onChange` drops it before `choiceOf()` can apply its equality boundary. The API's exactly-one-field contract is still met, but the wrong assignment path is chosen and may mint or reuse a different participant.
 - **Suggested direction:** Retain the picked row as selection provenance while the field is edited and let `choiceOf()` decide whether the current text still represents it. Verify whitespace, edit-away-and-restore, and duplicate-display-name selections.
+- **Red/green evidence:** All three new boundary cases first sent `{displayName}`; after retaining selection provenance, whitespace, restored text, and a duplicate-name second-row pick all send the exact selected `participantId`. Four targeted assignment tests pass, including the existing type-over case.
