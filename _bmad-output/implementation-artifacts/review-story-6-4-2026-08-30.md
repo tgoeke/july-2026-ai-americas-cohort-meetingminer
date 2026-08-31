@@ -161,3 +161,21 @@ the review handoff. Frozen intent defects will be reported but not patched.
   video, duration cap, no video stream, and missing publication metadata at
   422. Encode the full reviewed partition in the F5 regression so future
   category changes cannot pass as key-complete edits.
+
+### F7 — The recorded focused verification count is not reproducible
+
+- **Location:** `_bmad-output/implementation-artifacts/review-prompt-story-6-4-2026-08-30.md:227-229`
+- **Severity:** Low
+- **Finding:** The handoff says the registry/YouTube/playlist command produced
+  201 passed and 1 skipped, but the exact command has only 168 collected tests
+  and produces 167 passed and 1 skipped. A precise baseline that cannot come
+  from its named command makes later count changes look like regressions.
+- **Evidence:** The command was rerun verbatim after the required rebase and
+  reported 167 passed / 1 known network skip; `--collect-only` reported 168.
+  None of the three named test files or `server/pyproject.toml` changed between
+  dispatched baseline `e5e0ff9` and current main. The only intervening
+  `conftest.py` edit adds Story 10.2 thread tables to database cleanup and does
+  not alter collection. The likely 201 figure was copied from a combined count,
+  not this command.
+- **Suggested direction:** Correct the handoff's recorded result to 167 passed,
+  1 skipped, leaving the known network-skip explanation unchanged.
