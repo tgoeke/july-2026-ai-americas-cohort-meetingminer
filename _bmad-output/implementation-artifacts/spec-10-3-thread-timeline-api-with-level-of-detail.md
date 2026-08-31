@@ -3,14 +3,15 @@ title: 'Story 10.3: Thread Timeline API with Level-of-Detail'
 type: 'feature'
 created: '2026-08-31'
 baseline_revision: '3211a7f96b86d7df496cefa451b2cbd431e6d8b4'
-status: 'draft'
+status: 'review'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/build-prompt-story-10-3-2026-08-31.md'
   - '{project-root}/_bmad-output/implementation-artifacts/wave-2026-08-30-rules.md'
   - '{project-root}/_bmad-output/implementation-artifacts/spec-10-2-threads-and-the-graph-projection.md'
-deferred: []
+deferred:
+  - 'AD-17 GET /media/files/{mediaId} — filed as B-42, api/media.py outside the footprint'
 ---
 
 <intent-contract>
@@ -178,3 +179,21 @@ tie-break chain and the band bucket ladder are pure functions in a new
 - 2026-08-31 — B-40's open question ("decide the corpus ownership model with
   Stories 10.3/10.6") is answered by this story: the sequence is per database
   of record. Recorded in `docs/backlog.md` as part of closing B-40.
+- 2026-08-31 — **One file edited outside the stated footprint:**
+  `server/tests/test_api_registry.py`, one line appended to
+  `BASELINE_ROUTER_ORDER`. That list is an exact-equality assertion over the
+  discovered routers, so adding *any* router module is an edit of it and the
+  branch cannot pass `make test-fast` without it. Narrowed rather than
+  widened: `threads.py` declares no `ROUTER_ORDER`, so it sorts last by name
+  and the addition lands at the end of the list, away from where story 10.4's
+  `moments_feed` will land among the default-order modules.
+- 2026-08-31 — **`MOMENT_LEVEL_LIMIT` and `truncated` are an addition beyond
+  the acceptance criteria**, made because an unbounded `moments` request over
+  a whole corpus span is the one way the fine levels could grow without
+  bound. Reported rather than silent, per the owner's standing rule against
+  silent fallbacks. Flagged for the reviewer to rule on.
+- 2026-08-31 — **A wrong allocator hung the concurrency test rather than
+  failing it.** `max(color_ordinal) + 1` makes the second concurrent insert
+  block on the unique index until the first transaction ends. The test now
+  sets `lock_timeout`, so a wrong allocator fails in seconds instead of
+  reading as a hung suite.

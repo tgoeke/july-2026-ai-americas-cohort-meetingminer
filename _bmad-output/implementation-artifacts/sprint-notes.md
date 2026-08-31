@@ -3937,3 +3937,71 @@ blocks anything already merged: 7.4 F2 (`job.done` cannot prove extraction
 landed) and F11 (the all-rows-tabbable deviation is not a roving group); 8.3 F12
 (the frozen contract and the adopted experience spine require incompatible DOM
 placement).
+## Story 10.3 — Thread Timeline API with Level-of-Detail — 2026-08-31
+
+Two read-only routes (`GET /threads`, `GET /threads/{threadId}/timeline`),
+migration 0017, and a pure `domain/thread_timeline.py`. Left in `review`.
+
+**The four risk clauses, and how each is proven.**
+
+- **Each level returns exactly its tier.** Four response models discriminated
+  on `level`, so a `bands` response has no `moments` key rather than an empty
+  one. Asserted by whole-key-set comparison per level, not by spot checks.
+- **`colorOrdinal`.** A Postgres sequence, because two concurrent derivations
+  reading `max(color_ordinal) + 1` get the same answer and the UNIQUE
+  constraint then turns a colour clash into a failed derivation. A trigger
+  refuses any `UPDATE` that changes the value, so "a merge survivor keeps its
+  ordinal" is a record guarantee rather than a caller convention; a split is a
+  new row and takes a new value. Tested with two open, uncommitted
+  transactions.
+- **`occurredAt`.** Derived server-side twice over — once in Python for the
+  fine levels, once as a SQL twin for the aggregates — and the two are pinned
+  against each other by test. Day precision anchors at `00:00:00Z + startMs`
+  and keeps `occurredAtPrecision: day`. Ties break by `meetingId`, then
+  `momentId`.
+- **Coarse levels are cheap.** `bands` and `meetings` aggregate over
+  `topic_thread → topic_mention → meeting` and never join `moment` —
+  `topic_mention` already carries `meeting_id` and `anchor_ms`. Proven
+  statically (no coarse statement names `moment` as a relation, with a
+  self-test that the pattern can fail and does not trip on `topic_mention`)
+  and live by `EXPLAIN`, with the fine level as a control so the assertion
+  cannot be vacuous. Band size is bounded by a bucket ladder, not by window
+  width.
+
+**A wrong allocator hung the suite rather than failing it.** Mutating the
+migration to `max(color_ordinal) + 1` made the second concurrent insert block
+on the unique index until the first transaction ended — an unbounded wait that
+reads as a hung run, not a caught defect. The concurrency test now sets
+`lock_timeout`, so the mutation fails it in seconds. Found by mutation
+testing, not by review.
+
+**Mutation sweep: 12 deliberate breakages, 12 caught.** Level leakage, a
+storage path served as a moment title, `max()+1` allocation, the immutability
+trigger removed, day anchoring dropped (SQL half and Python half separately),
+the tie-break reversed, `moment` joined into the coarse projection, the window
+predicate removed, unresolved speakers printed as names, an emptied identity
+row listed as navigable, and superseded moments interleaved with live ones.
+The eleventh needed a second attempt: the first version converted two of three
+joins to `LEFT JOIN` and the surviving inner join to `meeting` still dropped
+the row, so the mutant was equivalent rather than the test weak.
+
+**One edit outside the footprint**, recorded in the spec change log:
+`server/tests/test_api_registry.py`, one line appended to
+`BASELINE_ROUTER_ORDER`. That assertion is exact equality, so *any* new router
+module must edit it. `threads.py` was left at default `ROUTER_ORDER` on
+purpose, which puts the addition at the end of the list rather than mid-list
+and keeps it clear of where story 10.4's `moments_feed` will land.
+
+**B-40 closed, B-42 filed.** B-40's open question was the scope of "per
+corpus"; the answer is the database of record, because threads are derived
+corpus-wide and can span `meeting.corpus` values, so partitioning by that
+column would give a cross-corpus thread two colours. B-42 is the gap this
+story could not close inside its footprint: AD-17's
+`GET /media/files/{mediaId}` is named by both 10.3's and 10.4's acceptance
+criteria and exists in neither footprint, so this API serves the opaque ids
+that route will take and never a path, and the route itself remains unbuilt.
+
+**Verification.** `make test-fast`: 2222 passed, 3 named skips, 411
+deselected, with ruff and mypy clean. `branch_conflicts.py --against
+story/10-3`: 15 clean pairs, 0 conflicting. Full `make test` result recorded
+with the story's SHAs.
