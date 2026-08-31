@@ -37,6 +37,7 @@ from uuid import UUID
 from psycopg.types.json import Jsonb
 
 from meetingminer.config import AlignConfig
+from meetingminer.domain.speaker_assignments import speaker_alias_key
 from meetingminer.pipeline import speakers, transcripts
 from meetingminer.pipeline.alignment import (
     AlignmentMatch,
@@ -403,6 +404,91 @@ def _resolve_participants(ctx: StageContext, roster: list[RosterEntry]) -> None:
         ).fetchone()[0]
 
 
+def _speaker_assignments(
+    ctx: StageContext, labels: Iterable[str]
+) -> dict[str, UUID]:
+    """The api-owned speaker assignments for this meeting (story 7.3, AD-5).
+
+    A curator naming a voice writes ``participant_alias`` under
+    ``speaker:<meetingId>:<label>``; this reads those rows back before any
+    segment is written, the same way :func:`_resolve_participants` reads the
+    roster's merge records first and unconditionally. Keyed on the *stored*
+    label — the sanitized string that goes into
+    ``transcript_segment.speaker_label`` and that the speakers read returns —
+    so the key the api wrote and the key looked up here cannot drift.
+
+    One further hop, and exactly one: the assigned participant may itself have
+    been merged away since, and that merge is recorded as an alias on the
+    absorbed row's own ``identity_key``. Following it keeps a merge from being
+    undone for this meeting on every rerun; not following further matches
+    ``merge_participants``' flat-map rule, which refuses to build chains.
+
+    Labels with no assignment are simply absent, so the caller falls through
+    to the roster's answer — never a guess (AD-13).
+    """
+    by_key = {speaker_alias_key(ctx.meeting_id, label): label for label in labels}
+    if not by_key:
+        return {}
+    rows = ctx.conn.execute(
+        "SELECT pa.alias_key,"
+        " COALESCE(merged.participant_id, pa.participant_id)"
+        " FROM participant_alias pa"
+        " JOIN participant p ON p.id = pa.participant_id"
+        " LEFT JOIN participant_alias merged ON merged.alias_key = p.identity_key"
+        " WHERE pa.alias_key = ANY(%s)",
+        (list(by_key),),
+    ).fetchall()
+    return {by_key[alias_key]: participant_id for alias_key, participant_id in rows}
+
+
+def _assigned_participant_rows(
+    meeting_id: UUID,
+    assignments: dict[str, UUID],
+    existing: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Attendance for a person only a speaker assignment names (story 7.3).
+
+    ``projections/graph.py`` builds its ``Participant`` nodes from
+    ``meeting_participant`` and then ``MATCH``es them when writing a moment's
+    ``SPOKE_IN`` edges. Without a row here the match finds nothing and the
+    edge is dropped silently, so an assignment would re-attribute the
+    transcript and leave the graph exactly as it was.
+
+    ``derived_from`` is ``transcript``: the evidence that this person was in
+    the meeting is a transcript label a human attributed, not a drop graph —
+    which is also why ``source`` is empty and the graph-shaped columns are
+    NULL. Rows the roster already produced are left alone, so a graph entry
+    always wins over this minimal one.
+    """
+    already = {row["participant_id"] for row in existing}
+    rows: list[dict[str, Any]] = []
+    for participant_id in dict.fromkeys(assignments.values()):
+        if participant_id in already:
+            continue
+        already.add(participant_id)
+        rows.append(
+            {
+                "meeting_id": meeting_id,
+                "participant_id": participant_id,
+                "mail": None,
+                "title": None,
+                "department": None,
+                "dept_code": None,
+                "line_of_business": None,
+                "office": None,
+                "org": None,
+                "is_guest": False,
+                "is_external": False,
+                "spoke_turns": None,
+                "spoke_words": None,
+                "found_in": [],
+                "derived_from": "transcript",
+                "source": Jsonb({}),
+            }
+        )
+    return rows
+
+
 def _as_int(value: Any) -> int | None:
     try:
         return int(value)
@@ -645,6 +731,17 @@ def run(ctx: StageContext) -> None:
 
     _resolve_participants(ctx, roster)
 
+    # The label exactly as it will be stored, computed once: it is both the
+    # column value below and the key a story 7.3 assignment was written
+    # against, and deriving it twice is how the two would drift apart.
+    stored_labels = [
+        strip_nuls(
+            (segment.speaker_label or "").strip() or transcripts.UNKNOWN_SPEAKER
+        )
+        for segment in base
+    ]
+    speaker_assignments = _speaker_assignments(ctx, stored_labels)
+
     # Meeting-scoped rows are replaced wholesale, including on the empty path
     # so a rerun over a meeting whose transcript vanished clears what described
     # it. `participant` is never deleted here — it is cross-meeting (AD-11).
@@ -656,6 +753,9 @@ def run(ctx: StageContext) -> None:
     )
 
     participant_rows = _meeting_participant_rows(ctx.meeting_id, roster)
+    participant_rows += _assigned_participant_rows(
+        ctx.meeting_id, speaker_assignments, participant_rows
+    )
     if participant_rows:
         with ctx.conn.cursor() as cursor:
             cursor.executemany(_INSERT_MEETING_PARTICIPANT, participant_rows)
@@ -665,12 +765,26 @@ def run(ctx: StageContext) -> None:
     total = len(base)
     for index, segment in enumerate(base):
         resolution = resolutions[index]
-        counts[resolution.status] += 1
+        label = stored_labels[index]
         entry = (
             by_key.get(resolution.match_key)
             if resolution.status == speakers.RESOLVED
             else None
         )
+        # A story 7.3 assignment is a human statement about this tag, so it
+        # overrides whatever the roster made of the label — including a
+        # `placeholder`, which is the whole point: `resolve_label` refuses a
+        # `SPEAKER_NN` tag before any roster match, so an assignment is the
+        # only thing that can ever name a diarized voice. Never a guess: the
+        # override exists only where a curator wrote a row.
+        assigned = speaker_assignments.get(label)
+        status = speakers.RESOLVED if assigned is not None else resolution.status
+        participant_id = (
+            assigned
+            if assigned is not None
+            else (entry.participant_id if entry is not None else None)
+        )
+        counts[status] += 1
         match = matches[index]
         if match.matched:
             anchored += 1
@@ -682,11 +796,9 @@ def run(ctx: StageContext) -> None:
                 "start_ms": segment.start_ms,
                 "end_ms": ends[index],
                 "text": strip_nuls(segment.text),
-                "speaker_label": strip_nuls(
-                    (segment.speaker_label or "").strip() or transcripts.UNKNOWN_SPEAKER
-                ),
-                "participant_id": entry.participant_id if entry is not None else None,
-                "speaker_resolution": resolution.status,
+                "speaker_label": label,
+                "participant_id": participant_id,
+                "speaker_resolution": status,
                 "label_source_id": label_source_id,
                 "timing_source_id": timing_ids[index],
                 "stt_source_id": stt.id if (match.matched and stt is not None) else None,

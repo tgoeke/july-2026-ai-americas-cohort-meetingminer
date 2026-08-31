@@ -27,7 +27,10 @@ from psycopg_pool import ConnectionPool
 
 from meetingminer.config import AppConfig
 from meetingminer.domain.jobs import SPEAKER_ASSIGNMENT_STAGES, STAGE_NAMES
-from meetingminer.domain.speaker_assignments import speaker_alias_key
+from meetingminer.domain.speaker_assignments import (
+    curated_identity_key,
+    speaker_alias_key,
+)
 from meetingminer.pipeline import runner
 
 from conftest import DropFactory, valid_metadata
@@ -81,6 +84,24 @@ def _settle_job(pool: ConnectionPool, job_id: UUID) -> None:
     that is not *about* that refusal settles the job first.
     """
     with pool.connection() as conn:
+        conn.execute("UPDATE job SET status = 'done' WHERE id = %s", (job_id,))
+
+
+def _settle_rerun(pool: ConnectionPool, job_id: UUID) -> None:
+    """Leave the job the way a *finished re-armed run* leaves it.
+
+    An accepted assignment puts `align` and `moments` back to `queued`, which
+    makes the meeting not viewable — correctly, and the UX design names that
+    state. A second assignment therefore has to wait for the rerun, so a test
+    that makes two of them settles the stages in between rather than
+    pretending the first re-arm did not happen.
+    """
+    with pool.connection() as conn:
+        conn.execute(
+            "UPDATE job_stage SET status = 'done'"
+            " WHERE job_id = %s AND name IN ('align', 'moments')",
+            (job_id,),
+        )
         conn.execute("UPDATE job SET status = 'done' WHERE id = %s", (job_id,))
 
 
@@ -184,9 +205,9 @@ def test_the_response_carries_exactly_the_declared_fields(client, test_pool) -> 
 def test_a_new_display_name_mints_an_api_owned_participant(client, test_pool) -> None:
     """The curator typed a name no participant carries yet.
 
-    The minted row is keyed by the alias key itself — an api-owned namespace
-    that cannot collide with a roster match key, so a curator's typed name can
-    never silently merge two people (spec Change Log).
+    The minted row is keyed in the api-owned `curated:` space, which cannot
+    collide with a roster match key, so a curator's typed name can never
+    silently merge two people (spec Change Log).
     """
     seeded = _assignable_meeting(test_pool, "assign-new-name")
 
@@ -201,8 +222,32 @@ def test_a_new_display_name_mints_an_api_owned_participant(client, test_pool) ->
         test_pool,
         "SELECT identity_key, display_name FROM participant WHERE id = %s",
         minted,
-    ) == [(speaker_alias_key(seeded.meeting_id, PLACEHOLDER_TAG), "Alice Chen")]
+    ) == [(curated_identity_key(seeded.meeting_id, PLACEHOLDER_TAG), "Alice Chen")]
     assert response.json()["displayName"] == "Alice Chen"
+
+
+def test_a_minted_participant_can_still_be_merged_away(client, test_pool) -> None:
+    """The split this design accepts must stay recoverable.
+
+    `api/participants.py` reads "merged away" as "this row's identity key is
+    some row's alias key". If the minted row's identity key were the key its
+    own assignment is stored under, its own assignment would read as a merge
+    record and `POST /participants/{id}/merge` would refuse it forever — so
+    the two key spaces are separate, and this is what says so.
+    """
+    seeded = _assignable_meeting(test_pool, "assign-mergeable")
+    _put(client, seeded.meeting_id, PLACEHOLDER_TAG, {"displayName": "Alice Chen"})
+    minted = _alias_target(test_pool, seeded.meeting_id, PLACEHOLDER_TAG)
+
+    listed = {row["id"]: row for row in client.get("/participants").json()}
+    assert listed[str(minted)]["mergedIntoParticipantId"] is None
+
+    merged = client.post(
+        f"/participants/{minted}/merge",
+        json={"intoParticipantId": str(seeded.participant_ids[0])},
+    )
+
+    assert merged.status_code == 200
 
 
 def test_renaming_the_same_tag_reuses_the_one_minted_row(client, test_pool) -> None:
@@ -211,14 +256,16 @@ def test_renaming_the_same_tag_reuses_the_one_minted_row(client, test_pool) -> N
     _put(client, seeded.meeting_id, PLACEHOLDER_TAG, {"displayName": "Alice Chen"})
     first = _alias_target(test_pool, seeded.meeting_id, PLACEHOLDER_TAG)
 
-    _settle_job(test_pool, seeded.job_id)
-    _put(client, seeded.meeting_id, PLACEHOLDER_TAG, {"displayName": "Alicia Chen"})
+    _settle_rerun(test_pool, seeded.job_id)
+    assert _put(
+        client, seeded.meeting_id, PLACEHOLDER_TAG, {"displayName": "Alicia Chen"}
+    ).status_code == 200
 
     assert _alias_target(test_pool, seeded.meeting_id, PLACEHOLDER_TAG) == first
     assert _rows(
         test_pool,
         "SELECT display_name FROM participant WHERE identity_key = %s",
-        speaker_alias_key(seeded.meeting_id, PLACEHOLDER_TAG),
+        curated_identity_key(seeded.meeting_id, PLACEHOLDER_TAG),
     ) == [("Alicia Chen",)]
 
 
@@ -237,7 +284,7 @@ def test_unresolved_deletes_the_alias_and_guesses_nothing(client, test_pool) -> 
     )
     assert _alias_target(test_pool, seeded.meeting_id, PLACEHOLDER_TAG) is not None
 
-    _settle_job(test_pool, seeded.job_id)
+    _settle_rerun(test_pool, seeded.job_id)
     response = _put(client, seeded.meeting_id, PLACEHOLDER_TAG, {"unresolved": True})
 
     assert response.status_code == 200

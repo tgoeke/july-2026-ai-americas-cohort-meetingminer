@@ -30,6 +30,7 @@ from pydantic.alias_generators import to_camel
 
 from meetingminer import logs
 from meetingminer.api.problems import Problem
+from meetingminer.domain.speaker_assignments import SPEAKER_NAMESPACE
 
 router = APIRouter()
 
@@ -91,7 +92,23 @@ _IS_ALIASED = "SELECT 1 FROM participant_alias WHERE alias_key = %s"
 # An absorbed participant may not itself be absorbed again. Otherwise A->B
 # followed by B->C produces a chain, while align intentionally performs one
 # alias lookup. Additional aliases into one survivor remain a flat map.
-_HAS_ABSORBED_ALIASES = "SELECT 1 FROM participant_alias WHERE participant_id = %s"
+#
+# Speaker assignments are excluded (story 7.3). `participant_alias` holds two
+# kinds of row now: a *merge* record, keyed by the absorbed participant's own
+# `identity_key`, and a *speaker assignment*, keyed
+# `speaker:<meetingId>:<tag>`. Only the first kind makes its target a merge
+# survivor. Without this filter, naming any participant as a meeting's speaker
+# would mark them "already absorbed another participant" and refuse every
+# later merge of them — including, for a curator-minted row, the merge that is
+# the documented cure for the same person being typed into two meetings.
+#
+# Chain depth is unaffected: `align` resolves a speaker assignment and then
+# follows exactly one merge hop from it, so an assigned participant that is
+# later merged away still lands on the survivor.
+_HAS_ABSORBED_ALIASES = (
+    "SELECT 1 FROM participant_alias"
+    " WHERE participant_id = %s AND NOT starts_with(alias_key, %s)"
+)
 
 _RENAME_PARTICIPANT = (
     "UPDATE participant SET display_name = %s WHERE id = %s"
@@ -199,7 +216,12 @@ def _is_aliased(conn, identity_key: str) -> bool:
 
 
 def _has_absorbed_aliases(conn, participant_id: UUID) -> bool:
-    return conn.execute(_HAS_ABSORBED_ALIASES, (participant_id,)).fetchone() is not None
+    return (
+        conn.execute(
+            _HAS_ABSORBED_ALIASES, (participant_id, SPEAKER_NAMESPACE)
+        ).fetchone()
+        is not None
+    )
 
 
 @router.get(

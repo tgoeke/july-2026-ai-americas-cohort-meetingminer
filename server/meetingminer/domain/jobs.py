@@ -78,6 +78,39 @@ PARTICIPANT_AUGMENTATION_STAGES: tuple[str, ...] = tuple(
     name for name in STAGE_NAMES if name in {"align", "moments"}
 )
 
+# The stages a speaker assignment re-runs (story 7.3, FR37). A curator named a
+# voice, so everything derived from that attribution has to be re-derived:
+#
+# * ``align`` — the only writer of ``transcript_segment.participant_id``, and
+#   the stage that reads back the `speaker:<meetingId>:<tag>` alias the api
+#   just wrote (AD-5);
+# * ``moments`` — a moment's speaker attribution comes from the aligned
+#   transcript. Its upsert keys on ``transcript:<start_ms>``, which an
+#   assignment never moves, so the attribution is re-derived while every
+#   moment id — and therefore every citation — survives (AD-6, AD-13);
+# * ``extract`` — artifacts quote who said what, so leaving them behind would
+#   keep proposing the old attribution under the new name.
+#
+# ``extract`` is what separates this tuple from both augmentation tuples
+# above, and the difference is deliberate rather than an oversight. Those
+# exclude it because an *intake* behavior — a drop arriving on its own — must
+# never re-propose over human approval nobody asked to revisit. Here the
+# trigger *is* a human, the story's acceptance criteria name the stage, and
+# the protection does not rest on this tuple in any case: ``extract`` deletes
+# only its own ``extracted`` drafts and skips every moment already carrying an
+# ``approved`` or ``published`` artifact, that moment's sibling drafts
+# included (`pipeline/stages/extract.py`).
+#
+# No video stage is here: the recording did not change, so re-sampling it
+# would re-derive identical evidence at real cost.
+#
+# Derived in ``STAGE_NAMES`` order so the re-armed job walks them in pipeline
+# order. ``api/speakers.py`` is the only consumer; the worker never imports
+# it, walking ``STAGE_NAMES`` and skipping whatever is already settled.
+SPEAKER_ASSIGNMENT_STAGES: tuple[str, ...] = tuple(
+    name for name in STAGE_NAMES if name in {"align", "moments", "extract"}
+)
+
 # Stages whose completion means the evidence bundle is built: everything up to
 # and including ``moments``. ``extract`` is deliberately outside — it produces
 # artifacts (Epic 4), not evidence, and AD-4 projects evidence at

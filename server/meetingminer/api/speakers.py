@@ -33,12 +33,17 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 from pydantic.alias_generators import to_camel
 
 from meetingminer import logs
 from meetingminer.api.moments import _require_viewable
 from meetingminer.api.problems import Problem, ProblemDetails
+from meetingminer.domain.jobs import SPEAKER_ASSIGNMENT_STAGES
+from meetingminer.domain.speaker_assignments import (
+    curated_identity_key,
+    speaker_alias_key,
+)
 
 router = APIRouter()
 
@@ -220,3 +225,279 @@ def list_meeting_speakers(
         "speakers.listed", meeting_id=meeting_id, speakers=len(speakers)
     )
     return MeetingSpeakersResponse(meeting_id=meeting_id, speakers=speakers)
+
+
+# --- story 7.3: assigning a speaker ----------------------------------------
+
+# The job behind one meeting, and what it is doing right now. Both columns are
+# needed before any write: the id to re-arm, the status to refuse re-arming a
+# job the single worker (AD-9) is currently inside.
+_JOB_FOR_MEETING = (
+    "SELECT j.id, j.status FROM job j JOIN meeting m ON m.job_id = j.id"
+    " WHERE m.id = %s"
+)
+
+# Whether this meeting's transcript actually carries the tag being assigned.
+# Without this check a typo would write an alias no segment will ever match:
+# the request would look accepted, the job would re-run, and nothing would
+# change — a silent no-op is exactly what this story must not ship.
+_SPEAKER_TAG_EXISTS = (
+    "SELECT 1 FROM transcript_segment WHERE meeting_id = %s AND speaker_label = %s"
+    " LIMIT 1"
+)
+
+_PARTICIPANT_BY_ID = "SELECT id, display_name FROM participant WHERE id = %s"
+
+# Idempotent by design: re-assigning a tag is a correction, not a second
+# record, and `alias_key` is the primary key. `DO UPDATE` rather than the
+# check-then-insert `participants.py` performs, because there is exactly one
+# row to write here and no second table consulted between the two statements.
+_UPSERT_SPEAKER_ALIAS = (
+    "INSERT INTO participant_alias (alias_key, participant_id) VALUES (%s, %s)"
+    " ON CONFLICT (alias_key) DO UPDATE SET participant_id = EXCLUDED.participant_id"
+)
+
+_DELETE_SPEAKER_ALIAS = "DELETE FROM participant_alias WHERE alias_key = %s"
+
+# The participant a curator's typed name mints, in the `curated:` space.
+#
+# `identity_key` is deliberately *not* `pipeline/speakers.identity_key_for`'s
+# `name:<normalized>`: the api may not import `pipeline`, and a second
+# spelling of `normalize_display_name` here would be a second source of truth
+# for identity keys — the silent-merge failure that module warns about at
+# length. An api-owned space cannot collide with a roster match key, so the
+# worst case is a *split* — the same human typed into two meetings gets two
+# rows — which `pipeline/speakers.py` calls the recoverable direction and
+# `POST /participants/{id}/merge` recovers.
+#
+# `curated:` and not the alias key itself: a merge is recorded as `alias_key =
+# <absorbed>.identity_key`, so a row whose identity key *were* its own
+# assignment's key would read as already merged away and could never be
+# merged — closing the very recovery path the split relies on.
+#
+# `normalized_name` is the same key rather than a name-shaped value: it is the
+# roster-matching column, and a curator's typed string must not start matching
+# transcript labels in later meetings on a normalization this layer cannot
+# perform correctly. A key never matches, which is the honest failure.
+#
+# `ON CONFLICT DO UPDATE` makes a re-typed name rename the one row rather than
+# stranding it and minting another.
+_MINT_CURATED_PARTICIPANT = (
+    "INSERT INTO participant (identity_key, display_name, normalized_name)"
+    " VALUES (%s, %s, %s)"
+    " ON CONFLICT (identity_key) DO UPDATE SET display_name = EXCLUDED.display_name"
+    " RETURNING id"
+)
+
+_REARM_JOB = (
+    "UPDATE job SET status = 'queued', error = NULL, updated_at = now()"
+    " WHERE id = %s"
+)
+
+# Only the named stages, so the runner's settled-stage guard resumes rather
+# than restarting: the recording is untouched, so no video stage re-runs.
+_REARM_STAGES = (
+    "UPDATE job_stage SET status = 'queued', error = NULL"
+    " WHERE job_id = %s AND name = ANY(%s)"
+)
+
+
+class AssignSpeakerRequest(BaseModel):
+    """Exactly one of three choices, as the story's first clause names them.
+
+    Three optional fields rather than a discriminated union, because that is
+    the shape the UI's three gestures produce (pick a suggestion, type a name,
+    press *Unresolved*); the validator makes the "exactly one" rule explicit
+    instead of leaving a two-field request to be resolved by precedence.
+
+    ``unresolved: false`` selects nothing, on purpose — it is the field's
+    default, so counting it as a choice would make an empty body mean
+    "unresolve", which is a destructive reading of silence.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    participant_id: UUID | None = None
+    display_name: str | None = None
+    unresolved: bool = False
+
+    @model_validator(mode="after")
+    def exactly_one_choice(self) -> AssignSpeakerRequest:
+        if self.display_name is not None:
+            if "\x00" in self.display_name:
+                raise ValueError("display name cannot contain a NUL character")
+            if not self.display_name.strip():
+                raise ValueError("display name cannot be blank")
+        chosen = sum(
+            (
+                self.participant_id is not None,
+                self.display_name is not None,
+                self.unresolved,
+            )
+        )
+        if chosen != 1:
+            raise ValueError(
+                "name exactly one of participantId, displayName or"
+                " unresolved: true"
+            )
+        return self
+
+
+class SpeakerAssignmentResponse(BaseModel):
+    """What was recorded, and what was re-armed to act on it.
+
+    Deliberately reports the *persisted* facts rather than predicting the
+    attribution the rerun will write: ``align`` decides that, and a response
+    claiming it in advance would be guessing, on the one story that exists to
+    stop guessing (AD-13). ``participantId``/``displayName`` are the alias
+    target — both null for ``unresolved``, which stores no row at all.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    meeting_id: UUID
+    # The tag verbatim, echoed back so a caller can see which label the path
+    # actually resolved to after URL decoding.
+    speaker_label: str
+    participant_id: UUID | None
+    display_name: str | None
+    job_id: UUID
+    rearmed_stages: list[str]
+
+
+_ASSIGNMENT_PROBLEM_RESPONSES = {
+    422: {
+        "content": {
+            "application/problem+json": {
+                "schema": {"$ref": "#/components/schemas/ProblemDetails"}
+            }
+        },
+        "description": "`invalid-request` — the route parameter is not a UUID,"
+        " or the body did not name exactly one of `participantId`,"
+        " `displayName` or `unresolved: true` (a blank or NUL-bearing"
+        " `displayName` is refused here too).",
+    },
+    404: {
+        "model": ProblemDetails,
+        "content": {"application/problem+json": {}},
+        "description": "`not-found` — no such meeting."
+        " `unknown-speaker-tag` — the meeting's transcript carries no segment"
+        " with that label, so the assignment would never match anything."
+        " `unknown-participant` — `participantId` names no participant row.",
+    },
+    409: {
+        "model": ProblemDetails,
+        "content": {"application/problem+json": {}},
+        "description": "`meeting-not-viewable` — an evidence stage has not"
+        " settled; carries `meetingId`, `augmenting` and `jobStatus` like the"
+        " sibling meeting reads."
+        " `assignment-target-busy` — the meeting's job is `running`, so"
+        " re-arming it would race the worker; carries `jobId` and `jobStatus`."
+        " Both are transient: retry once the job settles.",
+    },
+}
+
+
+@router.put(
+    "/meetings/{meeting_id}/speakers/{tag}",
+    operation_id="assignMeetingSpeaker",
+    response_model=SpeakerAssignmentResponse,
+    responses=_ASSIGNMENT_PROBLEM_RESPONSES,
+)
+def assign_meeting_speaker(
+    meeting_id: UUID, tag: str, body: AssignSpeakerRequest, request: Request
+) -> SpeakerAssignmentResponse:
+    """Record who a voice belongs to, and re-arm the meeting to act on it.
+
+    Two writes and nothing else (AD-5): an api-owned `participant_alias` row
+    in the `speaker:<meetingId>:<tag>` namespace, and the job re-armed for
+    `align → moments → extract`. This route never touches
+    `transcript_segment`, `moment` or `artifact`. `align` reads the alias back
+    and re-derives the attribution, which is what makes an assignment survive
+    every later rerun and re-ingest instead of being a one-off edit the next
+    ingest would undo.
+
+    Deliberately READ COMMITTED, not the REPEATABLE READ the read routes use:
+    the checks below span `meeting`, `job`, `job_stage`, `transcript_segment`
+    and `participant_alias`, and a snapshot frozen at the first of them would
+    let this accept against a job whose status changed after the transaction
+    opened. `assignment-target-busy` is the refusal that has to see the
+    current row, because re-arming a claimed job would race the single
+    worker's own final status write (AD-9) and could drop the assignment
+    silently.
+    """
+    pool = request.app.state.pool
+    alias_key = speaker_alias_key(meeting_id, tag)
+    with pool.connection() as conn:
+        if conn.execute(_MEETING_EXISTS, (meeting_id,)).fetchone() is None:
+            raise Problem(404, "not-found", f"no meeting with id {meeting_id}")
+        # The sibling reads' gate: an assignment made against evidence that
+        # has not settled would be re-derived away by the ingest still in
+        # flight.
+        _require_viewable(conn, meeting_id)
+        job_id, job_status = conn.execute(_JOB_FOR_MEETING, (meeting_id,)).fetchone()
+        if job_status == "running":
+            raise Problem(
+                409,
+                "assignment-target-busy",
+                f"meeting {meeting_id}'s job is still running — a speaker"
+                " assignment re-arms that job, which would race the worker"
+                " currently inside it; retry once it settles",
+                jobId=str(job_id),
+                jobStatus=job_status,
+            )
+        if conn.execute(_SPEAKER_TAG_EXISTS, (meeting_id, tag)).fetchone() is None:
+            raise Problem(
+                404,
+                "unknown-speaker-tag",
+                f"meeting {meeting_id} has no transcript segment labelled"
+                f" {tag!r} — assign one of the labels the meeting's speakers"
+                " read returns",
+            )
+
+        participant_id: UUID | None
+        display_name: str | None
+        if body.unresolved:
+            # No row, rather than a row naming nobody: `participant_alias`
+            # requires a participant, and deleting the key restores `align`'s
+            # own answer — `placeholder`, with nothing guessed (AD-13).
+            conn.execute(_DELETE_SPEAKER_ALIAS, (alias_key,))
+            participant_id = None
+            display_name = None
+        elif body.participant_id is not None:
+            row = conn.execute(_PARTICIPANT_BY_ID, (body.participant_id,)).fetchone()
+            if row is None:
+                raise Problem(
+                    404,
+                    "unknown-participant",
+                    f"no participant with id {body.participant_id}",
+                )
+            participant_id, display_name = row
+            conn.execute(_UPSERT_SPEAKER_ALIAS, (alias_key, participant_id))
+        else:
+            display_name = body.display_name
+            identity_key = curated_identity_key(meeting_id, tag)
+            participant_id = conn.execute(
+                _MINT_CURATED_PARTICIPANT, (identity_key, display_name, identity_key)
+            ).fetchone()[0]
+            conn.execute(_UPSERT_SPEAKER_ALIAS, (alias_key, participant_id))
+
+        conn.execute(_REARM_JOB, (job_id,))
+        conn.execute(_REARM_STAGES, (job_id, list(SPEAKER_ASSIGNMENT_STAGES)))
+
+    logs.log_event(
+        "speakers.assigned",
+        meeting_id=meeting_id,
+        speaker_label=tag,
+        participant_id=participant_id,
+        unresolved=body.unresolved,
+        job_id=job_id,
+    )
+    return SpeakerAssignmentResponse(
+        meeting_id=meeting_id,
+        speaker_label=tag,
+        participant_id=participant_id,
+        display_name=display_name,
+        job_id=job_id,
+        rearmed_stages=list(SPEAKER_ASSIGNMENT_STAGES),
+    )
