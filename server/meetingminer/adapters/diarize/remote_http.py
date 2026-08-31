@@ -49,9 +49,10 @@ MAX_PLACEHOLDER_SPEAKERS = 1000
 _UPLOAD_FIELD = "file"
 _ROUTE = "/diarize"
 
-# http.client reads the request body in blocks of this size, so the recording
-# is never fully resident: a 60-minute 16 kHz mono WAV is ~115 MB and building
-# the multipart body in memory would hold it twice.
+# Response bodies are consumed in bounded blocks so the monotonic request
+# deadline is re-checked throughout a slow response. The upload is likewise a
+# reader that http.client pulls in its own blocks, so a 60-minute 16 kHz mono
+# WAV (~115 MB) is never fully resident.
 _BLOCK_SIZE = 1 << 16
 
 
@@ -63,12 +64,23 @@ class _MultipartBody:
     rather than chunking — so the file is streamed off disk, once.
     """
 
-    def __init__(self, prefix: bytes, handle: IO[bytes], file_size: int, suffix: bytes) -> None:
+    def __init__(
+        self,
+        prefix: bytes,
+        handle: IO[bytes],
+        file_size: int,
+        suffix: bytes,
+        *,
+        deadline: float,
+    ) -> None:
         self._parts: list[IO[bytes]] = [io.BytesIO(prefix), handle, io.BytesIO(suffix)]
         self._index = 0
+        self._deadline = deadline
         self.length = len(prefix) + file_size + len(suffix)
 
     def read(self, size: int = -1) -> bytes:
+        if time.monotonic() >= self._deadline:
+            raise TimeoutError("request deadline expired while uploading audio")
         if size < 0:
             remaining = b"".join(part.read() for part in self._parts[self._index :])
             self._index = len(self._parts)
@@ -169,8 +181,15 @@ class RemoteHttpDiarizer:
             ) from exc
 
         started = time.monotonic()
+        deadline = started + self.timeout_seconds
         try:
-            stream = _MultipartBody(prefix, handle, file_size, suffix)
+            stream = _MultipartBody(
+                prefix,
+                handle,
+                file_size,
+                suffix,
+                deadline=deadline,
+            )
             request = urllib.request.Request(  # noqa: S310 - config.yaml, http(s) only
                 self.endpoint,
                 data=stream,
@@ -182,15 +201,17 @@ class RemoteHttpDiarizer:
                 method="POST",
             )
             with urllib.request.urlopen(  # noqa: S310 - config.yaml, http(s) only
-                request, timeout=self.timeout_seconds
+                request, timeout=self._remaining(deadline)
             ) as response:
-                return response.read()
+                return self._read_response(response, deadline)
         except urllib.error.HTTPError as exc:
             # The host answered and said no. Its own words, not ours: it
             # reports 503 when another VM holds the GPU and 400 when ffmpeg
             # rejects the upload, so the taxonomy is not one status code.
             try:
-                error_body = exc.read()
+                error_body = self._read_response(exc, deadline)
+            except TimeoutError as read_exc:
+                raise self._timed_out(started, read_exc) from read_exc
             except http.client.HTTPException as read_exc:
                 raise self._malformed_response(read_exc, status=exc.code) from read_exc
             reason, model = _reason_from(error_body)
@@ -294,6 +315,37 @@ class RemoteHttpDiarizer:
         return tuple(turns)
 
     # -- diagnostics ------------------------------------------------------
+
+    def _read_response(self, response: Any, deadline: float) -> bytes:
+        """Read one response while enforcing the request's wall-clock deadline."""
+        framed = response.fp if isinstance(response, urllib.error.HTTPError) else response
+        reader = getattr(response, "read1", response.read)
+        chunks: list[bytes] = []
+        while True:
+            remaining = self._remaining(deadline)
+            self._set_response_timeout(framed, remaining)
+            chunk = reader(_BLOCK_SIZE)
+            if not chunk:
+                missing = getattr(framed, "length", None)
+                if isinstance(missing, int) and missing > 0:
+                    raise http.client.IncompleteRead(b"", missing)
+                return b"".join(chunks)
+            chunks.append(chunk)
+
+    @staticmethod
+    def _remaining(deadline: float) -> float:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("request deadline expired")
+        return remaining
+
+    @staticmethod
+    def _set_response_timeout(response: Any, timeout_seconds: float) -> None:
+        buffered = getattr(response, "fp", None)
+        raw = getattr(buffered, "raw", None)
+        sock = getattr(raw, "_sock", None)
+        if sock is not None:
+            sock.settimeout(timeout_seconds)
 
     def _who(self, model: str | None) -> str:
         """The subject every message starts with: engine, endpoint, model."""

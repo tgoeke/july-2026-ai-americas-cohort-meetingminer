@@ -78,6 +78,7 @@ class ScriptedResponse:
     status: int
     payload: bytes
     content_length: int
+    chunk_delay_seconds: float = 0.0
 
 
 StubResponse = tuple[int, bytes] | ScriptedResponse
@@ -153,7 +154,13 @@ def _serve(
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(content_length))
             self.end_headers()
-            self.wfile.write(payload)
+            if isinstance(scripted, ScriptedResponse) and scripted.chunk_delay_seconds:
+                for byte in payload:
+                    self.wfile.write(bytes([byte]))
+                    self.wfile.flush()
+                    time.sleep(scripted.chunk_delay_seconds)
+            else:
+                self.wfile.write(payload)
 
         def log_message(self, *_args: Any) -> None:
             return  # keep the test output clean
@@ -217,6 +224,21 @@ def truncates(payload: dict[str, Any], status: int = 200) -> Responder:
             status=status,
             payload=body,
             content_length=len(body) + 20,
+        )
+
+    return _responder
+
+
+def drips(payload: dict[str, Any], delay_seconds: float) -> Responder:
+    """A responder that keeps each byte active while exceeding the budget."""
+    body = json.dumps(payload).encode("utf-8")
+
+    def _responder(_request: Received) -> StubResponse:
+        return ScriptedResponse(
+            status=200,
+            payload=body,
+            content_length=len(body),
+            chunk_delay_seconds=delay_seconds,
         )
 
     return _responder
@@ -460,6 +482,23 @@ def test_timeout_names_the_budget_and_the_setting(
     assert f"{base_url}/diarize" in message
     assert "0.15" in message
     assert "diarizer.timeout_seconds" in message
+
+
+def test_timeout_is_one_total_request_budget(
+    diarize_stub: Install, audio: Path
+) -> None:
+    base_url, _ = diarize_stub(drips({"turns": []}, delay_seconds=0.04))
+    engine = RemoteHttpDiarizer(base_url=base_url, timeout_seconds=0.08)
+
+    started = time.monotonic()
+    with pytest.raises(DiarizerError) as caught:
+        engine.diarize(audio)
+    elapsed = time.monotonic() - started
+
+    message = str(caught.value)
+    assert f"{base_url}/diarize" in message
+    assert "0.08" in message
+    assert elapsed < 0.3
 
 
 def test_body_that_is_not_json_is_named(diarize_stub: Install, audio: Path) -> None:
