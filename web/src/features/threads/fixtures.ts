@@ -29,6 +29,7 @@ export const RETRIEVAL_SPLIT: ThreadSummary = {
   firstMentionAt: CORPUS_FROM,
   lastMentionAt: '2026-08-21T00:00:00Z',
   colorOrdinal: 1,
+  nameIsCurated: false,
 }
 
 export const EVAL_HARNESS: ThreadSummary = {
@@ -39,6 +40,9 @@ export const EVAL_HARNESS: ThreadSummary = {
   firstMentionAt: '2026-03-08T00:00:00Z',
   lastMentionAt: '2026-08-17T00:00:00Z',
   colorOrdinal: 4,
+  // Story 10.2a: this one carries a human name, so the fixture set covers
+  // both provenances and a view that labelled them alike would fail.
+  nameIsCurated: true,
 }
 
 /** Ordinal 9 — lap 2 of hue 1, so the swatch, not the name, carries the lap. */
@@ -50,6 +54,7 @@ export const SCREEN_LINEAGE: ThreadSummary = {
   firstMentionAt: '2026-05-01T00:00:00Z',
   lastMentionAt: '2026-07-26T00:00:00Z',
   colorOrdinal: 9,
+  nameIsCurated: false,
 }
 
 export const THREADS: Array<ThreadSummary> = [RETRIEVAL_SPLIT, EVAL_HARNESS, SCREEN_LINEAGE]

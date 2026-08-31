@@ -85,6 +85,11 @@ export function Threads() {
   const [tierFailure, setTierFailure] = useState<ThreadsFailure | null>(null)
   const [retryVersion, setRetryVersion] = useState(0)
   const [listRetryVersion, setListRetryVersion] = useState(0)
+  // Story 10.2a: a landed curation re-reads `GET /threads` through the same
+  // version the retry button bumps. The list is the authority on the grouping
+  // — a client that patched its own copy would drift from the api the moment
+  // a merge changed anyone else's row.
+  const reReadThreads = useCallback(() => setListRetryVersion((v) => v + 1), [])
 
   const corpusSpan = useMemo<Span | null>(() => corpusSpanOf(threads), [threads])
 
@@ -429,6 +434,7 @@ export function Threads() {
           focusedThreadId={focusedThreadId}
           onFocus={focusThread}
           activity={activity}
+          onCurated={reReadThreads}
         />
         <div className="min-w-0 flex-1">
           <TimelineCanvas

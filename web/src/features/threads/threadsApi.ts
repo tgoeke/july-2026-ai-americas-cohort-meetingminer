@@ -34,6 +34,12 @@ export interface ThreadSummary {
   lastMentionAt: string
   /** Immutable, assigned once, never recycled. The only source of colour. */
   colorOrdinal: number
+  /**
+   * Whether `name` came from a human (story 10.2a) or from the derivation's
+   * seed topic. The view labels the two differently: a reader must be able to
+   * tell a curated name from a machine-derived one.
+   */
+  nameIsCurated: boolean
 }
 
 /** One bucket of the bands tier. */
@@ -173,6 +179,14 @@ export function parseThreads(body: unknown): Array<ThreadSummary> {
     const firstMentionAt = requireInstant(row, 'firstMentionAt', where)
     const lastMentionAt = requireInstant(row, 'lastMentionAt', where)
     const colorOrdinal = requireNumber(row, 'colorOrdinal', where)
+    // Optional on the wire and defaulted to false: an api that predates
+    // story 10.2a serves a corpus with no curation in it, which is exactly
+    // what `false` says. Any non-boolean is a contract violation, not a
+    // truthiness question.
+    if (row.nameIsCurated !== undefined && typeof row.nameIsCurated !== 'boolean') {
+      throw new ThreadsContractError(`${where}: \`nameIsCurated\` must be a boolean`)
+    }
+    const nameIsCurated = row.nameIsCurated === true
     if (Date.parse(lastMentionAt) < Date.parse(firstMentionAt)) {
       throw new ThreadsContractError(`${where}: lastMentionAt is before firstMentionAt`)
     }
@@ -184,6 +198,7 @@ export function parseThreads(body: unknown): Array<ThreadSummary> {
       firstMentionAt,
       lastMentionAt,
       colorOrdinal,
+      nameIsCurated,
     }
   })
 }
@@ -369,6 +384,182 @@ export async function fetchTimeline(
     return await withGet(path, signal, async (response) => {
       if (!response.ok) return { error: await refusalOf(response, `GET ${path}`) }
       return { data: parseTimeline(level, await readJson(response, `GET ${path}`)) }
+    })
+  } catch (err) {
+    if (signal?.aborted === true) return {}
+    if (err instanceof ThreadsContractError) return { error: { kind: 'problem', message: err.message } }
+    return { error: transportFailureOf(err) }
+  }
+}
+
+/* --- story 10.2a: curation ------------------------------------------------
+ *
+ * Merge, split and rename. Three writes against api-owned curation tables —
+ * the machine never renames, merges or splits on its own, and a correction
+ * made here survives the next re-derivation because the worker resolves the
+ * same rows before it writes (`domain/thread_curation.py`).
+ *
+ * These share `parseThreads`' discipline: a body this screen cannot read is a
+ * named refusal, never a half-applied correction drawn as if it took.
+ */
+
+/** One of a thread's topics, as one meeting carries it. */
+export interface ThreadTopic {
+  topicId: string
+  name: string
+  /** Which leg attached it — `curated` where a human decided (story 10.2a). */
+  linkedBy: string
+}
+
+/** The thread's topics grouped by the meeting they were discussed in. */
+export interface ThreadTopicGroup {
+  meetingId: string
+  title: string | null
+  /** RFC 3339 UTC; the split panel prints its date. */
+  occurredAt: string
+  topics: Array<ThreadTopic>
+}
+
+/** The curated thread a write returns. */
+export interface CuratedThread {
+  threadId: string
+  name: string
+  derivedName: string
+  nameIsCurated: boolean
+  colorOrdinal: number
+  mergedIntoThreadId: string | null
+}
+
+function parseCuratedThread(body: unknown, where: string): CuratedThread {
+  const row = requireRow(body, where)
+  const mergedInto = row.mergedIntoThreadId
+  if (mergedInto !== null && mergedInto !== undefined && typeof mergedInto !== 'string') {
+    throw new ThreadsContractError(`${where}: \`mergedIntoThreadId\` must be a string or null`)
+  }
+  return {
+    threadId: requireString(row, 'threadId', where),
+    name: requireString(row, 'name', where),
+    derivedName: requireString(row, 'derivedName', where),
+    nameIsCurated: row.nameIsCurated === true,
+    colorOrdinal: requireNumber(row, 'colorOrdinal', where),
+    mergedIntoThreadId: typeof mergedInto === 'string' ? mergedInto : null,
+  }
+}
+
+/** The meetings tier over the thread's own span, read for its topics only. */
+export function parseThreadTopicGroups(body: unknown, where: string): Array<ThreadTopicGroup> {
+  return requireArray(body, 'meetings', where).map((entry, i) => {
+    const rowWhere = `${where}[${i}]`
+    const row = requireRow(entry, rowWhere)
+    const title = row.title
+    if (title !== null && title !== undefined && typeof title !== 'string') {
+      throw new ThreadsContractError(`${rowWhere}: \`title\` must be null or a string`)
+    }
+    const topics = row.topics
+    if (!Array.isArray(topics)) {
+      throw new ThreadsContractError(`${rowWhere}: \`topics\` must be an array`)
+    }
+    return {
+      meetingId: requireString(row, 'meetingId', rowWhere),
+      title: typeof title === 'string' && title.length > 0 ? title : null,
+      occurredAt: requireInstant(row, 'occurredAt', rowWhere),
+      topics: topics.map((topic, j) => {
+        const topicWhere = `${rowWhere}.topics[${j}]`
+        const t = requireRow(topic, topicWhere)
+        return {
+          topicId: requireString(t, 'topicId', topicWhere),
+          name: requireString(t, 'name', topicWhere),
+          linkedBy: requireString(t, 'linkedBy', topicWhere),
+        }
+      }),
+    }
+  })
+}
+
+/** A write's expiry owns both headers and body consumption, like `withGet`. */
+async function withWrite<T>(
+  method: 'PATCH' | 'POST',
+  path: string,
+  body: unknown,
+  consume: (response: Response) => Promise<T>,
+): Promise<T> {
+  const expiry = new AbortController()
+  const timer = setTimeout(() => expiry.abort(), THREADS_TIMEOUT_MS)
+  try {
+    const response = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: expiry.signal,
+    })
+    return await consume(response)
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function curationWrite(
+  method: 'PATCH' | 'POST',
+  path: string,
+  body: unknown,
+): Promise<{ data?: CuratedThread; error?: ThreadsFailure }> {
+  try {
+    return await withWrite(method, path, body, async (response) => {
+      if (!response.ok) return { error: await refusalOf(response, `${method} ${path}`) }
+      return {
+        data: parseCuratedThread(await readJson(response, `${method} ${path}`), `${method} ${path}`),
+      }
+    })
+  } catch (err) {
+    if (err instanceof ThreadsContractError) return { error: { kind: 'problem', message: err.message } }
+    return { error: transportFailureOf(err) }
+  }
+}
+
+/**
+ * Give a thread a human name, or clear one by passing `null`.
+ *
+ * Clearing restores whatever the machine currently calls the thread rather
+ * than a name this client remembered — the api owns that value and it moves
+ * with every derivation.
+ */
+export function renameThread(threadId: string, name: string | null) {
+  return curationWrite('PATCH', `/threads/${encodeURIComponent(threadId)}`, { name })
+}
+
+/** Absorb one thread into another. Resolves to the survivor. */
+export function mergeThreads(threadId: string, intoThreadId: string) {
+  return curationWrite('POST', `/threads/${encodeURIComponent(threadId)}/merge`, {
+    intoThreadId,
+  })
+}
+
+/** Move the named topics onto a new thread of their own. */
+export function splitThread(threadId: string, topicIds: Array<string>, name: string) {
+  return curationWrite('POST', `/threads/${encodeURIComponent(threadId)}/split`, {
+    topicIds,
+    name,
+  })
+}
+
+/**
+ * The thread's topics, grouped by meeting — the split panel's checklist.
+ *
+ * No window is sent, so the api answers over the thread's own whole span
+ * (story 10.3's default). A split must offer every topic the thread holds,
+ * not only the ones inside whatever window the canvas happens to be showing:
+ * a checklist that silently omitted the rest would make "split off these"
+ * mean something different from what the user could see.
+ */
+export async function fetchThreadTopics(
+  threadId: string,
+  signal?: AbortSignal,
+): Promise<{ data?: Array<ThreadTopicGroup>; error?: ThreadsFailure }> {
+  const path = `/threads/${encodeURIComponent(threadId)}/timeline?level=meetings`
+  try {
+    return await withGet(path, signal, async (response) => {
+      if (!response.ok) return { error: await refusalOf(response, `GET ${path}`) }
+      return { data: parseThreadTopicGroups(await readJson(response, `GET ${path}`), `GET ${path}`) }
     })
   } catch (err) {
     if (signal?.aborted === true) return {}
