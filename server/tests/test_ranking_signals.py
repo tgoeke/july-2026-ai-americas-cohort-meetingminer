@@ -583,7 +583,9 @@ def test_a_titleless_artifact_contributes_no_reason(ranking) -> None:
     score, reasons = score_candidate(row, ranking, NOW)
 
     assert reasons == ()
-    assert score == 0.0
+    assert score == score_candidate(
+        candidate(meeting_started_at=old, started_at=old), ranking, NOW
+    )[0]
 
 
 # --- validation before pagination -------------------------------------------
