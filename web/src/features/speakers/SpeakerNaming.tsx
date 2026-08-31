@@ -109,7 +109,12 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
 
   // The one clip playing, as `<tag>#<index>` — the single-open-player key
   // `CorpusSearch` and `MeetingMoments` already use.
-  const [clip, setClip] = useState<{ tag: string; index: number; startMs: number } | null>(null)
+  const [clip, setClip] = useState<{
+    tag: string
+    index: number
+    startMs: number
+    playId: number
+  } | null>(null)
 
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -122,6 +127,7 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
   const saveControllerRef = useRef<AbortController | null>(null)
   const nameInputRef = useRef<HTMLInputElement>(null)
   const rowRefs = useRef(new Map<string, HTMLButtonElement>())
+  const clipSequenceRef = useRef(0)
 
   const load = useCallback(async (settledReread = false) => {
     readControllerRef.current?.abort()
@@ -328,7 +334,7 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
 
   const playClip = useCallback(
     (tag: string, index: number, startMs: number) => {
-      setClip({ tag, index, startMs })
+      setClip({ tag, index, startMs, playId: ++clipSequenceRef.current })
     },
     [],
   )
@@ -666,9 +672,11 @@ function SpeakerNamingForMeeting({ meetingId, onBack }: SpeakerNamingProps) {
 
               {clip !== null && clip.tag === selected.speakerLabel && (
                 <ReplayPlayer
+                  key={clip.playId}
                   meetingId={meetingId}
                   startMs={clip.startMs}
                   endMs={clip.startMs + CLIP_LENGTH_MS}
+                  autoPlay
                   label={`Clip ${clip.index + 1} of ${selected.speakerLabel} at ${offsetLabel(clip.startMs)}`}
                   className="w-full rounded-md border border-border"
                 />

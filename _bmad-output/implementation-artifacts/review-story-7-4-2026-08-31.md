@@ -69,7 +69,8 @@ Adversarial review of the Story 7.4 web implementation, with emphasis on unsettl
 
 - **Location:** `web/src/features/speakers/SpeakerNaming.tsx:315`; `web/src/features/replay/ReplayPlayer.tsx:48`
 - **Severity:** High
-- **Status:** Confirmed — patch required
+- **Status:** Fixed on `story/7-4-review`
 - **Finding:** Pressing a clip control only mounts `ReplayPlayer` and seeks it; neither the control nor player calls `play()`. Pressing the already-selected clip again creates a new state object with identical `startMs`/`endMs`, so the player effects do not rerun and the stopped sample cannot restart from its beginning.
 - **Evidence:** The player has controls but no `autoPlay` behavior; its seek effect depends only on `src` and `startMs`, and its latch effect depends on the same offsets. The existing caller test asserts only that the element appears, not that the user gesture starts or restarts media.
 - **Suggested direction:** Add opt-in autoplay behavior to the shared player so existing open-ended callers remain unchanged, and give each speaker clip activation a fresh playback identity that remounts/reseeks/re-arms even for the same offset.
+- **Red/green evidence:** The caller regression first observed zero `play()` calls after activation. Speaker clips now opt into playback and each press gets a fresh player identity; the same clip calls `play()` twice across two presses and remounts, while other callers retain the default non-autoplay behavior.
