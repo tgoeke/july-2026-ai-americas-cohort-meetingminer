@@ -119,9 +119,10 @@ afterEach(() => {
 describe('shell placement', () => {
   it('discovers at least the front door, Threads, and the screens that came before', () => {
     // A floor, not an equality: another lane adding a screen must not fail
-    // this file. Threads is story 10.5's placeholder for story 10.6.
+    // this file. Threads is story 10.6's real screen; 10.5's placeholder
+    // was deleted at integration once that landed.
     const paths = childRoutes.map((route) => route.path)
-    expect(paths).toContain('/threads/*')
+    expect(paths).toContain('/threads')
     expect(paths).toContain('/moments/:momentId')
     expect(paths).toContain('/meetings/:meetingId')
     expect(paths).toContain('/participants')
@@ -209,11 +210,13 @@ describe('front door', () => {
     }
   })
 
-  it('resolves the Threads route to a placeholder rather than the catch-all', async () => {
+  it('resolves the Threads route to the Threads screen rather than the catch-all', async () => {
     window.history.replaceState(null, '', '/threads')
     render(<App />)
 
-    expect(await screen.findByRole('region', { name: 'Threads' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'Threads', level: 1 }),
+    ).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: 'Moments' })).toBeNull()
   })
 
@@ -221,7 +224,9 @@ describe('front door', () => {
     window.history.replaceState(null, '', '/threads/thread-1')
     render(<App />)
 
-    expect(await screen.findByRole('region', { name: 'Threads' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'Threads', level: 1 }),
+    ).toBeInTheDocument()
   })
 
   it('keeps the corpus counts and meeting cards reachable at /meetings', async () => {
