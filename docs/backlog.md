@@ -153,6 +153,31 @@ retry, rebuild, or report a gate defect.
 projection without scraping logs, and check 2.11 reports lock contention rather
 than a false story-4.4 regression.
 
+### B-38 · Fail loudly when a provider does not serve the configured model — S
+
+`LiteLlmCompleter.complete` maps connection, timeout, service, rate-limit,
+authentication, and permission failures to `LlmUnavailableError`, naming the
+model and endpoint; that is the deliberate outage path `FallbackLlm` absorbs.
+A model-not-found response instead falls through the generic SDK-exception
+branch, which raises `LlmError` without the endpoint. `FallbackLlm` catches that
+base error and can silently answer with a different model. This is actionable
+configuration failure, not provider unavailability, and it is especially
+likely for the two Ollama hosts whose installed model lists intentionally
+diverge.
+
+**Do:** map LiteLLM's model-not-found response to its own configuration-shaped
+port error with the exact message template
+`provider {provider!r} at {api_base!r} does not serve model {model!r}`. Derive
+the provider from the same shared model-spelling rule used by config and
+runtime. Exclude this error from fallback while preserving today's
+`LlmUnavailableError` fallback behavior for genuine outages. Pin all three
+behaviors with adapter/composer regressions, including a configured primary
+whose missing model never calls its fallback.
+
+**Done when:** the failure is actionable without a log viewer, names the
+provider, endpoint, and requested model, and no different model answers after a
+model-not-found response.
+
 ## Robustness and hygiene
 
 ### B-15 · Stop embed-only projection from opening Neo4j — S
