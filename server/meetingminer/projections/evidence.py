@@ -156,6 +156,42 @@ class TopicRow:
 
 
 @dataclass(frozen=True)
+class ExtractionDocumentRow:
+    """One retained extraction document — the text of one extraction run.
+
+    Story 12.1 stores it on the ``extraction_source`` row that already records
+    the run's kind, origin, model, prompt hash, sha256, byte size and counts;
+    story 12.4 indexes it. It is read *here*, from Postgres, like every other
+    row this module reads: `projections/` opens no evidence file, and text
+    living only in a drop could not be indexed without turning this module into
+    a filesystem reader (AD-3 as amended 2026-08-31, AD-4).
+
+    ``text`` is ``None`` for a run that predates story 12.1's retention, which
+    is not the same as an empty document (``""`` with ``byte_size`` 0). The
+    reader below drops a ``None`` rather than indexing it as empty — collapsing
+    the two is exactly the silent degradation AD-18 forbids.
+
+    A document carries no lifecycle state and no moment anchor, on purpose: it
+    is a claim *about* evidence, never a citation target (AD-6). It is also the
+    one thing this module projects without passing the publish gate — see
+    :mod:`meetingminer.projections.documents`.
+    """
+
+    id: UUID
+    kind: str
+    origin: str
+    layout: str
+    item_count: int
+    artifact_count: int
+    byte_size: int
+    sha256: str
+    text: str | None
+    model: str | None = None
+    prompt_version: int | None = None
+    prompt_hash: str | None = None
+
+
+@dataclass(frozen=True)
 class MeetingEvidence:
     """Everything the projections write for one meeting."""
 
@@ -183,6 +219,57 @@ class MeetingEvidence:
     # default: the graph then writes no `Topic` node and the traversal finds
     # nothing, rather than either of them treating absence as corruption.
     topics: tuple[TopicRow, ...] = ()
+    # Retained extraction documents (stories 12.1 and 12.4). Empty for a
+    # meeting the `extract` stage has not reached, and empty for one whose runs
+    # all predate retention — in both cases the search projection writes no
+    # document record, which is a state rather than a gap.
+    documents: tuple[ExtractionDocumentRow, ...] = ()
+
+
+# Only rows that actually retained their text. A pre-12.1 row describes a run
+# whose document was discarded; there is nothing to index, and indexing it as
+# an empty document would make "nothing was kept" read as "nothing was
+# written" (migration 0019's own distinction, AD-18). It is filtered in the
+# statement rather than in Python so the count a caller sees is the count of
+# indexable documents.
+_MEETING_DOCUMENTS = (
+    "SELECT id, kind, origin, layout, item_count, artifact_count, byte_size,"
+    " sha256, document_text, model, prompt_version, prompt_hash"
+    " FROM extraction_source"
+    " WHERE meeting_id = %s AND document_text IS NOT NULL"
+    " ORDER BY kind, id"
+)
+
+
+def extraction_documents(
+    conn: Connection, meeting_id: UUID
+) -> tuple[ExtractionDocumentRow, ...]:
+    """One meeting's retained extraction documents, oldest-schema-safe.
+
+    Split out of :func:`read_meeting` because the document projection has a
+    settle point of its own: the `extract` stage stores these rows *after* the
+    evidence bundle is already projected, so indexing them "as soon as they are
+    stored" (AD-4's exception) needs a read that does not cost a whole bundle.
+    :func:`read_meeting` calls this too, so `rebuild` and the settle-point pass
+    read exactly the same rows through exactly the same statement.
+    """
+    return tuple(
+        ExtractionDocumentRow(
+            id=r[0],
+            kind=r[1],
+            origin=r[2],
+            layout=r[3],
+            item_count=r[4],
+            artifact_count=r[5],
+            byte_size=r[6],
+            sha256=r[7],
+            text=r[8],
+            model=r[9],
+            prompt_version=r[10],
+            prompt_hash=r[11],
+        )
+        for r in conn.execute(_MEETING_DOCUMENTS, (meeting_id,)).fetchall()
+    )
 
 
 def projectable_meeting_ids(conn: Connection) -> list[UUID]:
@@ -452,4 +539,8 @@ def read_meeting(conn: Connection, meeting_id: UUID) -> MeetingEvidence:
         moment_by_segment=moment_by_segment,
         structure=structure,
         topics=topics,
+        # Read last and by the same statement the settle-point pass uses, so
+        # `rebuild` re-indexes documents from the Postgres row alone — no
+        # evidence file is opened here or anywhere else in this module.
+        documents=extraction_documents(conn, meeting_id),
     )
