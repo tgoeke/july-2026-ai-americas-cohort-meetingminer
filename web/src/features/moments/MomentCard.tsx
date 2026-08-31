@@ -65,19 +65,27 @@ function KindChip({
 
 /** A thread chip: `#name` in the thread's hue, pill-shaped so shape separates
  * thread identity from moment kind before colour does. */
-function ThreadChip({ thread, onOpen }: { thread: FeedThread; onOpen: () => void }) {
+function ThreadChip({
+  thread,
+  label = thread.name,
+  onOpen,
+}: {
+  thread: FeedThread
+  label?: string
+  onOpen: () => void
+}) {
   const palette = threadPaletteOf(thread.colorOrdinal)
   return (
     <button
       type="button"
       onClick={onOpen}
       data-testid={`thread-chip-${thread.threadId}`}
-      aria-label={threadChipName(thread)}
+      aria-label={threadChipName({ ...thread, name: label })}
       className="inline-flex min-h-6 cursor-pointer items-center rounded-full border px-2 py-0.5 text-xs"
       style={{ color: `var(${palette.textCssVar})`, borderColor: 'currentColor' }}
     >
       <span aria-hidden="true">#</span>
-      {thread.name}
+      {label}
       {palette.lap === 2 && (
         // Lap 2 shares its hue with lap 1, so the chip carries the second
         // carrier the design requires: a hatched edge inside the chip.
@@ -145,6 +153,7 @@ function ReasonLine({
               <ThreadChip
                 key={key}
                 thread={thread}
+                label={reason.label}
                 onOpen={() => onOpenThread(thread.threadId)}
               />
             )
@@ -208,6 +217,14 @@ export function MomentCard({
   const title = item.meetingTitle?.trim() || item.meetingId
   const offset = offsetLabel(item.startMs)
   const hasShot = item.screenshotId !== null && !shotFailed
+  const openMoment = () => {
+    if (expanded) onToggleReplay()
+    onOpenMoment()
+  }
+  const openMeeting = () => {
+    if (expanded) onToggleReplay()
+    onOpenMeeting()
+  }
 
   const frame = (
     <div
@@ -249,7 +266,7 @@ export function MomentCard({
       <div className="mt-3">
         <button
           type="button"
-          onClick={onOpenMoment}
+          onClick={openMoment}
           data-testid={`moment-title-${item.momentId}`}
           className="cursor-pointer text-left text-[15px] leading-snug font-semibold hover:underline"
         >
@@ -297,7 +314,7 @@ export function MomentCard({
         <Button
           size="sm"
           variant="outline"
-          onClick={onOpenMoment}
+          onClick={openMoment}
           data-testid={`open-moment-${item.momentId}`}
           aria-label={`Open moment at ${offset} in ${title}`}
         >
@@ -306,7 +323,7 @@ export function MomentCard({
         <Button
           size="sm"
           variant="outline"
-          onClick={onOpenMeeting}
+          onClick={openMeeting}
           data-testid={`open-meeting-${item.momentId}`}
           aria-label={`Open meeting ${title}`}
         >
@@ -314,6 +331,11 @@ export function MomentCard({
         </Button>
         {affordance.kind === 'replay' && affordance.source !== null && (
           <SourceLinkAnchor link={affordance.source} testId={`source-${item.momentId}`} />
+        )}
+        {affordance.kind === 'replay' && affordance.inertSource !== null && (
+          <span className="text-xs text-muted-foreground">
+            Source link not opened — unsupported address: {affordance.inertSource}
+          </span>
         )}
         {affordance.kind === 'deepLink' && (
           <SourceLinkAnchor link={affordance.source} testId={`source-${item.momentId}`} />
