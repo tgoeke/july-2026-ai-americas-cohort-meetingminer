@@ -64,7 +64,7 @@ Date: 2026-08-31
 - **Finding** — Before the worker mints a meeting, the real `/meetings` endpoint already returns the queued job with `meetingId: null`. The card accepts that row and renders a partial meeting card, instead of the required pending sentence. The suite models this state as an empty meetings array, so it passes against a response shape the live api does not use.
 - **Evidence** — `server/meetingminer/api/meetings.py:58-63` selects from `job` and left-joins `meeting`; `MeetingListItem.meeting_id` is explicitly nullable until worker claim at lines 79–81, and every job becomes an item at lines 151–170. `IngestingMeetingCard.seed` matches only `jobId` and commits the row. The frozen matrix requires `meetingId: null` to show that the row has not been minted and forbids a half-row; `AddMeeting.test.tsx:528-536` instead returns `meetings: []`.
 - **Suggested direction** — Treat a matched item with no `meetingId` as pending, seed the test with the actual null-ID job row, and only render the finished-card structure once the served meeting identity exists.
-- **Disposition** — patchable; remediation in progress.
+- **Disposition** — fixed red-first. The real null-ID job fixture rendered `acquired-meeting` and failed to find `meeting-pending` against the original seed; it passed after seed required a served meeting id before committing the card row.
 
 ## Disposition
 

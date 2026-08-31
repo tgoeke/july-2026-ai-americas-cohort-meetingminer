@@ -543,7 +543,12 @@ describe('Add-meeting, progress', () => {
   })
 
   it('says the meeting row does not exist yet rather than inventing one', async () => {
-    sdk.listMeetings.mockResolvedValue({ data: { meetings: [] }, error: undefined })
+    sdk.listMeetings.mockResolvedValue({
+      data: {
+        meetings: [meetingRow({ meetingId: null, title: null, status: 'queued', stages: [] })],
+      },
+      error: undefined,
+    })
     await launch(
       acquisition({ status: 'posted', result: 'created', jobId: JOB, meetingId: null }),
     )
