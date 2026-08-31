@@ -45,6 +45,7 @@ function item(overrides: Partial<MomentFeedItem> = {}): MomentFeedItem {
 interface Page {
   items: Array<MomentFeedItem>
   total?: number
+  unfilteredTotal?: number
 }
 
 /** Serve the feed, one page per `offset` the component asks for. Any other
@@ -64,6 +65,7 @@ function serveFeed(pages: (offset: number) => Page) {
         JSON.stringify({
           items: page.items,
           total: page.total ?? page.items.length,
+          unfilteredTotal: page.unfilteredTotal ?? page.total ?? page.items.length,
           limit: Number(url.searchParams.get('limit') ?? '24'),
           offset,
         }),
@@ -110,7 +112,7 @@ describe('MomentsFeed', () => {
       'fetch',
       vi.fn(async () => {
         await held
-        return new Response(JSON.stringify({ items: [], total: 0, limit: 24, offset: 0 }), {
+        return new Response(JSON.stringify({ items: [], total: 0, unfilteredTotal: 0, limit: 24, offset: 0 }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         })
@@ -279,7 +281,7 @@ describe('MomentsFeed', () => {
   })
 
   it('names the active filters when nothing matches, and clears them', async () => {
-    serveFeed(() => ({ items: [], total: 24 }))
+    serveFeed(() => ({ items: [], total: 0, unfilteredTotal: 24 }))
     renderFeed({}, '/?corpus=real&kind=decision')
 
     expect(await screen.findByTestId('moments-empty')).toHaveTextContent(
@@ -320,7 +322,7 @@ describe('MomentsFeed', () => {
       .fn()
       .mockRejectedValueOnce(new Error('fetch failed'))
       .mockResolvedValue(
-        new Response(JSON.stringify({ items: [item()], total: 1, limit: 24, offset: 0 }), {
+        new Response(JSON.stringify({ items: [item()], total: 1, unfilteredTotal: 1, limit: 24, offset: 0 }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         }),

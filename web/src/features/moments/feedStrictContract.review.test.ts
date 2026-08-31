@@ -29,7 +29,7 @@ function rawItem() {
 }
 
 function page(item: Record<string, unknown> = rawItem()) {
-  return { items: [item], total: 1, limit: 24, offset: 0 }
+  return { items: [item], total: 1, unfilteredTotal: 1, limit: 24, offset: 0 }
 }
 
 describe('review F2 — the hand-written reader enforces Story 10.4', () => {
@@ -51,9 +51,9 @@ describe('review F2 — the hand-written reader enforces Story 10.4', () => {
   })
 
   it.each([
-    [{ items: [rawItem()], total: -1, limit: 24, offset: 0 }, 'total'],
-    [{ items: [rawItem()], total: 1, limit: 0, offset: 0 }, 'limit'],
-    [{ items: [rawItem()], total: 1, limit: 24, offset: -1 }, 'offset'],
+    [{ items: [rawItem()], total: -1, unfilteredTotal: 1, limit: 24, offset: 0 }, 'total'],
+    [{ items: [rawItem()], total: 1, unfilteredTotal: 1, limit: 0, offset: 0 }, 'limit'],
+    [{ items: [rawItem()], total: 1, unfilteredTotal: 1, limit: 24, offset: -1 }, 'offset'],
   ])('refuses a malformed paging envelope', (body, field) => {
     expect(() => parseFeedResponse(body)).toThrow(String(field))
   })

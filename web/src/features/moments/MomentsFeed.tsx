@@ -46,11 +46,11 @@ export interface MomentsFeedProps {
 
 type FeedState =
   | { kind: 'loading' }
-  | { kind: 'ready'; items: Array<MomentFeedItem>; total: number }
+  | { kind: 'ready'; items: Array<MomentFeedItem>; total: number; unfilteredTotal: number }
   | {
       kind: 'error'
       message: string
-      stale: { items: Array<MomentFeedItem>; total: number } | null
+      stale: { items: Array<MomentFeedItem>; total: number; unfilteredTotal: number } | null
       retry: { offset: number; previous: Array<MomentFeedItem> | null }
     }
 
@@ -103,7 +103,11 @@ export function MomentsFeed({
     async (
       offset: number,
       previous: Array<MomentFeedItem> | null,
-      fallback: { items: Array<MomentFeedItem>; total: number } | null,
+      fallback: {
+        items: Array<MomentFeedItem>
+        total: number
+        unfilteredTotal: number
+      } | null,
     ) => {
       controller.current?.abort()
       const own = new AbortController()
@@ -119,6 +123,7 @@ export function MomentsFeed({
           kind: 'ready',
           items: previous === null ? page.items : [...previous, ...page.items],
           total: page.total,
+          unfilteredTotal: page.unfilteredTotal,
         }
         if (offset === 0) loadedFilterKey.current = filterKey
         publish(next)
@@ -146,7 +151,11 @@ export function MomentsFeed({
     const current = stateRef.current
     const fallback =
       current.kind === 'ready'
-        ? { items: current.items, total: current.total }
+        ? {
+            items: current.items,
+            total: current.total,
+            unfilteredTotal: current.unfilteredTotal,
+          }
         : current.kind === 'error'
           ? current.stale
           : null
@@ -236,7 +245,12 @@ export function MomentsFeed({
       : state.kind === 'error'
         ? (state.stale?.total ?? 0)
         : 0
-  const shown = items?.length ?? 0
+  const unfilteredTotal =
+    state.kind === 'ready'
+      ? state.unfilteredTotal
+      : state.kind === 'error'
+        ? (state.stale?.unfilteredTotal ?? 0)
+        : 0
   const threadName = threadOptions.find(([id]) => id === filters.thread)?.[1] ?? null
 
   return (
@@ -254,7 +268,7 @@ export function MomentsFeed({
                 className="font-mono tabular-nums text-foreground"
                 data-testid="moments-count"
               >
-                {momentsHeaderCount(shown, total, filtered)}
+                {momentsHeaderCount(total, unfilteredTotal, filtered)}
               </span>
             </>
           )}
@@ -353,7 +367,9 @@ export function MomentsFeed({
               <Button
                 variant="outline"
                 data-testid="moments-show-more"
-                onClick={() => void read(items.length, items, { items, total })}
+                onClick={() =>
+                  void read(items.length, items, { items, total, unfilteredTotal })
+                }
               >
                 Show {Math.min(FEED_PAGE_SIZE, total - items.length)} more
               </Button>

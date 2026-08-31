@@ -73,7 +73,13 @@ function corpusStats(): CorpusStats {
  * (story 10.4). The front door reads it on every route because it stays
  * mounted, so every test in this file needs it answered. */
 function feedPage(items: Array<unknown> = []): string {
-  return JSON.stringify({ items, total: items.length, limit: 24, offset: 0 })
+  return JSON.stringify({
+    items,
+    total: items.length,
+    unfilteredTotal: items.length,
+    limit: 24,
+    offset: 0,
+  })
 }
 
 function jsonResponse(body: string): Response {
