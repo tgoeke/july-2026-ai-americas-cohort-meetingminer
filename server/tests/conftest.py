@@ -503,6 +503,12 @@ EVIDENCE_TABLES = (
     # clearing it. Both are worker-owned, machine-derived navigation metadata,
     # never artifacts.
     "thread", "topic_thread",
+    # story 10.4. `ranking_signal` references `moment` (composite, cascading),
+    # and TRUNCATE refuses to empty a table another one references however
+    # that reference cascades on DELETE — so omitting this name would refuse
+    # the `moment` truncation above and take every store-backed suite with
+    # it. Worker-owned machine-derived ranking signals, never artifacts.
+    "ranking_signal",
 )
 
 

@@ -723,8 +723,12 @@ ranking:
 
   # How many risk and question reasons one card may carry. Three: enough to
   # show that a moment raised several, few enough that the card stays a card.
-  # Scoring is capped with it — a moment that raised nine questions is not
-  # nine times more pressing than one that raised three.
+  #
+  # Scoring does not multiply with it. The `risk` and `question` weights are
+  # earned once per kind, however many rows there are, because a moment that
+  # raised nine questions is not nine times more pressing than one that
+  # raised three — and a count-multiplied term would let one talkative
+  # meeting hold the whole front door.
   max_signal_reasons: 3
 
   # How many thread memberships contribute a chip and a score term. Three
