@@ -709,6 +709,70 @@ export type EvidenceTimeline = {
 };
 
 /**
+ * ExtractionDocument
+ *
+ * One extraction run: what produced it, what it yielded, and its text.
+ */
+export type ExtractionDocument = {
+    /**
+     * Kind
+     */
+    kind: string;
+    /**
+     * Origin
+     */
+    origin: string;
+    /**
+     * Droprelativepath
+     */
+    dropRelativePath?: string | null;
+    /**
+     * Sha256
+     */
+    sha256: string;
+    /**
+     * Bytesize
+     */
+    byteSize: number;
+    /**
+     * Layout
+     */
+    layout: string;
+    /**
+     * Itemcount
+     */
+    itemCount: number;
+    /**
+     * Artifactcount
+     */
+    artifactCount: number;
+    /**
+     * Model
+     */
+    model?: string | null;
+    /**
+     * Promptversion
+     */
+    promptVersion?: number | null;
+    /**
+     * Prompthash
+     */
+    promptHash?: string | null;
+    /**
+     * Documenttext
+     */
+    documentText?: string | null;
+    /**
+     * Createdat
+     */
+    createdAt: string;
+    /**
+     * Updatedat
+     */
+    updatedAt: string;
+};
+
+/**
  * ExtractionPrompt
  *
  * One document kind's active, complete prompt text.
@@ -1159,6 +1223,20 @@ export type MeetingDrilldownResponse = {
      * Segments
      */
     segments: Array<DrilldownSegment>;
+};
+
+/**
+ * MeetingExtractionDocumentsResponse
+ */
+export type MeetingExtractionDocumentsResponse = {
+    /**
+     * Meetingid
+     */
+    meetingId: string;
+    /**
+     * Documents
+     */
+    documents: Array<ExtractionDocument>;
 };
 
 /**
@@ -3516,6 +3594,44 @@ export type GetExtractionPromptsResponses = {
 };
 
 export type GetExtractionPromptsResponse = GetExtractionPromptsResponses[keyof GetExtractionPromptsResponses];
+
+export type ListMeetingExtractionDocumentsData = {
+    body?: never;
+    path: {
+        /**
+         * Meeting Id
+         */
+        meeting_id: string;
+    };
+    query?: never;
+    url: '/meetings/{meeting_id}/extraction-documents';
+};
+
+export type ListMeetingExtractionDocumentsErrors = {
+    /**
+     * `not-found` — no meeting with that id.
+     */
+    404: unknown;
+    /**
+     * `meeting-not-viewable` — the meeting exists but an evidence stage has not settled; the same gate every meeting-scoped read passes.
+     */
+    409: unknown;
+    /**
+     * `invalid-request` — the route parameter is not a UUID.
+     */
+    422: ProblemDetails;
+};
+
+export type ListMeetingExtractionDocumentsError = ListMeetingExtractionDocumentsErrors[keyof ListMeetingExtractionDocumentsErrors];
+
+export type ListMeetingExtractionDocumentsResponses = {
+    /**
+     * Successful Response
+     */
+    200: MeetingExtractionDocumentsResponse;
+};
+
+export type ListMeetingExtractionDocumentsResponse = ListMeetingExtractionDocumentsResponses[keyof ListMeetingExtractionDocumentsResponses];
 
 export type ListParticipantsData = {
     body?: never;
