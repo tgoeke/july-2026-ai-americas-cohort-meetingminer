@@ -46,9 +46,13 @@ export interface BandBucket {
 /** One meeting on a band at the meetings tier. */
 export interface TimelineMeeting {
   meetingId: string
-  title: string
+  title: string | null
   /** Canonical UTC instant the meeting starts at. */
   occurredAt: string
+  /** Last mention of this thread in the meeting, served by Story 10.3. */
+  lastOccurredAt?: string
+  /** Precision of the canonical wall-clock anchor. */
+  occurredAtPrecision?: string
   durationMs: number
   mentionCount: number
 }
@@ -57,10 +61,11 @@ export interface TimelineMeeting {
 export interface TimelineMoment {
   momentId: string
   meetingId: string
-  meetingTitle: string
+  meetingTitle?: string | null
   title: string
   /** Canonical UTC instant of the moment — the x this screen draws it at. */
   occurredAt: string
+  occurredAtPrecision?: string
   /** Offset inside the recording. A replay offset, never a cross-meeting x. */
   startMs: number
   /** Named speakers, where diarization and naming have produced them. */
@@ -88,10 +93,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
+class ThreadsContractError extends Error {}
+
 function requireString(row: Record<string, unknown>, key: string, where: string): string {
   const value = row[key]
   if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`${where}: \`${key}\` must be a non-empty string`)
+    throw new ThreadsContractError(`${where}: \`${key}\` must be a non-empty string`)
   }
   return value
 }
@@ -99,7 +106,7 @@ function requireString(row: Record<string, unknown>, key: string, where: string)
 function requireNumber(row: Record<string, unknown>, key: string, where: string): number {
   const value = row[key]
   if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error(`${where}: \`${key}\` must be a finite number`)
+    throw new ThreadsContractError(`${where}: \`${key}\` must be a finite number`)
   }
   return value
 }
@@ -107,19 +114,50 @@ function requireNumber(row: Record<string, unknown>, key: string, where: string)
 function requireArray(body: unknown, key: string, where: string): Array<unknown> {
   if (Array.isArray(body)) return body
   if (isRecord(body) && Array.isArray(body[key])) return body[key] as Array<unknown>
-  throw new Error(`${where}: expected an array of ${key}`)
+  throw new ThreadsContractError(`${where}: expected an array of ${key}`)
 }
 
 function requireRow(value: unknown, where: string): Record<string, unknown> {
-  if (!isRecord(value)) throw new Error(`${where}: each entry must be an object`)
+  if (!isRecord(value)) throw new ThreadsContractError(`${where}: each entry must be an object`)
   return value
 }
 
 /** An RFC 3339 instant as epoch ms; a value the platform cannot read refuses. */
 export function instantOf(value: string, where: string): number {
   const t = Date.parse(value)
-  if (Number.isNaN(t)) throw new Error(`${where}: \`${value}\` is not an RFC 3339 instant`)
+  if (Number.isNaN(t)) {
+    throw new ThreadsContractError(`${where}: \`${value}\` is not an RFC 3339 instant`)
+  }
   return t
+}
+
+function requireInstant(row: Record<string, unknown>, key: string, where: string): string {
+  const value = requireString(row, key, where)
+  instantOf(value, `${where}: \`${key}\``)
+  return value
+}
+
+function optionalString(row: Record<string, unknown>, key: string, where: string): string | undefined {
+  if (!(key in row)) return undefined
+  return requireString(row, key, where)
+}
+
+function timelineRows(
+  body: unknown,
+  liveKey: string,
+  legacyKey: string,
+  where: string,
+): Array<unknown> {
+  if (Array.isArray(body)) return body
+  if (isRecord(body) && Array.isArray(body[liveKey])) return body[liveKey] as Array<unknown>
+  return requireArray(body, legacyKey, where)
+}
+
+function requireLevel(body: unknown, level: TimelineLevel, where: string): void {
+  if (!isRecord(body) || body.level === undefined) return
+  if (body.level !== level) {
+    throw new ThreadsContractError(`${where}: response level must be \`${level}\``)
+  }
 }
 
 /** `GET /threads` → rows, refusing a body that is not 10.3's shape. */
@@ -133,8 +171,8 @@ export function parseThreads(body: unknown): Array<ThreadSummary> {
       name: requireString(row, 'name', where),
       mentionCount: requireNumber(row, 'mentionCount', where),
       meetingCount: requireNumber(row, 'meetingCount', where),
-      firstMentionAt: requireString(row, 'firstMentionAt', where),
-      lastMentionAt: requireString(row, 'lastMentionAt', where),
+      firstMentionAt: requireInstant(row, 'firstMentionAt', where),
+      lastMentionAt: requireInstant(row, 'lastMentionAt', where),
       colorOrdinal: requireNumber(row, 'colorOrdinal', where),
     }
   })
@@ -143,15 +181,28 @@ export function parseThreads(body: unknown): Array<ThreadSummary> {
 /** A timeline body at one level → the drawable payload for that level. */
 export function parseTimeline(level: TimelineLevel, body: unknown): TimelinePayload {
   const where = `GET /threads/{id}/timeline?level=${level}`
+  requireLevel(body, level, where)
   if (level === 'bands') {
     return {
       level,
-      buckets: requireArray(body, 'buckets', where).map((entry, i) => {
+      buckets: timelineRows(body, 'bands', 'buckets', where).map((entry, i) => {
         const row = requireRow(entry, `${where}[${i}]`)
+        const rowWhere = `${where}[${i}]`
+        const from =
+          row.startAt === undefined
+            ? requireInstant(row, 'from', rowWhere)
+            : requireInstant(row, 'startAt', rowWhere)
+        const to =
+          row.endAt === undefined
+            ? requireInstant(row, 'to', rowWhere)
+            : requireInstant(row, 'endAt', rowWhere)
+        if (Date.parse(to) < Date.parse(from)) {
+          throw new ThreadsContractError(`${rowWhere}: bucket end is before its start`)
+        }
         return {
-          from: requireString(row, 'from', `${where}[${i}]`),
-          to: requireString(row, 'to', `${where}[${i}]`),
-          mentionCount: requireNumber(row, 'mentionCount', `${where}[${i}]`),
+          from,
+          to,
+          mentionCount: requireNumber(row, 'mentionCount', rowWhere),
         }
       }),
     }
@@ -160,38 +211,73 @@ export function parseTimeline(level: TimelineLevel, body: unknown): TimelinePayl
     return {
       level,
       meetings: requireArray(body, 'meetings', where).map((entry, i) => {
-        const row = requireRow(entry, `${where}[${i}]`)
+        const rowWhere = `${where}[${i}]`
+        const row = requireRow(entry, rowWhere)
+        const occurredAt = requireInstant(row, 'occurredAt', rowWhere)
+        let lastOccurredAt: string
+        let durationMs: number
+        if (row.lastOccurredAt !== undefined) {
+          lastOccurredAt = requireInstant(row, 'lastOccurredAt', rowWhere)
+          durationMs = Date.parse(lastOccurredAt) - Date.parse(occurredAt)
+          if (durationMs < 0) {
+            throw new ThreadsContractError(`${rowWhere}: lastOccurredAt is before occurredAt`)
+          }
+        } else {
+          durationMs = requireNumber(row, 'durationMs', rowWhere)
+          lastOccurredAt = new Date(Date.parse(occurredAt) + durationMs).toISOString()
+        }
+        const title = row.title
+        if (title !== null && (typeof title !== 'string' || title.length === 0)) {
+          throw new ThreadsContractError(`${rowWhere}: \`title\` must be null or a non-empty string`)
+        }
         return {
-          meetingId: requireString(row, 'meetingId', `${where}[${i}]`),
-          title: requireString(row, 'title', `${where}[${i}]`),
-          occurredAt: requireString(row, 'occurredAt', `${where}[${i}]`),
-          durationMs: requireNumber(row, 'durationMs', `${where}[${i}]`),
-          mentionCount: requireNumber(row, 'mentionCount', `${where}[${i}]`),
+          meetingId: requireString(row, 'meetingId', rowWhere),
+          title,
+          occurredAt,
+          lastOccurredAt,
+          occurredAtPrecision: optionalString(row, 'occurredAtPrecision', rowWhere),
+          durationMs,
+          mentionCount: requireNumber(row, 'mentionCount', rowWhere),
         }
       }),
     }
   }
   if (level === 'moments') {
+    if (isRecord(body) && body.truncated === true) {
+      throw new ThreadsContractError(`${where}: response is truncated; narrow the timeline window`)
+    }
+    if (isRecord(body) && body.truncated !== undefined && typeof body.truncated !== 'boolean') {
+      throw new ThreadsContractError(`${where}: \`truncated\` must be a boolean`)
+    }
     return {
       level,
       moments: requireArray(body, 'moments', where).map((entry, i) => {
-        const row = requireRow(entry, `${where}[${i}]`)
+        const rowWhere = `${where}[${i}]`
+        const row = requireRow(entry, rowWhere)
         const speakers = row.speakers
+        if (
+          speakers !== null &&
+          (!Array.isArray(speakers) || speakers.some((speaker) => typeof speaker !== 'string'))
+        ) {
+          throw new ThreadsContractError(`${rowWhere}: \`speakers\` must be an array of strings`)
+        }
         return {
-          momentId: requireString(row, 'momentId', `${where}[${i}]`),
-          meetingId: requireString(row, 'meetingId', `${where}[${i}]`),
-          meetingTitle: requireString(row, 'meetingTitle', `${where}[${i}]`),
-          title: requireString(row, 'title', `${where}[${i}]`),
-          occurredAt: requireString(row, 'occurredAt', `${where}[${i}]`),
-          startMs: requireNumber(row, 'startMs', `${where}[${i}]`),
-          speakers: Array.isArray(speakers)
-            ? speakers.filter((s): s is string => typeof s === 'string' && s.length > 0)
-            : [],
+          momentId: requireString(row, 'momentId', rowWhere),
+          meetingId: requireString(row, 'meetingId', rowWhere),
+          meetingTitle: optionalString(row, 'meetingTitle', rowWhere),
+          title: requireString(row, 'title', rowWhere),
+          occurredAt: requireInstant(row, 'occurredAt', rowWhere),
+          occurredAtPrecision: optionalString(row, 'occurredAtPrecision', rowWhere),
+          startMs: requireNumber(row, 'startMs', rowWhere),
+          speakers:
+            speakers === null
+              ? []
+              : (speakers as Array<string>).filter((speaker) => speaker.length > 0),
         }
       }),
     }
   }
-  throw new Error(`${where}: the evidence level is story 10.6a and is not drawn here`)
+  throw new ThreadsContractError(`${where}: the evidence level is story 10.6a and is not drawn here`)
 }
 
 async function readJson(response: Response, url: string): Promise<unknown> {
@@ -200,7 +286,7 @@ async function readJson(response: Response, url: string): Promise<unknown> {
   try {
     return JSON.parse(text) as unknown
   } catch {
-    throw new Error(`${url}: the api answered with a body that is not JSON`)
+    throw new ThreadsContractError(`${url}: the api answered with a body that is not JSON`)
   }
 }
 
@@ -219,13 +305,18 @@ async function refusalOf(response: Response, url: string): Promise<ThreadsFailur
   }
 }
 
-/** A request that carries both the caller's abort and this module's expiry. */
-async function get(path: string, signal: AbortSignal | undefined): Promise<Response> {
+/** A request whose expiry owns both headers and body consumption. */
+async function withGet<T>(
+  path: string,
+  signal: AbortSignal | undefined,
+  consume: (response: Response) => Promise<T>,
+): Promise<T> {
   const expiry = new AbortController()
   const timer = setTimeout(() => expiry.abort(), THREADS_TIMEOUT_MS)
   try {
     const signals = signal === undefined ? [expiry.signal] : [signal, expiry.signal]
-    return await fetch(`${API_BASE}${path}`, { signal: AbortSignal.any(signals) })
+    const response = await fetch(`${API_BASE}${path}`, { signal: AbortSignal.any(signals) })
+    return await consume(response)
   } finally {
     clearTimeout(timer)
   }
@@ -236,11 +327,13 @@ export async function listThreads(
   signal?: AbortSignal,
 ): Promise<{ data?: Array<ThreadSummary>; error?: ThreadsFailure }> {
   try {
-    const response = await get('/threads', signal)
-    if (!response.ok) return { error: await refusalOf(response, 'GET /threads') }
-    return { data: parseThreads(await readJson(response, 'GET /threads')) }
+    return await withGet('/threads', signal, async (response) => {
+      if (!response.ok) return { error: await refusalOf(response, 'GET /threads') }
+      return { data: parseThreads(await readJson(response, 'GET /threads')) }
+    })
   } catch (err) {
     if (signal?.aborted === true) return {}
+    if (err instanceof ThreadsContractError) return { error: { kind: 'problem', message: err.message } }
     return { error: transportFailureOf(err) }
   }
 }
@@ -263,11 +356,13 @@ export async function fetchTimeline(
   })
   const path = `/threads/${encodeURIComponent(threadId)}/timeline?${query.toString()}`
   try {
-    const response = await get(path, signal)
-    if (!response.ok) return { error: await refusalOf(response, `GET ${path}`) }
-    return { data: parseTimeline(level, await readJson(response, `GET ${path}`)) }
+    return await withGet(path, signal, async (response) => {
+      if (!response.ok) return { error: await refusalOf(response, `GET ${path}`) }
+      return { data: parseTimeline(level, await readJson(response, `GET ${path}`)) }
+    })
   } catch (err) {
     if (signal?.aborted === true) return {}
+    if (err instanceof ThreadsContractError) return { error: { kind: 'problem', message: err.message } }
     return { error: transportFailureOf(err) }
   }
 }
