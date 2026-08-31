@@ -158,7 +158,7 @@ AD-4; it is not re-argued here.
   under Meilisearch's finite HTTP payload ceiling. Owner must choose a retained
   source limit, configured store limit, searchable truncation, or revised
   chunking/identity. See F-11 in `review-story-12-4-2026-08-31.md`.
-- [x] [Review][Patch] Ten patchable findings fixed red-first on
+- [x] [Review][Patch] Nine patchable findings fixed red-first on
   `story/12-4-review`; full private-stack gate green. See F-01, F-02, F-04
   through F-07, F-09, F-10, and F-12 in the review report.
 

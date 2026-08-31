@@ -13,7 +13,7 @@ pushed. Do not merge it; the owner runs `integrate`.
 
 ## Story verdict
 
-The story does **not** pass review as it stands. Ten patchable findings are
+The story does **not** pass review as it stands. Nine patchable findings are
 already fixed red-first on `story/12-4-review`; no builder code patch remains.
 Two high-severity findings are rooted in the frozen specification/architecture
 and require owner decisions. Do not silently code around either one. Amend the
