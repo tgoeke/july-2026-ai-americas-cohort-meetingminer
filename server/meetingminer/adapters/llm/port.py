@@ -34,6 +34,44 @@ class LlmUnavailableError(LlmError):
     """
 
 
+class LlmModelNotServedError(LlmError):
+    """The provider answered, and does not have the model this binding names.
+
+    A *configuration* failure, not an outage, and the distinction decides
+    whether another model may answer. A host that is down cannot serve
+    anything, so substituting the role's fallback is the deliberate cover for
+    it. A host that is up and does not have *this* model will answer the same
+    way forever, and quietly returning a different model's completion is the
+    silent fallback this project has rejected by owner decision (story 8.2's
+    third acceptance clause; backlog B-38).
+
+    It therefore subclasses :class:`LlmError` -- so every caller that already
+    maps the port's failures to a named error keeps working -- while
+    :class:`~meetingminer.adapters.llm.FallbackLlm` re-raises it ahead of the
+    ``except LlmError`` that engages the substitute.
+
+    The four fields are what make the failure actionable without a log viewer:
+    which provider was called, at which endpoint, for which model, and what
+    the upstream said. ``api_base`` is ``None`` when no ``providers:`` entry
+    matched and the SDK used its own default endpoint for that provider.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        provider: str,
+        model: str,
+        api_base: str | None,
+        upstream_status: int | None,
+    ) -> None:
+        super().__init__(message)
+        self.provider = provider
+        self.model = model
+        self.api_base = api_base
+        self.upstream_status = upstream_status
+
+
 @dataclass(frozen=True)
 class LlmOptions:
     """Per-call knobs a caller may set without naming a provider or an SDK.

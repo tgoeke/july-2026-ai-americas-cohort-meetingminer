@@ -23,6 +23,7 @@ from meetingminer.adapters.llm.litellm import LiteLlmCompleter, ProviderBinding
 from meetingminer.adapters.llm.port import (
     Llm,
     LlmError,
+    LlmModelNotServedError,
     LlmOptions,
     LlmReply,
     LlmUnavailableError,
@@ -33,6 +34,7 @@ __all__ = [
     "LiteLlmCompleter",
     "Llm",
     "LlmError",
+    "LlmModelNotServedError",
     "LlmOptions",
     "LlmReply",
     "LlmUnavailableError",
@@ -86,6 +88,15 @@ class FallbackLlm:
         if not self._engaged:
             try:
                 return self.primary.complete(prompt, options)
+            except LlmModelNotServedError:
+                # The one `LlmError` that must never be absorbed (story 8.2,
+                # backlog B-38). The primary's host is up and does not have the
+                # model the binding names: answering from the fallback would
+                # return a different model's judgment under the selected
+                # binding's name, which is the silent fallback this project has
+                # rejected by owner decision. Ordered before the clause below,
+                # which would otherwise catch it as a subclass.
+                raise
             except LlmError as exc:
                 if self.fallback is None:
                     raise

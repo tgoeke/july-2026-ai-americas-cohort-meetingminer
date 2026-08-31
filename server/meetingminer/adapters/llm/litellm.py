@@ -27,6 +27,7 @@ from typing import Callable, Mapping, Protocol
 
 from meetingminer.adapters.llm.port import (
     LlmError,
+    LlmModelNotServedError,
     LlmOptions,
     LlmReply,
     LlmUnavailableError,
@@ -146,6 +147,39 @@ class LiteLlmCompleter:
                 timeout=timeout,
                 **extra,
             )
+        except litellm.exceptions.NotFoundError as exc:
+            # The host answered and does not have this model (backlog B-38).
+            # It is placed BEFORE the outage tuple deliberately: a 404 is the
+            # one status in that family that will never resolve by waiting,
+            # and mapping it to `LlmUnavailableError` would hand a wrong
+            # binding to the fallback and let a different model answer.
+            #
+            # The provider comes from the shared spelling rule, never from the
+            # SDK's `llm_provider`: the operator has to check the account and
+            # endpoint this project routed to, which is what `resolve_api_base`
+            # used above. The SDK's own name is a last resort for a spelling
+            # the rule cannot identify (the loader refuses those, so this is
+            # defence in depth rather than a live path).
+            provider = (
+                provider_for_model(self.model)
+                or getattr(exc, "llm_provider", None)
+                or "unknown"
+            )
+            # `None` would print as `at None` and send the reader looking for a
+            # host that is not named anywhere; say which endpoint answered.
+            endpoint = self.api_base or "the provider's default endpoint"
+            status = getattr(exc, "status_code", None)
+            raise LlmModelNotServedError(
+                f"provider {provider!r} at {endpoint!r} does not serve model"
+                f" {self.model!r} \u2014 the host answered"
+                f"{f' HTTP {status}' if status is not None else ''}:"
+                f" {exc}. Change the selected binding, or make that host serve"
+                " this model; no other model was substituted.",
+                provider=provider,
+                model=self.model,
+                api_base=self.api_base,
+                upstream_status=status,
+            ) from exc
         except (
             litellm.exceptions.APIConnectionError,
             litellm.exceptions.Timeout,
