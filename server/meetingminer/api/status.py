@@ -89,7 +89,7 @@ KEY_ENV_VARS = {
 _now = time.monotonic
 
 State = Literal["ok", "degraded"]
-KeyState = Literal["present", "missing", "invalid", "not-required"]
+KeyState = Literal["present", "missing", "invalid", "not-required", "unknown"]
 
 #: How the binding a role is serving was arrived at. ``selection`` and
 #: ``file-default`` are :mod:`~meetingminer.domain.model_selection`'s own two
@@ -162,7 +162,7 @@ def _role_attribution(role: str) -> str:
         f" `llm.roles.{role}` — the {caller} does, from its own `config.yaml`"
         f" snapshot and its own resolution of the stored selection. This row is"
         f" the {OBSERVING_PROCESS} process's snapshot, not the {caller}'s, and"
-        " the two disagree until both are restarted after a `config.yaml` edit."
+        " the two may disagree until both are restarted after a `config.yaml` edit."
     )
 
 
@@ -317,11 +317,15 @@ def _probe_provider(provider: str, base_url: str, api_key: str | None) -> ProbeR
         url = f"{base_url.rstrip('/')}/api/tags"
         headers = {}
     else:
-        return ProbeResult("ok", f"no probe defined for provider {provider!r}")
+        return ProbeResult(
+            "unreachable", f"no free probe is defined for provider {provider!r}"
+        )
     try:
         response = httpx.get(url, headers=headers, timeout=PROBE_TIMEOUT_SECONDS)
     except httpx.HTTPError as exc:
-        return ProbeResult("unreachable", f"{url} unreachable: {exc}")
+        return ProbeResult(
+            "unreachable", f"{url} unreachable ({type(exc).__name__})"
+        )
     if response.status_code in (401, 403):
         return ProbeResult(
             "invalid-key", f"the provider refused the key (HTTP {response.status_code})"
@@ -354,7 +358,7 @@ def _check_postgres(request: Request) -> tuple[bool, str]:
         with pool.connection() as conn:
             conn.execute("SELECT 1")
     except Exception as exc:  # any pool/connection failure means "down"
-        return False, f"query failed: {exc}"
+        return False, f"query failed ({type(exc).__name__})"
     return True, "answering queries"
 
 
@@ -368,7 +372,7 @@ def _check_neo4j(uri: str) -> tuple[bool, str]:
         with socket.create_connection((host, port), timeout=PROBE_TIMEOUT_SECONDS):
             pass
     except OSError as exc:
-        return False, f"bolt port {host}:{port} unreachable: {exc}"
+        return False, f"bolt port {host}:{port} unreachable ({type(exc).__name__})"
     return True, f"bolt port {host}:{port} accepting connections"
 
 
@@ -378,7 +382,7 @@ def _check_meilisearch(url: str) -> tuple[bool, str]:
     try:
         response = httpx.get(health_url, timeout=PROBE_TIMEOUT_SECONDS)
     except httpx.HTTPError as exc:
-        return False, f"{health_url} unreachable: {exc}"
+        return False, f"{health_url} unreachable ({type(exc).__name__})"
     if not response.is_success:
         return False, f"{health_url} answered HTTP {response.status_code}"
     return True, "health endpoint answering"
@@ -446,6 +450,15 @@ def _key_health(
         )
 
     env_var = KEY_ENV_VARS.get(provider)
+    if env_var is None and provider != "ollama":
+        return _KeyHealth(
+            "unknown",
+            "degraded",
+            f"no free probe is defined for provider {provider!r}; credential and"
+            " endpoint health were not verified",
+            f"add a free list-endpoint probe for {provider} before relying on this"
+            " health row",
+        )
     if env_var is None:
         # Keyless (local) provider: reachability is the whole health question.
         result = _cached_probe(provider, base_url, None)
@@ -468,7 +481,7 @@ def _key_health(
         return _KeyHealth(
             "missing",
             "degraded",
-            f"{env_var} is not set, so every call on this provider will fail",
+            f"{env_var} is not set, so this api process cannot call this provider",
             f"set {env_var} in .env and restart the api (`make api`); the"
             " worker reads .env for itself, so restart it too",
         )
@@ -479,8 +492,9 @@ def _key_health(
             "invalid",
             "degraded",
             f"{env_var} is invalid — {result.detail}",
-            f"set a valid {env_var} in .env and restart the api (`make api`)"
-            " and the worker; until then requests on this provider fail",
+            f"set a valid {env_var} in .env and restart the api (`make api`);"
+            " restart the worker too because it loads .env independently; until"
+            " then requests from this api process to this provider fail",
         )
     if result.state == "unreachable":
         return _KeyHealth(

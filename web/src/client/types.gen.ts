@@ -1046,7 +1046,7 @@ export type LlmRoleStatus = {
     /**
      * Keystate
      */
-    keyState: 'present' | 'missing' | 'invalid' | 'not-required';
+    keyState: 'present' | 'missing' | 'invalid' | 'not-required' | 'unknown';
     /**
      * State
      */
@@ -2058,7 +2058,7 @@ export type ProviderStatus = {
     /**
      * Keystate
      */
-    keyState: 'present' | 'missing' | 'invalid' | 'not-required';
+    keyState: 'present' | 'missing' | 'invalid' | 'not-required' | 'unknown';
     /**
      * Detail
      */

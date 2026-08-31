@@ -133,6 +133,7 @@ export function healthOfRoleRow(row: {
   const remediation = row.remediation ?? null
   if (row.keyState === 'invalid') return { word: 'invalid', remediation }
   if (row.keyState === 'missing') return { word: 'missing', remediation }
+  if (row.keyState === 'unknown') return UNKNOWN_HEALTH
   if (row.state === 'ok') return { word: 'ok', remediation: null }
   return { word: 'unreachable', remediation }
 }
