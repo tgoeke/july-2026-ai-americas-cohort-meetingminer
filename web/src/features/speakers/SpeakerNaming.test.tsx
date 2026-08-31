@@ -843,7 +843,12 @@ describe('staying usable while the evidence is unsettled', () => {
     expect(await screen.findByTestId('speakers-failure')).toHaveTextContent(
       'meeting not viewable: its evidence is being rebuilt',
     )
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('speakers-failure')).getByRole('button', { name: 'Retry' }),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('transcript-failure')).getByRole('button', { name: 'Retry' }),
+    ).toBeInTheDocument()
   })
 
   it('names the api when it cannot be reached at all', async () => {
