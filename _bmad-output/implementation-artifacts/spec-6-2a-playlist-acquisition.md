@@ -2,9 +2,9 @@
 title: 'Story 6.2a: Playlist Acquisition'
 type: 'feature'
 created: '2026-08-30'
-status: 'review'
+status: 'done'
 baseline_revision: '8f00de6f2a825bd0fc99fac4da5bda620bff5161'
-review_loop_iteration: 0
+review_loop_iteration: 1
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/build-prompt-story-6-2a-2026-08-30.md'

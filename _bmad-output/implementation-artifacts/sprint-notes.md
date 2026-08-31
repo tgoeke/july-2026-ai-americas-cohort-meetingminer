@@ -3116,3 +3116,15 @@ No live playlist run: the suite is offline by construction and a real
 multi-video acquisition is minutes of downloads. Gates in this worktree's own
 stack — `make test-fast` 1877 passed, `make test` 2255 passed / 2 skipped with
 the web build, lint and typecheck clean.
+
+## Story 6.2a review — 2026-08-30
+
+Review branch `story/6-2a-review` rebased the story onto `f92cb9c` and fixed all
+three findings: the pre-enumeration gate now requires only `yt-dlp`, so an
+already-minted playlist entry keeps Story 6.2's media-tool-free `exists` path;
+the refusal vocabulary is enforced both at construction and over every raise
+site by AST; and `ConfigError` continuation has a loop-level regression test.
+No owner decision or deferred item remains. Focused tests: 157 passed / 1 named
+network skip; `make test-fast`: 1927 passed / 2 named skips; `make test`: 2305
+server tests passed / 2 named skips plus the web build. Review report:
+`review-story-6-2a-2026-08-30.md`.

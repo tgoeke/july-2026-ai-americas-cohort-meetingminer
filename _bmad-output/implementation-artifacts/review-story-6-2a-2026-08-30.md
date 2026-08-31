@@ -39,3 +39,37 @@ Adversarial review of Story 6.2a across the implementation, tests, operator docu
 - **Evidence** — `rg -n 'ConfigError|run_playlist' server/tests --glob '*.py'` found the playlist module's only `ConfigError` use at line 300 inside `test_refusal_rule_names_the_source_of_every_refusal_kind()`, which never invokes `run_playlist()`. A focused two-entry `uv run --project server python` probe made the first acquisition raise `ConfigError("configuration changed")`; current code correctly printed `refused:config`, attempted the second entry, and reported `code=1; entries_attempted=2`, demonstrating the behavior that lacks a test.
 - **Suggested direction** — Add a loop-level regression case in `test_youtube_playlist.py` that raises `ConfigError` for one entry and asserts `refused:config`, exit 1, and acquisition of the later entry. Keep the existing mapping assertion as the unit check for the token itself.
 - **Resolution** — Added the loop-level regression case. For the red phase, the catch tuple was temporarily mutated to omit `ConfigError`; the new test failed as the exception escaped from entry 1. The production tuple was immediately restored, after which the focused test and all 47 playlist tests passed. The mutant was never committed.
+
+## Verdict
+
+**Pass after remediation.** All three findings are resolved on `story/6-2a-review`; there are no open high, medium, or low findings, no owner decisions, and no deferred work. The frozen intent contract was not edited. The story spec and sprint tracking are `done`, pending the owner's integration of this review branch.
+
+## Compatibility and design-decision audit
+
+- **Story 6.3 rebase/API compatibility** — verified after rebasing onto `origin/main`: `mint()` retains every keyword used by `youtube.acquire()`, `MintResult` only adds the defaulted `ignored` field, and `MintError`, `IntakeError`, `_report`, `post_ingest`, `ingest_command`, and `resolve_api_url` imported by `youtube.py` are the landed `mintdrop.py` symbols. The focused and full suites exercise the rebased composition.
+- **Existing refusal text** — an AST comparison against `origin/main` found all 27 pre-existing `raise YoutubeError(...)` first-argument expressions identical. The `_yt_dlp_detail()` extraction preserves `classify_probe_failure()` output, and Story 6.2's 110 tests remain untouched and green inside the 157-test focused run.
+- **Single-video delivery** — `_deliver()` retains the original report, `--no-post`, successful intake, duplicate intake, and `IntakeError` print/exit paths; the unchanged Story 6.2 tests observe those outputs and exit codes.
+- **Per-entry failure boundary** — a named mid-playlist `YoutubeError` probe attempted all later entries and printed the table with exit 1. A probed unexpected `RuntimeError` escaped after its entry and printed no table, matching the frozen contract's explicit `YoutubeError`/`MintError`/`ConfigError` scope rather than being mislabeled as a refusal.
+- **Architecture** — every usable entry still reaches Story 6.2's `acquire()` and exactly one `_deliver()` call sequentially; `_deliver()` uses only `POST /ingests`; the existing-drop path reads and POSTs without modifying the finalized drop; the configured duration cap is reused unchanged; no schema or configuration file changed.
+
+## Verification
+
+- `uv run --project server pytest server/tests/test_youtube_playlist.py server/tests/test_youtube.py -q` — 157 passed, 1 skipped (the named network test).
+- `make lint` — all checks passed.
+- `make typecheck` — success, no issues in 13 source files.
+- `make test-fast` — 1927 passed, 2 skipped, 378 deselected; the skips are the named `pyannote` and YouTube network cases.
+- `make test` — 2305 server tests passed, 2 named skips; puller, web tests, 643 eval-harness tests, isolated diarization tests, store checks, and the web production build all passed.
+- `python3 _bmad/scripts/branch_conflicts.py --against story/6-2a-review` — `main × story/6-2a-review` is clean. The command exits 1 overall because the matrix also includes expected `sprint-notes.md` append conflicts with other in-flight branches and the intentional overlap with its source branch; the owner must union the notes during integration as already directed.
+- `make check-reviews` — pending the committed final report check.
+
+## Remediation commits
+
+- `848c8c0` — F1: preserve the playlist `exists` short-circuit without media tools.
+- `c38bb4d` — F2: enforce the refusal-rule vocabulary and replace the regex guard.
+- `3bc6795` — F3: cover per-entry `ConfigError` survival.
+
+## Residual risks
+
+- No live playlist was acquired end to end. Enumeration remains deliberately verified against the recorded offline fixture; a future `yt-dlp --flat-playlist` payload change needs a real operator run to expose it.
+- Unexpected exceptions outside the three named per-entry refusal types still abort the run without a summary table. This was probed and matches the frozen boundary; it is not an open review finding.
+- The review branch intentionally overlaps `story/6-2a` and appends to `sprint-notes.md`; the owner must integrate this branch, not merge the unrebased source branch beside it.

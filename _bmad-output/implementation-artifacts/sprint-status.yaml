@@ -98,7 +98,7 @@ development_status:
   epic-6: in-progress
   6-1-ux-design-spec-for-the-new-flows: done
   6-2-youtube-acquisition-command: done
-  6-2a-playlist-acquisition: review
+  6-2a-playlist-acquisition: done
   6-3-local-files-acquisition-with-transcript-dialect-conversion: done
   6-4-acquisition-launch-surface: backlog
   6-4a-upload-sessions: backlog
