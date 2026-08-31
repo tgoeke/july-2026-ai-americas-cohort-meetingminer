@@ -44,7 +44,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from typing import Literal, Sequence, get_args
+from typing import Annotated, Literal, Sequence, get_args
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
@@ -54,6 +54,7 @@ from pydantic.alias_generators import to_camel
 from meetingminer import logs
 from meetingminer.api.moments import PREVIEW_MAX_CHARS, ArtifactKind, ScreenViewType
 from meetingminer.api.problems import ProblemDetails
+from meetingminer.api.search import Corpus
 from meetingminer.config import RankingConfig
 
 router = APIRouter()
@@ -662,7 +663,7 @@ def to_item(scored: ScoredCandidate) -> FeedItem:
 # the tree. `to_jsonb` of the row yields no key when the column does not
 # exist, so this serves `null` today and the real ordinal the moment 0017 is
 # applied — with no edit here.
-_FEED_CANDIDATES = """
+_FEED_CANDIDATES = f"""
 SELECT
     m.id,
     m.meeting_id,
@@ -686,7 +687,7 @@ JOIN meeting mt ON mt.id = m.meeting_id
 LEFT JOIN screenshot ss
        ON ss.id = m.screenshot_id AND ss.meeting_id = m.meeting_id
 LEFT JOIN LATERAL (
-    SELECT LEFT(ts.text, {preview}) AS text
+    SELECT LEFT(ts.text, {PREVIEW_MAX_CHARS}) AS text
     FROM moment_segment ms
     JOIN transcript_segment ts ON ts.id = ms.transcript_segment_id
     WHERE ms.moment_id = m.id AND ts.meeting_id = m.meeting_id
@@ -734,7 +735,7 @@ WHERE COALESCE(m.provenance->>'superseded', '') <> 'true'
         )
      OR mt.started_at >= %(recency_floor)s
   )
-""".format(preview=PREVIEW_MAX_CHARS)
+"""
 
 
 def _thread_of(row: dict) -> CandidateThread:
@@ -822,19 +823,28 @@ _PROBLEM_RESPONSES = {
 )
 def moments_feed(
     request: Request,
-    corpus: str | None = Query(default=None),
-    thread: UUID | None = Query(default=None),
-    meeting: UUID | None = Query(default=None),
-    kind: str | None = Query(
-        default=None,
-        description=(
-            "Keep only items carrying a valid reason of this kind — an"
-            " artifact kind or one of due/risk/question/recency/published/"
-            "thread. Applied with reason validation, before pagination."
+    corpus: Annotated[
+        Corpus | None, Query(description="Scope the feed to one corpus.")
+    ] = None,
+    thread: Annotated[
+        UUID | None, Query(description="Only moments belonging to this thread.")
+    ] = None,
+    meeting: Annotated[
+        UUID | None, Query(description="Only moments of this meeting.")
+    ] = None,
+    kind: Annotated[
+        str | None,
+        Query(
+            description=(
+                "Keep only items carrying a valid reason of this kind — an"
+                " artifact kind or one of due/risk/question/recency/"
+                "published/thread. Applied with reason validation, before"
+                " pagination."
+            )
         ),
-    ),
-    limit: int | None = Query(default=None, ge=1),
-    offset: int = Query(default=0, ge=0),
+    ] = None,
+    limit: Annotated[int | None, Query(ge=1)] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> MomentsFeedResponse:
     """Rank stored signals, validate reasons, then page — in that order."""
     ranking: RankingConfig = request.app.state.config.settings.ranking

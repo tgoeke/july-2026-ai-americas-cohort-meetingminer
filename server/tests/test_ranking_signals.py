@@ -213,40 +213,42 @@ def test_recency_halves_at_one_half_life_and_never_exceeds_one() -> None:
 
 def candidate(**overrides) -> FeedCandidate:
     """One candidate with every required plain fact filled in."""
-    base = dict(
-        moment_id=uuid4(),
-        meeting_id=uuid4(),
-        meeting_title="Data Hub Demo",
-        corpus="real",
-        has_recording=True,
-        started_at=NOW - timedelta(days=60),
-        started_at_precision="second",
-        start_ms=2_000,
-        end_ms=40_000,
-        meeting_started_at=NOW - timedelta(days=60),
-    )
+    base = {
+        "moment_id": uuid4(),
+        "meeting_id": uuid4(),
+        "meeting_title": "Data Hub Demo",
+        "corpus": "real",
+        "has_recording": True,
+        "started_at": NOW - timedelta(days=60),
+        "started_at_precision": "second",
+        "start_ms": 2_000,
+        "end_ms": 40_000,
+        "meeting_started_at": NOW - timedelta(days=60),
+    }
     base.update(overrides)
     return FeedCandidate(**base)  # type: ignore[arg-type]
 
 
 def artifact(**overrides) -> CandidateArtifact:
-    base = dict(
-        artifact_id=uuid4(),
-        kind="adr",
-        state="extracted",
-        title="Move the feed to SFTP",
-        body="",
-        published_at=None,
-    )
+    base = {
+        "artifact_id": uuid4(),
+        "kind": "adr",
+        "state": "extracted",
+        "title": "Move the feed to SFTP",
+        "body": "",
+        "published_at": None,
+    }
     base.update(overrides)
     return CandidateArtifact(**base)  # type: ignore[arg-type]
 
 
 def signal(**overrides) -> CandidateSignal:
-    base = dict(
-        signal_id=uuid4(), kind="risk", label="The vendor key may not arrive",
-        anchor_ms=5_000,
-    )
+    base = {
+        "signal_id": uuid4(),
+        "kind": "risk",
+        "label": "The vendor key may not arrive",
+        "anchor_ms": 5_000,
+    }
     base.update(overrides)
     return CandidateSignal(**base)  # type: ignore[arg-type]
 
