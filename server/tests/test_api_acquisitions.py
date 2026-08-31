@@ -317,7 +317,10 @@ def test_a_launch_answers_202_and_starts_a_detached_child(
     response = client.post("/acquisitions", json={"url": WATCH_URL})
     assert response.status_code == 202, response.text
     body = response.json()
-    assert set(body) == {"acquisitionId", "sourceId", "status"}
+    # `kind` joined the accept in story 6.4a, when an acquisition could be
+    # started from an upload session as well as from a URL.
+    assert set(body) == {"acquisitionId", "sourceId", "status", "kind"}
+    assert body["kind"] == "youtube"
     assert body["sourceId"] == SOURCE_ID
     assert body["status"] == "queued"
     acquisition_id = body["acquisitionId"]
