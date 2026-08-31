@@ -136,9 +136,12 @@ def plan_buckets(window_from: datetime, window_to: datetime) -> tuple[int, int]:
             f"window start {format_rfc3339(window_from)} is after window end"
             f" {format_rfc3339(window_to)}"
         )
-    # Inclusive on both ends, so a zero-length window still spans one
-    # millisecond and yields exactly one bucket rather than zero.
-    span_ms = int((window_to - window_from).total_seconds() * _MS) + 1
+    # The last bucket is closed on the window's end, so an interval exactly N
+    # steps wide needs N buckets rather than N+1. Round a fractional
+    # millisecond up with integer arithmetic, and retain one bucket for a
+    # zero-length window.
+    span_us = (window_to - window_from) // timedelta(microseconds=1)
+    span_ms = max(1, (span_us + 999) // _MS)
     for step in BUCKET_LADDER_MS:
         if math.ceil(span_ms / step) <= TARGET_BUCKETS:
             return step, max(1, math.ceil(span_ms / step))
