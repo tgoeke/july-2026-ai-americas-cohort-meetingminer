@@ -88,6 +88,7 @@ export function CorpusSearch({
   // as the same thing, which is what AD-18 forbids.
   const [documents, setDocuments] = useState<Array<DocumentHitModel>>([])
   const [documentsTotal, setDocumentsTotal] = useState(0)
+  const [documentsIndexMissing, setDocumentsIndexMissing] = useState(false)
   const [failure, setFailure] = useState<SearchFailure | null>(null)
   const [busy, setBusy] = useState(false)
   const [openReplay, setOpenReplay] = useState<string | null>(null)
@@ -146,6 +147,7 @@ export function CorpusSearch({
       setIndexMissing(data.indexMissing ?? false)
       setDocuments(data.documents ?? [])
       setDocumentsTotal(data.documentsTotal ?? 0)
+      setDocumentsIndexMissing(data.documentsIndexMissing ?? false)
       setFailure(null)
       setOpenReplay(null)
     } catch (err) {
@@ -277,7 +279,8 @@ export function CorpusSearch({
           {failure.kind === 'transport'
             ? `Cannot reach the api at ${API_BASE}: ${failure.message}.`
             : `The api at ${API_BASE} could not answer that search: ${failure.message}.`}
-          {rows !== null && rows.length > 0 && ' The results below may be stale.'}
+          {rows !== null && (rows.length > 0 || documents.length > 0) &&
+            ' The results below may be stale.'}
         </p>
       )}
 
@@ -292,6 +295,18 @@ export function CorpusSearch({
         aria-busy={busy || searching}
         className="flex flex-col gap-3"
       >
+        {!searching &&
+          trimmed !== '' &&
+          failure === null &&
+          documentsIndexMissing && (
+            <p
+              data-testid="search-documents-index-missing"
+              className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground"
+            >
+              The extraction-documents index is missing. Run a rebuild to make
+              retained analysis searchable.
+            </p>
+          )}
         {trimmed === '' ? (
           <p data-testid="search-prompt" className="text-sm text-muted-foreground">
             Type a name, a topic, or a phrase someone said.
@@ -305,10 +320,14 @@ export function CorpusSearch({
           // alone: "no moments match" would be an answer the api never gave.
           failure !== null ? null : (
             <p
-              data-testid={indexMissing ? 'search-index-missing' : 'search-empty'}
+              data-testid={
+                indexMissing && documentsShown === 0
+                  ? 'search-index-missing'
+                  : 'search-empty'
+              }
               className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground"
             >
-              {indexMissing
+              {indexMissing && documentsShown === 0
                 ? 'Nothing has been indexed yet, so there is nothing to search. Ingest a meeting, then search again.'
                 : documentsShown > 0
                   ? // Precise, because the difference matters here: no moment
