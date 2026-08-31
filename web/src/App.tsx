@@ -276,6 +276,7 @@ function Shell() {
             lands on the same page of cards rather than re-ranking. */}
         <div hidden={!momentsOpen}>
           <MomentsFeed
+            active={momentsOpen}
             onOpenMoment={(momentId) => openPath(`/moments/${momentId}`)}
             onOpenMeeting={(meetingId) => openPath(`/meetings/${meetingId}`)}
             onOpenThread={(threadId) => openPath(`/threads/${threadId}`)}
