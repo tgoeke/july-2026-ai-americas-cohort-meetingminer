@@ -280,7 +280,7 @@ _CANDIDATES = (
 _TRACE_STOPS = (
     "SELECT tm.meeting_id, mt.title, mt.corpus, mt.has_recording,"
     " mt.started_at_precision,"
-    " COUNT(*), COUNT(DISTINCT tm.moment_id),"
+    " COUNT(DISTINCT tm.moment_id), COUNT(DISTINCT tm.moment_id),"
     f" MIN({_occurred_at_sql('tm.anchor_ms')}),"
     f" MAX({_occurred_at_sql('tm.anchor_ms')})"
     " FROM topic_thread tt"
