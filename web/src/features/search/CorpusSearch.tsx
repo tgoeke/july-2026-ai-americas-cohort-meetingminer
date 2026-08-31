@@ -202,7 +202,7 @@ export function CorpusSearch({
     >
       <header className={compact ? 'sr-only' : 'flex items-baseline justify-between gap-4'}>
         <h2 className="text-lg font-semibold tracking-tight">Search</h2>
-        {ranking === 'keyword' && (
+        {ranking === 'keyword' && !compact && (
           <span
             data-testid="ranking-degraded"
             className="text-xs text-muted-foreground"
@@ -241,10 +241,19 @@ export function CorpusSearch({
         hidden={compact && !expanded}
         className={
           compact
-            ? 'absolute top-[calc(100%+0.75rem)] left-0 z-40 flex max-h-[min(38rem,calc(100vh-5rem))] w-[min(38rem,calc(100vw-2rem))] flex-col gap-4 overflow-y-auto rounded-lg border bg-popover p-4 shadow-xl'
+            ? 'absolute top-[calc(100%+0.75rem)] left-0 z-40 flex max-h-[min(38rem,calc(100vh-5rem))] w-[min(38rem,calc(100vw-2rem))] flex-col gap-4 overflow-y-auto rounded-lg border bg-popover p-4 shadow-md'
             : 'contents'
         }
       >
+        {compact && ranking === 'keyword' && (
+          <span
+            data-testid="ranking-degraded"
+            className="text-xs text-muted-foreground"
+            title="The embedding model host is unreachable, so this search ranked on keywords alone."
+          >
+            keyword ranking only
+          </span>
+        )}
         {failure !== null && (
         <p
           role="alert"

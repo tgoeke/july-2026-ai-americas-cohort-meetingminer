@@ -215,7 +215,7 @@ export function ChatPanel({
             }
           />
         </label>
-        {compact && <ModelSelect />}
+        {compact && <ModelSelect compact />}
         <div className={compact ? 'flex items-center' : 'flex items-center gap-3'}>
           <Button
             type="submit"
@@ -225,7 +225,7 @@ export function ChatPanel({
           >
             {busy ? 'Asking…' : 'Ask'}
           </Button>
-          {question.trim() !== '' && problem !== null && (
+          {!compact && question.trim() !== '' && problem !== null && (
             <span data-testid="chat-question-problem" className="text-xs text-destructive">
               {problem}
             </span>
@@ -238,10 +238,15 @@ export function ChatPanel({
         hidden={compact && !expanded}
         className={
           compact
-            ? 'absolute top-[calc(100%+0.75rem)] right-0 z-40 flex max-h-[min(38rem,calc(100vh-5rem))] w-[min(38rem,calc(100vw-2rem))] flex-col gap-4 overflow-y-auto rounded-lg border bg-popover p-4 shadow-xl'
+            ? 'absolute top-[calc(100%+0.75rem)] right-0 z-40 flex max-h-[min(38rem,calc(100vh-5rem))] w-[min(38rem,calc(100vw-2rem))] flex-col gap-4 overflow-y-auto rounded-lg border bg-popover p-4 shadow-md'
             : 'contents'
         }
       >
+        {compact && question.trim() !== '' && problem !== null && (
+          <span data-testid="chat-question-problem" className="text-xs text-destructive">
+            {problem}
+          </span>
+        )}
         {failure !== null && failure.kind !== 'rejected' && (
         <p
           role="alert"

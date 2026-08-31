@@ -154,10 +154,20 @@ function Shell() {
     document.documentElement.classList.add('dark')
   }, [])
 
-  useEffect(() => setExpandedChrome(null), [pathname])
+  useEffect(() => {
+    setExpandedChrome(null)
+    chordArmed.current = false
+  }, [pathname])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && expandedChrome !== null) {
+        event.preventDefault()
+        setExpandedChrome(null)
+        chordArmed.current = false
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+        return
+      }
       const target = event.target
       const editable =
         target instanceof HTMLElement &&
@@ -198,9 +208,18 @@ function Shell() {
         void navigate('/add')
       }
     }
+    const cancelChord = () => {
+      chordArmed.current = false
+    }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [navigate])
+    window.addEventListener('pointerdown', cancelChord)
+    window.addEventListener('blur', cancelChord)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('pointerdown', cancelChord)
+      window.removeEventListener('blur', cancelChord)
+    }
+  }, [expandedChrome, navigate])
 
   // The child screen is the first flow-height content below the compact
   // sticky chrome. This scroll covers the other half of the same gesture: the hit that was
@@ -235,9 +254,9 @@ function Shell() {
           the standing destinations, the one primary action, and the health
           indicator, sticky at the top of every screen. */}
       <header className="sticky top-0 z-20 border-b border-border bg-background">
-        <div className="mx-auto flex min-h-14 w-full max-w-[1600px] flex-wrap items-center gap-3 px-4 py-2 min-[900px]:h-14 min-[900px]:flex-nowrap min-[900px]:px-8 min-[900px]:py-0">
+        <div className="mx-auto flex min-h-14 w-full max-w-[1600px] flex-wrap items-center gap-3 px-4 py-2 min-[1200px]:h-14 min-[1200px]:flex-nowrap min-[1200px]:px-8 min-[1200px]:py-0">
           <span className="text-lg font-semibold tracking-tight">MeetingMiner</span>
-          <nav aria-label="Primary" className="flex flex-wrap items-center gap-3 text-sm min-[900px]:flex-nowrap">
+          <nav aria-label="Primary" className="flex flex-wrap items-center gap-3 text-sm min-[1200px]:flex-nowrap">
             {PRIMARY_NAV.map((entry) => (
               <NavLink
                 key={entry.to}
@@ -255,10 +274,10 @@ function Shell() {
           </nav>
           <div
             data-testid="search-ask-chrome"
-            className="order-last flex w-full items-center gap-2 min-[900px]:order-none min-[900px]:ml-auto min-[900px]:w-auto"
+            className="order-last flex w-full items-center gap-2 min-[1200px]:order-none min-[1200px]:ml-auto min-[1200px]:w-auto"
           >
             <div
-              className="relative min-w-0 flex-1 min-[900px]:w-36 min-[900px]:flex-none"
+              className="relative min-w-0 flex-1 min-[1200px]:w-36 min-[1200px]:flex-none"
               onFocusCapture={() => setExpandedChrome('search')}
               onBlurCapture={(event) => {
                 if (!event.currentTarget.contains(event.relatedTarget)) setExpandedChrome(null)
@@ -271,7 +290,7 @@ function Shell() {
               />
             </div>
             <div
-              className="relative min-w-0 flex-[2] min-[900px]:w-72 min-[900px]:flex-none"
+              className="relative min-w-0 flex-[2] min-[1200px]:w-72 min-[1200px]:flex-none"
               onFocusCapture={() => setExpandedChrome('ask')}
               onBlurCapture={(event) => {
                 if (!event.currentTarget.contains(event.relatedTarget)) setExpandedChrome(null)
