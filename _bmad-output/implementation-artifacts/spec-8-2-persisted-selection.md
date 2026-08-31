@@ -257,8 +257,8 @@ and that file carries two corrections made by story 8.1's review (`5a00b60`, `f9
 Recompiling would have discarded verified corrections to satisfy a timestamp artifact.
 
 **2026-08-30 — Two measured conflicts, neither narrowable, both for `integrate`.**
-`python3 _bmad/scripts/branch_conflicts.py --against story/8-2` reports
-`main x story/8-2` **clean** and six clean pairs. The two that are not:
+`python3 _bmad/scripts/branch_conflicts.py --against story/8-2`, run with the
+story complete, reports every code pair clean. What is not clean:
 
 * `story/8-2 x story/7-3` — `web/src/client/{index,sdk.gen,types.gen}.ts`. Both
   stories add an api operation (`assignMeetingSpeaker` there, `getModelSettings`
@@ -268,9 +268,15 @@ Recompiling would have discarded verified corrections to satisfy a timestamp art
   schema, which is the drift `check-client` and the tracked-client rule exist to
   prevent. It is a generated artifact, so the resolution is one `make client` (or
   the in-process equivalent) after the merge — not a hand-merge of either diff.
-* `story/8-2 x story/10-2` — `sprint-notes.md`, which the wave rules already
-  name as having no merge driver and expect `integrate` to union.
-  `main x story/10-2` conflicts on the same file independently of this branch.
+* `sprint-notes.md` against `main` and every other `story/*` branch. The wave
+  rules already name this file as having no merge driver and expect `integrate`
+  to union it. It is not specific to this branch: `main x story/10-2` conflicts
+  on the same file, because `main` advanced to `e5e0ff9` with its own end-of-file
+  append while this branch was building. Every append to the end of that file
+  collides with every other, so the only narrowing available would be to place
+  this story's section out of chronological order, which trades a sanctioned
+  union for a confusing file. The entry was shortened instead, as the wave rules
+  ask. **No code file conflicts with `main`.**
 
 **2026-08-30 — Three edits outside the build prompt's footprint.** Each is a
 "both places" contract this story could not satisfy from inside its footprint,

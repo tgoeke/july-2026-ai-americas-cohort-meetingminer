@@ -204,11 +204,14 @@ Run these; a skip or failure that is not listed here is a finding, not noise.
 - `make test` — the full gate. Run 2026-08-30 on `6026045`: **2366 passed,
   2 skipped** in 625.67s, followed by the web production build; exit code 0.
   Re-run it yourself before you close.
-- `python3 _bmad/scripts/branch_conflicts.py --against story/8-2` —
-  `main x story/8-2` **clean**; two conflicts characterised in the spec's change
-  log (`web/src/client/*` against `story/7-3`, a generated-artifact collision for
-  `integrate` to resolve by regenerating; `sprint-notes.md` against
-  `story/10-2`, which the wave rules already expect `integrate` to union).
+- `python3 _bmad/scripts/branch_conflicts.py --against story/8-2` — **no code
+  file conflicts with `main`.** Two conflict classes remain, both characterised
+  in the spec's change log and both for `integrate`: `web/src/client/*` against
+  `story/7-3` (both stories add an api operation and regenerate the committed
+  client — resolved by regenerating once after the merge, never by hand-merging
+  either diff), and `sprint-notes.md` against `main` and every other `story/*`
+  branch (no merge driver; `main x story/10-2` conflicts on it independently of
+  this branch).
 
 The stack is this worktree's own (compose project `meetingminer-8-2`); bring it
 up with `make infra-up` in your review worktree before the store-backed suites.
