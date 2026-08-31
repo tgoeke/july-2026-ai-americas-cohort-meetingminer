@@ -3,7 +3,7 @@
 - Date: 2026-08-30
 - Review branch: `story/7-3-review`
 - Branch under review: `origin/story/7-3`
-- Review status: in progress
+- Review status: complete — changes requested; owner decisions remain open
 
 ## Scope
 
@@ -18,6 +18,27 @@ will be recorded here before red-first remediation on the review branch.
 
 The baseline is the specification commit; the range contains the Story 7.3
 implementation through the builder's closing documentation commit.
+
+The review branch was then rebased onto `origin/main` at `be34c6a` as required.
+The expected `sprint-notes.md` conflict was resolved by retaining both main's
+newer B-36 notes and Story 7.3's closing note. No implementation conflict was
+encountered.
+
+## Verdict
+
+Story 7.3 does **not** pass review as done yet. Four patch findings were fixed
+and verified on `story/7-3-review`; two medium frozen-spec findings remain open
+for the owner. The story and sprint status are therefore `in-progress`, not
+`done`. Nothing was merged to `main`.
+
+| Finding | Triage | Result |
+| --- | --- | --- |
+| F-1 | patch | Fixed in `9d2806d` |
+| F-2 | patch | Fixed in `5f40110` |
+| F-3 | patch | Fixed in `108c749` |
+| F-4 | decision needed | Open — frozen retry contract |
+| F-5 | patch | Fixed in `08f3ad9` |
+| F-6 | decision needed | Open — frozen key-space row |
 
 ## Findings
 
@@ -45,6 +66,7 @@ implementation through the builder's closing documentation commit.
   mark that target as having spoken. Keep the source participant as an
   attendee, but do not claim the transcript corroborates the superseded
   attribution.
+- Result: Fixed red-first and verified in `9d2806d`.
 
 ### F-2 — The running-job refusal has a check-to-rearm race
 
@@ -71,6 +93,7 @@ implementation through the builder's closing documentation commit.
   writes. This makes a claimant wait when the route saw a settled job and makes
   the route wait and observe `running` when a claimant won first. Keep READ
   COMMITTED so a lock wait sees the claimant's committed status.
+- Result: Fixed red-first and verified in `5f40110`.
 
 ### F-3 — Source labels containing `/` cannot be assigned
 
@@ -91,6 +114,7 @@ implementation through the builder's closing documentation commit.
   `path` converter so it consumes the remaining decoded path verbatim, retain
   the existing exact database label check, and pin both routing and generated
   OpenAPI/client behavior with the slash regression test.
+- Result: Fixed red-first and verified in `108c749`.
 
 ### F-4 — A failed speaker rerun has no curator-level retry path — OPEN (frozen spec)
 
@@ -148,6 +172,7 @@ implementation through the builder's closing documentation commit.
   start/end timing, text, and speaker label — while separately asserting the
   intended participant/resolution change. Re-run the ordering mutation and
   require that new assertion to fail before accepting the test change.
+- Result: Fixed by a mutation-proved regression assertion in `08f3ad9`.
 
 ### F-6 — The frozen new-name matrix row should be amended — OPEN (frozen spec)
 
@@ -174,3 +199,52 @@ implementation through the builder's closing documentation commit.
   separately keyed as `speaker:<meetingId>:<tag>`, and retain the current
   non-name-shaped `normalized_name`. Do not alter the implementation to match
   the obsolete row.
+
+## Verification
+
+- `uv run --project server pytest -m "" server/tests/test_api_speaker_assignment.py -q`
+  — 30 passed after remediation.
+- `uv run --project server pytest server/tests/test_api_speakers.py
+  server/tests/test_api_registry.py server/tests/test_api_participants.py -q`
+  — 44 passed.
+- `uv run --project server pytest -m "" server/tests/test_augmentation.py
+  server/tests/test_worker_transcripts.py -q` — 39 passed.
+- `make test-fast` — lint and mypy green; puller 128 passed; web 294 passed;
+  evals 643 passed; server 2,031 passed, 3 named skips, 384 deselected.
+- `make test` — puller 128 passed; web 294 passed; evals 643 passed;
+  diarization/STT extra 92 passed; test-store reachability passed; full server
+  2,415 passed with 3 named environment/network skips; production web build
+  succeeded.
+- `make check-client` — passed; the `{tag:path}` runtime converter preserves
+  the existing `/meetings/{meeting_id}/speakers/{tag}` OpenAPI path, so no
+  generated-client delta was required.
+- `python3 _bmad/scripts/branch_conflicts.py --against story/7-3` — reported
+  only expected overlaps: review fixes against their source Story 7.3 files,
+  the known `sprint-notes.md` conflict, and Story 8.2's three generated-client
+  files. No unrecorded integration overlap was found.
+
+Mutation checks:
+
+- Assignment-only `start_ms + 1` changed `transcript:40000` to
+  `transcript:40001`; the primary citation test failed as claimed.
+- Assignment-only reversal of `transcript_segment.ordinal` initially escaped
+  the citation test, establishing F-5. After the new structural snapshot, the
+  same mutation failed on reversed transcript order.
+- Removing the assignment application, `extract` rearm, approved-moment draft
+  protection, attendance row, merge hop, or `speaker:` merge-predicate filter
+  remains covered by the builder's tests and the full local gate.
+- The participant-merged-after-assignment case and the approved-artifact plus
+  sibling-draft case both ran green. The latter is protected by `extract`
+  itself: its only draft deletion excludes approved/published moments, and its
+  proposal loop skips those moments.
+- The builder's symmetric moment re-key attempt is correctly classified as a
+  non-mutation of this story's invariant: changing the initial ingest and the
+  assignment rerun to the same alternate key still gives both passes the same
+  identity and therefore does not model an assignment-induced re-key.
+
+## Closeout
+
+- Review branch: `story/7-3-review` (pushed after every coherent unit).
+- Story/spec status: `in-progress`; follow-up review recommended.
+- Main integration: not performed, per the review-lane instruction and because
+  F-4 and F-6 remain open.
