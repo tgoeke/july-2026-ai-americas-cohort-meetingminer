@@ -57,8 +57,10 @@ from meetingminer.projections.publish_gate import (
 from meetingminer.projections.query import (
     DOCUMENT_SEARCHABLE_INDEXES,
     DocumentHit,
+    _document_hits_of,
     build_document_search_parameters,
 )
+from meetingminer.projections.stores import ProjectionError
 from meetingminer.projections.review import (
     MACHINE,
     NO_LIFECYCLE,
@@ -203,6 +205,13 @@ def test_a_record_with_a_blank_label_is_refused() -> None:
         assert_carries_review_label(built)
 
 
+def test_a_record_with_a_contradictory_nonblank_label_is_refused() -> None:
+    built = record()
+    built["reviewLabel"] = "Published — human approved."
+    with pytest.raises(DocumentRecordRefused, match="reviewLabel"):
+        assert_carries_review_label(built)
+
+
 def test_a_record_claiming_to_be_citable_is_refused() -> None:
     built = record()
     built["citable"] = True
@@ -310,7 +319,24 @@ def test_the_document_query_retrieves_no_moment_id_and_pins_the_review_state(
     assert f'reviewState = "{REVIEW_STATE}"' in parameters["filter"]
     retrieved = set(parameters["attributesToRetrieve"])
     assert not FORBIDDEN_CITATION_KEYS & retrieved
-    assert {"reviewState", "authorship", "reviewLabel"} <= retrieved
+    assert {"reviewState", "authorship", "reviewLabel", "citable"} <= retrieved
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("reviewLabel", "Published — human approved."),
+        ("citable", True),
+        ("citable", None),
+    ],
+)
+def test_the_query_refuses_a_contradictory_or_missing_guard_field(
+    field: str, value: object
+) -> None:
+    indexed = record()
+    indexed[field] = value
+    with pytest.raises(ProjectionError, match="unreviewed"):
+        _document_hits_of({"hits": [indexed]})
 
 
 # --- the case the exception exists for -------------------------------------

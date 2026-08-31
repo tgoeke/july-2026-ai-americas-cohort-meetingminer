@@ -72,6 +72,7 @@ from meetingminer.config import AppConfig
 from meetingminer.projections.documents import (
     AUTHORSHIP,
     DOCUMENTS_INDEX,
+    REVIEW_LABEL,
     REVIEW_STATE,
 )
 from meetingminer.projections.publish_gate import ARTIFACTS_INDEX, PUBLISHED_STATE
@@ -947,6 +948,7 @@ def build_document_search_parameters(
             "reviewState",
             "authorship",
             "reviewLabel",
+            "citable",
         ],
         "attributesToHighlight": list(DOCUMENT_SNIPPET_ATTRIBUTES),
         "attributesToCrop": list(DOCUMENT_SNIPPET_ATTRIBUTES),
@@ -1001,15 +1003,17 @@ def _document_hits_of(response: Any) -> tuple[DocumentHit, ...]:
         review_state = hit.get("reviewState")
         authorship = hit.get("authorship")
         review_label = hit.get("reviewLabel")
+        citable = hit.get("citable")
         if (
             review_state != REVIEW_STATE
             or authorship != AUTHORSHIP
-            or not str(review_label or "").strip()
+            or review_label != REVIEW_LABEL
+            or citable is not False
         ):
             raise ProjectionError(
                 f"a {DOCUMENTS_INDEX!r} hit carried reviewState"
                 f" {review_state!r}, authorship {authorship!r} and reviewLabel"
-                f" {review_label!r} — an"
+                f" {review_label!r}, citable {citable!r} — an"
                 " extraction document is indexed without passing the publish"
                 " gate, so it must carry its unreviewed, machine-written status"
                 " in the record itself; refusing to surface an unlabelled one"

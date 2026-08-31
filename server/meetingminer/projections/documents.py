@@ -191,12 +191,13 @@ def assert_carries_review_label(record: Mapping[str, Any]) -> None:
             f" the only values a document may carry are {REVIEW_STATE!r} and"
             f" {AUTHORSHIP!r} — nothing approves an extraction document (AD-18)"
         )
-    if not str(record["reviewLabel"]).strip():
+    if record["reviewLabel"] != REVIEW_LABEL:
         raise DocumentRecordRefused(
-            "an extraction-document record carries an empty reviewLabel — the"
-            " sentence a surface renders lives in the record, so a blank one"
-            " would let a document render indistinguishably from reviewed"
-            " output (AD-18)"
+            "an extraction-document record carries reviewLabel"
+            f" {record['reviewLabel']!r}; the only label a document may carry"
+            f" is {REVIEW_LABEL!r} — the sentence a surface renders lives in"
+            " the record, so accepting a merely nonblank contradiction would"
+            " let it read as reviewed output (AD-18)"
         )
     if record["citable"] is not False:
         raise DocumentRecordRefused(
