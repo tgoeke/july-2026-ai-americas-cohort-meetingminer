@@ -317,6 +317,24 @@ describe('the two ways in', () => {
 })
 
 describe('the timeline', () => {
+  it('fits the whole span to the rendered width, not the fallback width', async () => {
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(500)
+    const user = userEvent.setup()
+    try {
+      mount()
+      await user.click(await screen.findByRole('button', { name: /Cedar Lake Trail closure/ }))
+
+      const timeline = await screen.findByRole('region', {
+        name: 'Timeline for Cedar Lake Trail closure',
+      })
+      await waitFor(() => {
+        expect(timeline.querySelector('.mm-trace-view')).toHaveAttribute('data-ppd', '3.22')
+      })
+    } finally {
+      width.mockRestore()
+    }
+  })
+
   it('draws one stop per meeting, in time order', async () => {
     const user = userEvent.setup()
     mount()
