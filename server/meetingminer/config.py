@@ -42,6 +42,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PrivateAttr,
     StringConstraints,
     ValidationError,
     model_validator,
@@ -251,8 +252,10 @@ class CatalogEntry(_StrictModel):
       the tag's ``<provider>/`` prefix, and either way it is checked against
       the declared set: deriving is not a licence, and a written provider that
       contradicts the tag's own prefix is refused rather than trusted. It is
-      ``None`` only on the one-entry catalog synthesized for a role that
-      declares nothing but ``model`` — see
+      ``None`` only when no prefix can be derived. A one-entry catalog
+      synthesized for a role that declares nothing but ``model`` is marked
+      internally so the new declared-provider rule does not reject a legacy
+      file — see
       :meth:`LlmRoleBinding._catalog_from_model` for why that projection is
       deliberately not held to the same rule.
     """
@@ -260,6 +263,10 @@ class CatalogEntry(_StrictModel):
     binding: NonEmptyText
     label: NonEmptyText | None = None
     provider: NonEmptyText | None = None
+    # Internal provenance for the compatibility projection. A synthesized
+    # prefixed entry still carries its derivable provider, but is exempt from
+    # rules introduced after the source file was written.
+    _synthesized: bool = PrivateAttr(default=False)
 
     @model_validator(mode="after")
     def _label_defaults_to_the_binding(self) -> "CatalogEntry":
@@ -323,14 +330,16 @@ class LlmRoleBinding(_StrictModel):
         its provider is written or derived from the tag prefix, and either way
         it is checked against ``providers:``.
 
-        A **synthesized** entry carries no provider at all, and is therefore
-        skipped by that check. This is the back-compatibility clause doing its
-        job rather than an oversight: a role that declares only
+        A **synthesized** entry carries a derivable provider as catalog metadata,
+        but is marked internally and therefore skipped by that check. This is
+        the back-compatibility clause doing its job rather than an oversight: a
+        role that declares only
         ``model: ollama/qwen3:30b`` loads today whether or not ``providers:``
         declares ``ollama`` — an unmatched tag simply gets no ``api_base`` and
         LiteLLM's own default (``resolve_api_base``). Deriving a provider for
-        that projected entry and then refusing it would make this story reject
-        files that load today, which the story forbids. ``config.yaml``'s own
+        that projected entry and then applying the authored-entry refusal would
+        make this story reject files that load today, which the story forbids.
+        ``config.yaml``'s own
         embedder gate is the case that proves it: a config with
         ``providers.ollama`` removed must still get *past* ``load_config`` to
         reach the gate that names the missing endpoint.
@@ -346,7 +355,9 @@ class LlmRoleBinding(_StrictModel):
         patched = dict(data)
         entries = patched.get("catalog")
         if entries is None:
-            patched["catalog"] = [{"binding": tag, "label": tag}]
+            entry = CatalogEntry(binding=tag, label=tag, provider=_provider_prefix(tag))
+            entry._synthesized = True
+            patched["catalog"] = [entry]
         elif isinstance(entries, list):
             patched["catalog"] = [cls._entry_with_provider(entry) for entry in entries]
         if patched.get("default") is None:
@@ -977,11 +988,11 @@ class Settings(_StrictModel):
         construction below it is not wrapped, so a refusal raised there would
         escape as a raw pydantic error).
 
-        An entry with no provider is skipped, and that is exactly the set of
-        entries synthesized for a role that declares only ``model``: the
-        back-compatibility clause, which forbids this story from refusing a
-        file that loads today. Every entry the file actually authored carries a
-        provider by the time it reaches here, so none of them is skipped.
+        An entry marked synthesized is skipped: that is the compatibility
+        projection for a role that declares only ``model``, and this story may
+        not reject a file that loaded before catalogs existed. The entry still
+        carries a provider when its tag has a prefix, as the frozen I/O matrix
+        requires. Every entry the file actually authored is checked.
 
         Declared-ness is a fact about the file, never about reachability: no
         provider is probed at load, so an endpoint being down is not a load
@@ -997,7 +1008,11 @@ class Settings(_StrictModel):
             if not isinstance(binding, LlmRoleBinding):
                 continue
             for entry in binding.catalog:
-                if entry.provider is None or entry.provider in self.providers:
+                if (
+                    entry._synthesized
+                    or entry.provider is None
+                    or entry.provider in self.providers
+                ):
                     continue
                 names = ", ".join(repr(name) for name in declared)
                 raise ValueError(

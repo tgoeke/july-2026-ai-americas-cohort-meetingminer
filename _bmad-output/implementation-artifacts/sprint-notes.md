@@ -3247,9 +3247,9 @@ catalog entry naming a provider `providers:` does not declare. An omitted
 `provider` is derived from the `<provider>/` tag prefix (the rule
 `resolve_api_base` already routes on, restated rather than imported so
 `config.py` depends on no adapter); an *authored* entry whose tag carries no
-prefix must name its provider, while a *synthesized* one keeps
-`provider: None`, because it is a projection of a file written before the rule
-existed. A role that declares only `model` therefore still loads, as a
+prefix must name its provider, while a *synthesized* one is marked internally
+and exempt from the new provider refusal because it projects a file written
+before the rule existed. A role that declares only `model` therefore still loads, as a
 one-entry catalog with `default` equal to `model`.
 
 Declaration only: `model` remains what `build_llm`, `resolve_api_base` and
@@ -3279,8 +3279,9 @@ a provider for the one-entry catalog synthesized from a role's `model` and then
 checked it against `providers:`, which made every pre-catalog file whose tag
 prefix names an undeclared provider refuse to load. `make test-fast` was green:
 the test that catches it, `test_failfast.py`'s embedder gate, is in a `slow`
-module and is deselected there. A synthesized entry now carries no provider and
-is checked against nothing; authored entries keep the strict rule.
+module and is deselected there. A synthesized entry now retains any provider
+derivable from its prefix but carries an internal marker that skips the new
+provider refusal; authored entries keep the strict rule.
 
 Two cross-lane facts follow from that. First, `server/tests/test_failfast.py` is
 edited outside 8-1's footprint — its fixture removes `providers.ollama` and

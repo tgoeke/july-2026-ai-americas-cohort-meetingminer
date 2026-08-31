@@ -9,8 +9,9 @@ own catalog, and a catalog entry whose provider `providers:` does not declare.
 Two more fall out of making the second one honest, and apply to *authored*
 entries only: an entry whose tag carries no `<provider>/` prefix must name its
 provider, and a written provider may not contradict the prefix the tag already
-carries. Entries synthesized for a pre-catalog role are held to none of them,
-which is the back-compatibility clause and is tested as such.
+carries. Entries synthesized for a pre-catalog role retain derivable provider
+metadata but are held to none of those new provider refusals, which is the
+back-compatibility clause and is tested as such.
 
 Nothing here calls a model; the catalog is declaration only until story 8.2
 resolves a selection.
@@ -80,10 +81,10 @@ def test_legacy_prefixed_model_becomes_a_one_entry_catalog(
     entry = chat.catalog[0]
     assert entry.binding == "openai/gpt-5.2"
     assert entry.label == "openai/gpt-5.2"
-    # A synthesized entry carries no provider: the file authored none, and
-    # deriving one would subject a pre-catalog role to a rule written after it.
-    # The next test is the case that makes that consequence visible.
-    assert entry.provider is None
+    # The frozen I/O matrix requires derivable provider metadata even on the
+    # synthesized compatibility projection. Its synthesized marker, rather
+    # than a missing provider, exempts it from the new declared-provider rule.
+    assert entry.provider == "openai"
     assert chat.default == "openai/gpt-5.2"
     assert chat.model == "openai/gpt-5.2"
 
@@ -104,7 +105,7 @@ def test_legacy_model_naming_an_undeclared_provider_still_loads(
     chat = load_config(path, no_env).settings.llm.roles.chat
 
     assert [entry.binding for entry in chat.catalog] == ["moonshot/kimi-k2"]
-    assert chat.catalog[0].provider is None
+    assert chat.catalog[0].provider == "moonshot"
     assert chat.default == "moonshot/kimi-k2"
 
 

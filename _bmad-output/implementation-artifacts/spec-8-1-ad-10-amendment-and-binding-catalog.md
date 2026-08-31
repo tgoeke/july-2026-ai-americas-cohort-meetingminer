@@ -64,9 +64,10 @@ deferred:
       is documented in the new docstring and is deliberate - copying the
       bare-spelling tables would write provider names into config.py - but
       nothing pins the three against each other, so they may drift further.
-      Consequence today: a legacy `model: claude-sonnet-5` synthesizes an
-      entry with provider None while `/config` and `/status` report anthropic
-      for the same tag.
+      Consequence today: a legacy `model: claude-sonnet-5` synthesizes an entry
+      with no derivable provider while `/config` and `/status` report anthropic
+      for the same tag. Prefixed legacy tags retain their derived provider but
+      are marked internally so the new authored-catalog refusal is skipped.
     location: >-
       server/meetingminer/config.py:141
     severity: medium
@@ -86,11 +87,11 @@ deferred:
       A resolved-config dump no longer round-trips for a role whose catalog
       was synthesized from a prefixed tag.
     evidence: |-
-      `Settings.model_dump(mode="json")` emits the synthesized entry as
-      `{binding, label, provider: None}`. Feeding that back to
-      `Settings.model_validate` derives the provider (the entry now looks
-      authored) and checks it, so a dump of a config whose tag prefix names an
-      undeclared provider would be refused on the way back in. Nothing
+      `Settings.model_dump(mode="json")` emits the synthesized entry's public
+      fields but not its private synthesized marker. Feeding that back to
+      `Settings.model_validate` makes the entry look authored and checks its
+      provider, so a dump of a config whose tag prefix names an undeclared
+      provider would be refused on the way back in. Nothing
       re-loads a dump today, but `evals/harness/run.py` writes exactly this as
       `config-snapshot.yaml`.
     location: >-
@@ -266,10 +267,10 @@ violation of this spec's own "every `config.yaml` that loads today still loads"
 invariant. It surfaced as `test_failfast.py::test_api_exits_1_when_no_provider_serves_the_configured_embedder`,
 whose fixture removes `providers.ollama` and requires the config to still reach
 the embedder gate; the module is `slow`, so `make test-fast` was green and only
-the full gate found it. Fix: a synthesized entry carries no provider at all and
-is skipped by the check, while authored entries keep the strict rule — the
-asymmetry this spec already stated, now applied to the undeclared case and not
-only the underivable one. A regression pins the exact shape
+the full gate found it. Fix: a synthesized entry retains a provider derivable
+from its prefix, as the frozen I/O matrix requires, but carries an internal
+marker that skips the authored-entry check; authored entries keep the strict
+rule. A regression pins the exact shape
 (`test_legacy_model_naming_an_undeclared_provider_still_loads`).
 
 `server/tests/test_failfast.py` is edited **outside the build prompt's
@@ -335,8 +336,8 @@ treats the tag prefix as the routing fact, so deriving `ollama` from `ollama/qwe
 what the file already says instead of asking an author to repeat it. The rule is asymmetric on
 purpose: an *authored* entry whose tag has no prefix must name its provider, because an entry
 that names no provider cannot be checked against the declared set; a *synthesized* entry keeps
-`provider: None` in that case, because it is a projection of a file written before the rule
-existed and refusing it would break a file that loads today.
+`provider: None` only when its tag has no prefix, and its internal marker skips the new
+declared-provider refusal because it projects a file written before that rule existed.
 
 **Why no separate empty-catalog rule.** `default` falls back to `model`, and `model` is
 required and non-empty, so an authored `catalog: []` is already refused by the
@@ -376,8 +377,9 @@ catalog, and an authored catalog entry naming a provider `providers:` does not
 declare. Two more keep the second honest, on authored entries only: a tag with
 no `<provider>/` prefix must name its provider, and a written provider may not
 contradict the prefix the tag carries. A role declaring only `model` still
-loads, as a one-entry catalog that carries no provider and is checked against
-nothing. Declaration only — `model` remains what `build_llm`,
+loads, as a one-entry catalog that retains any provider derivable from its tag
+but is marked internally and skipped by the authored-entry provider check.
+Declaration only — `model` remains what `build_llm`,
 `resolve_api_base` and `_role_view` read; no call path changed.
 
 **Files changed**

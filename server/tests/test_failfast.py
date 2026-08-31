@@ -128,8 +128,9 @@ def config_with_no_embedder_provider(tmp_path: Path) -> Path:
     # would stop this fixture short of the gate it exists to reach, and name
     # the catalog instead of the embedder. Drop the authored catalogs along
     # with the provider: each role then falls back to the one-entry catalog
-    # synthesized from its own `model`, which carries no provider and so
-    # asserts nothing about the map this fixture just edited.
+    # synthesized from its own `model`. Its internal synthesized marker exempts
+    # it from the new catalog/provider cross-check, so it asserts nothing about
+    # the map this fixture just edited.
     for role_block in raw["llm"]["roles"].values():
         role_block.pop("catalog", None)
         role_block.pop("default", None)
