@@ -1,4 +1,4 @@
-import type { SearchHit, SnippetRunModel } from '@/client/types.gen'
+import type { DocumentHitModel, SearchHit, SnippetRunModel } from '@/client/types.gen'
 
 /**
  * Pure display helpers for a search hit.
@@ -94,4 +94,48 @@ export function artifactBadge(hit: SearchHit): string | null {
   if (hit.artifactKind === 'adr') return 'ADR'
   if (hit.artifactKind === 'action-item') return 'Action item'
   return hit.artifactKind ?? 'Artifact'
+}
+
+/**
+ * The display name of an extraction document's kind (story 12.4).
+ *
+ * Decided here rather than in the component so a kind the pipeline gains later
+ * still renders — as itself — instead of as a blank heading. `extraction_source`
+ * widens its kind CHECK by migration, and migration 0010 says that is a story;
+ * a renderer that enumerated today's four would turn the next one into an
+ * empty row.
+ */
+export function documentKindLabel(hit: DocumentHitModel): string {
+  if (hit.kind === 'arch-summary') return 'Architecture summary'
+  if (hit.kind === 'action-items') return 'Action items'
+  if (hit.kind === 'topics') return 'Topics'
+  if (hit.kind === 'ranking-signals') return 'Ranking signals'
+  return hit.kind
+}
+
+/**
+ * The provenance line under an extraction document hit.
+ *
+ * Names the model that wrote it, because the reader is being shown unreviewed
+ * machine output and "which model" is part of how they weigh it. An adopted
+ * document names none — the drop's summariser is not something this side
+ * observed — and saying so is better than implying this system wrote it.
+ */
+export function documentProvenance(hit: DocumentHitModel): string {
+  const meeting = hit.meetingTitle?.trim() || hit.meetingId
+  const writer = hit.model?.trim()
+  const by = writer ? `written by ${writer}` : 'arrived in the source drop'
+  return `From ${meeting} — ${by}`
+}
+
+/**
+ * What a document's parse yielded, said plainly.
+ *
+ * A zero here is the case story 12.4 exists for: a run that produced nothing
+ * worth approving is exactly the run whose text somebody needs to read. It is
+ * stated rather than hidden, so a reader knows the document is all there is.
+ */
+export function documentYield(hit: DocumentHitModel): string {
+  if (hit.itemCount === 0) return 'This run produced no items — the document is all there is.'
+  return `${hit.itemCount} item${hit.itemCount === 1 ? '' : 's'} parsed, ${hit.artifactCount} kept.`
 }
