@@ -104,3 +104,12 @@ Adversarial review of the Story 7.4 web implementation, with emphasis on unsettl
 - **Evidence:** `selected` is derived with `find(...) ?? null`, while the effect returns every non-null current tag without checking membership in the new `rows`. A rerun can legitimately change diarization output or concurrent recovery work can replace the tag set; this is exactly the state-retention boundary where stale evidence must remain usable without preserving an invalid pointer.
 - **Suggested direction:** Preserve selection only while the refreshed rows still contain it; otherwise select the first available row, and retain `null` only for an empty result. Verify a landed reread that removes the active tag moves selection to a remaining tag.
 - **Red/green evidence:** A landed reread returning only `SPEAKER_03` first left that row unselected and removed the naming region because selection still pointed to absent `SPEAKER_00`. Reconciliation now preserves a tag only while it exists in the refreshed rows and otherwise selects the first remaining row; the regression restores the `SPEAKER_03` naming region.
+
+### F10 — Rerun changes are silent and the naming controls tab in the wrong order
+
+- **Location:** `web/src/features/speakers/SpeakerNaming.tsx:500`; `web/src/features/speakers/SpeakerNaming.tsx:808`; `_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/EXPERIENCE.md:213`
+- **Severity:** Medium
+- **Status:** Confirmed — patch required
+- **Finding:** The rerun strip changes stage words, failure, and landed content without a live region, so a screen-reader user who remains in the naming controls receives no progress transition. In the same keyboard path, DOM order places Save before Unresolved even though the accessibility floor specifies name field → Unresolved → Save.
+- **Evidence:** The strip is a static `role="group"`; only the connection-lost paragraph has `role="status"`. Stage frames mutate descendant text without an announcement primitive. The JSX renders the primary Save button before Unresolved, reversing the spine's explicit tab order.
+- **Suggested direction:** Add one atomic polite status summary for the rerun (not one live region per stage), and render Unresolved before Save while retaining Save as the single filled primary action. Verify both the stage announcement and the tab sequence.
