@@ -195,7 +195,7 @@ describe('stepperSteps', () => {
       status: 'posted',
       jobId: '8f3c1a2b-0000-7000-8000-0000000000cc',
     })))
-    expect(steps[2].label).toBe('posted — job 8f3c…')
+    expect(steps[2].label).toBe('posted — job 8f3c1a2b…')
   })
 
   it('says plain "posted" when no job id has been reported', () => {

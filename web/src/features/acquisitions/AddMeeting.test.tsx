@@ -509,7 +509,7 @@ describe('Add-meeting, progress', () => {
     )
 
     await waitFor(() => expect(screen.getByTestId('acquired-meeting')).toBeInTheDocument())
-    expect(screen.getByTestId('step-posted')).toHaveTextContent('posted — job 8f3c…')
+    expect(screen.getByTestId('step-posted')).toHaveTextContent('posted — job 8f3c1a2b…')
     // The existing stage renderer, not a second one.
     expect(screen.getByTestId('stage-frames')).toHaveAttribute('data-status', 'running')
     expect(screen.getByRole('button', { name: /^Open/ })).toBeDisabled()
