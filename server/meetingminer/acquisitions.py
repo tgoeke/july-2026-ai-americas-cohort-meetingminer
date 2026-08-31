@@ -728,10 +728,16 @@ def run_acquisition(
     invocation at all, and intake is reached only through ``POST /ingests``.
     """
     root = acquisitions_root(config)
-    record = read_record(root, acquisition_id).advanced(
-        status="running", pid=os.getpid()
-    )
-    write_record(root, record)
+    # `Popen` returns only after the child has exec'd, so this process can reach
+    # the status file before the parent resumes and records our pid. The parent
+    # owns the claim lock through that write; waiting for it here establishes a
+    # strict queued+pid -> running order and prevents the parent's stale queued
+    # record from overwriting a fast child transition.
+    with claim_lock(root):
+        record = read_record(root, acquisition_id).advanced(
+            status="running", pid=os.getpid()
+        )
+        write_record(root, record)
     print(f"acquiring  {url}", flush=True)
 
     try:
