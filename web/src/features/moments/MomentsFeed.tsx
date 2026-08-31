@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router'
-import { Button } from '@/components/ui/button'
+import { Link, useSearchParams } from 'react-router'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { API_BASE } from '@/lib/api'
 import { problemMessage } from '@/lib/problems'
 import { MomentCard } from './MomentCard'
@@ -246,10 +246,18 @@ export function MomentsFeed({
       </p>
       <div className="flex flex-wrap items-baseline justify-between gap-4">
         <h2 className="text-sm font-medium text-muted-foreground">
-          Moments{' '}
-          <span className="font-mono tabular-nums text-foreground" data-testid="moments-count">
-            {momentsHeaderCount(shown, total, filtered)}
-          </span>
+          Moments
+          {items !== null && (
+            <>
+              {' '}
+              <span
+                className="font-mono tabular-nums text-foreground"
+                data-testid="moments-count"
+              >
+                {momentsHeaderCount(shown, total, filtered)}
+              </span>
+            </>
+          )}
         </h2>
         <div className="flex flex-wrap items-center gap-2" data-testid="moments-filters">
           <FilterSelect
@@ -281,7 +289,11 @@ export function MomentsFeed({
       )}
 
       {state.kind === 'error' && (
-        <p className="mt-4 text-sm text-destructive" data-testid="moments-error">
+        <div
+          role="alert"
+          className="mt-4 text-sm text-destructive"
+          data-testid="moments-error"
+        >
           Cannot reach the api at {API_BASE}: {state.message}.
           {state.stale !== null && ' The cards below may be stale.'}{' '}
           <Button
@@ -293,7 +305,7 @@ export function MomentsFeed({
           >
             Retry
           </Button>
-        </p>
+        </div>
       )}
 
       {items !== null && items.length === 0 && (
@@ -301,10 +313,14 @@ export function MomentsFeed({
           <p className="text-sm">
             {filtered ? filterEmptySentence(filters, threadName) : EMPTY_CORPUS}
           </p>
-          {filtered && (
+          {filtered ? (
             <Button size="sm" variant="outline" onClick={clearFilters}>
               Clear filters
             </Button>
+          ) : (
+            <Link to="/add" className={buttonVariants({ size: 'sm' })}>
+              Add meeting
+            </Link>
           )}
         </div>
       )}
