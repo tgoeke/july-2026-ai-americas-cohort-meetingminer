@@ -5,6 +5,8 @@ export interface ThreadOption {
   name: string
 }
 
+export const THREADS_TIMEOUT_MS = 8000
+
 export class ThreadsContractError extends Error {
   constructor(message: string) {
     super(message)
@@ -35,23 +37,38 @@ function countOf(row: Record<string, unknown>, key: string, where: string): numb
   return value as number
 }
 
+function timestampOf(row: Record<string, unknown>, key: string, where: string): string {
+  const value = stringOf(row, key, where)
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(value) || !Number.isFinite(Date.parse(value))) {
+    throw new ThreadsContractError(`${where}.${key} must be an RFC 3339 timestamp`)
+  }
+  return value
+}
+
 /** Strict local seam for Story 10.3's generated `listThreads` operation. */
 export function parseThreadsResponse(body: unknown): Array<ThreadOption> {
   const envelope = objectOf(body, 'the threads response')
   if (!Array.isArray(envelope.threads)) {
     throw new ThreadsContractError('the threads response.threads must be an array')
   }
+  const seen = new Set<string>()
   return envelope.threads.map((raw, index) => {
     const where = `threads[${index}]`
     const row = objectOf(raw, where)
     countOf(row, 'mentionCount', where)
     countOf(row, 'meetingCount', where)
-    stringOf(row, 'firstMentionAt', where)
-    stringOf(row, 'lastMentionAt', where)
+    const first = timestampOf(row, 'firstMentionAt', where)
+    const last = timestampOf(row, 'lastMentionAt', where)
+    if (Date.parse(first) > Date.parse(last)) {
+      throw new ThreadsContractError(`${where}.firstMentionAt must not follow lastMentionAt`)
+    }
     const ordinal = countOf(row, 'colorOrdinal', where)
     if (ordinal < 1) throw new ThreadsContractError(`${where}.colorOrdinal must be >= 1`)
+    const threadId = stringOf(row, 'threadId', where)
+    if (seen.has(threadId)) throw new ThreadsContractError(`${where}: duplicate threadId`)
+    seen.add(threadId)
     return {
-      threadId: stringOf(row, 'threadId', where),
+      threadId,
       name: stringOf(row, 'name', where),
     }
   })
