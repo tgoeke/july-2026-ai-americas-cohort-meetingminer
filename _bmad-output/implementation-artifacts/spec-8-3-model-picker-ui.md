@@ -3,8 +3,8 @@ title: 'Story 8.3: Model Picker UI'
 type: 'feature'
 created: '2026-08-31'
 status: 'review'
-review_loop_iteration: 0
-followup_review_recommended: false
+review_loop_iteration: 1
+followup_review_recommended: true
 context: ['AGENTS.md', '_bmad-output/implementation-artifacts/wave-2026-08-30-rules.md', '_bmad-output/implementation-artifacts/build-prompt-story-8-3-2026-08-31.md', '_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/DESIGN.md', '_bmad-output/planning-artifacts/ux-designs/ux-meetingminer-2026-08-29/EXPERIENCE.md']
 deferred:
   - summary: >-

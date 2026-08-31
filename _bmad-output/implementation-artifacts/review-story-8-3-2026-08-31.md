@@ -5,13 +5,14 @@
 - Review branch: `story/8-3-review`
 - Reviewed range: `3211a7f..54d6142`
 - Spec: `_bmad-output/implementation-artifacts/spec-8-3-model-picker-ui.md`
-- Status: findings confirmed; remediation in progress
+- Status: remediation committed; one owner decision remains open
 
 ## Verdict
 
-Does not pass as built. Eleven patchable findings require remediation. One
-accessibility/composition conflict is open because the frozen story contract
-and the adopted experience spine require incompatible DOM placement.
+The built branch did not pass review. Commit `a552d59` fixes all eleven
+patchable findings red-first. F12 remains open because the frozen story
+contract and the adopted experience spine require incompatible DOM placement;
+the sprint key therefore remains `review` pending the owner's ruling.
 
 ## Findings
 
@@ -35,7 +36,7 @@ store, so it proves only stale rendering. The fix must share selection events
 across mounted surfaces and serialize writes per role so issue order is commit
 order; different roles must remain independent.
 
-**Status:** confirmed — patch pending, red-first.
+**Status:** fixed — commit `a552d59`.
 
 ### F2 — A failed or malformed PUT can make a false binding claim or inject a returned role — medium — patch
 
@@ -51,7 +52,7 @@ must time-bound the request, distinguish an HTTP refusal from an unconfirmed
 transport outcome, name the attempted binding, and refuse a mismatched role
 response without moving the check or adding a role.
 
-**Status:** confirmed — patch pending, red-first.
+**Status:** fixed — commit `a552d59`.
 
 ### F3 — Provider-wide worst-row health makes a role-specific endpoint failure sound universal — medium — patch
 
@@ -68,7 +69,7 @@ provider-wide credential facts and reporting unobserved alternatives as
 `unknown`. B-42 remains the server-side completion for direct per-provider
 health.
 
-**Status:** confirmed — patch pending, red-first.
+**Status:** fixed — commit `a552d59`.
 
 ### F4 — The ask popover omits its required provider groups and Settings route — medium — patch
 
@@ -80,7 +81,7 @@ defines `All roles… (Settings)` as the route from the popover to `/settings`.
 Neither is present. Grouping must preserve the api's catalog order rather than
 sorting it.
 
-**Status:** confirmed — patch pending, red-first.
+**Status:** fixed — commit `a552d59`.
 
 ### F5 — The popover can render off-screen or below its own messages — medium — patch
 
@@ -94,7 +95,7 @@ of those messages rather than directly below the trigger. A larger legitimate
 catalog also has no maximum height or scroll. The trigger/popover need their
 own right-aligned positioning wrapper and a bounded scrolling list.
 
-**Status:** confirmed — patch pending, red-first.
+**Status:** fixed — commit `a552d59`.
 
 ### F6 — StrictMode can let an aborted first read overwrite the second mount — medium — patch
 
@@ -107,7 +108,7 @@ that can update the second pass with stale data or a spurious failure. Each
 read needs request-local ownership (including an aborted-signal check), not a
 shared mount bit.
 
-**Status:** confirmed — patch pending, red-first.
+**Status:** fixed — commit `a552d59`.
 
 ### F7 — Selection refusals omit the rule-first contract and do not return focus — medium — patch
 
@@ -122,7 +123,7 @@ not appear while focus remains on the trigger as the adopted refusal pattern
 requires. The fix must preserve the problem slug and close/refocus the picker
 when selection starts.
 
-**Status:** confirmed — patch pending, red-first.
+**Status:** fixed — commit `a552d59`.
 
 ### F8 — Unknown health still draws a status dot it cannot support — low — patch
 
@@ -133,7 +134,7 @@ when selection starts.
 an unread status draws no dot it cannot support. Unknown must remain an
 unmuted word with no dot; failed and ok states keep dot+word.
 
-**Status:** confirmed — patch pending, red-first.
+**Status:** fixed — commit `a552d59`.
 
 ### F9 — Option names expose decorative separators and repeat their description — low — patch
 
@@ -142,10 +143,10 @@ unmuted word with no dot; failed and ok states keep dot+word.
 `ModelOptionRow.tsx:53-68` leaves the visible `·` and `→` inside the computed
 name of each `role=option`, while `aria-description` repeats provider, traits,
 health and remediation. The Accessibility Floor hides those decorative glyphs.
-Each option needs a deliberate name containing its label, exact binding and
-health, with provider traits/remediation carried once as its description.
+Each option needs a deliberate name containing its label, exact binding,
+provider traits and health, with only remediation carried as its description.
 
-**Status:** confirmed — patch pending, red-first.
+**Status:** fixed — commit `a552d59`.
 
 ### F10 — Settings copy implies judge is editable and omits the eval-snapshot fact — medium — patch
 
@@ -160,7 +161,7 @@ beside the file value; `ModelRoles.tsx` does not render it. Selection copy must
 continue to carry no restart instruction, while catalog copy keeps the api
 startup-snapshot restart path.
 
-**Status:** confirmed — patch pending, red-first.
+**Status:** fixed — commit `a552d59`.
 
 ### F11 — Modified fetch routers weaken existing regression tests and named ownership cases are absent — medium — patch
 
@@ -176,7 +177,7 @@ PUT, rejected PUT, rendered muted state, and served-provider/binding-prefix
 disagreement cases. Routers must classify exact paths and fail closed; the
 named cases need regressions that are observed red against the original code.
 
-**Status:** confirmed — patch pending, red-first.
+**Status:** fixed — commit `a552d59`.
 
 ### F12 — Header-row placement conflicts with the required ask-box DOM order — medium — decision needed
 
@@ -214,6 +215,56 @@ the adopted DOM-order sentence wins. No patch is authorized inside this story.
   option is a real focusable button, matching the mockup; the spine's explicit
   `aria-activedescendant`/arrow-key mandate is scoped to the popover.
 
+## Remediation summary
+
+Commit `a552d59` makes selection ownership shared across mounted picker
+surfaces, serializes same-role PUTs while leaving different roles concurrent,
+and validates every returned role. HTTP Problem Details keep their rule slug;
+network, timeout, malformed-body and mismatched-role outcomes make only an
+unconfirmed claim. Successful responses update every mounted surface, while a
+surface whose catalog omitted the role never gains it.
+
+Health now transfers provider credential facts but scopes `ok` and
+`unreachable` to the exact role/provider endpoint evidence. Unknown health
+draws no dot. Options have deliberate accessible names, remediation-only
+descriptions and contiguous provider groups that preserve catalog order. The
+popover closes and restores focus on selection, routes to Settings, anchors at
+the trigger's right edge and bounds large catalogs. Settings copy distinguishes
+the startup catalog snapshot from the live Postgres selection and records the
+eval-snapshot fact.
+
 ## Verification
 
-Pending.
+All commands ran in the foreground and their full output was read.
+
+- Initial red suite against the unremediated implementation:
+  `ModelSelect.test.tsx`, `ModelRoles.test.tsx`, and
+  `ModelSettingsIntegration.test.tsx` — **10 failed, 20 passed**. Failures
+  covered cross-surface ownership, unmount, StrictMode, same-role ordering,
+  returned-role validation, rejected PUT wording, rule-first refusal/focus,
+  unknown dots, accessible names, provider groups and popover geometry.
+- F3's dedicated red proof against the provider-wide join:
+  `models.test.ts` — **1 failed, 25 passed**; chat was reported
+  `unreachable` solely because extraction's overridden Ollama endpoint was
+  unreachable.
+- Focused green suite after `a552d59` — **6 files, 80 passed**.
+- `make lint` — clean.
+- `make typecheck` — mypy clean in **13 source files**.
+- `make web-test` — **20 files, 354 passed** (the builder's 19/340 count plus
+  one review integration file and fourteen review regressions).
+- `pnpm exec tsc -b --force` in `web/` — clean.
+- `make test-fast` — all functional assertions passed: **2,172 passed, 3
+  skipped, 411 deselected**. Its only exit-2 cause was the handoff's known
+  contention-only budget check:
+  `test_frame_image.py::test_an_unreadable_frame_raises_a_named_error` took
+  2.13s against 2.00s. The required immediate isolated rerun passed in
+  **0.06s**; the file is unrelated and unchanged.
+- `make check-reviews` — every dispatched review has a committed report.
+- `git diff --check` — clean.
+
+## Open decision
+
+- **F12:** owner must choose the frozen header-row insertion or the adopted
+  textarea → model select → Ask DOM order. No code was changed for this item.
+- No new backlog id was taken. Existing B-42 and B-43 remain as filed; no
+  raced or duplicate backlog entries were renumbered.
