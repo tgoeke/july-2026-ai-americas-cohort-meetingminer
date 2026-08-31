@@ -923,7 +923,7 @@ describe('clips and the tag-filtered transcript', () => {
 
     await screen.findByTestId('speaker-row-SPEAKER_00')
     expect(screen.queryByText(/Transcript only — no recording/)).not.toBeInTheDocument()
-    expect(screen.getByText('Loading recording availability…')).toBeInTheDocument()
+    expect(await screen.findByText('Loading recording availability…')).toBeInTheDocument()
   })
 
   it('offers Retry when drilldown alone refuses', async () => {
