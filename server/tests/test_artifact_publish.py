@@ -21,6 +21,7 @@ import pytest
 from psycopg_pool import ConnectionPool
 
 from meetingminer import projections
+from meetingminer.projections import publish_gate
 from meetingminer.publish import export
 from projection_seed import SeededMeeting, seed_meeting
 from projection_seed import insert_artifact as seed_artifact
@@ -450,3 +451,269 @@ def test_approve_projects_into_both_stores(
             )
         ]
     assert rows == [{"moment": str(seeded.moment_ids[0])}]
+
+
+# --- story 12.2: the meeting-scoped gesture ---------------------------------
+#
+# The same lifecycle, the same export, the same function — the other scope.
+# `insert_artifact` takes `moment_id` positionally, so `None` seeds a
+# meeting-scoped row through the one canonical INSERT; migration 0022's CHECK
+# is what makes `None` legal for `summary` and illegal for the other kinds.
+
+SUMMARY_BODY = "- Vendor feeds move to SFTP [4:23]\n- Key rotation is unowned [9:02]"
+
+
+def insert_summary(
+    pool: ConnectionPool,
+    meeting_id: UUID,
+    *,
+    state: str = "extracted",
+    body: str = SUMMARY_BODY,
+) -> UUID:
+    return insert_artifact(
+        pool,
+        None,
+        meeting_id,
+        "summary",
+        state=state,
+        title="Executive summary",
+        body=body,
+    )
+
+
+def test_get_meeting_summary_returns_a_draft_without_a_citation(
+    client, test_pool
+) -> None:
+    """A summary renders freely: this is a read of stored artifact state, not
+    an answer, so "no citation, no answer" does not reach it. Served while
+    still `extracted`, the same door the moment rail already opens onto
+    unpublished artifacts."""
+    seeded = _seed(test_pool, source_id="source-summary-get")
+    summary_id = insert_summary(test_pool, seeded.meeting_id)
+
+    response = client.get(f"/meetings/{seeded.meeting_id}/summary")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["meetingId"] == str(seeded.meeting_id)
+    assert body["summary"]["id"] == str(summary_id)
+    assert body["summary"]["kind"] == "summary"
+    assert body["summary"]["state"] == "extracted"
+    assert body["summary"]["body"] == SUMMARY_BODY
+    # No moment id and no replay offset anywhere on the wire — not even null.
+    # A null one would read as "citation not loaded yet" and send a consumer
+    # looking for a replay link that does not exist (AD-15, AD-18).
+    assert "momentId" not in body["summary"]
+    assert "startMs" not in body["summary"]
+
+
+def test_get_meeting_summary_is_null_when_the_meeting_has_none(
+    client, test_pool
+) -> None:
+    """`200` with `summary: null`, not `404`. "Not extracted yet" and "no such
+    meeting" are different facts and a client must not have to parse a message
+    to tell them apart."""
+    seeded = _seed(test_pool, source_id="source-summary-absent")
+    response = client.get(f"/meetings/{seeded.meeting_id}/summary")
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "meetingId": str(seeded.meeting_id),
+        "summary": None,
+    }
+
+
+def test_get_meeting_summary_ignores_moment_anchored_artifacts(
+    client, test_pool
+) -> None:
+    """The read is scoped by `moment_id IS NULL`, so a meeting full of ADRs and
+    action items still reports no summary rather than returning one of them."""
+    seeded = _seed(test_pool, source_id="source-summary-only-scope")
+    insert_artifact(test_pool, seeded.moment_ids[0], seeded.meeting_id, "adr")
+    insert_artifact(test_pool, seeded.moment_ids[0], seeded.meeting_id, "action-item")
+
+    response = client.get(f"/meetings/{seeded.meeting_id}/summary")
+    assert response.status_code == 200, response.text
+    assert response.json()["summary"] is None
+
+
+def test_get_meeting_summary_is_404_for_an_unknown_meeting(client) -> None:
+    response = client.get(f"/meetings/{uuid4()}/summary")
+    assert response.status_code == 404
+    assert response.headers["content-type"].startswith("application/problem+json")
+    assert response.json()["type"].endswith("not-found")
+
+
+def test_get_meeting_summary_is_422_for_a_malformed_id(client) -> None:
+    response = client.get("/meetings/not-a-uuid/summary")
+    assert response.status_code == 422
+    assert response.headers["content-type"].startswith("application/problem+json")
+
+
+def test_approving_a_meeting_scoped_artifact_publishes_it(client, test_pool) -> None:
+    """A meeting-level artifact is not an exception to human-approved
+    publishing (AD-6): one gesture, both transitions, exported like any other.
+    It is not git-committed — that is the ADR rule, unchanged."""
+    seeded = _seed(test_pool, source_id="source-summary-approve")
+    summary_id = insert_summary(test_pool, seeded.meeting_id)
+
+    response = client.post(f"/meetings/{seeded.meeting_id}/artifacts/approve")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["meetingId"] == str(seeded.meeting_id)
+    [artifact] = body["artifacts"]
+    assert artifact["id"] == str(summary_id)
+    assert artifact["state"] == "published"
+    assert artifact["publishedAt"] is not None
+    assert artifact["publishRelativePath"] == f"summary/{summary_id}.md"
+    assert artifact["publishCommitSha"] is None
+
+    publish_root: Path = client.app.state.publish_root
+    exported = publish_root / "summary" / f"{summary_id}.md"
+    assert exported.read_text(encoding="utf-8") == (
+        f"# Executive summary\n\n{SUMMARY_BODY}\n"
+    )
+    log = subprocess.run(
+        ["git", "log", "--name-only", "--format="],
+        cwd=publish_root,
+        capture_output=True,
+        text=True,
+    )
+    assert f"summary/{summary_id}.md" not in log.stdout
+
+    row = artifact_row(test_pool, summary_id)
+    assert row["state"] == "published"
+    assert row["approved_at"] is not None
+    assert row["published_at"] is not None
+
+
+def test_the_meeting_scope_approve_leaves_moment_drafts_alone(
+    client, test_pool
+) -> None:
+    """The two gestures are scoped, not overlapping. Approving the meeting
+    scope must not publish a moment's drafts behind the reader's back — the
+    per-moment approval is a separate human decision."""
+    seeded = _seed(test_pool, source_id="source-summary-scope-split")
+    summary_id = insert_summary(test_pool, seeded.meeting_id)
+    adr_id = insert_artifact(
+        test_pool, seeded.moment_ids[0], seeded.meeting_id, "adr"
+    )
+
+    response = client.post(f"/meetings/{seeded.meeting_id}/artifacts/approve")
+    assert response.status_code == 200, response.text
+    assert [a["id"] for a in response.json()["artifacts"]] == [str(summary_id)]
+    assert artifact_row(test_pool, adr_id)["state"] == "extracted"
+
+
+def test_the_per_moment_approve_leaves_the_meeting_scope_alone(
+    client, test_pool
+) -> None:
+    """And the other way round: the per-moment path keeps working exactly as it
+    did, and its `WHERE moment_id = %s` never reaches a NULL-moment row."""
+    seeded = _seed(test_pool, source_id="source-summary-moment-untouched")
+    summary_id = insert_summary(test_pool, seeded.meeting_id)
+    adr_id = insert_artifact(test_pool, seeded.moment_ids[0], seeded.meeting_id, "adr")
+
+    response = client.post(f"/moments/{seeded.moment_ids[0]}/approve")
+    assert response.status_code == 200, response.text
+    assert [a["id"] for a in response.json()] == [str(adr_id)]
+    assert artifact_row(test_pool, summary_id)["state"] == "extracted"
+
+
+def test_meeting_scope_approve_is_409_when_nothing_is_extracted(
+    client, test_pool
+) -> None:
+    seeded = _seed(test_pool, source_id="source-summary-nothing")
+    insert_summary(test_pool, seeded.meeting_id, state="published")
+
+    response = client.post(f"/meetings/{seeded.meeting_id}/artifacts/approve")
+    assert response.status_code == 409
+    assert response.headers["content-type"].startswith("application/problem+json")
+    assert response.json()["type"].endswith("nothing-to-approve")
+
+
+def test_meeting_scope_approve_is_404_for_an_unknown_meeting(client) -> None:
+    response = client.post(f"/meetings/{uuid4()}/artifacts/approve")
+    assert response.status_code == 404
+    assert response.json()["type"].endswith("not-found")
+
+
+def test_a_published_meeting_scoped_artifact_is_never_projected(
+    client, test_pool
+) -> None:
+    """The citation contract does not widen, asserted where it would break.
+
+    `published_artifacts` is the one Postgres read feeding both store writers,
+    and both records are citation-bearing. Before this filter it would have
+    built `moment_ids=(None,)` — Meilisearch would have carried
+    `momentIds: ["None"]`, a citation that cannot open the recording at the
+    second, and Neo4j would have expected a `CITES` edge it could not write and
+    failed `rebuild --meeting` for the whole meeting.
+
+    Store-free: `published_artifacts` and `meeting_scoped_published` are
+    Postgres reads, so this asserts the exclusion itself rather than the
+    absence of a document in an index.
+    """
+    seeded = _seed(test_pool, source_id="source-summary-not-projected")
+    summary_id = insert_summary(test_pool, seeded.meeting_id, state="published")
+    adr_id = insert_artifact(
+        test_pool,
+        seeded.moment_ids[0],
+        seeded.meeting_id,
+        "adr",
+        state="published",
+    )
+
+    with test_pool.connection() as conn:
+        projectable = publish_gate.published_artifacts(
+            conn, meeting_id=seeded.meeting_id
+        )
+        scoped = publish_gate.meeting_scoped_published(
+            conn, [summary_id, adr_id]
+        )
+
+    assert [artifact.id for artifact in projectable] == [adr_id]
+    # Never `(None,)` — the tuple is a real moment id or the row is not here.
+    assert projectable[0].moment_ids == (seeded.moment_ids[0],)
+    assert all(None not in artifact.moment_ids for artifact in projectable)
+    assert scoped == frozenset({summary_id})
+
+
+@pytest.mark.real_projection
+def test_the_projection_names_why_it_skipped_a_meeting_scoped_artifact(
+    client, test_pool, app_config
+) -> None:
+    """AD-18: the skip is deliberate, so it must not report itself as an error
+    that did not happen.
+
+    Reporting "not found in state 'published'" would be untrue — the row is
+    published — and would send an operator looking for a missing row.
+
+    Opts out of this module's projection stub because the real function's own
+    reporting is the behaviour under test; the stub returns a count and logs
+    nothing. It still opens **no store**: with nothing projectable the call
+    takes its two locks, reads nothing, emits the skips and returns 0 before
+    `_open_stores` is reached — which is also why it needs no `slow` mark.
+    """
+    seeded = _seed(test_pool, source_id="source-summary-skip-named")
+    summary_id = insert_summary(test_pool, seeded.meeting_id, state="published")
+    missing_id = uuid4()
+
+    events: list[dict[str, Any]] = []
+    with test_pool.connection() as conn:
+        projected = projections.project_published_artifacts(
+            conn,
+            app_config,
+            artifact_ids=[summary_id, missing_id],
+            log=lambda event, **fields: events.append({"event": event, **fields}),
+        )
+
+    assert projected == 0
+    skips = {
+        event["artifact_id"]: event["reason"]
+        for event in events
+        if event["event"] == "projection.artifact_skipped"
+    }
+    assert "meeting-scoped" in skips[summary_id]
+    assert "AD-6" in skips[summary_id]
+    # The genuinely absent id still reports the other reason, so the two cases
+    # stay distinguishable.
+    assert skips[missing_id] == "not found in state 'published'"

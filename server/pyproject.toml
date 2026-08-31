@@ -127,7 +127,7 @@ testpaths = ["tests"]
 # misspelled or unregistered mark a collection error rather than a warning.
 addopts = "-m 'not slow' --strict-markers"
 markers = [
-    "real_projection: opt this test out of test_artifact_publish's projection stub — it exercises the real stores",
+    "real_projection: opt this test out of test_artifact_publish's projection stub — it exercises the real projection function (which may or may not reach the stores)",
     "slow: duration is set by something outside the test process (the store twins, spawned processes, the projection lock, timers); deselected by default, cleared with -m \"\"; reason= is required",
 ]
 # Per-test budget for the fast set, in seconds, read once at configure time
