@@ -407,41 +407,73 @@ def score_candidate(
         )
 
     # --- action items with stated timing, soonest first --------------------
-    for artifact in candidate.artifacts:
-        if artifact.kind != "action-item" or not artifact.title.strip():
-            continue
+    # Both configured weights are categorical: a moment earns each at most
+    # once, however many action rows the extraction produced. Pick the most
+    # urgent action deterministically and let its two reasons explain the two
+    # separate contributions (`action-item` for stated timing, `due` for the
+    # calendar urgency). This also keeps the artifact-kind filter truthful.
+    action_items = [
+        artifact
+        for artifact in candidate.artifacts
+        if artifact.kind == "action-item" and artifact.title.strip()
+    ]
+    timed_actions: list[tuple[float, date | None, CandidateArtifact, str]] = []
+    for artifact in action_items:
         timing = stated_timing(artifact.body)
         if timing is None:
-            # An action item whose timing nobody stated is still worth saying
-            # on the card — it is a commitment — but it earns no weight: the
-            # AC ranks "action items with stated timing".
-            terms.append(
-                _Term(
-                    0.0,
-                    FeedReason(
-                        kind="action-item",
-                        label=artifact.title.strip(),
-                        ref=str(artifact.artifact_id),
-                    ),
-                )
-            )
             continue
         due = stated_due_date(timing)
         urgency = (
             due_urgency(due, now, ranking.due_horizon_days) if due is not None else 0.0
         )
+        timed_actions.append((urgency, due, artifact, timing))
+
+    if timed_actions:
+        urgency, due, artifact, timing = min(
+            timed_actions,
+            key=lambda item: (
+                -item[0],
+                item[1] is None,
+                item[1] or date.max,
+                str(item[2].artifact_id),
+            ),
+        )
+        label = f"{artifact.title.strip()} — {timing}"
         terms.append(
             _Term(
-                weights.action_item_stated_timing + weights.due_urgency * urgency,
+                weights.action_item_stated_timing,
                 FeedReason(
-                    kind="due",
-                    label=f"{artifact.title.strip()} — {timing}",
+                    kind="action-item",
+                    label=label,
                     ref=str(artifact.artifact_id),
-                    at=(
-                        datetime(due.year, due.month, due.day, tzinfo=timezone.utc)
-                        if due is not None
-                        else None
+                ),
+            )
+        )
+        if due is not None:
+            terms.append(
+                _Term(
+                    weights.due_urgency * urgency,
+                    FeedReason(
+                        kind="due",
+                        label=label,
+                        ref=str(artifact.artifact_id),
+                        at=datetime(
+                            due.year, due.month, due.day, tzinfo=timezone.utc
+                        ),
                     ),
+                )
+            )
+    elif action_items:
+        artifact = min(action_items, key=lambda item: str(item.artifact_id))
+        # An action whose timing nobody stated is still worth saying on the
+        # card, but earns no weight: the AC ranks only stated timing.
+        terms.append(
+            _Term(
+                0.0,
+                FeedReason(
+                    kind="action-item",
+                    label=artifact.title.strip(),
+                    ref=str(artifact.artifact_id),
                 ),
             )
         )

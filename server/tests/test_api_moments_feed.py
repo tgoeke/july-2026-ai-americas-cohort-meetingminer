@@ -435,6 +435,31 @@ def test_an_unknown_kind_filter_serves_an_empty_page_not_an_error(
     assert body["total"] == 0
 
 
+def test_action_item_filter_keeps_a_timed_action(client, test_pool) -> None:
+    """F4: timing adds a due reason; it must not erase the artifact kind."""
+    stale = NOW - timedelta(days=200)
+    seeded = _seed(test_pool, source_id="feed-kind-action", started_at=stale)
+    with test_pool.connection() as conn:
+        insert_artifact(
+            conn,
+            seeded.moment_ids[0],
+            seeded.meeting_id,
+            kind="action-item",
+            state="extracted",
+            title="Set up credentials",
+            body="Timing (as stated): 2026-09-01",
+        )
+
+    body = client.get("/moments/feed?kind=action-item").json()
+
+    assert body["total"] == len(body["items"]) == 1
+    assert body["items"][0]["momentId"] == str(seeded.moment_ids[0])
+    assert {reason["kind"] for reason in body["items"][0]["reasons"]} >= {
+        "action-item",
+        "due",
+    }
+
+
 # --- what never reaches the feed ---------------------------------------------
 
 

@@ -285,13 +285,14 @@ def test_every_ac_signal_produces_its_own_reason_kind(ranking) -> None:
     score, reasons = score_candidate(row, ranking, NOW)
 
     assert {reason.kind for reason in reasons} == {
-        "adr", "decision", "due", "risk", "question", "recency", "published", "thread",
+        "adr", "decision", "action-item", "due", "risk", "question", "recency",
+        "published", "thread",
     }
     assert all(reason.kind in REASON_KINDS for reason in reasons)
     assert score > 0
-    # Ordered by contribution: the first reason is the one that put the card
-    # at the position it is at.
-    assert reasons[0].kind == "due"
+    # Ordered by individual contribution: splitting the categorical action
+    # term from urgency leaves the ADR as the largest single explanation.
+    assert reasons[0].kind == "adr"
 
 
 def test_the_score_is_deterministic_over_the_same_facts(ranking) -> None:
@@ -354,8 +355,38 @@ def test_a_sooner_action_item_outranks_a_later_one(ranking) -> None:
     # so it ties with a date past the horizon rather than being ranked on an
     # invented calendar day.
     assert score_of("some time after the demo") == score_of(far)
-    # An action item whose timing nobody stated earns nothing at all.
-    assert score_of("not stated") == 0.0
+    # An action item whose timing nobody stated earns nothing beyond the
+    # always-decaying meeting-recency term.
+    baseline = score_candidate(
+        candidate(meeting_started_at=old, started_at=old), ranking, NOW
+    )[0]
+    assert score_of("not stated") == baseline
+
+
+def test_multiple_timed_actions_earn_each_weight_once(ranking) -> None:
+    """F2: a talkative moment must not multiply a categorical contribution."""
+    old = NOW - timedelta(days=365)
+    soon = (NOW + timedelta(days=1)).date().isoformat()
+    one = candidate(
+        meeting_started_at=old,
+        artifacts=(
+            artifact(kind="action-item", title="First", body=f"Timing: {soon}"),
+        ),
+    )
+    two = candidate(
+        meeting_started_at=old,
+        artifacts=(
+            artifact(kind="action-item", title="First", body=f"Timing: {soon}"),
+            artifact(kind="action-item", title="Second", body=f"Timing: {soon}"),
+        ),
+    )
+
+    one_score, one_reasons = score_candidate(one, ranking, NOW)
+    two_score, two_reasons = score_candidate(two, ranking, NOW)
+
+    assert two_score == one_score
+    assert [reason.kind for reason in one_reasons] == ["due", "action-item"]
+    assert [reason.kind for reason in two_reasons] == ["due", "action-item"]
 
 
 def test_repeated_signals_do_not_multiply_the_score(ranking) -> None:
