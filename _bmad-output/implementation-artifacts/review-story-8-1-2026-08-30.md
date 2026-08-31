@@ -7,9 +7,9 @@ Adversarial review of Story 8.1 on `story/8-1-review`, including the eight chang
 ## Range
 
 - Original story range: `82f864b51d210920ab07770720c2d81bde200355..story/8-1`
-- Final rebased implementation range reviewed: `f92cb9c..8f2c4ff`
-- Final integration base: `f92cb9c` (`origin/main`, Story 6.3 landed)
-- Review commits begin at: `3ace393`
+- Final rebased range reviewed: `9ac3264298d65619be91493d2db5df876dad5571..story/8-1-review`
+- Final integration base: `9ac3264298d65619be91493d2db5df876dad5571` (`origin/main`)
+- Review commits begin at: `5d94bb5f4fb0d70a60265c96f517249b825837d7`
 - Review branch: `story/8-1-review`
 
 ## Findings
@@ -44,7 +44,7 @@ Adversarial review of Story 8.1 on `story/8-1-review`, including the eight chang
 - **Severity:** High
 - **Finding:** An authored prefix-less binding may explicitly declare any configured provider, but the runtime independently routes recognized bare spellings. The catalog can therefore promise one endpoint and call another.
 - **Evidence:** Before the fix, a real `Settings` validation of `model: gpt-4o`, catalog entry `{binding: gpt-4o, provider: ollama}`, and `default: gpt-4o` succeeded while `resolve_api_base('gpt-4o', providers)` selected OpenAI. The red regression reproduced that acceptance. `provider_for_model` now lives in `domain/model_providers.py`; `CatalogEntry.provider`, `resolve_api_base`, and `status.provider_of` all consume that function. The same regression now refuses `provider` as extra input, known bare `gpt-4o` and `claude-*` derive OpenAI and Anthropic consistently, and `some-model` refuses as ambiguous.
-- **Suggested direction:** Implemented in commit `1271686`: provider identity is derived output from the one shared rule; authored `provider` input and ambiguous bare spellings are named load failures.
+- **Suggested direction:** Implemented in commit `260056c`: provider identity is derived output from the one shared rule; authored `provider` input and ambiguous bare spellings are named load failures.
 
 ### Finding 5 — AD-10 omits the owner-approved selection half of the amendment (patch)
 
@@ -75,7 +75,7 @@ Adversarial review of Story 8.1 on `story/8-1-review`, including the eight chang
 - **Location:** `server/tests/test_diarize_pyannote.py:266`; `server/tests/test_youtube.py:1353`
 - **Severity:** Low
 - **Finding:** The review handoff's zero-skip baseline no longer reproduces after rebasing onto current main: `make test-fast` skips the optional pyannote import case and the explicitly opt-in real YouTube network acquisition case.
-- **Evidence:** The final post-rebase fast server run reported 1,893 passed, 2 skipped, and 378 deselected. The named reasons were `No module named 'pyannote'` and `set MM_YOUTUBE_NETWORK_TEST=1 to run it`. Both tests landed on main after the original Story 8.1 baseline and neither is reached by the catalog change.
+- **Evidence:** The final post-rebase fast server run reported 1,962 passed, 2 skipped, and 378 deselected; the full run reported 2,340 passed and the same 2 skips. The named reasons were `No module named 'pyannote'` and `set MM_YOUTUBE_NETWORK_TEST=1 to run it`. Both tests landed on main after the original Story 8.1 baseline and neither is reached by the catalog change. The isolated diarization-extra gate passed all 92 tests.
 - **Suggested direction:** No Story 8.1 patch. Treat the fast result as qualified by these two intentional current-main environment gates; use the dedicated diarize-extra gate when validating pyannote and the explicit environment flag only when a real network acquisition run is intended.
 
 ### Finding 9 — A missing model loses its endpoint identity and may engage fallback (defer — filed as B-38)
@@ -92,7 +92,7 @@ Adversarial review of Story 8.1 on `story/8-1-review`, including the eight chang
 - **Severity:** High
 - **Finding:** For a legacy role with outer whitespace around `model`, catalog synthesis strips the spelling before deriving provider metadata, but `LlmRoleBinding.model` retains the original string that runtime routing consumes. The catalog/status identity can therefore disagree with the actual call despite using the same resolver function.
 - **Evidence:** Before the fix, `_catalog_from_model` computed `tag = model.strip()` for `CatalogEntry` while the validated `model: str` field retained whitespace. The red regression failed with `'  gpt-4o  ' != 'gpt-4o'`. `LlmRoleBinding.model` now uses `NonEmptyText`; the stored model, synthesized binding, derived provider, and `resolve_api_base` endpoint all agree.
-- **Suggested direction:** Implemented in commit `af1672b`; the focused regression and full catalog/config set pass.
+- **Suggested direction:** Implemented in commit `c0f003a`; the focused regression and full catalog/config set pass.
 
 ### Finding 11 — Known-bare agreement is not observed at the status consumer (closed — verification patch)
 
@@ -100,7 +100,7 @@ Adversarial review of Story 8.1 on `story/8-1-review`, including the eight chang
 - **Severity:** Medium
 - **Finding:** The owner contract requires config, runtime, and displayed status to use one provider rule. The regression asserts config metadata against `resolve_api_base`, but no normal test observes the status consumer for bare OpenAI/Anthropic spellings.
 - **Evidence:** Repository-wide symbol tracing showed `status.provider_of` aliases `provider_for_model`, and `/config` imports that alias, so adoption was correct but unobserved. The known-bare parametrized regression now checks `status.provider_of(model) == provider` beside catalog metadata and `resolve_api_base`; both OpenAI and Anthropic cases pass.
-- **Suggested direction:** Implemented in commit `cc97e96`; config, runtime, and displayed status are pinned in one case matrix.
+- **Suggested direction:** Implemented in commit `9a4d8dd`; config, runtime, and displayed status are pinned in one case matrix.
 
 ### Finding 12 — Eval bake-off fixtures use newly ambiguous bare bindings (closed — patch)
 
@@ -108,7 +108,7 @@ Adversarial review of Story 8.1 on `story/8-1-review`, including the eight chang
 - **Severity:** Medium
 - **Finding:** Two store-free eval tests construct `LlmRoleBinding` with fake bare model names whose provider cannot be determined under the owner-amended contract, so `make test-fast` fails before exercising the behavior those tests target.
 - **Evidence:** The first foreground `make test-fast` run passed lint, typecheck, puller, and web, then failed on `model="x"` and `model="flaky-model"`; both raised the new named ambiguous-routing validation error, and the remaining eval suite reported 641 passed. All three affected synthetic bindings now use explicit `test/` prefixes, the eval suite passes 643, and the restarted fast gate passes.
-- **Suggested direction:** Implemented in commit `90c4c85`; fake provider prefixes preserve the bake-off behavior without weakening production validation.
+- **Suggested direction:** Implemented in commit `3ee27a3`; fake provider prefixes preserve the bake-off behavior without weakening production validation.
 
 ## Review-layer and triage summary
 
@@ -165,25 +165,25 @@ The original deferred inventory was reassessed rather than duplicated:
 
 ## Final verification
 
-The complete gate below passed on rebased base `7a1076d1`; `origin/main` then
-advanced to `fceab409`, so it is evidence but not yet the final landing-base
-gate. The review will rebase and rerun before closeout.
+The complete foreground gate passed on final integration base
+`9ac3264298d65619be91493d2db5df876dad5571`; a post-gate fetch confirmed that
+`origin/main` and the branch merge-base still named that commit.
 
 - `uv sync --project server` — clean.
 - `make lint` — clean.
 - `make typecheck` — no issues in 13 source files.
 - `make test-fast` — puller 128 passed; web 294 passed; evals 643 passed;
-  server 1,898 passed, 2 skipped, 378 deselected. Both skips are Finding 8.
+  server 1,962 passed, 2 skipped, 378 deselected. Both skips are Finding 8.
 - `make test` — puller 128 passed; web 294 passed; evals 643 passed; isolated
-  diarize-extra gate 92 passed; test-store reachability 1 passed; server 2,276
+  diarize-extra gate 92 passed; test-store reachability 1 passed; server 2,340
   passed and the same 2 tests skipped; production web build clean.
 - Targeted remediation suites also passed: config/catalog 139, fail-fast 12,
   catalog/adapter/status 136, and evals 643.
 
 ## Verdict
 
-**Pending final rebase gate.** Every in-scope finding is fixed. Finding 9 is
-verified but intentionally outside Story 8.1's no-call-path boundary and is
-filed as B-38. Because `origin/main` moved during the full gate, the final
-verdict waits for rebase, rerun, and `make check-reviews`. This review does not
-merge or commit to `main`.
+**PASS.** Every in-scope finding is fixed and verified on the final rebased
+range. Finding 8 records only two intentional current-main environment gates.
+Finding 9 is verified but intentionally outside Story 8.1's no-call-path
+boundary and is filed as B-38 with the owner's exact failure contract. This
+review does not merge or commit to `main`.

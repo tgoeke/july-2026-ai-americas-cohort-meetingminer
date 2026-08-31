@@ -2,10 +2,10 @@
 title: 'Story 8.1: AD-10 Amendment and Binding Catalog'
 type: 'feature'
 created: '2026-08-30'
-status: 'in-review'
+status: 'done'
 baseline_commit: '1f64b32dc2467badf93dd6acdea6e70f61bfb7a8'
 review_loop_iteration: 1
-followup_review_recommended: true
+followup_review_recommended: false
 context: ['AGENTS.md', '_bmad-output/implementation-artifacts/wave-2026-08-30-rules.md', '_bmad-output/implementation-artifacts/build-prompt-story-8-1-2026-08-30.md']
 warnings: ['oversized']
 deferred:
@@ -238,6 +238,9 @@ into AD-10 and the repository's binding policy line. Runtime routing behavior is
 - [x] [Review][Defer] Finding 8 — Current main's fast/full server runs skip the
   optional main-venv pyannote import and opt-in real YouTube network case;
   the isolated diarize gate passes [`server/tests/test_diarize_pyannote.py:266`].
+- [x] [Review][Defer] Finding 9 — File the owner-mandated loud missing-model
+  error and no-fallback behavior as B-38 because it changes call-time adapter
+  semantics outside this story's frozen boundary.
 - [x] [Review][Patch] Finding 10 — Normalize the active model and synthesized
   catalog binding identically so the shared provider rule receives one spelling.
 - [x] [Review][Verification] Finding 11 — Pin status provider identity beside
@@ -403,8 +406,9 @@ an implementation-status report.
 
 ## Auto Run Result
 
-Status: review (not `done`: the wave's build-auto customization and the build
-prompt both end this story at `review`, for the Codex `bmad-code-review` lane).
+Status: done. The local sequential review completed, all in-scope patch
+findings are fixed, the final rebased gate is green, and the sole call-time
+defect outside the frozen boundary is filed as B-38.
 
 **Implemented.** `llm.roles.<role>` declares authored `catalog[]` entries of
 `binding` / `label` plus a derived `provider`, and a `default`, validated when
@@ -437,23 +441,23 @@ until persisted selection lands.
 - `_bmad-output/implementation-artifacts/` — this spec, `epic-8-context.md`,
   `sprint-status.yaml`, `sprint-notes.md`, the review prompt.
 
-**Review findings.** 6 patched (1 high, 2 medium, 3 low), 7 deferred (see
-frontmatter), 9 rejected. Follow-up review recommended: **true** — a `high`
-finding was patched.
+**Review findings.** Ten in-scope patch or verification findings are closed.
+Finding 8 records two intentional current-main environment gates. Finding 9 is
+deferred to B-38 because its adapter/fallback change is outside this story's
+frozen no-call-path boundary. Follow-up review recommended: **false**.
 
-**Verification performed** (every command run in the foreground, output read)
+**Final verification performed** (every command run in the foreground, output
+read, on integration base `9ac3264298d65619be91493d2db5df876dad5571`)
 
-- `uv run --project server pytest server/tests/test_config_catalog.py server/tests/test_config.py -q` → 67 passed.
-- `uv run --project server pytest -m "" server/tests/test_failfast.py -q` → 12 passed.
-- `make test-fast` → 1411 passed, 326 deselected, **zero skips**; evals 549 passed.
-- `make test` → **1739 passed**, 9m28s, plus the web build (`tsc -b && vite build`) clean.
-  The first run of this gate **failed** on the embedder fail-fast test; that
-  failure is the Spec Change Log's first entry and is fixed.
-- `python3 _bmad/scripts/branch_conflicts.py --against story/8-1` → see below.
-- Both Ollama tags in the committed catalogs were checked against the live
-  `providers.ollama` endpoint with `/api/tags`: `gpt-oss:120b` and `qwen3:30b`
-  are both served there, so no catalog entry offers a binding that endpoint
-  cannot answer.
+- `uv sync --project server`, `make lint`, and `make typecheck` → clean;
+  mypy reports no issues in 13 source files.
+- `make test-fast` → puller 128, web 294, evals 643, server 1,962 passed,
+  2 intentional skips, 378 deselected.
+- `make test` → puller 128, web 294, evals 643, isolated diarization 92,
+  store reachability 1, server 2,340 passed with the same 2 intentional skips;
+  production web build clean.
+- Targeted remediation suites → config/catalog 139, fail-fast 12,
+  catalog/adapter/status 136, and evals 643 passed.
 
 **Residual risks**
 

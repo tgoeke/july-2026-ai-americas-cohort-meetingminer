@@ -3273,6 +3273,14 @@ the eval suite passes 643, and the restarted fast gate passes. A local review
 also normalized outer whitespace on the active `model` and pinned status as the
 third consumer of the shared provider rule.
 
+**Review closeout.** The branch was rebased through final integration base
+`9ac3264298d65619be91493d2db5df876dad5571`. The foreground gate passed:
+lint clean, mypy clean in 13 source files, fast server 1,962 passed / 2
+intentional skips / 378 deselected, full server 2,340 passed / the same 2
+skips, diarization 92, reachability 1, puller 128, web 294, evals 643, and the
+production web build. All in-scope review findings are closed; B-38 remains
+the filed call-time follow-up outside Story 8.1's frozen boundary.
+
 The committed `config.yaml` gains a two-entry catalog per role (extraction:
 the two local Ollama bindings it already names; chat and judge: `openai/gpt-5.2`
 beside the free local `ollama/gpt-oss:120b`), with each `default` equal to the
