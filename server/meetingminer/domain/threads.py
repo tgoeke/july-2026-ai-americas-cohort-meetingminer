@@ -578,17 +578,20 @@ def _upsert_thread(
     if existing_thread_id is not None:
         row = conn.execute(
             "UPDATE thread"
-            " SET name = %s, link_rule = %s, derivation = %s"
+            " SET identity_key = %s, name = %s, link_rule = %s, derivation = %s"
             " WHERE id = %s"
-            "   AND (name IS DISTINCT FROM %s"
+            "   AND (identity_key IS DISTINCT FROM %s"
+            "        OR name IS DISTINCT FROM %s"
             "        OR link_rule IS DISTINCT FROM %s"
             "        OR derivation IS DISTINCT FROM %s)"
             " RETURNING id",
             (
+                cluster.identity_key,
                 cluster.name,
                 link_rule,
                 Jsonb(derivation),
                 existing_thread_id,
+                cluster.identity_key,
                 cluster.name,
                 link_rule,
                 Jsonb(derivation),
