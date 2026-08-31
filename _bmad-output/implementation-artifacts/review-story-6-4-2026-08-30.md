@@ -111,3 +111,26 @@ the review handoff. Frozen intent defects will be reported but not patched.
   invent a second vocabulary. This review leaves it open because changing the
   pre-existing refusal set/function exceeds the lane's allowed `youtube.py`
   addition and needs an explicit footprint ruling.
+
+### F5 — The table tests do not guard most rule-to-status semantics
+
+- **Location:** `server/tests/test_api_acquisitions.py:799-822`
+- **Severity:** Medium
+- **Finding:** The implementation deliberately hand-writes every refusal table
+  entry so a future rule cannot acquire a silent default, but the claimed guard
+  checks only key completeness, non-empty remediation text, the overall set of
+  three status values, and seven selected rule values. Most existing rules can
+  be moved among 400/422/503—or have their remediation text swapped—without a
+  failure. The costly literal tables are therefore protected against missing
+  keys but not against the desynchronization risk used to justify them.
+- **Evidence:** As a review mutation, changing only
+  `PROBLEM_STATUS["probe-failed"]` from 422 to 400 preserved the keys and the
+  aggregate value set. All table-focused tests stayed green: 3 passed, 32
+  deselected. `probe-failed` is an actual probe response consumed by the UI,
+  so this is observable contract drift rather than an internal refactor.
+- **Suggested direction:** Pin the complete expected status buckets explicitly
+  in the test (one declared host set, one bad-request set, and an exact
+  remainder assertion), so moving any rule is a reviewed contract change.
+  Add rule-specific remediation assertions or a compact checked snapshot for
+  entries whose action differs materially; do not compare responses back to
+  the same production dict, which is tautological.
