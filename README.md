@@ -1,5 +1,8 @@
 # MeetingMiner
 
+**Cohort:** july-2026-ai-americas-cohort
+**Team:** meetingminer
+
 **Turns recorded software demonstrations into searchable, citable evidence.
 Every extracted artifact traces back to the video moment that produced it.**
 
@@ -25,7 +28,7 @@ meeting content must resolve to a moment, or it is not returned.
 
 - [What it does](#what-it-does)
 - [How it works](#how-it-works)
-- [Quick start](#quick-start)
+- [Quick start](#quick-start) — how to build and run it
 - [Everyday commands](#everyday-commands)
 - [Repository layout](#repository-layout)
 - [Configuration](#configuration)
