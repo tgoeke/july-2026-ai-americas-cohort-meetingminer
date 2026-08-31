@@ -29,3 +29,11 @@ Adversarial review of Story 8.2 implementation and its stated footprint against 
 - **Finding** — the new mapping falls back to `NotFoundError.llm_provider` when `provider_for_model()` returns `None`. That contradicts the frozen one-rule invariant that provider identity comes from `domain.model_providers.provider_for_model` “and nothing else,” and it makes an SDK guess authoritative precisely on the ambiguous spelling the shared rule refuses to guess.
 - **Evidence** — reading `LiteLlmCompleter.complete` shows `provider_for_model(self.model) or getattr(exc, "llm_provider", None) or "unknown"`. `test_the_refusal_names_the_provider_the_shared_spelling_rule_derives` proves a recognized binding wins over a conflicting SDK value, but no test covers the `None` branch; constructing a LiteLLM `NotFoundError` confirms `llm_provider` is populated and therefore would be used.
 - **Suggested direction** — derive the provider only through `provider_for_model`; if that rule cannot identify it, report a non-authoritative sentinel such as `unknown` rather than promoting SDK metadata. Add a regression where an ambiguous model and an SDK-supplied provider disagree.
+
+### Finding 3 — the new chat 502 is absent from the API contract
+
+- **Location** — `server/meetingminer/api/chat.py:1343`
+- **Severity** — medium
+- **Finding** — chat now emits `502 urn:meetingminer:problem:binding-failed`, but the route's declared OpenAPI responses still contain only 200, 422, and 503. The regenerated client therefore has no 502 member in `AskCorpusErrors`, so the story's new failure contract is invisible to generated consumers even though it exists at runtime.
+- **Evidence** — `app.openapi()["paths"]["/chat"]["post"]["responses"]` returned only `200`, `422`, and `503`; `web/src/client/types.gen.ts:2332-2341` likewise defines only 422 and 503 errors. The on-wire test checks the problem type and fields but does not assert `response.status_code == 502` or inspect OpenAPI.
+- **Suggested direction** — declare the 502 `ProblemDetails` response with `application/problem+json`, pin both the runtime status and schema entry in tests, then regenerate the committed client from the schema.
