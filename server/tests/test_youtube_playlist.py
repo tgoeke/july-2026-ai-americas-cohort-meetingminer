@@ -13,9 +13,9 @@ failure after a successful mint.
 
 from __future__ import annotations
 
+import ast
 import json
 import os
-import re
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -285,9 +285,24 @@ def test_every_rule_the_source_raises_is_declared() -> None:
     source = (
         REPO_ROOT / "server" / "meetingminer" / "youtube.py"
     ).read_text(encoding="utf-8")
-    used = set(re.findall(r'rule="([a-z0-9-]+)"', source))
-    assert used, "no rule= tokens found — the raise sites lost their rules"
-    assert used <= youtube.REFUSAL_RULES
+    tree = ast.parse(source)
+    raised = [
+        node.exc
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Raise)
+        and isinstance(node.exc, ast.Call)
+        and isinstance(node.exc.func, ast.Name)
+        and node.exc.func.id == "YoutubeError"
+    ]
+    assert raised, "no YoutubeError raise sites found"
+    for call in raised:
+        rules = [keyword.value for keyword in call.keywords if keyword.arg == "rule"]
+        assert len(rules) == 1, f"YoutubeError at line {call.lineno} needs one rule="
+        rule = rules[0]
+        assert isinstance(rule, ast.Constant) and isinstance(rule.value, str), (
+            f"YoutubeError at line {call.lineno} needs a literal rule="
+        )
+        assert rule.value in youtube.REFUSAL_RULES
     assert "unclassified" in youtube.REFUSAL_RULES
 
 
@@ -302,8 +317,15 @@ def test_refusal_rule_names_the_source_of_every_refusal_kind() -> None:
 
 def test_a_youtube_error_still_reads_as_its_message() -> None:
     """The rule is additive: story 6.2's operator-facing text is unchanged."""
-    error = youtube.YoutubeError("the video carries no video stream", rule="x")
+    error = youtube.YoutubeError(
+        "the video carries no video stream", rule="no-video-stream"
+    )
     assert str(error) == "the video carries no video stream"
+
+
+def test_a_youtube_error_rejects_a_rule_outside_the_closed_vocabulary() -> None:
+    with pytest.raises(ValueError, match="unknown YouTube refusal rule: invented-token"):
+        youtube.YoutubeError("x", rule="invented-token")
 
 
 # --- the per-entry loop ------------------------------------------------------

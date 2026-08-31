@@ -179,6 +179,8 @@ class YoutubeError(RuntimeError):
     """
 
     def __init__(self, message: str, *, rule: str = "unclassified") -> None:
+        if rule not in REFUSAL_RULES:
+            raise ValueError(f"unknown YouTube refusal rule: {rule}")
         super().__init__(message)
         self.rule = rule
 

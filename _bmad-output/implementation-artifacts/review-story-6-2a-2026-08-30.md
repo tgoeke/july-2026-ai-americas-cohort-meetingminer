@@ -22,13 +22,14 @@ Adversarial review of Story 6.2a across the implementation, tests, operator docu
 - **Suggested direction** — Require only the listing executable before the one playlist-enumeration subprocess, and leave the full media-tool gate inside `acquire()` after its existing-drop lookup. Add a regression test proving an all-existing playlist still enumerates, POSTs each existing drop, and reaches neither the media probe/download path nor a requirement for `ffmpeg`/`ffprobe`.
 - **Resolution** — Added a listing-only `ensure_playlist_tool()` gate and kept the full media-tool `ensure_tools()` call inside `acquire()`. The existing-drop regression test was observed failing first with `YoutubeError: ffmpeg is not on PATH`, then passed after the fix; the complete playlist module passed (45 tests).
 
-### F2 — Open: the refusal-vocabulary test does not enforce explicit or declared rules
+### F2 — Resolved: the refusal-vocabulary test does not enforce explicit or declared rules
 
 - **Location** — `server/tests/test_youtube_playlist.py:283`
 - **Severity** — low
 - **Finding** — `test_every_rule_the_source_raises_is_declared()` regexes only literal `rule="..."` text and checks that the literals it happens to find are a subset of `REFUSAL_RULES`. A new `raise YoutubeError("...")` with no rule is invisible, and a dynamic or directly constructed undeclared rule is also invisible. The test therefore does not close the vocabulary or guarantee the spec's “set at each raise site” property despite its name and docstring.
 - **Evidence** — A focused `uv run --project server python` mutation removed the first explicit `rule="not-a-video-url"` from an in-memory copy of the module and re-ran the test's exact regex predicate; it printed `current_guard_accepts_missing_rule=True`. The same probe constructed `YoutubeError("x", rule="invented-token")`, and `refusal_rule()` returned `invented-token`. A separate AST inventory confirmed today's implementation has 37 `raise YoutubeError(...)` sites and zero missing explicit rules, so this is a guard gap rather than a current-site misclassification.
 - **Suggested direction** — Replace the regex subset check with an AST assertion over every `raise YoutubeError(...)`: each site must have exactly one literal `rule=` keyword and that value must belong to `REFUSAL_RULES`. Also reject undeclared explicit tokens at construction or directly test the mapping invariant so a future non-literal token cannot leak into the stable table vocabulary.
+- **Resolution** — Replaced the regex with an AST walk that checks every raised `YoutubeError` for exactly one literal declared rule, and made `YoutubeError` reject undeclared tokens at construction. The new constructor test failed first with `DID NOT RAISE ValueError`, then the three focused vocabulary/message tests and all 46 playlist tests passed.
 
 ### F3 — Open: per-entry `ConfigError` survival is implemented but unverified
 
