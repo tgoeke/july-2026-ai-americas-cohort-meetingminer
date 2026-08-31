@@ -2,6 +2,10 @@ import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import type { CitationModel, RouteModel } from '@/client/types.gen'
 import { SourceLinkAnchor } from '@/components/SourceLinkAnchor'
 import { Button } from '@/components/ui/button'
+// The ask box's model select (story 8.3). One element in the header row — the
+// panel's anatomy is otherwise unchanged, and the popover owns its own reads,
+// its own writes and its own failure states.
+import { ModelSelect } from '@/features/settings/ModelSelect'
 import { offsetLabel, sourceLinkOf } from '@/lib/affordance'
 import { API_BASE } from '@/lib/api'
 import { chatStream } from './chatStream'
@@ -171,8 +175,9 @@ export function ChatPanel({ onOpenMoment }: ChatPanelProps = {}) {
 
   return (
     <section className="flex w-full flex-col gap-4">
-      <header>
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold tracking-tight">Ask</h2>
+        <ModelSelect />
       </header>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-2">
