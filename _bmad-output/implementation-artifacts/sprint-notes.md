@@ -3313,3 +3313,45 @@ touches that file, measured against all seven `story/*` branches. Second, any
 lane that adds a role tag or removes a provider from `config.yaml` now touches a
 unit surface: `test_config_catalog.py` loads the committed file and asserts every
 catalog entry's provider is declared.
+
+## 8-1 landed, 2026-08-30 ~21:00 — one rule decides which provider serves a model
+
+`main` at `c4c54da`. `config.yaml` declares a per-role `catalog[]` and
+`default`; the loader fails closed when a default is outside its catalog or a
+binding names an undeclared provider, and a pre-catalog single-`model` file
+still loads as a one-entry catalog.
+
+**Owner ruling A, 2026-08-30 — the shape of the fix, not just the fix.** Review
+found that an authored entry could declare `provider: ollama` beside
+`model: gpt-4o` while the runtime routed to OpenAI: the catalog promised one
+endpoint and the call reached another. The owner rejected the framing of
+"which rule wins" and gave a plainer instruction — *show what is actually
+happening*. So the declared provider is gone as a source of truth. A new
+`server/meetingminer/domain/model_providers.py` holds the single spelling rule,
+and `api/status.py`'s `provider_of` is now an **alias** to it rather than a
+wrapper — deliberately, so config, call-time endpoint resolution and the
+display surface execute the same function object and cannot drift. An
+ambiguous bare spelling is refused at load by name rather than guessed.
+
+The acceptance test is the owner's own sentence: the picker showing
+`ollama/gpt-oss:120b` means local and free, `openai/gpt-5.2` means remote and
+paid, with nothing in between that can be wrong.
+
+**Owner ruling B was filed rather than built, and that was the right call.**
+Making a model-not-found failure loud — naming the provider, the endpoint and
+the model, and never engaging the fallback — changes call-time adapter and
+fallback semantics, which is outside this story's frozen boundary. It is
+**B-38**, with the evidence and the exact required message, so the next lane
+inherits a specification rather than a memory.
+
+**No post-merge ops owed.** `api/status.py` changed but only swapped a private
+helper for the shared one — no route decorator, no response model, so the
+OpenAPI schema is unchanged and the committed TS client stays valid. Verified
+by diffing the api surface rather than assuming.
+
+**Backlog id collision, third of the wave.** Story 10.2 *named* B-38 and B-39
+in its spec, notes and review prompt but never filed them in
+`docs/backlog.md`; 8-1 filed B-38 there for real. 8-1's claim stands. 10.2's
+two items must be renumbered **and actually filed** — a reader of the backlog
+would not find them today. Naming an id in a spec does not reserve it; filing
+it does.
