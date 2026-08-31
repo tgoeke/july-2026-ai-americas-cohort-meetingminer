@@ -29,8 +29,16 @@ function statusFixture(): StatusResponse {
   return {
     generatedAt: '2026-08-31T09:00:00Z',
     overall: 'ok',
+    observedBy: {
+      process: 'api',
+      configPath: '/repo/config.yaml',
+      configLoadedAt: '2026-08-31T08:00:00Z',
+      catalogNote: '',
+      selectionNote: '',
+    },
     api: { id: 'api', label: 'api', state: 'ok', detail: '', remediation: null },
     stores: [],
+    providers: [],
     llmRoles: [],
     worker: { state: 'running', jobs: {}, stageBacklog: {}, detail: '', remediation: null },
   }

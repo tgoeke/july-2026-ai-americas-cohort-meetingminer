@@ -113,12 +113,17 @@ const SEVERITY: Record<HealthWord, number> = {
 }
 
 /**
- * One `GET /status` LLM-role row, reduced to the evidence that row supplies.
+ * One `GET /status` health row, reduced to the evidence that row supplies.
  *
  * `keyState` is a property of the provider's credential, not of the role, so
  * `invalid`/`missing` transfer to every option on that provider. A `present`
- * or `not-required` key that is nonetheless `degraded` means that role's
- * endpoint did not answer — `unreachable`, which transfers only to that role.
+ * or `not-required` key that is nonetheless `degraded` means that row's
+ * endpoint did not answer — `unreachable`, which transfers only to that
+ * endpoint.
+ *
+ * The same three fields carry the same meaning on a `providers[]` row (story
+ * 8.2a) and on an `llmRoles[]` row, so both are read by this one function
+ * rather than by two that could come to disagree.
  */
 export function healthOfRoleRow(row: {
   keyState: StatusResponse['llmRoles'][number]['keyState']
@@ -133,34 +138,72 @@ export function healthOfRoleRow(row: {
 }
 
 /**
- * Provider/role evidence → health, built from `GET /status.llmRoles[]`.
+ * The index key holding a provider's health at its *own* configured endpoint,
+ * as `GET /status.providers[]` reports it. Distinct from the bare provider key
+ * — which holds only credential verdicts, and is provider-wide — so a healthy
+ * provider endpoint can never shadow a role whose own endpoint is down.
+ */
+const PROVIDER_DEFAULT_ENDPOINT = '\u0000provider-default'
+
+/**
+ * Provider/role evidence → health, from `GET /status`.
  *
- * Credential failures (`invalid`/`missing`) are provider-wide. Reachability is
- * not: a role may override its provider's base URL, so `ok`/`unreachable` are
- * indexed by exact role plus provider. Story 8.2a will serve `providers[]`
- * directly; until it lands, an option whose role has no matching row is
- * `unknown`, not an extrapolation from another endpoint. A row whose provider
- * is `null` joins to nothing and is skipped.
+ * Two payload halves feed it and they answer different questions:
+ *
+ * * `providers[]` (story 8.2a) answers "is this key good", for **every**
+ *   configured provider — including ones no role binds today, which the role
+ *   rows could never cover. Its credential verdicts are provider-wide.
+ * * `llmRoles[]` answers "did *this role's* endpoint respond". A role may
+ *   override its provider's base URL, so reachability is indexed by exact
+ *   role plus provider and never generalised to the provider.
+ *
+ * An option that neither half covers stays `unknown` rather than being
+ * extrapolated from another endpoint. A role row whose provider is `null`
+ * joins to nothing and is skipped.
  */
 export function providerHealthIndex(status: StatusResponse | null): Map<string, ProviderHealth> {
   const index = new Map<string, ProviderHealth>()
   if (status === null) return index
-  for (const row of status.llmRoles) {
-    if (row.provider == null) continue
-    const health = healthOfRoleRow(row)
-    const key =
-      health.word === 'invalid' || health.word === 'missing'
-        ? row.provider
-        : `${row.role}\u0000${row.provider}`
+
+  const remember = (key: string, health: ProviderHealth) => {
     const current = index.get(key)
     if (current === undefined || SEVERITY[health.word] > SEVERITY[current.word]) {
       index.set(key, health)
     }
   }
+
+  const providers = Array.isArray(status.providers) ? status.providers : []
+  for (const row of providers) {
+    const health = healthOfRoleRow(row)
+    remember(
+      health.word === 'invalid' || health.word === 'missing'
+        ? row.provider
+        : `${row.provider}${PROVIDER_DEFAULT_ENDPOINT}`,
+      health,
+    )
+  }
+
+  for (const row of status.llmRoles) {
+    if (row.provider == null) continue
+    const health = healthOfRoleRow(row)
+    remember(
+      health.word === 'invalid' || health.word === 'missing'
+        ? row.provider
+        : `${row.role}\u0000${row.provider}`,
+      health,
+    )
+  }
   return index
 }
 
-/** This provider's health, or an explicit `unknown` — never an assumed `ok`. */
+/**
+ * This provider's health, or an explicit `unknown` — never an assumed `ok`.
+ *
+ * Most specific first among equals: a credential verdict is provider-wide and
+ * cannot be cured by a reachable endpoint, so it wins outright; below it the
+ * role's own endpoint beats the provider's default endpoint, because that is
+ * the endpoint the role's calls actually go to.
+ */
 export function healthFor(
   index: Map<string, ProviderHealth>,
   provider: string | null,
@@ -170,6 +213,7 @@ export function healthFor(
   return (
     index.get(provider) ??
     (role === undefined ? undefined : index.get(`${role}\u0000${provider}`)) ??
+    index.get(`${provider}${PROVIDER_DEFAULT_ENDPOINT}`) ??
     UNKNOWN_HEALTH
   )
 }

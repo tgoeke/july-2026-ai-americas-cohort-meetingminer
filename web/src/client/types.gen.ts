@@ -1059,6 +1059,42 @@ export type LlmRoleStatus = {
      * Remediation
      */
     remediation?: string | null;
+    /**
+     * Source
+     */
+    source: 'selection' | 'file-default' | 'unknown';
+    /**
+     * Defaultbinding
+     */
+    defaultBinding: string;
+    /**
+     * Filebinding
+     */
+    fileBinding: string;
+    /**
+     * Selected
+     */
+    selected?: string | null;
+    /**
+     * Staleselection
+     */
+    staleSelection?: string | null;
+    /**
+     * Stalereason
+     */
+    staleReason?: string | null;
+    /**
+     * Observedby
+     */
+    observedBy?: string;
+    /**
+     * Servedby
+     */
+    servedBy?: string | null;
+    /**
+     * Attribution
+     */
+    attribution: string;
 };
 
 /**
@@ -1721,6 +1757,38 @@ export type Neo4jView = {
 };
 
 /**
+ * ObservedBy
+ *
+ * Whose reading the whole payload is (AD-10 as amended, AD-18).
+ *
+ * Named once at the top so no consumer has to assemble the attribution from
+ * the rows, and so a surface that renders only a summary still has the one
+ * fact it may not omit: which process answered, and out of which file.
+ */
+export type ObservedBy = {
+    /**
+     * Process
+     */
+    process: string;
+    /**
+     * Configpath
+     */
+    configPath: string;
+    /**
+     * Configloadedat
+     */
+    configLoadedAt?: string | null;
+    /**
+     * Catalognote
+     */
+    catalogNote?: string;
+    /**
+     * Selectionnote
+     */
+    selectionNote?: string;
+};
+
+/**
  * OcrView
  */
 export type OcrView = {
@@ -1963,6 +2031,50 @@ export type ProjectionsView = {
     synonyms: {
         [key: string]: Array<string>;
     };
+};
+
+/**
+ * ProviderStatus
+ *
+ * One configured provider's key validity (story 8.2a, FR39).
+ *
+ * The four fields the story names — ``provider``, ``keyState``, ``detail``,
+ * ``remediation`` — plus two that keep the row honest. ``state`` is carried
+ * rather than inferred from ``remediation is not None``: a reader that
+ * derives health from the presence of prose is one wording change away from
+ * reporting the wrong thing. ``observedBy`` names the process whose ``.env``
+ * and ``config.yaml`` snapshot produced the reading, because a key state is
+ * as process-local as a binding is (AD-10 as amended).
+ *
+ * Probed through the provider's free model-list endpoint only, behind the
+ * same cache the role rows use — never a completion, and never a second
+ * request for a provider a role already probed at the same endpoint.
+ */
+export type ProviderStatus = {
+    /**
+     * Provider
+     */
+    provider: string;
+    /**
+     * Keystate
+     */
+    keyState: 'present' | 'missing' | 'invalid' | 'not-required';
+    /**
+     * Detail
+     */
+    detail: string;
+    /**
+     * Remediation
+     */
+    remediation?: string | null;
+    /**
+     * State
+     */
+    state: 'ok' | 'degraded';
+    /**
+     * Observedby
+     */
+    observedBy?: string;
 };
 
 /**
@@ -2507,11 +2619,16 @@ export type StatusResponse = {
      * Overall
      */
     overall: 'ok' | 'degraded';
+    observedBy: ObservedBy;
     api: ComponentStatus;
     /**
      * Stores
      */
     stores: Array<ComponentStatus>;
+    /**
+     * Providers
+     */
+    providers: Array<ProviderStatus>;
     /**
      * Llmroles
      */

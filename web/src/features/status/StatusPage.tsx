@@ -1,10 +1,13 @@
 import { API_BASE } from '@/lib/api'
 import {
   API_UNREACHABLE_REMEDIATION,
+  attributionLine,
   POLL_INTERVAL_MS,
   REMEDIATION_IS_A_FILE_EDIT,
+  sourceLabel,
   type ComponentStatus,
   type LlmRoleStatus,
+  type ProviderStatus,
   type SystemStatus,
 } from './status'
 import { useSystemStatus } from './useSystemStatus'
@@ -37,6 +40,20 @@ function Row({ row }: { row: ComponentStatus }) {
   )
 }
 
+function ProviderRow({ row }: { row: ProviderStatus }) {
+  return (
+    <li className="flex flex-col gap-0.5 rounded-md border p-3">
+      <div className="flex items-baseline justify-between gap-4">
+        <span className="font-medium">{row.provider}</span>
+        {stateBadge(row.state)}
+      </div>
+      <p className="text-sm text-muted-foreground">key: {row.keyState}</p>
+      <p className="text-sm text-muted-foreground">{row.detail}</p>
+      {row.remediation != null && <p className="text-sm">→ {row.remediation}</p>}
+    </li>
+  )
+}
+
 function RoleRow({ row }: { row: LlmRoleStatus }) {
   return (
     <li className="flex flex-col gap-0.5 rounded-md border p-3">
@@ -48,10 +65,13 @@ function RoleRow({ row }: { row: LlmRoleStatus }) {
         {stateBadge(row.state)}
       </div>
       <p className="text-sm text-muted-foreground">
-        key: {row.keyState}
+        key: {row.keyState} · {sourceLabel(row)}
         {row.fallback != null && <> · fallback: {row.fallback}</>}
       </p>
       <p className="text-sm text-muted-foreground">{row.detail}</p>
+      {/* Never omitted, and never abbreviated: a binding read as the
+          system's rather than this process's is the 2026-08-31 failure. */}
+      <p className="text-sm text-muted-foreground">{row.attribution}</p>
       {row.remediation != null && <p className="text-sm">→ {row.remediation}</p>}
     </li>
   )
@@ -67,6 +87,10 @@ function Loaded({ status }: { status: SystemStatus }) {
   const worker = status.worker
   return (
     <div className="flex flex-col gap-6">
+      <p className="text-sm text-muted-foreground">{attributionLine(status)}</p>
+      <p className="text-sm text-muted-foreground">
+        {status.observedBy.catalogNote} {status.observedBy.selectionNote}
+      </p>
       <p className="text-sm">
         Overall:{' '}
         {status.overall === 'ok' ? (
@@ -86,6 +110,14 @@ function Loaded({ status }: { status: SystemStatus }) {
         <ul className="flex flex-col gap-2">
           {status.stores.map((row) => (
             <Row key={row.id} row={row} />
+          ))}
+        </ul>
+      </section>
+      <section className="flex flex-col gap-2">
+        <h3 className="text-sm font-medium text-muted-foreground">providers</h3>
+        <ul className="flex flex-col gap-2">
+          {status.providers.map((row) => (
+            <ProviderRow key={row.provider} row={row} />
           ))}
         </ul>
       </section>
