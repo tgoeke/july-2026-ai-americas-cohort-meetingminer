@@ -238,6 +238,45 @@ def test_an_uncapped_trace_says_it_holds_every_mention(
     assert "Every mention this corpus holds" in body["completenessNote"]
 
 
+def test_synonymous_topics_on_one_moment_do_not_fake_a_cap(
+    client: TestClient, pool: ConnectionPool
+) -> None:
+    """F1: cap totals count the distinct moments the trace can quote.
+
+    A thread may unite synonymous topics that both point at one moment. That is
+    one subject occurrence on the timeline, not two moments only one of which
+    disappeared from the response.
+    """
+    with pool.connection() as conn:
+        first = seed_meeting(conn, "first")
+        first_topic, first_moment = add_topic(conn, first, "trail closure")
+        alias_topic = conn.execute(
+            "INSERT INTO topic (meeting_id, name, gist) VALUES (%s, %s, %s)"
+            " RETURNING id",
+            (first, "closed trail", "the same concern in different words"),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO topic_mention (topic_id, moment_id, meeting_id, anchor_ms)"
+            " VALUES (%s, %s, %s, %s)",
+            (alias_topic, first_moment, first, 1_000),
+        )
+        second = seed_meeting(conn, "second", offset_days=30)
+        second_topic, _ = add_topic(conn, second, "trail closure")
+        thread_id = add_thread(
+            conn,
+            identity_key="trail closure",
+            topic_ids=[first_topic, alias_topic, second_topic],
+        )
+
+    body = client.get("/threads/trace", params={"threadId": str(thread_id)}).json()
+
+    assert [stop["mentionCount"] for stop in body["stops"]] == [1, 1]
+    assert body["counts"]["mentionTotal"] == 2
+    assert body["counts"]["momentsQuoted"] == 2
+    assert body["complete"] is True
+    assert "Every mention this corpus holds" in body["completenessNote"]
+
+
 def test_a_typed_phrase_that_names_a_subject_takes_the_exhaustive_leg(
     client: TestClient, pool: ConnectionPool
 ) -> None:
