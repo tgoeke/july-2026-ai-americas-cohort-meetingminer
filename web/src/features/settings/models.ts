@@ -103,7 +103,7 @@ export interface ProviderHealth {
 
 export const UNKNOWN_HEALTH: ProviderHealth = { word: 'unknown', remediation: null }
 
-/** Worse states win when several role rows name one provider. */
+/** Worse credential states win when several role rows name one provider. */
 const SEVERITY: Record<HealthWord, number> = {
   invalid: 4,
   missing: 4,
@@ -113,13 +113,12 @@ const SEVERITY: Record<HealthWord, number> = {
 }
 
 /**
- * One `GET /status` LLM-role row, reduced to the provider-level question the
- * picker asks: can a call on this provider succeed right now?
+ * One `GET /status` LLM-role row, reduced to the evidence that row supplies.
  *
  * `keyState` is a property of the provider's credential, not of the role, so
  * `invalid`/`missing` transfer to every option on that provider. A `present`
- * or `not-required` key that is nonetheless `degraded` means the endpoint did
- * not answer — `unreachable`, which is a genuine failed binding too.
+ * or `not-required` key that is nonetheless `degraded` means that role's
+ * endpoint did not answer — `unreachable`, which transfers only to that role.
  */
 export function healthOfRoleRow(row: {
   keyState: StatusResponse['llmRoles'][number]['keyState']
@@ -134,13 +133,14 @@ export function healthOfRoleRow(row: {
 }
 
 /**
- * Provider id → health, built from `GET /status.llmRoles[]`.
+ * Provider/role evidence → health, built from `GET /status.llmRoles[]`.
  *
- * Joined by exact provider id, as the design specifies. Story 8.2a will serve
- * `providers[]` directly; until it lands, the role rows are the only place the
- * api reports key state, and the worst row for a provider is the honest answer
- * for every option on it. A row whose `provider` is `null` (a spelling the one
- * rule cannot identify) joins to nothing and is skipped.
+ * Credential failures (`invalid`/`missing`) are provider-wide. Reachability is
+ * not: a role may override its provider's base URL, so `ok`/`unreachable` are
+ * indexed by exact role plus provider. Story 8.2a will serve `providers[]`
+ * directly; until it lands, an option whose role has no matching row is
+ * `unknown`, not an extrapolation from another endpoint. A row whose provider
+ * is `null` joins to nothing and is skipped.
  */
 export function providerHealthIndex(status: StatusResponse | null): Map<string, ProviderHealth> {
   const index = new Map<string, ProviderHealth>()
@@ -148,9 +148,13 @@ export function providerHealthIndex(status: StatusResponse | null): Map<string, 
   for (const row of status.llmRoles) {
     if (row.provider == null) continue
     const health = healthOfRoleRow(row)
-    const current = index.get(row.provider)
+    const key =
+      health.word === 'invalid' || health.word === 'missing'
+        ? row.provider
+        : `${row.role}\u0000${row.provider}`
+    const current = index.get(key)
     if (current === undefined || SEVERITY[health.word] > SEVERITY[current.word]) {
-      index.set(row.provider, health)
+      index.set(key, health)
     }
   }
   return index
@@ -160,9 +164,14 @@ export function providerHealthIndex(status: StatusResponse | null): Map<string, 
 export function healthFor(
   index: Map<string, ProviderHealth>,
   provider: string | null,
+  role?: string,
 ): ProviderHealth {
   if (provider == null) return UNKNOWN_HEALTH
-  return index.get(provider) ?? UNKNOWN_HEALTH
+  return (
+    index.get(provider) ??
+    (role === undefined ? undefined : index.get(`${role}\u0000${provider}`)) ??
+    UNKNOWN_HEALTH
+  )
 }
 
 /**
@@ -196,7 +205,7 @@ export function optionsFor(
   index: Map<string, ProviderHealth>,
 ): Array<ModelOption> {
   return role.catalog.map((entry: CatalogEntryView) => {
-    const health = healthFor(index, entry.provider)
+    const health = healthFor(index, entry.provider, role.role)
     return {
       binding: entry.binding,
       label: entry.label,
@@ -266,10 +275,18 @@ export function triggerAccessibleName(
   )
 }
 
-/** One option's accessible description: its traits and, if broken, the fix. */
-export function optionAccessibleDescription(option: ModelOption): string {
-  const head = `${option.provider ?? 'provider not identified'}, ${option.trait.sentence}, health ${option.health.word}`
-  return option.health.remediation === null ? head : `${head}; ${option.health.remediation}`
+/** One option's name, with every visible fact and no decorative glyph. */
+export function optionAccessibleName(option: ModelOption): string {
+  return (
+    `${option.label}, ${option.binding}, ` +
+    `${option.provider ?? 'provider not identified'}, ${option.trait.sentence}, ` +
+    `health ${option.health.word}`
+  )
+}
+
+/** Only remediation is a description; facts already in the name are not repeated. */
+export function optionAccessibleDescription(option: ModelOption): string | undefined {
+  return option.health.remediation ?? undefined
 }
 
 /**
@@ -330,6 +347,10 @@ export const CATALOG_IS_A_STARTUP_SNAPSHOT =
   'the bindings below is not — it is stored by the api and takes effect on ' +
   'the next call.'
 
+/** Eval evidence records both the effective choice and its file baseline. */
+export const EFFECTIVE_BINDING_IS_SNAPSHOTTED =
+  'Every eval run snapshot records the effective binding beside its file value.'
+
 /**
  * What the picker says when the api refused, or never answered, a choice.
  *
@@ -337,9 +358,29 @@ export const CATALOG_IS_A_STARTUP_SNAPSHOT =
  * a reader must never have to guess after a failed selection is which model
  * the next question will call. No other model is ever put in its place.
  */
-export function selectionRefusal(role: RoleSelectionView, message: string): string {
+export function selectionRefusal(
+  role: RoleSelectionView,
+  binding: string,
+  message: string,
+): string {
   return (
-    `The api did not accept ${role.role} on that binding: ${message}. ` +
+    `${message}. The api did not accept ${binding} for ${role.role}. ` +
     `${role.role} is still bound to ${role.effectiveBinding} — nothing was substituted.`
+  )
+}
+
+/**
+ * A transport failure cannot prove whether the api committed the write.
+ * Report only the last binding the api confirmed to this client.
+ */
+export function selectionUnconfirmed(
+  role: RoleSelectionView,
+  binding: string,
+  message: string,
+): string {
+  return (
+    `could not confirm whether the api accepted ${binding} for ${role.role}: ${message}. ` +
+    `The last binding reported by the api was ${role.effectiveBinding}; ` +
+    'no substitute was applied by this screen.'
   )
 }

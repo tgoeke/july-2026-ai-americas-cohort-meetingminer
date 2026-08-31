@@ -135,9 +135,9 @@ function stubConfigFetch(payload: ConfigResponse, roles: Array<RoleSelectionView
   vi.stubGlobal(
     'fetch',
     vi.fn((input: unknown) => {
-      const url = input instanceof Request ? new URL(input.url).pathname : String(input)
-      if (url.endsWith('/settings/models')) return Promise.resolve(jsonResponse({ roles }))
-      if (url.endsWith('/status')) {
+      const url = new URL(input instanceof Request ? input.url : String(input), 'http://test')
+      if (url.pathname === '/settings/models') return Promise.resolve(jsonResponse({ roles }))
+      if (url.pathname === '/status') {
         return Promise.resolve(
           jsonResponse({
             generatedAt: '2026-08-31T09:00:00Z',
@@ -155,7 +155,8 @@ function stubConfigFetch(payload: ConfigResponse, roles: Array<RoleSelectionView
           }),
         )
       }
-      return Promise.resolve(jsonResponse(payload))
+      if (url.pathname === '/config') return Promise.resolve(jsonResponse(payload))
+      return Promise.reject(new Error(`unexpected Settings request: ${url.pathname}`))
     }),
   )
 }
@@ -214,7 +215,7 @@ describe('Settings', () => {
     // The page-level contract is stated, and it names its one exception:
     // story 8.3's model selection is stored by the api, not a file edit.
     expect(
-      screen.getByText(/Everything on this page is read-only except the model bound/),
+      screen.getByText(/Everything on this page is read-only except model choices for the roles offered/),
     ).toBeInTheDocument()
     expect(screen.getByText(/no other edit control exists/)).toBeInTheDocument()
     // Still no free-text edit of the declared stack, and the only controls on

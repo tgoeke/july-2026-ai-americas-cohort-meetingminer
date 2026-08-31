@@ -99,12 +99,12 @@ let fetchMock: ReturnType<typeof vi.fn>
  * count `fetchMock` calls to prove one submitted question makes exactly one
  * request — so they are answered here and never reach `fetchMock`.
  *
- * The two callers are told apart by call shape rather than by URL matching:
- * `chatStream()` calls `fetch(url, init)` with a string url, the generated
- * client calls `fetch(request)` with a `Request`.
+ * The router matches exact endpoint paths. Call shape is deliberately not a
+ * discriminator: a future generated `/chat` client must still reach the chat
+ * mock, and an unexpected generated-client read must fail by name.
  */
-function pickerResponse(request: Request): Response {
-  const body = request.url.endsWith('/status')
+function pickerResponse(pathname: string): Response {
+  const body = pathname === '/status'
     ? {
         generatedAt: '2026-08-31T00:00:00Z',
         overall: 'ok',
@@ -128,9 +128,14 @@ beforeEach(() => {
     url: unknown,
     init?: RequestInit,
   ) => Promise<Response>
-  vi.stubGlobal('fetch', (input: unknown, init?: RequestInit) =>
-    input instanceof Request ? Promise.resolve(pickerResponse(input)) : chatFetch(input, init),
-  )
+  vi.stubGlobal('fetch', (input: unknown, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input), 'http://test')
+    if (url.pathname === '/settings/models' || url.pathname === '/status') {
+      return Promise.resolve(pickerResponse(url.pathname))
+    }
+    if (url.pathname === '/chat') return chatFetch(input, init)
+    return Promise.reject(new Error(`unexpected ChatPanel request: ${url.pathname}`))
+  })
 })
 
 async function ask(question: string) {
@@ -141,6 +146,15 @@ async function ask(question: string) {
 }
 
 describe('ChatPanel', () => {
+  it('does not mistake a Request-shaped chat call for a picker read', async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }))
+    const request = new Request('http://localhost:8000/chat', { method: 'POST' })
+
+    await globalThis.fetch(request)
+
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request, undefined)
+  })
+
   it('streams the validated answer, renders citations, and opens the moment on click', async () => {
     fetchMock.mockResolvedValue(
       streamResponse([
@@ -152,6 +166,10 @@ describe('ChatPanel', () => {
     )
     const onOpenMoment = vi.fn()
     render(<ChatPanel onOpenMoment={onOpenMoment} />)
+
+    expect(await screen.findByTestId('model-select-not-offered')).toHaveTextContent(
+      'chat role is not offered for selection',
+    )
 
     await ask('What happened with the purchase order?')
 
