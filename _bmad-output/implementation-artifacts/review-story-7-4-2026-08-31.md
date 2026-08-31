@@ -79,7 +79,8 @@ Adversarial review of the Story 7.4 web implementation, with emphasis on unsettl
 
 - **Location:** `web/src/features/speakers/SpeakerNaming.tsx:197`; `web/src/features/meetings/useJobEvents.ts:48`; `server/meetingminer/api/events.py:322`
 - **Severity:** High
-- **Status:** Confirmed — patch required
+- **Status:** Fixed on `story/7-4-review`
 - **Finding:** The screen passes a no-op `onResync`, although the stream's silent baseline means completion or failure during a disconnect is never replayed. It also folds `job.done`/`job.error` by `jobId` alone even though consecutive assignments reuse the meeting's job ID. A delayed terminal frame from the first assignment can therefore land a newly installed queued rerun for the second.
 - **Evidence:** `useJobEvents` documents that missed frames are gone and calls `onResync` only so the consumer can reseed. The speakers screen neither reseeds nor checks current job state. `applyJobEvent` has no generation or stage-snapshot input beyond the reused ID, and the assignment response supplies no distinct rerun ID.
 - **Suggested direction:** Reconcile terminal frames, the immediate post-PUT state, and reconnects through the existing authoritative `GET /jobs/{jobId}` response. Apply the snapshot only if the same rerun object still owns the screen; this rejects delayed frames for a newer re-arm and recovers missed terminal transitions. Surface a lost connection while reconciliation is unavailable.
+- **Red/green evidence:** Three regressions first showed that a reconnect left a completed rerun queued, a delayed terminal frame landed a newer assignment, and a lost stream remained invisible. Terminal frames and resync now reconcile through `GET /jobs/{jobId}` behind an object-identity generation guard, the post-PUT snapshot closes the no-frame gap, and a lost connection is named beside active progress. All 72 speaker tests pass.

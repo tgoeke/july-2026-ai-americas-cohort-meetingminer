@@ -521,6 +521,7 @@ describe('the rerun a naming starts', () => {
     emit({ event: 'job.stage', jobId: 'job-1', stage: 'align', status: 'running' })
     expect(screen.getByTestId('rerun-stage-align')).toHaveAttribute('data-status', 'running')
 
+    sdk.getJob.mockResolvedValue({ data: job({ status: 'done' }), error: undefined })
     emit({ event: 'job.done', jobId: 'job-1', jobStatus: 'done', viewable: true })
 
     const landed = await screen.findByTestId('rerun-landed')
@@ -546,6 +547,7 @@ describe('the rerun a naming starts', () => {
     // 409 and would replace a working screen with a refusal.
     expect(sdk.listMeetingSpeakers).toHaveBeenCalledTimes(1)
 
+    sdk.getJob.mockResolvedValue({ data: job({ status: 'done' }), error: undefined })
     emit({ event: 'job.done', jobId: 'job-1', jobStatus: 'done', viewable: true })
 
     await waitFor(() => expect(sdk.listMeetingSpeakers).toHaveBeenCalledTimes(2))
@@ -592,6 +594,7 @@ describe('the rerun a naming starts', () => {
       error: undefined,
     })
 
+    sdk.getJob.mockResolvedValue({ data: job({ status: 'done' }), error: undefined })
     emit({ event: 'job.done', jobId: 'job-1', jobStatus: 'done', viewable: true })
 
     const transcript = await screen.findByRole('region', {
@@ -614,6 +617,18 @@ describe('the rerun a naming starts', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }))
     await screen.findByTestId('rerun-strip')
 
+    sdk.getJob.mockResolvedValue({
+      data: job({
+        status: 'failed',
+        error: 'ollama refused',
+        stages: [
+          { name: 'align', status: 'done', error: null },
+          { name: 'moments', status: 'failed', error: 'ollama refused' },
+          { name: 'extract', status: 'queued', error: null },
+        ],
+      }),
+      error: undefined,
+    })
     emit({ event: 'job.error', jobId: 'job-1', stage: 'moments', error: 'ollama refused' })
 
     expect(await screen.findByTestId('rerun-failed')).toHaveTextContent(
@@ -705,6 +720,7 @@ describe('staying usable while the evidence is unsettled', () => {
 
     sdk.listMeetingSpeakers.mockResolvedValue({ data: undefined, error: NOT_VIEWABLE })
     sdk.getMeetingDrilldown.mockResolvedValue({ data: undefined, error: NOT_VIEWABLE })
+    sdk.getJob.mockResolvedValue({ data: job({ status: 'done' }), error: undefined })
     emit({ event: 'job.done', jobId: 'job-1', jobStatus: 'done', viewable: true })
 
     expect(await screen.findByTestId('speakers-failure')).toHaveTextContent(
