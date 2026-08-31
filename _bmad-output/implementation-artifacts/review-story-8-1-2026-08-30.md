@@ -67,3 +67,11 @@ Adversarial review of Story 8.1 on `story/8-1-review`, including the eight chang
 - **Finding:** The sprint note says the new module has ten tests, while the spec auto-result says twelve; the reviewed module now contains thirteen after the active-model regression was added.
 - **Evidence:** `rg '^def test_' server/tests/test_config_catalog.py | wc -l` returns 13. The conflicting prose makes the verification record unreliable and obscures whether the matrix plus review regressions are actually present.
 - **Suggested direction:** Update both records to the observed count and describe the module as matrix coverage plus committed-config and review regressions, avoiding a brittle one-per-row claim.
+
+### Finding 8 — The rebased fast gate has two environment-gated skips (defer — current main/environment)
+
+- **Location:** `server/tests/test_diarize_pyannote.py:266`; `server/tests/test_youtube.py:1353`
+- **Severity:** Low
+- **Finding:** The review handoff's zero-skip baseline no longer reproduces after rebasing onto current main: `make test-fast` skips the optional pyannote import case and the explicitly opt-in real YouTube network acquisition case.
+- **Evidence:** The final fast server run reported 1,845 passed, 2 skipped, and 378 deselected. The named reasons were `No module named 'pyannote'` and `set MM_YOUTUBE_NETWORK_TEST=1 to run it`. Both tests landed on main after the original Story 8.1 baseline and neither is reached by the catalog change.
+- **Suggested direction:** No Story 8.1 patch. Treat the fast result as qualified by these two intentional current-main environment gates; use the dedicated diarize-extra gate when validating pyannote and the explicit environment flag only when a real network acquisition run is intended.
