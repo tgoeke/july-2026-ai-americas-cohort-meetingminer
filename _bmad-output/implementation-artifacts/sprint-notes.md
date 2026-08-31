@@ -3348,12 +3348,6 @@ helper for the shared one — no route decorator, no response model, so the
 OpenAPI schema is unchanged and the committed TS client stays valid. Verified
 by diffing the api surface rather than assuming.
 
-**Backlog id collision, third of the wave.** Story 10.2 *named* B-38 and B-39
-in its spec, notes and review prompt but never filed them in
-`docs/backlog.md`; 8-1 filed B-38 there for real. 8-1's claim stands. 10.2's
-two items must be renumbered **and actually filed** — a reader of the backlog
-would not find them today. Naming an id in a spec does not reserve it; filing
-it does.
 ## B-36 (diarizer half) built, in review — 2026-08-30
 
 Branch `story/b36-remote-diarizer`, worktree `../meetingminer-wt/b36-remote-diarizer`.
@@ -3466,13 +3460,19 @@ an optimisation rather than an unblock.
 57.5s on the LAN GPU versus 35m51s in-process on this Mac, CPU-only with MPS
 unused — 37.4x apart. The Mac is a viable fallback for unattended work but the
 substitution must be explicitly configured, never automatic.
+**Backlog id collision, third of the wave — resolved by the 10.2 owner
+correction.** Story 10.2 had named two ids without filing them; 8-1 filed its
+model-routing item first. Story 10.2's production-derivation and color-ordinal
+items are now actually filed as **B-39** and **B-40**. Naming an id in a spec
+does not reserve it; filing it does.
 
 ## Story 10.2 — Threads and the Graph Projection (2026-08-30)
 
 Landed to `review` on `story/10-2`. Migration 0015 (`thread`, `topic_thread`),
 `domain/threads.py`, `Topic`/`Thread` nodes with `MENTIONS`/`INCLUDES` edges,
 and the `thread-timeline` traversal template. Full gate green: 2287 passed,
-2 skipped. Took backlog ids **B-38** and **B-39** (highest previously B-37).
+2 skipped. Its two deferred items are now filed as **B-39** and **B-40**;
+Story 8.1 owns B-38.
 
 **A footprint table can be under-specified without being wrong.** The build
 prompt named `graph.py` for the graph write but no way for the graph to *learn*
@@ -3499,3 +3499,19 @@ story that frees it, so an omission and a decision stay distinguishable.
 against the current implementation, because the partition is order-independent
 through both the union-find and an explicit `min`. Named in the review prompt
 so the reviewer decides whether that is protection or decoration.
+
+## Story 10.2 owner remediation — durable thread identity (2026-08-30)
+
+The owner accepted review findings F1 and F5 and required them fixed before
+10.2a attaches human curation to `thread.id`. Diagnosis: two mutable facts were
+being used as identity — which topic happened to be chronologically first and
+whether the thread currently had members. Identity keys now come from normalized
+cluster content, an existing member's row is reused across earlier backfills,
+and empty thread rows survive Story 10.1's replace-all interval so the same
+content reclaims the same UUID. Both regressions were observed red against the
+rebased pre-fix implementation; the existing unchanged-rerun test could not
+expose either because it never deleted and reinserted topic rows.
+
+The two unfiled deferrals were corrected at the same time: production invocation
+is **B-39** and per-corpus color ordinals are **B-40**, both now present with
+evidence and completion contracts in `docs/backlog.md`.

@@ -178,6 +178,39 @@ whose missing model never calls its fallback.
 provider, endpoint, and requested model, and no different model answers after a
 model-not-found response.
 
+### B-39 · Invoke thread derivation from the worker settle point — M
+
+Story 10.2 delivers and tests `domain.threads.derive_threads`, but no production
+path calls it. The correct settle point belongs to Story 10.1's extraction/job
+orchestration, which was deliberately outside 10.2's wave footprint; today a
+real corpus can accumulate topics indefinitely without producing `thread` or
+`topic_thread` rows unless a developer calls the function directly.
+
+**Do:** invoke thread derivation after topic replacement has settled, through
+the configured `Embedder` port and the worker's existing transaction/error
+discipline. Preserve whole-pass rollback on embedder failure, do not fall back
+to name-only clustering, and make retry/restart behavior explicit.
+
+**Done when:** a production worker run that replaces topics also refreshes
+thread membership, an embedder outage leaves prior thread state intact, and an
+integration regression proves both paths without a real model call.
+
+### B-40 · Allocate durable per-corpus thread color ordinals — M
+
+Epic 10 requires a server-owned positive color ordinal that is allocated once,
+never recycled, and survives human merge/split/rename. Story 10.2 cannot define
+it correctly because `thread` currently has no corpus column and a thread may
+span corpora; adding a global counter now would silently choose the wrong
+scope for the Threads view.
+
+**Do:** decide the corpus ownership model with Stories 10.3/10.6, then allocate
+ordinals transactionally within that scope. A merge survivor keeps its ordinal,
+a split product receives a new one, and deleted ordinals are never reused.
+
+**Done when:** the API serves a stable per-corpus ordinal for every thread and
+concurrent allocation, merge, split, rename, and deletion tests prove uniqueness
+and non-reuse.
+
 ## Robustness and hygiene
 
 ### B-15 · Stop embed-only projection from opening Neo4j — S

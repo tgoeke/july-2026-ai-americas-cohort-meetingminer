@@ -202,17 +202,17 @@ registry's exact membership).
 
 ## Recorded deferrals — not findings
 
-- **B-38: nothing calls `derive_threads` in production yet.** Wiring it into the
+- **B-39: nothing calls `derive_threads` in production yet.** Wiring it into the
   worker's settle point is an edit to `pipeline/stages/extract.py` and/or
   `domain/jobs.py`, which story 10.1 owns and the footprint marks "not yours".
   The function, its configuration and its record are complete and tested; the
-  trigger is the named gap. **B-38 and B-39 are ids this lane took** (highest
-  previously used was B-37); they are recorded in the spec, not in
-  `docs/backlog.md`, which the wave rules put off limits.
-- **B-39: `thread.color_ordinal`.** The epic requires a server-owned,
+  trigger is the named gap. **B-39 is filed in `docs/backlog.md`** with the
+  evidence and completion contract; the earlier B-38 label did not reserve an
+  id, and Story 8.1 filed B-38 first.
+- **B-40: `thread.color_ordinal`.** The epic requires a server-owned,
   never-recycled, **per-corpus** colour ordinal. `thread` has no corpus column
   and a thread may span corpora; scoping that is a 10.3/10.6 decision, so no
-  half-right column was added.
+  half-right column was added. **B-40 is filed in `docs/backlog.md`.**
 - **`domain/threads.py` is not in `[tool.mypy] files`.** Its pure clustering half
   is a decision core and arguably belongs there, but widening the scope is an
   edit of `server/pyproject.toml` **and** `test_lint_contract.py`'s

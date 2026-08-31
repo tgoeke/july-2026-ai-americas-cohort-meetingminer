@@ -26,12 +26,12 @@ deferred: []
 ## Boundaries & Constraints
 
 **Always:**
-- **Derivation is idempotent.** A rerun over unchanged `topic` rows yields the same `thread` rows (same ids, same `identity_key`, same name) and the same `topic_thread` membership. Guaranteed structurally, not by convention: the partition comes from an order-independent union-find, the cluster seed is the deterministic minimum under (meeting `started_at`, meeting id, normalized name, topic id), `identity_key` is that seed's normalized name, and threads are UPSERTed on `identity_key` while links are UPSERTed on `topic_id`. Nothing is deleted and re-minted on an unchanged rerun.
+- **Derivation preserves durable identity.** The partition comes from an order-independent union-find. A cluster's candidate `identity_key` comes from its normalized name content, independent of meeting chronology; the database reuses a row already named by that key or already attached to a cluster member before minting. A rerun over unchanged rows, an earlier embedding-linked backfill, and Story 10.1's delete/reinsert replacement of an unchanged topic all preserve `thread.id`; unchanged UPSERTs write nothing.
 - **Both linking legs, always.** Equal normalized name unions; cosine similarity `>= threads.embedding_similarity_threshold` unions. Union-find takes the transitive closure, so the partition does not depend on the order pairs are considered.
 - **No silent fallback.** `derive_threads` requires an `Embedder`. An unreachable model host raises `EmbedderUnavailableError` and the derivation transaction rolls back whole — it never half-runs on the name leg alone and reports success.
 - **The threshold fails closed.** `embedding_similarity_threshold` is `ge=0.5, le=1.0` in the config class. A near-zero threshold would union the entire corpus into one thread, and a silent everything is as wrong as a silent zero (the rule `traversals.py` already applies to a blank topic).
 - `thread` and `topic_thread` are worker-owned, machine-derived navigation metadata: never an `artifact` row, never in `extracted → approved → published`. Migration 0015 says so in its header.
-- **No orphans at the record.** A `thread` requires at least one `topic_thread` link, checked by a DEFERRABLE INITIALLY DEFERRED constraint trigger at commit (0014's `topic_requires_mention` pattern); a thread whose last link moves away or is deleted is removed by a row trigger.
+- **Identity outlives membership.** A `thread` may temporarily have no `topic_thread` links. Deleting, moving, cascading, or truncating the last membership never deletes the thread row as a side effect; this is what lets a Story 10.1 replace-all rerun reclaim the same id. Genuinely dead rows require a separate explicit sweep and retention policy.
 - `projections` stays the sole store writer (AD-4). Nothing outside `projections/` imports `neo4j` or `meilisearch` — `test_projections_single_writer.py` already enforces it and must stay green.
 - Graph writes follow the file's existing asymmetry: `Topic` is meeting-scoped (carries `meetingId`, deleted and reinserted by the per-meeting pass), `Thread` is cross-meeting (MERGE only, never deleted by a per-meeting pass — the same rule as `Screen`/`Participant`).
 - `MENTIONS` edge count is verified after the write and a shortfall is a named `ProjectionError`, exactly as `OF_SCREEN` and `CITES` are.
@@ -46,21 +46,23 @@ deferred: []
 - No worker start, no api start, no `make evals-run`, no real model call — the derivation tests inject a deterministic stub embedder.
 - No thread curation (10.2a: merge/split/rename, api-owned alias rows), no chat routing (10.2b), no timeline API (10.3), no UI.
 - No `thread.color_ordinal` — the epic's server-owned colour identity is per-*corpus* and `thread` has no corpus column; deciding its scope belongs to 10.3/10.6, and a half-right column is worse than none. Recorded as deferred.
-- No edit to `test_migrations.py`, `test_projections_graph.py`, `conftest.py`, `projection_seed.py`, `infra/Makefile`, `AGENTS.md`, `docs/backlog.md`, or anything under `web/`.
+- No edit to `test_migrations.py`, `test_projections_graph.py`, `conftest.py`, `projection_seed.py`, `infra/Makefile`, `AGENTS.md`, or anything under `web/`. The owner's 2026-08-30 correction explicitly requires filing B-39/B-40 in `docs/backlog.md`.
 
 ## I/O & Edge-Case Matrix
 
 | Scenario | Input / State | Expected Output / Behavior | Error Handling |
 |----------|--------------|---------------------------|----------------|
-| Name link | Two meetings, topics "SFTP Migration" and "sftp  migration." | One thread; `identity_key` is the normalized seed name; both links `linked_by='normalized-name'` | No error |
+| Name link | Two meetings, topics "SFTP Migration" and "sftp  migration." | One thread; `identity_key` is canonical normalized cluster content; both links `linked_by='normalized-name'` | No error |
 | Embedding link | Topics "Purchase order approvals" / "PO sign-off", cosine `>=` threshold | One thread; the non-seed link is `linked_by='embedding-similarity'` | No error |
 | Below threshold | Cosine below the threshold and names differ | Two threads, one topic each | No error |
 | Transitive closure | A~B by name, B~C by embedding | One thread containing A, B, C | No error |
 | Idempotent rerun | `derive_threads` run twice over unchanged topics | Identical thread ids, identity keys, names and membership | No error |
-| Order independence | Same topics presented in any order to the pure clustering | Identical partition and identical seeds | No error |
+| Earlier backfill | An earlier topic joins an existing thread by embedding | Existing and new topics use the original `thread.id`; chronology does not mint identity | No error |
+| Replace-all rerun | One meeting's topics are deleted/reinserted; one normalized topic is unchanged | The unchanged cluster reclaims the retained row and identical `thread.id` | No error |
+| Order independence | Same topics presented in any order to the pure clustering | Identical partition, content keys, and presentation seeds | No error |
 | Embedder down | Model host unreachable | Nothing written; the transaction rolls back | `EmbedderUnavailableError` |
-| Cluster emptied | Every member of a thread moves to another thread | The emptied `thread` row is gone (row trigger) | No error |
-| Bare thread insert | A `thread` row inserted with no link | Refused at COMMIT | `23514` from `thread_requires_topic` |
+| Cluster emptied | Every member of a thread moves to another thread | The empty `thread` identity row remains for possible reuse | No error |
+| Bare thread insert | A `thread` row inserted with no link | The empty identity row commits | No error |
 | Threshold out of range | `threads.embedding_similarity_threshold: 0.1` | Startup refuses, naming the key and the bound | `ConfigError` |
 | Projection pass | Meeting with topics reaches evidence-complete | `Topic` (meeting-scoped) + `Thread` (cross-meeting) nodes, `MENTIONS` to moments, `INCLUDES` from thread | No error |
 | Re-projection | The same meeting projected twice | Identical node and edge counts; the `Thread` node survives the per-meeting delete | No error |
@@ -90,7 +92,7 @@ deferred: []
 ## Tasks & Acceptance
 
 **Execution:**
-- `server/meetingminer/migrations/0015_threads.sql` -- NEW: `thread` (`id`, `identity_key` UNIQUE, `name`, `link_rule`, `derivation` jsonb, timestamps), `topic_thread` (`topic_id` PK → `topic` CASCADE, `thread_id` → `thread` CASCADE, `linked_by` CHECK), the `updated_at` trigger, the deferred `thread_requires_topic` constraint trigger, the last-link and TRUNCATE orphan triggers, and the `thread_id` index -- the record of derived threads, with the no-orphan invariant enforced where 0014 enforces its own.
+- `server/meetingminer/migrations/0015_threads.sql` -- NEW: `thread` (`id`, content-derived `identity_key` UNIQUE, `name`, `link_rule`, `derivation` jsonb, timestamps), `topic_thread` (`topic_id` PK → `topic` CASCADE, `thread_id` → `thread` CASCADE, `linked_by` CHECK), the `updated_at` trigger, and the `thread_id` index. No last-link trigger: an empty thread is retained durable identity for replacement/backfill reuse.
 - `server/meetingminer/config.py` -- ADD `class ThreadsConfig(_StrictModel)` immediately before `class Settings`, and `threads: ThreadsConfig` as the last field of `Settings` -- AC1 requires the rule and threshold to be configuration with recorded rationale (AD-10).
 - `config.yaml` -- APPEND a `threads:` block at EOF with `link_rule` and `embedding_similarity_threshold`, carrying the rationale for both the value and its lower bound -- same reason.
 - `server/meetingminer/domain/threads.py` -- NEW: `normalized_topic_name`, `cosine_similarity`, the pure `cluster_topics(...)` union-find, and `derive_threads(conn, config, *, embedder, log=None) -> ThreadDerivation` doing the corpus-wide read and the upserts -- the derivation, with its decidable core separated from its SQL so the idempotency and order-independence clauses are testable without a database.
@@ -101,28 +103,41 @@ deferred: []
 - `server/tests/test_projections_traversals.py` -- EDIT one assertion so the registry test expects three templates -- an addition to the registry is by design an edit of the test that pins it.
 - `docs/architecture.md` -- AMEND AD-4 with the clarification that topics and threads are navigation metadata outside the publish gate -- named explicitly by AC2.
 - `server/tests/test_threads_derivation.py` -- NEW: the pure-clustering matrix rows (name, embedding, below-threshold, transitive, order-independence) plus normalization and cosine unit cases -- store-free, fast.
-- `server/tests/test_threads_record.py` -- NEW: migration 0015's schema contract and the Postgres-backed derivation rows — idempotent rerun, emptied cluster, bare-thread refusal, embedder-down rollback -- Postgres-only, fast set.
+- `server/tests/test_threads_record.py` -- NEW: migration 0015's schema contract and the Postgres-backed derivation rows — unchanged rerun, earlier embedding-linked backfill, Story 10.1 replace-all identity, empty-row retention, and embedder-down rollback -- Postgres-only, fast set.
 - `server/tests/test_projections_threads.py` -- NEW, `slow`: the graph write, re-projection stability, the missing-Moment refusal, and every traversal matrix row against the Neo4j twin.
 
 **Acceptance Criteria:**
 - Given topics from more than one meeting, when `derive_threads` runs twice with no topic change in between, then both runs produce byte-identical thread ids, identity keys, names and `topic_thread` membership, demonstrated by a test that captures the rows after each run and compares them.
+- Given an earlier topic that joins an existing cluster by embedding, when derivation reruns, then every cluster member remains attached to the original `thread.id` even if the canonical content-key candidate changes.
+- Given Story 10.1 replaces all topics in a meeting while one normalized topic is unchanged, when derivation reruns, then that cluster reuses the retained empty row and its `thread.id` is identical.
 - Given a meeting with topics that reaches evidence-complete, when `projections.project_meeting` runs, then Neo4j holds one `Topic` node per topic carrying `meetingId`, one `Thread` node per distinct thread carrying no `meetingId`, one `MENTIONS` edge per `topic_mention` row, and one `INCLUDES` edge per membership — and re-running the projection leaves those counts unchanged.
 - Given a thread spanning two meetings, when `run_template(driver, "thread-timeline", thread_id=...)` runs, then the meetings come back in wall-clock order, each carrying its mention count, its `span_ms`, and the participants known to have spoken in the mentioned moments, and the thread level carries the total mention count, the meeting count, and the first and last mention timestamps.
 - Given `make test-fast`, when it runs in this worktree, then `make lint` and `make typecheck` pass and no new ruff baseline entry was added.
 
 ## Spec Change Log
 
+- **2026-08-30 (owner decision, review findings F1/F5) — durable identity is content-derived and survives zero membership.** Diagnosis: **two mutable facts are being used as identity — which topic happens to be chronologically first, and whether the thread currently has any members. Neither is stable, so neither can be identity.** `identity_key` is now selected from normalized cluster content independently of chronology; derivation reuses a row named by that content or already attached to a member before minting; and migration 0015 no longer rejects or eagerly deletes an empty thread. Added red-first regressions for an earlier embedding-linked backfill and Story 10.1's delete/reinsert replacement path. The existing unchanged-rerun test does not delete and reinsert topic rows and therefore could not expose either defect.
 - **2026-08-30, planning — footprint widened inside `projections/`, deliberately and on the record.** The build-prompt footprint names `projections/graph.py` and `projections/traversals.py` but no way for the graph to *learn* about topics: `graph.project_meeting` takes a `neo4j.Driver` and a `MeetingEvidence`, never a Postgres connection, and `evidence.py` is by design "the projection module's whole input surface". Delivering AC2 without touching `evidence.py` is not possible, and `Topic`'s per-meeting deletion and unique-id constraint key off tuples in `stores.py`. Two files are therefore edited beyond the table — `server/meetingminer/projections/evidence.py` and `server/meetingminer/projections/stores.py` — both additive, both inside `projections/`, and both untouched by every branch in flight (`story/6-2a`, `story/6-3`, `story/7-2`, `story/8-1`, plus the two `-review` branches), so `branch_conflicts.py` stays clean. `projections/__init__.py` is NOT touched: routing topics through `MeetingEvidence` is what keeps the orchestration unchanged. One test assertion in `server/tests/test_projections_traversals.py` is edited because it pins the registry's exact membership.
-- **2026-08-30, planning — deferred: nothing calls `derive_threads` in production yet.** Wiring it into the worker's settle point is an edit to `pipeline/stages/extract.py` and/or `domain/jobs.py`, which story 10.1 owns and the footprint marks "not yours". The function, its config and its record are complete and tested; the trigger is a named gap, filed as **B-38**.
-- **2026-08-30, planning — deferred: `thread.color_ordinal`.** The epic requires a server-owned, never-recycled, per-*corpus* colour ordinal. `thread` has no corpus column and a thread may span corpora; scoping that is a 10.3/10.6 decision. Filed as **B-39** rather than guessed at here.
+- **2026-08-30, planning; corrected by owner 2026-08-30 — deferred: nothing calls `derive_threads` in production yet.** Wiring it into the worker's settle point is an edit to `pipeline/stages/extract.py` and/or `domain/jobs.py`, which story 10.1 owns and the footprint marks "not yours". The function, its config and its record are complete and tested; the trigger is now actually filed as **B-39**. The earlier spec-only B-38 label did not reserve an id; Story 8.1 filed B-38 first.
+- **2026-08-30, planning; corrected by owner 2026-08-30 — deferred: `thread.color_ordinal`.** The epic requires a server-owned, never-recycled, per-*corpus* colour ordinal. `thread` has no corpus column and a thread may span corpora; scoping that is a 10.3/10.6 decision. Actually filed as **B-40** rather than guessed at here.
 - **2026-08-30, implementation — two further forced edits, both discovered by a failing gate rather than by planning.** (a) `server/tests/conftest.py`'s `EVIDENCE_TABLES` gains `thread` and `topic_thread`: `topic_thread` references `topic`, so `TRUNCATE` is refused outright without them and **every** DB-backed test in the suite fails. Not optional and not avoidable in a private module. (b) `server/meetingminer/api/chat_router.py` and its test: registering a third traversal tripped the router's rule that `TEMPLATE_ANCHORS` covers the whole registry. Wiring anchors would have been a live `AttributeError` — `_traversal_leg` in `chat.py` reads `result.rows` and `result.screen`/`result.participant`, none of which `ThreadTimelineResult` has — and adapting the orchestrator is story 10.2b. Resolved with a declared `DEFERRED_TEMPLATES` map so an omission and a decision stay distinguishable, and the tripwire keeps catching the omission. Neither file is touched by any in-flight branch. Also three forced one-liners in shared test modules: `test_config.py`'s `VALID_CONFIG` (a required config field, as 10.1 did for `topics_prompt`), `test_compose_contract.py`'s `SLOW_MODULES` (a store-backed module must be `slow`-marked, pinned in both places by design), and `test_projections_traversals.py`'s registry assertion.
 - **2026-08-30, implementation — deferred: `domain/threads.py` is not in `[tool.mypy] files`.** Its pure clustering half is a decision core and arguably belongs there, but widening the scope is an edit of `server/pyproject.toml` **and** `test_lint_contract.py`'s `DECISION_CORE_FILES`, both outside the footprint. A one-line follow-up at integrate; ruff covers the file today.
 
 ## Review Triage Log
 
+### 2026-08-30 — Owner-directed remediation of review findings F1/F5
+
+- intent_gap: 2, both resolved by the owner's frozen-contract amendment
+- bad_spec: 0
+- patch: 2 (high 1, medium 1)
+- defer: 0
+- addressed_findings:
+  - F1: earlier embedding-linked backfills retain the existing `thread.id`; the regression failed against the rebased pre-fix code and passes after content-key/member-row reuse.
+  - F5: Story 10.1 replace-all reruns retain empty thread identity and reclaim the identical UUID for unchanged normalized content; the regression failed against the rebased pre-fix code and passes after removing eager orphan deletion.
+
 ## Design Notes
 
-**Why the seed is chronological.** `identity_key` must be stable across reruns and derivable from the cluster alone. It is the normalized name of the cluster's *earliest* topic (meeting `started_at`, then meeting id, then normalized name, then topic id). Earliest rather than alphabetically-first because new meetings almost always arrive *later*, so a chronological seed survives corpus growth where an alphabetical one would be re-seeded by any new topic that sorts before it. Seeds are unique across clusters for free: every topic sharing a normalized name is already in one cluster, so no two clusters can present the same seed name.
+**Identity and presentation are separate.** The pure cluster candidate is the lexicographically first non-empty normalized name (with a normalized raw-content digest for punctuation-only names), never a timestamp-derived topic id. The chronological minimum remains only the machine display name and the member labelled `seed`. At the record, a retained row with the candidate key wins; otherwise an existing row already attached to a cluster member wins before minting. This makes content the source of identity while preserving the UUID when corpus growth adds an earlier embedding-linked name. Empty rows intentionally survive membership loss so a replace-all extraction can reclaim the same key/id; cleanup, if needed, is a separate policy-bearing sweep.
 
 **Why union-find rather than a greedy pass.** The partition produced by union-find over a set of pairs is independent of the order the pairs arrive, which is exactly the idempotency clause AC1 asks for — a property of the algorithm, not of a sort the next maintainer might change. Pair generation is O(n²) over topics; at corpus scale (hundreds of meetings, a handful of topics each) that is thousands of dot products, and the comment says so rather than leaving a reader to wonder.
 
@@ -170,5 +185,6 @@ earns its place only as protection against a future greedy refactor). That
 limitation is stated in the review prompt for the reviewer to rule on.
 
 Not done, deliberately, and named rather than implied: nothing calls
-`derive_threads` in production yet (B-38 — the worker settle point is story
-10.1's file), and `thread.color_ordinal` is not added (B-39).
+`derive_threads` in production yet (B-39 — the worker settle point is story
+10.1's file), and `thread.color_ordinal` is not added (B-40). Both are filed in
+`docs/backlog.md`.
