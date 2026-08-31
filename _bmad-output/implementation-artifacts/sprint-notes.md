@@ -4085,10 +4085,13 @@ rows with a pure function and serves the page.
   a fourth generated document changes.
 - **The ranking-signals prompt sits at `ranking.signals_prompt`, not beside the
   other three under `llm.roles.extraction`.** The footprint gave 10.4 the end
-  of `config.yaml` and gave the `llm:` block to no lane. Filed as **B-42** —
-  note that the wave prompts said "highest in use is B-40" but B-41 was
-  already taken by an eval-harness item, so other lanes in this wave may have
-  claimed B-42 too; renumber at integrate if so.
+  of `config.yaml` and gave the `llm:` block to no lane. Filed as **B-46** —
+  and note that the wave's backlog counter is over-subscribed. The prompts
+  said "highest in use is B-40", but `main` already had a B-41; measured on
+  2026-08-31 the in-flight branches claim B-41 and B-42 (`story/7-4`), B-42
+  and B-43 (`story/8-3`), B-42 (`story/10-3`), B-44 and B-45
+  (`story/10-6`). This story sits at B-46 to clear them all, but three
+  separate B-42s still need reconciling at integrate.
 
 Verification is in the spec's Auto Run Result: the full `make test` gate, the
 fast loop with lint and typecheck, and a red-first demonstration that a build

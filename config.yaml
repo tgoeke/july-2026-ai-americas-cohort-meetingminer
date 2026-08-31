@@ -754,7 +754,7 @@ ranking:
   # frozen story footprint gives story 10.4 the end of this file and gives
   # the `llm:` block to nobody, and editing a block another lane may hold is
   # the widening the wave rules forbid. The port is unchanged — the stage
-  # still calls `Llm(extraction)` — and relocating this key is filed as B-42.
+  # still calls `Llm(extraction)` — and relocating this key is filed as B-46.
   #
   # It pins the same markdown shape the other extraction prompts pin, for the
   # same reason: the parser keys on the short item ID and the timestamp,

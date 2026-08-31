@@ -323,7 +323,8 @@ arrives.
 
 **Done when:** a binding failure on a re-ask leaves the previous cited answer on
 screen with the refusal beneath it, and no other failure kind changes behaviour.
-### B-42 · Move the ranking-signals prompt beside the other extraction prompts — S
+
+### B-46 · Move the ranking-signals prompt beside the other extraction prompts — S
 
 Story 10.4 added a fourth whole-transcript extraction pass, but its prompt text
 lives at `ranking.signals_prompt` while the other three are fields on
