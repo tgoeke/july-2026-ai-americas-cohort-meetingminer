@@ -31,6 +31,9 @@ export const ARTIFACT_KINDS = [
 
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number]
 
+const SIGNAL_REASON_KINDS = ['due', 'risk', 'question', 'recency', 'published', 'thread'] as const
+const REASON_KINDS: ReadonlySet<string> = new Set([...ARTIFACT_KINDS, ...SIGNAL_REASON_KINDS])
+
 /** Whether a reason's `kind` is one of the seven artifact kinds — the only
  * kinds that may ever be drawn as a kind chip (`DESIGN.md` · Moment kinds). */
 export function isArtifactKind(kind: string): kind is ArtifactKind {
@@ -47,7 +50,7 @@ export interface FeedReason {
   kind: string
   label: string
   ref?: string | null
-  at?: number | null
+  at?: string | null
 }
 
 /** A thread the moment belongs to. `colorOrdinal` is the persisted immutable
@@ -153,7 +156,7 @@ export class FeedContractError extends Error {
 
 function requireString(row: Record<string, unknown>, key: string, where: string): string {
   const value = row[key]
-  if (typeof value !== 'string' || value === '') {
+  if (typeof value !== 'string' || value.trim() === '') {
     throw new FeedContractError(`${where}: ${key} must be a non-empty string`)
   }
   return value
@@ -172,16 +175,52 @@ function requireNumber(row: Record<string, unknown>, key: string, where: string)
   return value
 }
 
+function requireBoolean(row: Record<string, unknown>, key: string, where: string): boolean {
+  const value = row[key]
+  if (typeof value !== 'boolean') {
+    throw new FeedContractError(`${where}: ${key} must be a boolean`)
+  }
+  return value
+}
+
+function requireArray(row: Record<string, unknown>, key: string, where: string): Array<unknown> {
+  const value = row[key]
+  if (!Array.isArray(value)) {
+    throw new FeedContractError(`${where}: ${key} must be an array`)
+  }
+  return value
+}
+
+function requirePageInteger(
+  row: Record<string, unknown>,
+  key: string,
+  minimum: number,
+): number {
+  const value = row[key]
+  if (!Number.isInteger(value) || (value as number) < minimum) {
+    throw new FeedContractError(`the feed response: ${key} must be an integer >= ${minimum}`)
+  }
+  return value as number
+}
+
 function reasonOf(raw: unknown, where: string): FeedReason {
   if (raw === null || typeof raw !== 'object') {
     throw new FeedContractError(`${where}: each reason must be an object`)
   }
   const row = raw as Record<string, unknown>
+  const kind = requireString(row, 'kind', where)
+  if (!REASON_KINDS.has(kind)) {
+    throw new FeedContractError(`${where}: kind must be a declared reason kind`)
+  }
+  const at = row.at
+  if (at !== undefined && at !== null && typeof at !== 'string') {
+    throw new FeedContractError(`${where}: at must be an RFC 3339 string or null`)
+  }
   return {
-    kind: requireString(row, 'kind', where),
+    kind,
     label: requireString(row, 'label', where),
     ref: optionalString(row, 'ref'),
-    at: typeof row.at === 'number' ? row.at : null,
+    at: at ?? null,
   }
 }
 
@@ -204,9 +243,7 @@ function itemOf(raw: unknown, index: number): MomentFeedItem {
     throw new FeedContractError(`${where}: each item must be an object`)
   }
   const row = raw as Record<string, unknown>
-  const reasons = Array.isArray(row.reasons)
-    ? row.reasons.map((reason) => reasonOf(reason, where))
-    : []
+  const reasons = requireArray(row, 'reasons', where).map((reason) => reasonOf(reason, where))
   if (reasons.length === 0) {
     // The card's whole promise is that it says why it is here.
     throw new FeedContractError(`${where}: reasons[] must be non-empty`)
@@ -219,15 +256,13 @@ function itemOf(raw: unknown, index: number): MomentFeedItem {
     startedAtPrecision: optionalString(row, 'startedAtPrecision'),
     startMs: requireNumber(row, 'startMs', where),
     endMs: typeof row.endMs === 'number' ? row.endMs : null,
-    corpus: optionalString(row, 'corpus') ?? '',
-    hasRecording: row.hasRecording === true,
+    corpus: requireString(row, 'corpus', where),
+    hasRecording: requireBoolean(row, 'hasRecording', where),
     sourceDeepLink: optionalString(row, 'sourceDeepLink'),
     screenshotId: optionalString(row, 'screenshotId'),
     viewType: optionalString(row, 'viewType'),
     preview: optionalString(row, 'preview'),
-    threads: Array.isArray(row.threads)
-      ? row.threads.map((thread) => threadOf(thread, where))
-      : [],
+    threads: requireArray(row, 'threads', where).map((thread) => threadOf(thread, where)),
     reasons,
   }
 }
@@ -241,12 +276,14 @@ export function parseFeedResponse(body: unknown): MomentFeedResponse {
   if (!Array.isArray(row.items)) {
     throw new FeedContractError('the feed response must carry an items array')
   }
-  return {
-    items: row.items.map(itemOf),
-    total: typeof row.total === 'number' ? row.total : row.items.length,
-    limit: typeof row.limit === 'number' ? row.limit : FEED_PAGE_SIZE,
-    offset: typeof row.offset === 'number' ? row.offset : 0,
+  const items = row.items.map(itemOf)
+  const total = requirePageInteger(row, 'total', 0)
+  const limit = requirePageInteger(row, 'limit', 1)
+  const offset = requirePageInteger(row, 'offset', 0)
+  if (offset + items.length > total) {
+    throw new FeedContractError('the feed response: offset + items.length must not exceed total')
   }
+  return { items, total, limit, offset }
 }
 
 /**
