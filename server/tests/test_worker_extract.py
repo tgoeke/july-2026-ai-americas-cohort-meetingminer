@@ -27,7 +27,7 @@ from meetingminer.config import AppConfig
 from meetingminer.domain.drops import read_drop
 from meetingminer.pipeline import runner
 from meetingminer.pipeline.extraction import PROMPT_VERSION
-from meetingminer.pipeline.stage import StageContext
+from meetingminer.pipeline.stage import StageContext, StageError
 from meetingminer.pipeline.stages import extract as extract_stage
 
 from conftest import DROPS_ROOT, DropFactory, FakeEmbedder, FakeLlm, valid_metadata
@@ -1499,3 +1499,77 @@ def test_a_document_carrying_a_nul_is_refused_by_name(
     assert status == "failed"
     assert error is not None
     assert "arch-summary" in error and "NUL" in error
+
+
+def test_a_generated_document_with_a_lone_surrogate_is_refused_by_name(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_transcript_drop: Callable[..., Any],
+    fake_llm: Callable[..., FakeLlm],
+) -> None:
+    """F3: a Python string that has no UTF-8 bytes still names its document."""
+    fake_llm(
+        replies=(
+            GENERATED_SUMMARY_WITH_ASIDE.replace(
+                "more settled", "more\ud800settled"
+            ),
+        )
+    )
+    job_id = enqueue(pool, make_transcript_drop("source-surrogate"), "source-surrogate")
+
+    assert runner.run_once(pool, app_config, content_root) is True
+
+    status, error = job_row(pool, job_id)
+    assert status == "failed"
+    assert error is not None
+    assert "arch-summary" in error and "valid UTF-8" in error
+    assert "unexpected UnicodeEncodeError" not in error
+
+
+def test_retention_refuses_a_same_length_digest_mismatch() -> None:
+    """F6: length equality cannot substitute for the recorded sha256."""
+    recorded = b"AAAA"
+    with pytest.raises(StageError, match="arch-summary.*exact bytes"):
+        extract_stage._retained_text(
+            "arch-summary",
+            "BBBB",
+            hashlib.sha256(recorded).hexdigest(),
+            len(recorded),
+        )
+
+
+def test_an_adopted_document_changed_between_hash_and_read_is_refused(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Any,
+    make_transcript_drop: Callable[..., Any],
+    fake_llm: Callable[..., FakeLlm],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """F6: the guard is load-bearing on the adopted path's two reads."""
+    fake_llm()
+    drop = make_transcript_drop(
+        "source-adopt-race", summary=SUMMARY_DOC, actions=ACTIONS_DOC
+    )
+    job_id = enqueue(pool, drop, "source-adopt-race")
+    changed = SUMMARY_DOC.replace("SFTP", "FTPS")
+    assert len(changed.encode("utf-8")) == len(SUMMARY_DOC.encode("utf-8"))
+    real_sha256_and_size = extract_stage.sha256_and_size
+
+    def mutate_after_hash(path):
+        digest, byte_size = real_sha256_and_size(path)
+        if path.name == "extraction-summary.md":
+            path.write_text(changed, encoding="utf-8")
+        return digest, byte_size
+
+    monkeypatch.setattr(extract_stage, "sha256_and_size", mutate_after_hash)
+
+    assert runner.run_once(pool, app_config, content_root) is True
+
+    status, error = job_row(pool, job_id)
+    assert status == "failed"
+    assert error is not None
+    assert "arch-summary" in error and "exact bytes" in error
+    [meeting] = meetings(pool, job_id)
+    assert extraction_sources(pool, meeting["id"]) == {}

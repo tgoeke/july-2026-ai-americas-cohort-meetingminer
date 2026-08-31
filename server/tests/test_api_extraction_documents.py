@@ -17,9 +17,12 @@ reads rows the worker wrote before the request arrived.
 from __future__ import annotations
 
 import hashlib
+import json
 from typing import Any
 from uuid import UUID, uuid4
 
+import pytest
+from psycopg import errors
 from psycopg_pool import ConnectionPool
 
 from projection_seed import SeededMeeting, seed_meeting
@@ -156,7 +159,7 @@ def test_a_run_that_yielded_nothing_is_still_served(client, test_pool) -> None:
 
 
 def test_an_unretained_run_is_distinguishable_from_an_empty_document(
-    client, test_pool
+    client, test_pool, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """AD-18: `null` and `""` mean different things and stay different.
 
@@ -169,6 +172,7 @@ def test_an_unretained_run_is_distinguishable_from_an_empty_document(
     _document(test_pool, seeded.meeting_id, kind="arch-summary", text=None)
     _document(test_pool, seeded.meeting_id, kind="action-items", text="")
 
+    capsys.readouterr()
     documents = {
         d["kind"]: d
         for d in client.get(
@@ -184,6 +188,74 @@ def test_an_unretained_run_is_distinguishable_from_an_empty_document(
         documents["arch-summary"]["documentText"]
         != documents["action-items"]["documentText"]
     )
+    listed = [
+        json.loads(line)
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith("{")
+        and json.loads(line).get("event") == "extraction.documents_listed"
+    ]
+    assert [event["unretained"] for event in listed] == [["arch-summary"]]
+
+
+def test_openapi_requires_document_text_while_allowing_null(client) -> None:
+    """F1: the client contract has exactly `null` and text, never omission."""
+    schema = client.app.openapi()["components"]["schemas"]["ExtractionDocument"]
+
+    assert "documentText" in schema["required"]
+    assert schema["properties"]["documentText"]["anyOf"] == [
+        {"type": "string"},
+        {"type": "null"},
+    ]
+
+
+def test_openapi_types_every_problem_response(client) -> None:
+    """F2: runtime problem+json bodies must not generate as `unknown`."""
+    responses = client.app.openapi()["paths"][
+        "/meetings/{meeting_id}/extraction-documents"
+    ]["get"]["responses"]
+
+    for status in ("404", "409", "422"):
+        assert responses[status]["content"]["application/problem+json"]["schema"] == {
+            "$ref": "#/components/schemas/ProblemDetails"
+        }
+
+
+def test_openapi_keeps_extraction_documents_outside_the_evidence_boundary(
+    client,
+) -> None:
+    """F4: AD-4 says model output is a claim about evidence, not evidence."""
+    description = client.app.openapi()["paths"][
+        "/meetings/{meeting_id}/extraction-documents"
+    ]["get"]["description"]
+
+    assert "claim about evidence" in description
+    assert "is the evidence" not in description
+
+
+def test_database_rejects_retained_text_whose_byte_size_disagrees(
+    test_pool,
+) -> None:
+    """F6: migration 0019 independently pins the encoded byte length."""
+    seeded = _seed(test_pool, source_id="doc-length-mismatch")
+    text = "astral: \U0001f680"
+    raw = text.encode("utf-8")
+
+    with pytest.raises(
+        errors.CheckViolation,
+        match="extraction_source_text_matches_byte_size",
+    ):
+        with test_pool.connection() as conn:
+            conn.execute(
+                "INSERT INTO extraction_source (meeting_id, kind, origin, sha256,"
+                " byte_size, layout, item_count, artifact_count, document_text)"
+                " VALUES (%s, 'arch-summary', 'generated', %s, %s, 'none', 0, 0, %s)",
+                (
+                    seeded.meeting_id,
+                    hashlib.sha256(raw).hexdigest(),
+                    len(raw) + 1,
+                    text,
+                ),
+            )
 
 
 def test_every_kind_of_the_run_is_listed_in_a_stable_order(client, test_pool) -> None:
