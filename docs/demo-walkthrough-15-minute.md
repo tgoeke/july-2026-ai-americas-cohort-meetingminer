@@ -9,27 +9,27 @@ type. Every query, URL and number below was run against the live corpus on
 
 ## Before you present
 
-### The one blocker: OpenAI credits are exhausted
+### Credits — resolved, and worth understanding
 
-`POST /chat` returns **503 `chat-model-unavailable`** — *"You have no credits
-remaining."* The system names the outage honestly rather than inventing an
-answer, which is the behaviour slide 7 promises, but **Ask does not work until
-this is resolved.** Ask is the climax of slide 9.
+Credits ran out mid-afternoon on 2026-08-31 and `POST /chat` returned **503
+`chat-model-unavailable`**. $17.49 was added and Ask works again.
 
-Two ways out, in order of preference:
+**Two numbers on the OpenAI dashboard mean different things**, and confusing
+them cost time here. *Usage against a budget limit* — "$50.77 / $100.00" — is
+what you have spent this period against a ceiling you set. The *API credit
+balance* is the pot the API actually draws from. Only the second one stops
+calls, and its error is specific: `credit_balance_exhausted`, HTTP 429.
 
-1. **Add credits.** Restores the demo exactly as designed. A walkthrough plus
-   rehearsals costs cents.
-2. **Bind `chat` to a local model** — set `llm.roles.chat.model` to
-   `ollama/gpt-oss:120b` in `config.yaml` and restart both api and worker.
-   Answers get slower and a little weaker, and you lose the "same model as
-   judge" symmetry. Note `chat` deliberately has **no fallback** (owner
-   decision, 2026-08-21) precisely so this failure is loud rather than silent.
+**If Ask returns 503 on the day**, check the credit balance, not the usage
+figure. To confirm it is billing and not the app, call OpenAI directly — the
+app's own error repeats the provider's message verbatim, so a direct call
+settles it in seconds.
 
-**What still works without credits:** everything else. Extraction falls back to
-a local model, so Add-meeting completes an ingest and reports the substitution.
-Search, moments, threads, replay, screenshots and the documents panel need no
-model at all.
+**What a credit outage does and does not break.** Ask dies, because `chat`
+deliberately has no fallback (owner decision, 2026-08-21) so the failure is
+loud. Everything else survives: extraction falls back to a local model, and
+search, threads, moments, replay, screenshots and the documents panel use no
+paid model at all.
 
 ### Checklist
 
@@ -68,29 +68,48 @@ question the first provokes.
 > support?"* — belongs to the earlier prototype corpus and finds **nothing**
 > here. Use one of these instead. Both are grounded in this corpus.
 
-**Primary question:**
+**Primary question — verified, and the one to use:**
 
 ```
-Did they decide to install heated sidewalks at the stations?
+What is the DBE participation goal and how is it tracked?
 ```
 
-Chosen because the corpus contains an explicit decision against it, so the
-answer is a real finding rather than a summary. The METRO Green Line CMC
-meeting's decision document carries it as **D2 — "Do not pursue heated
-sidewalks at larger stations"**, with the context that heated sidewalks had
-been done on Central previously.
+It returns a specific, quotable answer with **two citations, both carrying
+screenshots**: the goal is 15%, they were running around 22% as of October, and
+credit counting was "on pause". Numbers, a caveat, and a named pause — the kind
+of answer a person actually wanted. It also sets up Arc 2, because DBE is a
+thread running through **8 meetings**.
 
-**Backup question**, if the first disappoints:
+**Backup, if you want a second:**
 
 ```
-What did we decide about the Cedar Lake Trail closures?
+What are the risks to the 2027 revenue service start date?
 ```
 
-Verified to return a cited answer. Worth knowing: it answers *honestly in the
-negative* — the moments do not contain a decision beyond noting the Kenilworth
-Trail stays closed during construction. **That is a good demo, not a bad one.**
-Say so out loud: the system declines to manufacture a decision that was never
-made.
+Returns a cited answer that is honest in the negative — the moments do not state
+specific risks beyond not being ready to pinpoint the date. Say that out loud:
+the system declines to manufacture risks nobody named.
+
+**Two questions that trigger the citation gate**, which you may show
+deliberately or must be ready to explain if you hit one:
+
+```
+What was said about heated sidewalks?
+What did they say about the Cedar Lake Trail reopening?
+```
+
+Both are **refused**, not answered: *"every sentence must carry at least one
+moment marker; this one carries none."* That is slide 7's promise executing —
+the draft failed validation and no answer was streamed. It reads as an error
+because it is one, and it is the strongest possible evidence that the citation
+boundary is code rather than a prompt. If it happens live, name it and move on.
+
+**Why Ask is thinner than the rest of the demo.** Retrieval runs over transcript
+passages. The crisp material — the decision tables, the risks with timestamps —
+lives in the extraction documents, and **those are not indexed** (1 of 1,001
+artifacts, and no documents index at all). Story 12-4 is built and reviewed but
+unlanded; landing it would put those documents into retrieval and make Ask
+markedly better. Worth doing before the recording if there is time.
 
 **Beats:**
 
