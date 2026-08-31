@@ -9,14 +9,11 @@ import { childRoutes } from './routes/registry'
  * Two invariants live here, and both are one careless edit away from silently
  * regressing:
  *
- * 1. **An open child screen renders above the persistent search/ask chrome.**
- *    It used to render after it. A full page of hits is taller than the
- *    viewport, so the opened moment landed thousands of pixels down the
- *    document — far enough that the browser could not scroll it into view —
- *    and "Open moment" read as doing nothing. The 2026-08-22 hot fix moved the
- *    `<Outlet />`; nothing pinned it, which is what B-13 was filed for. The
- *    assertion runs over `childRoutes` rather than a hand-written list, so a
- *    screen added later is covered the day it is added.
+ * 1. **Search and Ask are controls inside the sticky chrome, and the child
+ *    screen is the first flow-height content below it.** Their expanded
+ *    surfaces overlay rather than pushing an opened moment thousands of
+ *    pixels down the document. The assertion runs over `childRoutes` rather
+ *    than a hand-written list, so a screen added later is covered immediately.
  *
  * 2. **The front door is Moments, Threads is second, and the four screens
  *    that came before stay reachable from the chrome** — with search and ask
@@ -123,33 +120,36 @@ describe('shell placement', () => {
   })
 
   it.each(childRoutes.map((route) => route.path))(
-    'renders %s above the persistent search and ask chrome',
+    'renders %s directly below compact search and ask chrome',
     (pattern) => {
       window.history.replaceState(null, '', concretePath(pattern))
       render(<App />)
 
       const child = screen.getByTestId('child-screen')
       const chrome = screen.getByTestId('search-ask-chrome')
+      const header = chrome.closest('header')
       // The child screen is open…
       expect(child).not.toHaveAttribute('hidden')
-      // …and it comes first in the document. FOLLOWING (4) means the argument
-      // comes after the node. DOM order is tab order and screen-reader order,
-      // so this is the reading order too, not just a scroll position.
-      expect(child.compareDocumentPosition(chrome)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+      // …and the compact controls precede it inside the one sticky header,
+      // rather than occupying a flow-height block between Back and Outlet.
+      expect(header).toHaveClass('sticky')
+      expect(header).toContainElement(screen.getByTestId('search-input'))
+      expect(header).toContainElement(screen.getByTestId('chat-question-input'))
+      expect(child.compareDocumentPosition(chrome)).toBe(Node.DOCUMENT_POSITION_PRECEDING)
       // The Back control belongs to an open child screen.
-      expect(screen.getByRole('button', { name: '← Back' })).toBeInTheDocument()
+      expect(child.previousElementSibling).toHaveTextContent('← Back')
     },
   )
 
-  it('keeps the child container above the chrome on the front door too', () => {
+  it('keeps the hidden child container directly below the chrome on the front door too', () => {
     render(<App />)
 
     const child = screen.getByTestId('child-screen')
     const chrome = screen.getByTestId('search-ask-chrome')
-    // Hidden, because no child screen matched — but still ahead of the chrome,
-    // so opening one never reorders the document.
+    // Hidden, because no child screen matched — but still after the sticky
+    // chrome and before the composed primary views.
     expect(child).toHaveAttribute('hidden')
-    expect(child.compareDocumentPosition(chrome)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(child.compareDocumentPosition(chrome)).toBe(Node.DOCUMENT_POSITION_PRECEDING)
     expect(screen.queryByRole('button', { name: '← Back' })).toBeNull()
   })
 })
