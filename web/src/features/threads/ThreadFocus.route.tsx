@@ -1,15 +1,15 @@
 import type { RouteModule } from '@/routes/registry'
-import { Threads } from './Threads'
+import ThreadTrace from './ThreadTrace'
 
 /**
  * `/threads/:threadId` — where every thread chip in the app points.
  *
- * The same screen, opened with that thread already entered. A param segment
- * ranks above a splat, which is what let this route coexist with story 10.5's
- * `/threads/*` placeholder before integration deleted it.
+ * The same screen, opened with that subject already traced: the deep link names
+ * a known thread, so it takes the exhaustive leg rather than being re-resolved
+ * from its name.
  */
 export const route: RouteModule = {
   path: '/threads/:threadId',
-  element: <Threads />,
+  element: <ThreadTrace />,
   order: 20,
 }
