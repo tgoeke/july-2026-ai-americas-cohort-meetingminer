@@ -46,8 +46,13 @@ from meetingminer.adapters.embed import (
 from meetingminer.config import AppConfig
 from meetingminer.projections import graph, search
 from meetingminer.projections.chunking import Chunk, chunk_turns
+from meetingminer.projections.documents import (
+    DOCUMENTS_INDEX,
+    DocumentRecordRefused,
+)
 from meetingminer.projections.evidence import (
     MeetingEvidence,
+    extraction_documents,
     meeting_evidence_complete,
     projectable_meeting_ids,
     read_meeting,
@@ -69,6 +74,7 @@ from meetingminer.projections.stores import (
     drop_all,
     ensure_artifact_graph_schema,
     ensure_artifact_search_schema,
+    ensure_document_search_schema,
     ensure_graph_schema,
     ensure_search_schema,
     ensure_vector_search_schema,
@@ -82,7 +88,9 @@ __all__ = [
     "ACTION_FULL",
     "ACTION_NONE",
     "Artifact",
+    "DOCUMENTS_INDEX",
     "DimensionMismatchError",
+    "DocumentRecordRefused",
     "ProjectionError",
     "ProjectionLockedError",
     "ProjectionOutcome",
@@ -92,6 +100,7 @@ __all__ = [
     "assert_publishable",
     "invalidate_meeting_projection",
     "is_publishable",
+    "project_extraction_documents",
     "project_meeting",
     "project_meeting_embeddings",
     "project_published_artifacts",
@@ -121,6 +130,11 @@ class ProjectionOutcome:
     # Always the meeting's full published set — drafts are structurally
     # excluded by `publish_gate.published_artifacts`'s own WHERE clause.
     artifact_documents: int = 0
+    # Retained extraction documents re-indexed alongside the meeting (story
+    # 12.4). Unlike `artifact_documents` this is *not* gated on approval — it
+    # is every document `extraction_source` holds text for, which is AD-4's
+    # one deliberate exception to the publish gate.
+    extraction_documents: int = 0
     # A named warning that did *not* fail the projection — today, only an
     # unreachable model host. The structural rows are written and searchable.
     warning: str | None = None
@@ -351,7 +365,7 @@ def _project_structural(
     evidence: MeetingEvidence,
     chunks: tuple[Chunk, ...],
     artifacts: tuple[Artifact, ...],
-) -> tuple[int, int, int]:
+) -> tuple[int, int, int, int]:
     """Write the graph and the search documents with no model involved.
 
     The ``Embedder`` is not imported, constructed, or called anywhere on this
@@ -359,14 +373,22 @@ def _project_structural(
     Published artifacts ride along (story 4.4): the per-meeting delete wipes
     their nodes and documents, so the same pass restores them from Postgres —
     which is what makes worker settle points, augmenting re-ingests and
-    ``rebuild`` all preserve citability without a separate step.
+    ``rebuild`` all preserve citability without a separate step. Retained
+    extraction documents ride along for the same mechanical reason (story
+    12.4), and that ride-along is what makes ``rebuild`` re-index them from
+    their Postgres row alone. They reach Meilisearch only: no ``Document`` node
+    is written, because the graph is traversed to *reach citable evidence* and
+    a document is never a citation target (AD-6).
     """
     graph.project_meeting(stores.driver, evidence, chunks, artifacts)
-    moment_count, chunk_count, artifact_count = search.project_meeting(
-        stores.client, evidence, chunks, artifacts=artifacts
-    )
+    (
+        moment_count,
+        chunk_count,
+        artifact_count,
+        document_count,
+    ) = search.project_meeting(stores.client, evidence, chunks, artifacts=artifacts)
     _record_structural(conn, config, evidence.meeting_id)
-    return moment_count, chunk_count, artifact_count
+    return moment_count, chunk_count, artifact_count, document_count
 
 
 def _embed_all(
@@ -432,11 +454,14 @@ def _project_one(
     artifacts = () if embed_only else published_artifacts(conn, meeting_id=meeting_id)
 
     structural = False
-    moment_count = chunk_count = artifact_count = 0
+    moment_count = chunk_count = artifact_count = document_count = 0
     if not embed_only:
-        moment_count, chunk_count, artifact_count = _project_structural(
-            conn, config, stores, evidence, chunks, artifacts
-        )
+        (
+            moment_count,
+            chunk_count,
+            artifact_count,
+            document_count,
+        ) = _project_structural(conn, config, stores, evidence, chunks, artifacts)
         structural = True
         log(
             "projection.structural",
@@ -444,6 +469,10 @@ def _project_one(
             moments=moment_count,
             chunks=chunk_count,
             artifacts=artifact_count,
+            # Reported apart from `artifacts` deliberately: these passed no
+            # publish gate, and a reader of this line must be able to see that
+            # the two counts mean different things (AD-4's exception).
+            extraction_documents=document_count,
             screens=len(evidence.screens),
             participants=len(evidence.participants),
         )
@@ -456,6 +485,7 @@ def _project_one(
             moment_documents=moment_count,
             chunk_documents=chunk_count,
             artifact_documents=artifact_count,
+            extraction_documents=document_count,
         )
 
     try:
@@ -480,6 +510,7 @@ def _project_one(
             moment_documents=moment_count,
             chunk_documents=chunk_count,
             artifact_documents=artifact_count,
+            extraction_documents=document_count,
             warning=str(exc),
         )
     except EmbedderError as exc:
@@ -507,6 +538,7 @@ def _project_one(
         moment_documents=moment_count,
         chunk_documents=chunk_count,
         artifact_documents=artifact_count,
+        extraction_documents=document_count,
     )
 
 
@@ -652,6 +684,106 @@ def project_published_artifacts(
         artifact_ids=[str(artifact.id) for artifact in artifacts],
     )
     return projected
+
+
+_MEETING_HEADER = "SELECT source_id, corpus, title FROM meeting WHERE id = %s"
+
+# Runs whose document was never retained (story 12.1 landed after them). Not a
+# failure and not an empty document: there is nothing to index, and a
+# re-extraction is what produces text. Counted so the log can say which of the
+# two an empty index for this meeting is (AD-18's distinction, kept).
+_UNRETAINED_DOCUMENTS = (
+    "SELECT count(*) FROM extraction_source"
+    " WHERE meeting_id = %s AND document_text IS NULL"
+)
+
+
+def project_extraction_documents(
+    conn: Connection,
+    config: AppConfig,
+    meeting_id: UUID,
+    *,
+    log: Logger | None = None,
+) -> int:
+    """Index one meeting's retained extraction documents. **Ungated** (AD-4).
+
+    The `extract` stage's settle point. Every other store write in this module
+    either projects evidence (which is complete before `extract` runs) or
+    passes the publish gate; this one does neither, and that is the whole
+    point. Owner ruling 2026-08-31, recorded in AD-4: every extraction document
+    is indexed as soon as it is stored, approved or not, because the run whose
+    text somebody needs to read is exactly the run that yielded nothing worth
+    approving. Gating documents behind approval would withhold them in
+    precisely the case they exist for.
+
+    Why it needs an entrypoint at all rather than riding the structural pass
+    alone: evidence projects at evidence-complete, and `extract` runs *after*
+    that, so a document stored by the extract stage would otherwise wait for
+    the next `rebuild` to become findable. The structural ride-along is still
+    what makes `rebuild` regenerate them from Postgres alone; this is what
+    makes "as soon as it is stored" true.
+
+    Delete-then-add, scoped to this meeting and to the documents index alone —
+    a re-extraction replaces its records rather than accumulating one set per
+    run, and moments, chunks and artifacts (already correct at this point) are
+    never touched.
+
+    Takes the same two locks in the same order as every other store-writing
+    entrypoint here, so no store write in this module runs outside the composed
+    exclusion domain.
+
+    Returns how many document records were written. A meeting whose runs all
+    predate story 12.1's retention has no text to index and returns 0 — which
+    is a re-extraction backlog, named in the log rather than inferred from an
+    empty index.
+    """
+    emit = log or _noop
+    header = conn.execute(_MEETING_HEADER, (meeting_id,)).fetchone()
+    if header is None:
+        raise LookupError(f"no meeting {meeting_id}")
+    source_id, corpus, title = header
+    holder = f"extraction-document projection of meeting {meeting_id}"
+    with store_file_lock(config, holder=holder), projection_lock(conn, holder=holder):
+        # Read the rows only once both exclusions are held: a rerun of the
+        # extract stage committing while this caller waited would otherwise
+        # let a stale pre-lock document overwrite the fresh record a
+        # concurrent writer just wrote.
+        rows = extraction_documents(conn, meeting_id)
+        records = search.documents_of(
+            rows,
+            meeting_id=meeting_id,
+            corpus=corpus,
+            meeting_title=title,
+            source_id=source_id,
+        )
+        # `ensure=False`: no vector is written here, so the width check that
+        # exists to force a rebuild after an embedder swap must not be able to
+        # withhold the documents. The documents index declares no embedder, so
+        # there is nothing for that check to be about.
+        with _open_stores(
+            config, dimension=config.settings.embedder.dimension, ensure=False
+        ) as stores:
+            ensure_document_search_schema(stores.client, config)
+            # Unconditional, including when `records` is empty: a rerun that
+            # produced fewer documents than the last one must not leave the
+            # extra ones standing.
+            search.delete_meeting_documents(stores.client, meeting_id)
+            written = search.project_documents(stores.client, records)
+    unretained = conn.execute(_UNRETAINED_DOCUMENTS, (meeting_id,)).fetchone()[0]
+    emit(
+        "projection.extraction_documents",
+        meeting_id=meeting_id,
+        documents=written,
+        # A corpus still carrying pre-12.1 rows is a re-extraction backlog, and
+        # it has to be visible here rather than read as "this meeting produced
+        # nothing".
+        unretained=unretained,
+        # Stated in the log, not only in this docstring: this is the one write
+        # in the module that did not pass the publish gate, and an operator
+        # reading the log should be able to see that without reading AD-4.
+        gate="bypassed (AD-4 extraction-document exception)",
+    )
+    return written
 
 
 def unproject_meeting(

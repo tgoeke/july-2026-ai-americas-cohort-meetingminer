@@ -601,6 +601,27 @@ projections:
       filterable_attributes: [meetingId, corpus, state, kind]
       sortable_attributes: []
       ranking_rules: [words, typo, proximity, attribute, sort, exactness]
+    # Retained extraction documents (story 12.4). Keyword-only, like
+    # `artifacts` above — and unlike every other index here, **ungated**:
+    # every extraction document is indexed as soon as it is stored, approved
+    # or not. That is AD-4's one deliberate exception to the publish gate,
+    # made by owner ruling 2026-08-31, because the run whose text somebody
+    # needs to read is exactly the run that yielded nothing worth approving.
+    #
+    # `text` before `title`: the document *is* the body here, and `title` is
+    # only the meeting's name — the inverse of `artifacts`, where the title is
+    # the distilled claim. `kind` last, so 'action-items' still matches when
+    # somebody searches for it by name without outranking a body match.
+    #
+    # No `momentId` anywhere in these lists, and the loader refuses one: a
+    # document is a claim *about* evidence, never a citation target (AD-6).
+    # `reviewState` is filterable so the record's unreviewed status is
+    # queryable rather than only renderable (AD-18).
+    documents:
+      searchable_attributes: [text, title, kind]
+      filterable_attributes: [meetingId, corpus, kind, origin, reviewState]
+      sortable_attributes: []
+      ranking_rules: [words, typo, proximity, attribute, sort, exactness]
     # Domain synonyms (§7, "fund full-text quality as a first-class half").
     # Meilisearch treats every entry as one-way, so every pair below is
     # written out in both directions — a one-way entry silently helps only

@@ -1,4 +1,4 @@
-"""The Meilisearch projection: two indexes, first-class full-text (AD-4).
+"""The Meilisearch projection: four indexes, first-class full-text (AD-4).
 
 Full-text is not a fallback behind the vector half. Measured on this corpus,
 **0 of 9 embedding models beat BM25 alone** on transcript-worded queries — the
@@ -15,6 +15,14 @@ fully functional here rather than degraded.
   ``sourceDeepLink`` when it does not (UX-DR11).
 * ``chunks`` is *retrieval-shaped*, at the turn-packed granularity the bake-off
   actually measured, keyed on the UUID of its first transcript segment.
+* ``artifacts`` is *published knowledge*, keyed on the artifact UUID and
+  written only through the publish gate (story 4.4).
+* ``documents`` is *the analysis itself* (story 12.4), keyed on the
+  ``extraction_source`` row's UUID and written **without** passing the publish
+  gate — AD-4's one deliberate exception. Its records carry their unreviewed,
+  machine-written status and no citation field; see
+  :mod:`meetingminer.projections.documents` for both constraints and for why
+  the indexed identity is one record per row rather than a chunk key.
 
 Both carry ``meetingId`` and ``corpus`` as filterable attributes — ``corpus``
 because an eval run must be able to scope to ``scripted`` meetings without the
@@ -35,7 +43,8 @@ import meilisearch
 
 from meetingminer.adapters.embed.port import Vector
 from meetingminer.projections.chunking import Chunk
-from meetingminer.projections.evidence import MeetingEvidence
+from meetingminer.projections.documents import DOCUMENTS_INDEX, document_record
+from meetingminer.projections.evidence import ExtractionDocumentRow, MeetingEvidence
 from meetingminer.projections.publish_gate import (
     ARTIFACTS_INDEX,
     Artifact,
@@ -151,6 +160,57 @@ def chunk_documents(
     return documents
 
 
+def document_documents(evidence: MeetingEvidence) -> list[dict[str, Any]]:
+    """One record per retained extraction document — the ungated index.
+
+    The shape is ``documents.document_record``'s, and both of that module's
+    guards run inside it: a record that lost its unreviewed label, or that
+    grew a field the citation path could resolve, raises before any document
+    exists. Built from ``evidence.documents`` — Postgres rows, read by
+    ``evidence.extraction_documents`` — so ``rebuild`` re-indexes documents
+    from the row alone and this module still opens no evidence file.
+
+    No ``_vectors`` key, ever: the documents index declares no embedder, for
+    the same reason the artifacts index does not.
+    """
+    return [
+        document_record(
+            row,
+            meeting_id=evidence.meeting_id,
+            corpus=evidence.corpus,
+            meeting_title=evidence.title,
+            source_id=evidence.source_id,
+        )
+        for row in evidence.documents
+    ]
+
+
+def documents_of(
+    rows: Sequence[ExtractionDocumentRow],
+    *,
+    meeting_id: UUID,
+    corpus: str,
+    meeting_title: str | None,
+    source_id: str,
+) -> list[dict[str, Any]]:
+    """The same records, built from rows read without a whole evidence bundle.
+
+    The settle-point pass (`projections.project_extraction_documents`) has the
+    meeting header and the document rows and nothing else; it must not pay for
+    a full bundle read to index four documents. One builder, two callers.
+    """
+    return [
+        document_record(
+            row,
+            meeting_id=meeting_id,
+            corpus=corpus,
+            meeting_title=meeting_title,
+            source_id=source_id,
+        )
+        for row in rows
+    ]
+
+
 def artifact_documents(artifacts: Sequence[Artifact]) -> list[dict[str, Any]]:
     """One document per *published* artifact — the citable-knowledge index.
 
@@ -212,7 +272,7 @@ def delete_meeting(client: meilisearch.Client, meeting_id: UUID | str) -> None:
     """
     scope = UUID(str(meeting_id))
     expression = f'meetingId = "{scope}"'
-    for index_uid in (MOMENTS_INDEX, CHUNKS_INDEX, ARTIFACTS_INDEX):
+    for index_uid in (MOMENTS_INDEX, CHUNKS_INDEX, ARTIFACTS_INDEX, DOCUMENTS_INDEX):
         await_task(
             client,
             client.index(index_uid).delete_documents(filter=expression),
@@ -227,7 +287,7 @@ def delete_meeting_vectors(client: meilisearch.Client, meeting_id: UUID | str) -
     """Drop only this meeting's vector-bearing documents.
 
     The embed-only pass owns the moments/chunks surfaces and must never even
-    address the keyword-only artifacts index.
+    address the keyword-only artifacts or documents indexes.
     """
     scope = UUID(str(meeting_id))
     expression = f'meetingId = "{scope}"'
@@ -256,20 +316,23 @@ def project_meeting(
     moment_vectors: Sequence[Vector] | None = None,
     chunk_vectors: Sequence[Vector] | None = None,
     artifacts: Sequence[Artifact] = (),
-) -> tuple[int, int, int]:
-    """Replace one meeting's documents in all three indexes; return the counts.
+) -> tuple[int, int, int, int]:
+    """Replace one meeting's documents in all four indexes; return the counts.
 
     Delete-then-add, always — never an in-place update. A meeting with zero
     moments writes zero moment documents and is not an error. Published
-    Published artifacts ride along on structural/full projection because its
-    meeting-scoped delete wipes theirs too. The separate embed-only pass below
-    addresses moments and chunks exclusively, so artifacts neither ride nor
-    get rewritten there. They never carry vectors: the artifacts index is
-    keyword-only.
+    artifacts ride along on structural/full projection because its
+    meeting-scoped delete wipes theirs too, and extraction documents ride along
+    for exactly the same mechanical reason — which is also what makes
+    ``rebuild`` re-index them from the Postgres row alone. The separate
+    embed-only pass below addresses moments and chunks exclusively, so neither
+    artifacts nor documents ride or get rewritten there. Neither ever carries
+    vectors: both indexes are keyword-only.
     """
     moments = _with_vectors(moment_documents(evidence), moment_vectors)
     passages = _with_vectors(chunk_documents(evidence, chunks), chunk_vectors)
     published = artifact_documents(artifacts)
+    extraction = document_documents(evidence)
     delete_meeting(client, evidence.meeting_id)
     if moments:
         _add(client, MOMENTS_INDEX, moments)
@@ -277,7 +340,9 @@ def project_meeting(
         _add(client, CHUNKS_INDEX, passages)
     if published:
         _add(client, ARTIFACTS_INDEX, published)
-    return len(moments), len(passages), len(published)
+    if extraction:
+        _add(client, DOCUMENTS_INDEX, extraction)
+    return len(moments), len(passages), len(published), len(extraction)
 
 
 def project_embeddings(
@@ -312,15 +377,51 @@ def project_artifacts(client: meilisearch.Client, artifacts: Sequence[Artifact])
     return len(documents)
 
 
+def project_documents(
+    client: meilisearch.Client, documents: Sequence[Mapping[str, Any]]
+) -> int:
+    """Replace the extraction-document records this caller built. Add-only.
+
+    The settle-point path (via ``projections.project_extraction_documents``):
+    the `extract` stage stores its rows *after* the evidence bundle has already
+    been projected, so "indexed as soon as it is stored" needs a write that
+    does not re-run the whole meeting. Keyed on the ``extraction_source`` row
+    id, so a re-extraction — which upserts that row rather than inserting a
+    second — is an idempotent overwrite rather than a duplicate.
+    """
+    if documents:
+        _add(client, DOCUMENTS_INDEX, documents)
+    return len(documents)
+
+
+def delete_meeting_documents(
+    client: meilisearch.Client, meeting_id: UUID | str
+) -> None:
+    """Drop one meeting's extraction-document records, and nothing else.
+
+    The settle-point pass's delete half. Scoped to the documents index alone:
+    a document projection must never touch a moment, a chunk or an artifact,
+    because it runs at a point where those are already correct.
+    """
+    scope = UUID(str(meeting_id))
+    await_task(
+        client,
+        client.index(DOCUMENTS_INDEX).delete_documents(
+            filter=f'meetingId = "{scope}"'
+        ),
+        tolerate=("index_not_found",),
+    )
+
+
 def unproject_meeting(client: meilisearch.Client, meeting_id: UUID | str) -> None:
-    """Remove one meeting's documents from both indexes."""
+    """Remove one meeting's documents from every index."""
     delete_meeting(client, meeting_id)
 
 
 def counts(client: meilisearch.Client) -> dict[str, int]:
     """Document counts per index, for the `rebuild` equivalence check."""
     result: dict[str, int] = {}
-    for index_uid in (MOMENTS_INDEX, CHUNKS_INDEX, ARTIFACTS_INDEX):
+    for index_uid in (MOMENTS_INDEX, CHUNKS_INDEX, ARTIFACTS_INDEX, DOCUMENTS_INDEX):
         stats = client.index(index_uid).get_stats()
         total = getattr(stats, "number_of_documents", None)
         if total is None and isinstance(stats, dict):
