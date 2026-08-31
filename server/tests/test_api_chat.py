@@ -1809,3 +1809,113 @@ def test_a_stale_artifact_hit_never_reaches_the_synthesis_prompt(
     body = refused(chat_client, "what did we decide about Quorlix?", "no-evidence")
     assert body["route"]["searchHits"] == 0
     assert "chat.stale_artifact_hit" in capsys.readouterr().out
+
+
+# --- extraction documents in the prompt (story 12.4) ----------------------
+
+
+def _moment(meeting_id, text="A short transcript."):
+    from meetingminer.api.chat import RetrievedMoment
+
+    return RetrievedMoment(
+        citation=MomentCitation(
+            moment_id=uuid4(), meeting_id=meeting_id, start_ms=0, end_ms=1_000
+        ),
+        meeting_title="Data Hub Demo",
+        meeting_started_at=datetime(2026, 8, 5, tzinfo=timezone.utc),
+        text=text,
+    )
+
+
+def _document(meeting_id, text="The feed moved to SFTP."):
+    from meetingminer.api.chat import RetrievedDocument
+
+    return RetrievedDocument(
+        document_id=uuid4(),
+        meeting_id=meeting_id,
+        kind="arch-summary",
+        model="test-model",
+        item_count=0,
+        review_label="Unreviewed — machine-written extraction output.",
+        text=text,
+    )
+
+
+def test_a_document_adds_no_marker_and_no_citable_moment() -> None:
+    """AD-6 at the prompt: the document leg widens what the model reads, never
+    what the answer may cite.
+
+    A document has no moment, so it contributes no candidate block and no
+    marker. The prompted id set — which is exactly the set the citation gate
+    will accept — is unchanged by its presence.
+    """
+    meeting_id = uuid4()
+    moment = _moment(meeting_id)
+    document = _document(meeting_id)
+
+    without = build_synthesis_prompt("What happened?", (moment,))[1]
+    prompt, prompted_ids = build_synthesis_prompt(
+        "What happened?", (moment,), documents_by_meeting={meeting_id: (document,)}
+    )
+
+    assert prompted_ids == without == (moment.citation.moment_id,)
+    assert f"[[document:{document.document_id}]]" not in prompt
+    assert str(document.document_id) not in prompt
+
+
+def test_the_prompt_labels_a_document_as_unreviewed_and_uncitable() -> None:
+    """AD-18 reaches the model too.
+
+    A model shown unreviewed prose that reads like reviewed evidence is a model
+    invited to cite it. The block names it, and rule 5 says what to do with it.
+    """
+    meeting_id = uuid4()
+    prompt, _ = build_synthesis_prompt(
+        "What happened?",
+        (_moment(meeting_id),),
+        documents_by_meeting={meeting_id: (_document(meeting_id),)},
+    )
+
+    assert "Unreviewed extraction document" in prompt
+    assert "can never be cited" in prompt
+    assert "never as the support" in prompt
+
+
+def test_a_meetings_documents_are_given_once_not_once_per_moment() -> None:
+    """A document is meeting-scoped; repeating it per moment would buy nothing.
+
+    Six retrieved moments from one meeting would otherwise carry six copies of
+    the same document text — bounded by the overall prompt cap, so not a
+    correctness bug, but it would crowd out citable moments from other meetings
+    to say one thing six times.
+    """
+    meeting_id = uuid4()
+    moments = tuple(_moment(meeting_id) for _ in range(6))
+    document = _document(meeting_id, text="UNIQUE-DOCUMENT-SENTINEL")
+
+    prompt, _ = build_synthesis_prompt(
+        "What happened?", moments, documents_by_meeting={meeting_id: (document,)}
+    )
+
+    assert prompt.count("UNIQUE-DOCUMENT-SENTINEL") == 1
+
+
+def test_a_document_whose_meeting_has_no_retrieved_moment_reaches_nobody() -> None:
+    """Correct rather than a gap: there would be nothing for it to cite.
+
+    "Content reaches an answer only through the moments its individual claims
+    anchor to." If retrieval found no moment in that meeting, a sentence drawn
+    from its document could carry no marker, and the gate would discard the
+    whole answer.
+    """
+    retrieved_meeting = uuid4()
+    other_meeting = uuid4()
+    document = _document(other_meeting, text="UNRELATED-DOCUMENT-SENTINEL")
+
+    prompt, _ = build_synthesis_prompt(
+        "What happened?",
+        (_moment(retrieved_meeting),),
+        documents_by_meeting={other_meeting: (document,)},
+    )
+
+    assert "UNRELATED-DOCUMENT-SENTINEL" not in prompt
