@@ -38,6 +38,14 @@ The review branch must be rebased onto the then-current `origin/main` before clo
 - **Suggested direction:** Treat a `thread` whose immutable provenance is `link_rule = 'curated'` as human-named in both the curation response query and the shared list expression. Preserve the distinction after a later rename is cleared: the split's original name remains human-originated even without a rename override.
 - **Remediation:** The shared provenance expression now treats either a rename row or `thread.link_rule = 'curated'` as human-originated, and the write response uses that same expression. Both red assertions are green; the complete curation module remains **23 passed**.
 
+### F4 — Open for remediation: curation does not schedule the graph projection promised by the AC
+
+- **Location:** `server/meetingminer/api/thread_curation.py` (all three successful write paths omit `meeting_projection` invalidation); `server/meetingminer/projections/__init__.py:projection_action`
+- **Severity:** Major
+- **Finding:** A projected meeting retains a current `meeting_projection` row after rename, merge, or split. `projection_action` therefore returns `none` at the ordinary next pass, so `projections.evidence.read_meeting` never gets a chance to consume the new effective membership/name and Neo4j remains on the pre-curation grouping. Merely changing the projection reader is insufficient when its scheduler declares there is no work.
+- **Evidence:** Added `test_a_rename_invalidates_every_affected_meeting_projection`. Two meetings in one thread were given current projection-state rows, then the thread was renamed. Against the unfixed branch the test failed red: both `meeting_projection` rows remained after the successful `200` response.
+- **Suggested direction:** In the same transaction as each curation write, delete `meeting_projection` for every meeting whose effective thread identity or name changed: all meetings currently in a renamed thread, both effective sides of a merge, and every meeting containing a split pin. Do not call the existing helper that commits internally; curation must remain atomic with its invalidation.
+
 ## Verification
 
 Pending.

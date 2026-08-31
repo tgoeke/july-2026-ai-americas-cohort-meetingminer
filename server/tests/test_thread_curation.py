@@ -163,6 +163,22 @@ def ordinal_of(conn: Connection, thread_id: UUID) -> int:
     ).fetchone()[0]
 
 
+def record_projection_state(conn: Connection, config: AppConfig, meeting_id: UUID) -> None:
+    chunking = config.settings.projections.chunking
+    conn.execute(
+        "INSERT INTO meeting_projection (meeting_id, structural_at, embedded_at,"
+        " embedder_model, embedder_dimension, chunk_max_chars, chunk_overlap_turns)"
+        " VALUES (%s, now(), now(), %s, %s, %s, %s)",
+        (
+            meeting_id,
+            config.settings.embedder.model,
+            config.settings.embedder.dimension,
+            chunking.chunk_max_chars,
+            chunking.chunk_overlap_turns,
+        ),
+    )
+
+
 def listed(client: TestClient) -> dict[str, dict]:
     return {t["threadId"]: t for t in client.get("/threads").json()["threads"]}
 
@@ -335,6 +351,35 @@ def test_a_rename_survives_a_rerun_that_changes_the_derived_name(
     row = listed(client)[str(thread_id)]
     assert row["name"] == "File transfer cutover"
     assert row["nameIsCurated"] is True
+
+
+def test_a_rename_invalidates_every_affected_meeting_projection(
+    client: TestClient, pool: ConnectionPool, app_config: AppConfig
+) -> None:
+    """A current state row makes the ordinary projection pass return `none`.
+
+    Curation must delete those state rows in the same transaction or the next
+    pass cannot carry the human name into the graph.
+    """
+    with pool.connection() as conn:
+        first = seed_meeting(conn, "m1")
+        second = seed_meeting(conn, "m2", offset_days=1)
+        topic = add_topic(conn, first, "Vendor Feed")
+        add_topic(conn, second, "Vendor Feed")
+        derive(conn, app_config)
+        record_projection_state(conn, app_config, first)
+        record_projection_state(conn, app_config, second)
+        conn.commit()
+        thread_id = thread_of(conn, topic)
+
+    response = client.patch(f"/threads/{thread_id}", json={"name": "Inbound feed"})
+    assert response.status_code == 200
+
+    with pool.connection() as conn:
+        remaining = conn.execute(
+            "SELECT meeting_id FROM meeting_projection ORDER BY meeting_id"
+        ).fetchall()
+    assert remaining == []
 
 
 def test_clearing_a_rename_restores_the_machine_name_as_it_now_stands(
