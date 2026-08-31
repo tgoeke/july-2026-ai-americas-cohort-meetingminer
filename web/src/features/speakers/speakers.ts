@@ -200,6 +200,13 @@ export type AssignmentChoice =
   | { kind: 'newName'; displayName: string }
   | { kind: 'unresolved' }
 
+/**
+ * The two choices the *name field* can produce. `unresolved` is not one of
+ * them: it comes from its own button, never from text, so the field's reader
+ * can never accidentally return it.
+ */
+export type NamedAssignmentChoice = Extract<AssignmentChoice, { displayName: string }>
+
 /** The request body for a choice — exactly one field set, as the api requires. */
 export function assignmentBody(choice: AssignmentChoice): AssignSpeakerRequest {
   if (choice.kind === 'unresolved') return { unresolved: true }
@@ -219,7 +226,7 @@ export function assignmentBody(choice: AssignmentChoice): AssignSpeakerRequest {
 export function choiceOf(
   draft: string,
   picked: ParticipantRow | null,
-): AssignmentChoice | null {
+): NamedAssignmentChoice | null {
   const name = draft.trim()
   if (name === '') return null
   if (picked !== null && picked.displayName.trim() === name) {
