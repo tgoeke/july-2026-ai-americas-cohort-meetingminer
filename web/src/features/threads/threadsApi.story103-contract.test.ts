@@ -142,6 +142,7 @@ describe('Story 10.3 wire contract', () => {
             firstMentionAt: envelope.windowFrom,
             lastMentionAt: envelope.windowTo,
             colorOrdinal: envelope.colorOrdinal,
+            nameIsCurated: false,
           },
         ],
         focusedThreadId: THREAD_ID,

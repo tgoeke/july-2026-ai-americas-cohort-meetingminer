@@ -12,6 +12,7 @@ const THREAD: ThreadSummary = {
   firstMentionAt: '1970-01-01T00:00:00Z',
   lastMentionAt: '1970-01-01T01:00:00Z',
   colorOrdinal: 1,
+  nameIsCurated: false,
 }
 
 function props(overrides: Partial<TimelineCanvasProps> = {}): TimelineCanvasProps {

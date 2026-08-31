@@ -1,4 +1,5 @@
 import { BEYOND_PALETTE_NOTE, paintFor, swatchStyle } from './palette'
+import { ThreadCuration } from './ThreadCuration'
 import type { ThreadSummary } from './threadsApi'
 
 /**
@@ -28,6 +29,13 @@ export interface ThreadListProps {
    * says which is being used.
    */
   activity: Record<string, number> | null
+  /**
+   * Re-read `GET /threads` after a curation landed (story 10.2a). Absent on a
+   * read-only mount: without a way to refresh, the controls would leave the
+   * list showing the grouping the user just corrected, which reads as the
+   * correction having failed.
+   */
+  onCurated?: () => void
 }
 
 /** Search matches on the name, case-insensitively, as a substring. */
@@ -66,6 +74,7 @@ export function ThreadList({
   focusedThreadId,
   onFocus,
   activity,
+  onCurated,
 }: ThreadListProps) {
   const visible = sortThreads(threads.filter((t) => matchesQuery(t, query)), sort, activity)
 
@@ -149,6 +158,13 @@ export function ThreadList({
                 </button>
                 {paint.lap === 3 ? (
                   <p className="px-2 text-[11px] text-muted-foreground">{BEYOND_PALETTE_NOTE}</p>
+                ) : null}
+                {onCurated !== undefined ? (
+                  <ThreadCuration
+                    thread={thread}
+                    mergeTargets={threads.filter((t) => t.threadId !== thread.threadId)}
+                    onCurated={onCurated}
+                  />
                 ) : null}
               </li>
             )
