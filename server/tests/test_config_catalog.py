@@ -9,9 +9,9 @@ own catalog, and a catalog entry whose provider `providers:` does not declare.
 Provider identity is never authored beside a binding. It is derived from the
 same dependency-neutral spelling rule the runtime adapter uses; known bare
 OpenAI and Anthropic spellings therefore agree at load and call time, while an
-ambiguous bare spelling is refused by name. Synthesized entries retain the
-authored-entry provider-declaration exemption only for backward-compatible
-prefixed tags whose provider is absent from ``providers:``.
+ambiguous bare spelling is refused by name. Synthesized entries must resolve an
+explicit provider endpoint too: legacy compatibility no longer permits an
+unnamed SDK-default endpoint.
 
 Nothing here calls a model; the catalog is declaration only until story 8.2
 resolves a selection.
@@ -85,32 +85,27 @@ def test_legacy_prefixed_model_becomes_a_one_entry_catalog(
     entry = chat.catalog[0]
     assert entry.binding == "openai/gpt-5.2"
     assert entry.label == "openai/gpt-5.2"
-    # The frozen I/O matrix requires derivable provider metadata even on the
-    # synthesized compatibility projection. Its synthesized marker, rather
-    # than a missing provider, exempts it from the new declared-provider rule.
+    # The synthesized compatibility projection retains derived metadata and
+    # is now held to the same declared-endpoint rule as an authored catalog.
     assert entry.provider == "openai"
     assert chat.default == "openai/gpt-5.2"
     assert chat.model == "openai/gpt-5.2"
 
 
-def test_legacy_model_naming_an_undeclared_provider_still_loads(
+def test_legacy_model_naming_an_undeclared_provider_is_refused_at_load(
     tmp_path: Path, no_env: Path
 ) -> None:
-    """Back-compat beats the new refusal for a role that authored no catalog.
-
-    A role bound to a tag whose prefix `providers:` never declared loads today
-    — `resolve_api_base` returns no `api_base` and LiteLLM uses its own default
-    — so this story may not start refusing it. The same rule is what keeps
-    `test_failfast.py`'s embedder gate reachable with `providers.ollama`
-    removed: a synthesized catalog asserts nothing about the provider map.
-    """
+    """A synthesized legacy entry must still resolve an explicit endpoint."""
     path = write_with_chat_role(tmp_path, {"model": "moonshot/kimi-k2"})
 
-    chat = load_config(path, no_env).settings.llm.roles.chat
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(path, no_env)
 
-    assert [entry.binding for entry in chat.catalog] == ["moonshot/kimi-k2"]
-    assert chat.catalog[0].provider == "moonshot"
-    assert chat.default == "moonshot/kimi-k2"
+    message = str(excinfo.value)
+    assert "moonshot/kimi-k2" in message
+    assert "provider prefix 'moonshot'" in message
+    assert "no endpoint" in message
+    assert "providers.moonshot.base_url" in message
 
 
 def test_authored_provider_cannot_override_runtime_routing(
@@ -307,10 +302,9 @@ def test_entry_naming_an_undeclared_provider_is_refused(
     assert "chat" in message
     assert "moonshot/kimi-k2" in message
     # Not just the substring inside the binding: the message must name the
-    # provider as a provider, and list what the file does declare.
-    assert "provider 'moonshot'" in message
-    for declared in committed_raw()["providers"]:
-        assert repr(declared) in message
+    # derived prefix and the exact endpoint declaration that would repair it.
+    assert "provider prefix 'moonshot'" in message
+    assert "providers.moonshot.base_url" in message
 
 
 def test_omitted_provider_is_derived_from_the_tag_prefix(
@@ -359,9 +353,8 @@ def test_derived_provider_is_checked_against_the_declared_set(
 
     message = str(excinfo.value)
     assert "moonshot/kimi-k2" in message
-    assert "provider 'moonshot'" in message
-    for declared in committed_raw()["providers"]:
-        assert repr(declared) in message
+    assert "provider prefix 'moonshot'" in message
+    assert "providers.moonshot.base_url" in message
 
 
 def test_authored_ambiguous_bare_entry_is_refused(

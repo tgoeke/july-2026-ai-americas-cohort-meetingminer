@@ -42,7 +42,6 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    PrivateAttr,
     StringConstraints,
     ValidationError,
     computed_field,
@@ -238,20 +237,13 @@ class CatalogEntry(_StrictModel):
     * ``provider`` is computed from ``binding`` by the same dependency-neutral
       rule the runtime adapter uses. It is output metadata, never accepted as
       authored input, so a picker cannot display a provider the call will not
-      use. A one-entry catalog synthesized for a role that declares nothing
-      but ``model`` is marked internally so the declared-provider rule does
-      not reject a legacy prefixed file — see
-      :meth:`LlmRoleBinding._catalog_from_model` for why that projection is
-      deliberately not held to the same rule.
+      use. A one-entry catalog synthesized for a legacy role is held to the
+      same endpoint rule as an authored catalog: every callable binding must
+      resolve through an explicit ``providers:`` entry.
     """
 
     binding: NonEmptyText
     label: NonEmptyText | None = None
-    # Internal provenance for the compatibility projection. A synthesized
-    # prefixed entry still carries its derivable provider, but is exempt from
-    # rules introduced after the source file was written.
-    _synthesized: bool = PrivateAttr(default=False)
-
     @model_validator(mode="after")
     def _binding_is_routable_and_labelled(self) -> "CatalogEntry":
         if provider_for_model(self.binding) is None:
@@ -321,28 +313,13 @@ class LlmRoleBinding(_StrictModel):
     def _catalog_from_model(cls, data: object) -> object:
         """Fill in what a pre-catalog file leaves unsaid.
 
-        This runs before field validation because it is the only place that can
-        see whether the *file* declared a catalog. After synthesis an authored
-        entry and a projected one are indistinguishable, and the two are
-        governed by different rules.
-
-        An **authored** entry is new syntax, so its provider is derived by the
-        shared runtime rule and checked against ``providers:``. Supplying a
-        separate ``provider`` key is forbidden by :class:`CatalogEntry`.
-
-        A **synthesized** entry carries its derived provider as catalog
-        metadata, but is marked internally and therefore skipped by that
-        declared-provider check. This preserves compatibility for a role that
-        declares only
-        ``model: ollama/qwen3:30b`` loads today whether or not ``providers:``
-        declares ``ollama`` — an unmatched prefix simply gets no configured
-        ``api_base``. The owner ruling intentionally narrows compatibility for
-        an ambiguous *bare* spelling: because no layer can identify its
-        provider, it now refuses at load rather than projecting misleading
-        metadata. ``config.yaml``'s own
-        embedder gate is the case that proves it: a config with
-        ``providers.ollama`` removed must still get *past* ``load_config`` to
-        reach the gate that names the missing endpoint.
+        Both authored and synthesized entries derive their provider from the
+        shared runtime rule and are later checked against ``providers:``.
+        Supplying a separate ``provider`` key remains forbidden by
+        :class:`CatalogEntry`. The 2026-08-30 owner ruling intentionally
+        narrows legacy compatibility: an old prefixed model with no declared
+        provider endpoint now fails at load rather than relying on an SDK
+        default endpoint that configuration cannot name.
         """
         if not isinstance(data, dict):
             return data
@@ -355,9 +332,7 @@ class LlmRoleBinding(_StrictModel):
         patched = dict(data)
         entries = patched.get("catalog")
         if entries is None:
-            entry = CatalogEntry(binding=tag, label=tag)
-            entry._synthesized = True
-            patched["catalog"] = [entry]
+            patched["catalog"] = [CatalogEntry(binding=tag, label=tag)]
         if patched.get("default") is None:
             patched["default"] = tag
         return patched
@@ -385,10 +360,7 @@ class LlmRoleBinding(_StrictModel):
                 f"default binding {default!r} is not one of this role's catalog"
                 f" bindings, which are {declared}"
             )
-        if (
-            not any(entry._synthesized for entry in self.catalog)
-            and self.model not in bindings
-        ):
+        if self.model not in bindings:
             declared = ", ".join(repr(binding) for binding in bindings)
             raise ValueError(
                 f"active model {self.model!r} is not one of this role's catalog"
@@ -972,7 +944,7 @@ class Settings(_StrictModel):
 
     @model_validator(mode="after")
     def _catalog_providers_are_declared(self) -> "Settings":
-        """Every authored catalog binding must name a provider ``providers:`` declares.
+        """Every catalog binding must name a provider ``providers:`` declares.
 
         The check sits here, and not on :class:`LlmRoleBinding`, because a role
         binding cannot see ``providers:`` — this is the class that holds both
@@ -981,17 +953,14 @@ class Settings(_StrictModel):
         construction below it is not wrapped, so a refusal raised there would
         escape as a raw pydantic error).
 
-        An entry marked synthesized is skipped: that is the compatibility
-        projection for a role that declares only ``model``, and this story may
-        not reject a file that loaded before catalogs existed. The entry still
-        carries a provider when its tag has a prefix, as the frozen I/O matrix
-        requires. Every entry the file actually authored is checked.
+        Synthesized legacy entries are checked too. An existing file that
+        relied on an SDK-default endpoint now fails closed, because B-38 can
+        name the endpoint actually called only when configuration declares it.
 
         Declared-ness is a fact about the file, never about reachability: no
         provider is probed at load, so an endpoint being down is not a load
         failure.
         """
-        declared = sorted(self.providers)
         roles = self.llm.roles
         for role in type(roles).model_fields:
             binding = getattr(roles, role)
@@ -1001,13 +970,13 @@ class Settings(_StrictModel):
             if not isinstance(binding, LlmRoleBinding):
                 continue
             for entry in binding.catalog:
-                if entry._synthesized or entry.provider in self.providers:
+                if entry.provider in self.providers:
                     continue
-                names = ", ".join(repr(name) for name in declared)
                 raise ValueError(
-                    f"llm.roles.{role} catalog entry {entry.binding!r} names"
-                    f" provider {entry.provider!r}, which `providers:` does not"
-                    f" declare: the declared providers are {names}"
+                    f"llm.roles.{role} catalog binding {entry.binding!r} has"
+                    f" provider prefix {entry.provider!r}, but `providers:`"
+                    " declares no endpoint for it; add"
+                    f" `providers.{entry.provider}.base_url` to config.yaml"
                 )
         return self
 

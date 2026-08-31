@@ -122,18 +122,11 @@ def config_with_no_embedder_provider(tmp_path: Path) -> Path:
     that gate runs first.
     """
     raw = yaml.safe_load((REPO_ROOT / "config.yaml").read_text(encoding="utf-8"))
-    raw["providers"].pop("ollama", None)
-    # Removing a provider that `llm.roles.*.catalog` still names is a config
-    # error in its own right (story 8.1), raised inside `load_config` — which
-    # would stop this fixture short of the gate it exists to reach, and name
-    # the catalog instead of the embedder. Drop the authored catalogs along
-    # with the provider: each role then falls back to the one-entry catalog
-    # synthesized from its own `model`. Its internal synthesized marker exempts
-    # it from the new catalog/provider cross-check, so it asserts nothing about
-    # the map this fixture just edited.
-    for role_block in raw["llm"]["roles"].values():
-        role_block.pop("catalog", None)
-        role_block.pop("default", None)
+    # Keep every LLM catalog valid and make only the embedder unroutable. A
+    # synthesized LLM catalog no longer bypasses provider endpoint validation,
+    # so removing Ollama would correctly stop at config load before this
+    # post-load embedder gate.
+    raw["embedder"]["model"] = "moonshot/embedding-model"
     path = tmp_path / "config.yaml"
     path.write_text(yaml.safe_dump(raw), encoding="utf-8")
     schema_dir = tmp_path / "docs"
@@ -212,7 +205,7 @@ def test_api_exits_1_when_no_provider_serves_the_configured_embedder(
     )
     assert proc.returncode == 1
     assert "fatal: api startup aborted" in proc.stderr
-    assert "no providers.ollama endpoint to serve it" in proc.stderr
+    assert "no providers.moonshot endpoint to serve it" in proc.stderr
     assert "Traceback" not in proc.stderr
 
 
