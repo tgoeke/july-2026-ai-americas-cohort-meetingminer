@@ -1,0 +1,248 @@
+---
+title: 'Story 6.4: Acquisition Launch Surface'
+type: 'feature'
+created: '2026-08-30'
+status: 'ready-for-dev'
+baseline_revision: 'ea0c113'
+review_loop_iteration: 0
+followup_review_recommended: false
+context:
+  - '{project-root}/_bmad-output/implementation-artifacts/build-prompt-story-6-4-2026-08-30.md'
+  - '{project-root}/_bmad-output/implementation-artifacts/wave-2026-08-30-rules.md'
+warnings: ['oversized']
+deferred: []
+---
+
+<intent-contract>
+
+## Intent
+
+**Problem:** Story 6.2's YouTube acquisition is a command a person types. The
+Add-meeting UI (6.5) cannot type it: it needs an HTTP surface that starts an
+acquisition, tells it apart from one already running, and reports progress and
+refusals as fields rather than as console prose. The api must not do the work —
+AD-11 keeps download, conversion and pipeline execution out of the request
+handler, and AD-14 keeps `POST /ingests` the only intake door.
+
+**Approach:** Three routes in one new auto-discovered router (story 2.8).
+`POST /acquisitions` classifies the URL offline, claims the source id under a
+file lock, writes a per-acquisition status file under `.logs/acquisitions/`,
+launches `python -m meetingminer.acquisitions --run` as a **detached** host
+process whose stdout is that acquisition's log, and answers 202. The detached
+runner — the same new module, invoked as a child — calls story 6.2's
+`acquire()` and `post_ingest()` unchanged and writes every transition back to
+the status file. `GET /acquisitions/{id}` reads that file, resolves the meeting
+id from Postgres by job id, and appends the log tail.
+`POST /acquisitions/probe` runs 6.2's URL, tool, availability, stream and
+duration checks and nothing else: no media bytes, no mint, no process, no
+status file.
+
+## Boundaries & Constraints
+
+**Always:**
+- The api process performs no media download, no conversion, no pipeline work,
+  and opens no second intake door. The runner reaches intake through
+  `mintdrop.post_ingest`, i.e. `POST /ingests`.
+- Refusal vocabulary is story 6.2a's `youtube.REFUSAL_RULES`, reached through
+  `youtube.refusal_rule()`. No second vocabulary is invented. Every rule in
+  that closed set has exactly one remediation and one HTTP status here, and a
+  test pins both tables to the set itself, so a rule added later fails loudly
+  rather than defaulting silently.
+- `failed` carries `refusal: {rule, detail, remediation}` as fields. The log
+  tail is diagnostic and is never the UI's source for why something failed.
+- `posted` carries `result: created | exists`, `jobId`, `meetingId` and
+  `source: {sourceId, tool, toolVersion}`. 6.2's `exists` short-circuit reaches
+  `posted`/`exists` with **no yt-dlp invocation at all**.
+- Every error body is RFC 9457 `application/problem+json` through
+  `api/problems.py`. Every path segment that becomes a filename is a `UUID`
+  typed path parameter, so no request can name a file.
+- `.logs/` is anchored on `config.config_path.parent`, never `__file__`
+  (story 1.10, finding 17).
+- Tests reach no network and start no real subprocess that does.
+
+**Block If:** the story cannot be built without editing `mintdrop.py`,
+`config.py`, `conftest.py`, `api/main.py` or anything under `web/`.
+
+**Never:** upload sessions (6.4a), the Add-meeting UI (6.5), playlists through
+the api, cancelling or deleting an acquisition, listing acquisitions, and any
+regeneration of `web/src/client/` (it needs a running api, which this run may
+not start — recorded below as a named gap for integration).
+
+## I/O & Edge-Case Matrix
+
+| Scenario | Input / State | Expected Output / Behavior | Error Handling |
+|---|---|---|---|
+| Launch | `POST /acquisitions {url}`, no live acquisition for the source id | 202 `{acquisitionId, sourceId, status:"queued"}`; status file written; detached child started with the log open | No error expected |
+| Second launch, same source | a `queued`/`running` record exists for that source id whose pid is alive | 409 `acquisition-in-progress` naming the live `acquisitionId` | Problem Details |
+| Second launch, finished source | the prior record is `posted`/`failed` | 202, a new acquisition id | No error expected |
+| Abandoned record | `queued`/`running` whose pid is dead or unset | not live: the new launch is accepted | No error expected |
+| Bad URL | `POST /acquisitions {url:"https://vimeo.com/1"}` | 400 problem with `rule:"not-a-video-url"` + `remediation`; **no** status file, **no** process | Problem Details |
+| Probe success | a probe-able video | 200 `{title, durationMs, captions:{kind,language}, sourceId}` | No error expected |
+| Probe, no English captions | `no-english` info | `captions: null` | No error expected |
+| Probe, blank title | info with no usable `title` | `title` falls back to the video id, as `acquire()` does | No error expected |
+| Probe refusal, source | over the duration cap | 422 problem, `rule:"duration-cap"`, remediation naming `acquisition.youtube.max_duration_minutes` | Problem Details |
+| Probe refusal, host | `yt-dlp` not on PATH | 503 problem, `rule:"tool-missing"` | Problem Details |
+| Probe side effects | any probe | no `.logs/acquisitions` entry, no mint, no download, no child process | Asserted by must-not-run stubs |
+| Status, unknown id | a well-formed UUID with no file | 404 problem | Problem Details |
+| Status, non-UUID id | `/acquisitions/..%2F..%2Fetc%2Fpasswd` | 422 from path validation; nothing read | Problem Details |
+| Status, posted/created | runner wrote `posted`, `result:"created"`, a job id whose meeting row exists | `meetingId` resolved from Postgres; `source` carried from provenance | No error expected |
+| Status, posted/exists | drop already minted | `result:"exists"`, existing `jobId`/`meetingId`; runner made no yt-dlp call | No error expected |
+| Status, failed | runner refused | `refusal:{rule,detail,remediation}` present and correct **with an empty or missing log file** | No error expected |
+| Intake failed | drop finalized, `POST /ingests` unreachable | `failed`, `rule:"unclassified"` (6.2a's classifier), intake-specific remediation naming the re-POST command | No error expected |
+| Log tail | a log longer than the cap | last lines only, bounded bytes | No error expected |
+
+</intent-contract>
+
+## Code Map
+
+- `server/meetingminer/api/acquisitions.py` — **new**, all three routes.
+  `router = APIRouter()`, no `ROUTER_ORDER` (default 100 sorts it first among
+  the default-order modules, right after `media`). `/acquisitions/probe` is
+  declared **before** `/acquisitions/{acquisition_id}` inside the router —
+  `registry.py`'s documented rule for a literal path under a parameterized
+  sibling. Reaches config through `request.app.state.config` and the pool
+  through `request.app.state.pool` (never by importing `api.main` — circular).
+- `server/meetingminer/acquisitions.py` — **new**. Status-file schema and
+  atomic writes, the source-id claim lock, `launch()` (detached `Popen`), the
+  child runner `main()`, `REMEDIATIONS`, `PROBLEM_STATUS`, `log_tail()`.
+  Deliberately imports no `api.*` module: the child runs without FastAPI.
+- `server/meetingminer/youtube.py` — one addition: `ProbeReport` +
+  `probe_only()`, composed from the existing `video_id_from_url` `:211`,
+  `ensure_tools` `:310`, `watch_url` `:202`, `probe` `:403`, `validate_info`
+  `:509`, `select_captions` `:562`, `_duration_seconds` `:436`. No existing
+  function is changed or forked.
+- `server/meetingminer/api/problems.py` — read-only. `Problem` `:52`,
+  `ProblemDetails` `:32`, `problem_response` `:74`. Extensions may not
+  overwrite the four RFC members, so `rule`/`remediation` ride as extensions.
+- `server/meetingminer/mintdrop.py` — read-only. `MintResult` `:552`,
+  `post_ingest` `:958`, `resolve_api_url` `:892`, `ingest_command`,
+  `_load_cli_config` `:388`, `resolve_drops_root` `:401`, `MintError`,
+  `IntakeError`.
+- `server/meetingminer/api/ingests.py` — read-only pattern source:
+  `drops_root(request)` `:275` (config via app state, `ConfigError` → 500) and
+  the `responses={...}` block on `create_ingest` `:837`.
+- `server/meetingminer/api/jobs.py` — read-only; `ROUTER_ORDER = 20` and the
+  camelCase `ConfigDict(alias_generator=to_camel)` house style.
+- `server/meetingminer/migrations/0002_meetings_media_frames.sql:26` —
+  `meeting.job_id` is `NOT NULL UNIQUE`, so `SELECT id FROM meeting WHERE
+  job_id = %s` is the meeting-id resolution.
+- `server/tests/test_api_registry.py:28` — `BASELINE_ROUTER_ORDER` is an
+  exact-equality pin; **any** new router module must add its entry. One line
+  plus its rationale comment, after `"media"`. Named in the Change Log below.
+- `server/tests/test_youtube.py:113` `write_existing_youtube_drop` — the shape
+  of a valid existing YouTube drop; copied (not imported) into the new test
+  module so the story owns its fixtures.
+- `server/tests/test_youtube_playlist.py:305` — pins every `rule=` literal as a
+  **subset** of `REFUSAL_RULES`, so that file needs no edit.
+- `server/tests/fixtures/youtube/*.info.json` — read-only probe fixtures
+  (`full`, `no-english`, `audio-only`, `upload-date-only`).
+
+## Tasks & Acceptance
+
+**Execution:**
+- `server/meetingminer/youtube.py` -- add `ProbeReport` and `probe_only(url, *,
+  max_duration_minutes)` composed from the existing checks -- the probe route
+  must reuse 6.2's refusal matrix, not fork it.
+- `server/meetingminer/acquisitions.py` -- new: status record + atomic write,
+  flock-guarded source-id claim with dead-pid reaping, `launch()` with
+  `start_new_session=True`/`stdin=DEVNULL`/stdout→log, the child runner, the
+  `REMEDIATIONS` and `PROBLEM_STATUS` tables keyed on `REFUSAL_RULES`, and
+  `log_tail()` -- one module owns the detached process and its state so the
+  api owns neither.
+- `server/meetingminer/api/acquisitions.py` -- new: the three routes, probe
+  declared first -- the whole HTTP surface, registered by discovery alone.
+- `server/tests/test_api_acquisitions.py` -- new: every row of the I/O matrix
+  plus the table-completeness and no-in-process-work assertions.
+- `server/tests/test_api_registry.py` -- add `"acquisitions"` to
+  `BASELINE_ROUTER_ORDER` with its rationale comment -- an exact-equality pin
+  that any new router must update; footprint extension recorded below.
+
+**Acceptance Criteria:**
+- Given a valid YouTube URL and no live acquisition for its source id, when
+  `POST /acquisitions` is called, then it answers 202 with an acquisition id,
+  writes the status file, and starts a detached child — and the request handler
+  itself invokes neither `yt-dlp` nor `mint()`.
+- Given a live acquisition for a source id, when a second `POST /acquisitions`
+  names the same source id, then it is refused 409 naming the live acquisition,
+  while a different source id is accepted.
+- Given `POST /acquisitions/probe`, when it succeeds, then the body is exactly
+  `{title, durationMs, captions, sourceId}` and no drop, process, status file
+  or media byte was produced; when it refuses, then the body is problem+json
+  carrying `rule`, `detail` and `remediation` from the 6.2a vocabulary.
+- Given an acquisition whose drop already existed, when status is polled, then
+  it reports `posted` with `result: "exists"` and the existing ids, and the
+  runner made no yt-dlp call.
+- Given an acquisition that failed, when status is polled, then
+  `refusal.rule`, `refusal.detail` and `refusal.remediation` are all present
+  and correct **without reading the log tail** — proved with the log file empty.
+- Given the new router file and no edit to `api/main.py`, when the app starts,
+  then `/acquisitions/probe` dispatches to the probe route rather than being
+  swallowed by `/acquisitions/{acquisition_id}`.
+
+## Spec Change Log
+
+- **2026-08-30, planning.** Footprint extension, declared not widened:
+  `server/tests/test_api_registry.py` `BASELINE_ROUTER_ORDER` is an
+  exact-equality assertion over every discovered router module, so adding
+  `api/acquisitions.py` fails that test until the list names it. One entry plus
+  a rationale comment is added, matching the per-story convention the file's
+  own comments already establish (stories 4.2, 7.2, ui-1, 2.5). No other line
+  of that file is touched.
+- **2026-08-30, planning.** Named gap, not built: the last acceptance clause of
+  the epic says `make client` regeneration happens in this story. `web/` is
+  outside the footprint and `make client` needs a running api, which this wave
+  forbids starting. `check-client` only asserts the three generated files
+  exist, so the gate stays green; the regeneration is left for integration and
+  named in the reviewer prompt.
+- **2026-08-30, planning.** Reused as-is: `youtube.PROBE_TIMEOUT_SECONDS` is
+  300s, so a pathological probe can hold an HTTP request that long. Shortening
+  it means a new tunable in `config.yaml`, which is outside the footprint
+  ("`config.py` beyond what 6.2 already added" is not ours). Filed as deferred.
+
+## Review Triage Log
+
+## Design Notes
+
+**Why a second module rather than routes alone.** The child process must run
+without FastAPI: it is `python -m meetingminer.acquisitions --run ...`, started
+detached so it outlives an api restart. Putting the status schema and the
+launcher in `meetingminer/acquisitions.py` keeps `api/acquisitions.py` a pure
+HTTP surface and makes the runner testable by calling a function.
+
+**The status file is the contract, in one direction.** The child writes it
+atomically (temp file in the same directory, then `os.replace`); the api only
+reads it. `meetingId` is deliberately **not** in the file: the worker creates
+the meeting row after intake, so the api resolves it per read from
+`meeting.job_id` and a later poll shows it appear. That is what "resolved
+around `POST /ingests`" means here.
+
+**Liveness, not a registry.** "A second running acquisition for the same source
+id" is answered by scanning the status directory under one `fcntl.flock`, held
+across the scan, the write and the `Popen`, so the pid is always recorded before
+the lock is released. A `queued`/`running` record whose pid is dead — or unset,
+which can only mean the api died mid-claim — is not live. Pid reuse could in
+principle keep a stale record live; the cost is one spurious 409 that a rerun
+clears, which is preferable to a launch that races a live download.
+
+**Three status buckets for a refusal, from one vocabulary.** `not-a-video-url`
+is 400 (the client sent the wrong thing); the host-side rules
+(`tool-missing`, `tool-unrunnable`, `tool-timeout`, `version-failed`,
+`version-empty`, `config`) are 503 (this server cannot answer, the URL may be
+fine); everything else is 422. The mapping is one dict keyed by rule and a test
+asserts its keys are exactly `REFUSAL_RULES`.
+
+## Verification
+
+**Commands:**
+- `uv run --project server pytest server/tests/test_api_acquisitions.py -q` --
+  expected: all pass.
+- `uv run --project server pytest server/tests/test_api_registry.py server/tests/test_youtube.py server/tests/test_youtube_playlist.py -q`
+  -- expected: all pass, no regression from the router entry or `probe_only`.
+- `make test-fast` -- expected: lint, typecheck and the fast set green.
+- `make test` -- expected: green once before `review`.
+- `python3 _bmad/scripts/branch_conflicts.py --against story/6-4` -- expected:
+  `clean` against `main` and every other `story/*`.
+
+**Manual checks (if no CLI):**
+- Each new test observed failing against unfixed code before it is claimed as
+  coverage.
