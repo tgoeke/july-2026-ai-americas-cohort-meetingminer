@@ -21,6 +21,8 @@ describe('classifyYoutubeUrl', () => {
       `https://www.youtube.com/watch?v=${VIDEO}&t=42s&si=abc`,
       // A `list=` alongside a `v=` is still one video (youtube.py:220-222).
       `https://www.youtube.com/watch?v=${VIDEO}&list=PL9abcdef`,
+      // Python's `parse_qs` drops blank values, so this still has one candidate.
+      `https://www.youtube.com/watch?v=${VIDEO}&v=`,
       `https://youtu.be/${VIDEO}`,
       `https://youtu.be/${VIDEO}?si=abc`,
       `https://www.youtube.com/shorts/${VIDEO}`,

@@ -78,7 +78,9 @@ export function classifyYoutubeUrl(raw: string): YoutubeUrlShape {
       // Exactly one `v=`, as the server requires: two is ambiguous, and
       // guessing which video was meant is the kind of invention this screen
       // does not do.
-      const values = parsed.searchParams.getAll('v')
+      // Python's `parse_qs` drops blank values by default. Do the same before
+      // enforcing the server's exactly-one-candidate rule.
+      const values = parsed.searchParams.getAll('v').filter((value) => value.length > 0)
       if (values.length === 1) candidate = values[0]
     } else if (segments.length === 2 && segments[0] === 'shorts') {
       candidate = segments[1]
