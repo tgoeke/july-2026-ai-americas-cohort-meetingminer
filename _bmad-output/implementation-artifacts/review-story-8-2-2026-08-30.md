@@ -85,3 +85,11 @@ Adversarial review of Story 8.2 implementation and its stated footprint against 
 - **Finding** — the frozen I/O matrix requires each settings role to expose `fileBinding`, but `RoleSelectionView` defines `file_model`, serialized as `fileModel`. The eval adapter and generated client have adopted the same non-contract name, so the implementation is internally consistent but externally inconsistent with the preservation-locked wire.
 - **Evidence** — `_bmad-output/implementation-artifacts/spec-8-2-persisted-selection.md:119` names `fileBinding`. `app.openapi()` and `web/src/client/types.gen.ts` expose `fileModel`; `evals/harness/run.py:280` reads `row.get("fileModel")`; the API and eval tests assert that spelling rather than the frozen one.
 - **Suggested direction** — rename the response field to `fileBinding`, update the eval snapshot adapter and fixtures to consume it, add a negative/positive wire assertion, and regenerate the client.
+
+### Finding 10 — the new problem extensions leak snake_case onto a camelCase API
+
+- **Location** — `server/meetingminer/api/chat.py:1082`
+- **Severity** — medium
+- **Finding** — `binding-failed` passes `config_path` and `upstream_status` into `Problem`. Problem extensions are copied verbatim; unlike Pydantic response models, no alias generator converts them. The runtime body therefore exposes snake_case keys, contradicting the API's established camelCase extension convention and the story's Design Note promising `configPath`.
+- **Evidence** — `api/problems.py:83-90` updates the JSON body directly from `extensions`. The new chat branch supplies snake_case names. Existing problem code explicitly documents camelCase extensions, while `test_a_binding_the_provider_does_not_serve_surfaces_as_binding_failed` asserts provider/binding/role and status text but never inspects either extension key.
+- **Suggested direction** — emit `configPath` and `upstreamStatus` explicitly, assert the camelCase keys and absence of their snake_case variants on the real response, and keep the upstream status in `detail` as the frozen matrix requires.
