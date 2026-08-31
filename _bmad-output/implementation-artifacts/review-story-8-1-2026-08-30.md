@@ -86,6 +86,14 @@ Adversarial review of Story 8.1 on `story/8-1-review`, including the eight chang
 - **Evidence:** `LiteLlmCompleter.complete` maps connection, timeout, service, rate-limit, authentication, and permission errors to `LlmUnavailableError` with `model` and `api_base`. Every other SDK exception, including LiteLLM's installed `NotFoundError`/`BadRequestError` missing-model shapes, becomes `LlmError("model ... failed")` without `api_base`. `FallbackLlm.complete` catches the base `LlmError` and engages its configured fallback; the existing test `test_a_plain_llm_error_from_the_primary_also_engages_the_fallback` pins that broad behavior. This confirms the owner-provided operating risk.
 - **Suggested direction:** This changes call-time adapter and fallback semantics, while Story 8.1's frozen boundary says it changes no call path and names `litellm.py` read-only. File B-38 with the exact required failure template `provider {provider!r} at {api_base!r} does not serve model {model!r}`; map model-not-found to its own configuration-shaped port error; exclude that error from fallback; and retain `LlmUnavailableError` fallback for genuine outages.
 
+### Finding 10 — Legacy synthesis normalizes the catalog but not the active model (patch)
+
+- **Location:** `server/meetingminer/config.py:327-350`; `server/meetingminer/domain/model_providers.py:17-27`
+- **Severity:** High
+- **Finding:** For a legacy role with outer whitespace around `model`, catalog synthesis strips the spelling before deriving provider metadata, but `LlmRoleBinding.model` retains the original string that runtime routing consumes. The catalog/status identity can therefore disagree with the actual call despite using the same resolver function.
+- **Evidence:** `_catalog_from_model` computes `tag = model.strip()` and builds `CatalogEntry(binding=tag)`, while the validated `model: str` field remains unchanged. With `model: " gpt-4o "`, the catalog reports binding `gpt-4o` and provider `openai`; `resolve_api_base(chat.model, providers)` receives the spaced value and returns `None`.
+- **Suggested direction:** Normalize the active `model` through the existing `NonEmptyText` type so catalog and runtime receive the identical spelling. Pin a legacy spaced-bare regression that checks the stored model, computed provider, and runtime endpoint together.
+
 ## Review-layer and triage summary
 
 All four configured layers ran locally and sequentially: Blind Hunter, Edge
