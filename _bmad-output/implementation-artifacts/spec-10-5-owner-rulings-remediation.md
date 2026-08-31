@@ -2,7 +2,7 @@
 title: 'Story 10.5 owner-rulings remediation'
 type: 'bugfix'
 created: '2026-08-31'
-status: 'in-review'
+status: 'done'
 review_loop_iteration: 0
 baseline_commit: '71f27f8533d784a29faa2213fd9e4d05b721523f'
 context:
@@ -84,3 +84,47 @@ The `/threads` seam reads `{threads: [{threadId,name,mentionCount,meetingCount,f
 
 **Manual checks (if no CLI):**
 - Inspect `/` at 1280×800: chrome is 56px, Moments begins at the fold, both overlays remain usable, and focus order follows the spine.
+
+## Suggested Review Order
+
+**Chrome composition and global interaction**
+
+- Start with the sticky-shell composition, overlay lifecycle, and global bindings.
+  [`App.tsx:133`](../../web/src/App.tsx#L133)
+
+- Search keeps its full result states inside a bounded chrome overlay.
+  [`CorpusSearch.tsx:195`](../../web/src/features/search/CorpusSearch.tsx#L195)
+
+- Ask retains validation, answers, citations, and compact model selection.
+  [`ChatPanel.tsx:181`](../../web/src/features/chat/ChatPanel.tsx#L181)
+
+- Storage failures degrade to a synchronized in-memory shortcut preference.
+  [`singleKeyShortcuts.ts:1`](../../web/src/features/settings/singleKeyShortcuts.ts#L1)
+
+**Feed counts, filters, and card order**
+
+- The feed reader enforces paging and filtered-versus-unfiltered count invariants.
+  [`feed.ts:283`](../../web/src/features/moments/feed.ts#L283)
+
+- Feed state combines counted headers with one independently loaded thread catalog.
+  [`MomentsFeed.tsx:179`](../../web/src/features/moments/MomentsFeed.tsx#L179)
+
+- The thread reader strictly validates IDs, counts, timestamps, and ordering.
+  [`threads.ts:49`](../../web/src/features/moments/threads.ts#L49)
+
+- Card DOM order follows the interaction spine over the frozen visual description.
+  [`MomentCard.tsx:208`](../../web/src/features/moments/MomentCard.tsx#L208)
+
+**Integration contract and regression evidence**
+
+- The report states exact Story 10.4 and 10.3 server integration obligations.
+  [`review-story-10-5-2026-08-31.md:1`](review-story-10-5-2026-08-31.md#L1)
+
+- Envelope tests pin one-response totals and response-page ownership.
+  [`feedUnfilteredTotal.ruling.test.ts:13`](../../web/src/features/moments/feedUnfilteredTotal.ruling.test.ts#L13)
+
+- Chrome tests pin expansion, Escape, route closure, density, and overlay depth.
+  [`chromeSearchAsk.ruling.test.tsx:41`](../../web/src/chromeSearchAsk.ruling.test.tsx#L41)
+
+- Shortcut tests cover disabled, modified, repeated, and interrupted key paths.
+  [`globalShortcuts.ruling.test.tsx:51`](../../web/src/globalShortcuts.ruling.test.tsx#L51)
