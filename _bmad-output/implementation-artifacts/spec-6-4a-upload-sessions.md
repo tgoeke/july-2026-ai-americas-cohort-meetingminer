@@ -3,6 +3,7 @@ title: 'Story 6.4a: Upload Sessions'
 type: 'feature'
 created: '2026-08-31'
 baseline_revision: '2d68dcc6dba31007c7d6fd84f0884edbc79508d5'
+baseline_commit: 'd25c91fccc894a9a4725cba037310e631d814755'
 status: 'in-progress'
 review_loop_iteration: 1
 followup_review_recommended: false
