@@ -182,6 +182,22 @@ def test_known_bare_legacy_model_synthesizes_the_runtime_provider(
     assert chat.default == model
 
 
+def test_legacy_model_normalization_is_shared_by_catalog_and_runtime(
+    tmp_path: Path, no_env: Path
+) -> None:
+    path = write_with_chat_role(tmp_path, {"model": "  gpt-4o  "})
+
+    settings = load_config(path, no_env).settings
+    chat = settings.llm.roles.chat
+
+    assert chat.model == "gpt-4o"
+    assert chat.catalog[0].binding == chat.model
+    assert chat.catalog[0].provider == "openai"
+    assert resolve_api_base(chat.model, settings.providers) == settings.providers[
+        "openai"
+    ].base_url
+
+
 def test_authored_catalog_keeps_file_order_and_its_own_default(
     tmp_path: Path, no_env: Path
 ) -> None:

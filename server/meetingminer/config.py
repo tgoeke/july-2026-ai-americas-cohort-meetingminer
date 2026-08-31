@@ -292,7 +292,7 @@ class LlmRoleBinding(_StrictModel):
       success.
     """
 
-    model: str
+    model: NonEmptyText
     fallback: str | None = None
     base_url: str | None = None
     fallback_base_url: str | None = None
