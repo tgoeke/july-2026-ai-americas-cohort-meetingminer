@@ -1610,6 +1610,10 @@ So that a bad key or a wrong selection is visible before I ask anything. (FR39)
 **When** a provider's key is missing or invalid, or a role's selection resolves to a failing binding,
 **Then** the surface names the provider or role and the remediation, and no fragment of any key serializes.
 
+**Given** AD-10 as amended 2026-08-31 — the model *catalog* is a snapshot each process takes at startup, while a *selection* is a per-request `app_setting` read,
+**When** this surface reports a provider's health or a role's binding,
+**Then** it says **whose view it is**. A binding indicator describes the process that answered the request, never "the system": the api and the worker hold independent snapshots, so a role can read as locally served here while the worker is genuinely calling a paid provider on a different snapshot. This is not hypothetical — it happened on 2026-08-31, when a config edit was followed by a worker restart and no api restart, and `GET /status` advertised free local extraction while OpenAI was being billed. Reporting a state the system is not in is an AD-18 violation, so the surface must attribute its reading rather than leave it ambiguous, and the wording must not imply that a single answer covers both processes.
+
 ### Story 8.3: Model Picker UI
 
 As a user,
