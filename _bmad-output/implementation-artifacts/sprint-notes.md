@@ -4021,3 +4021,42 @@ running api and `web/`, both outside this footprint. `make check-client` only
 asserts the three generated files exist, not that they are current, so the
 gate stays green either way. Story 10.6 builds against fixtures by its own
 prompt, so nothing is blocked today.
+
+## Story 10.3 landed — 2026-08-31
+
+Landed from `story/10-3-review` after the owner ruled its open F2. Review
+verdict: **pass after remediation**, with F3 accepted as non-blocking backlog.
+
+**The F2 ruling and what it changed.** The frozen contract required three things
+that cannot all hold: coarse levels aggregating over `topic_mention.anchor_ms`,
+a fine row's `occurredAt` deriving from `moment.start_ms`, and counts agreeing
+across levels. A moment starting at 59s with a mention anchor at 61s made a
+`[60s,62s]` window report `momentCount: 1` and return no moments. Ruled: **the
+mention anchor owns window membership at every level.** One predicate now selects
+rows and envelope totals alike, so a count and the rows it describes cannot
+disagree. A fine row's `occurredAt` still derives from the moment start and
+**may therefore fall outside the requested window** — it describes the returned
+evidence rather than selecting it, and that permission is pinned in the OpenAPI
+description rather than left implied, because story 10.6 renders those rows.
+
+**F3 (colour-ordinal reuse after an explicit insert) stands as filed backlog** by
+owner ruling: nothing deletes threads, the derivation allocates through the
+sequence, and the consequence is a repeated colour rather than a wrong answer.
+
+**Operations run.** `make migrate` applied `0017_thread_color_ordinal.sql` — its
+volatile default rewrote the table so each of the 286 pre-existing threads took
+its own ordinal rather than sharing a backfilled constant; verified 286 threads,
+286 distinct ordinals. Safe mid-ingest because the running worker never writes
+`thread`; derivation is the separate `make threads` command. The api was then
+restarted onto merged main and `make client` regenerated (546 new lines of
+types for the four tiers).
+
+**A second web flake exists, unidentified.** One `make web-test` run failed
+after the client regeneration and three consecutive re-runs passed 441/441; the
+failing test name was not captured. This is *not* the `SpeakerNaming` race fixed
+at `826c3f4` — that one is fixed and held over six runs. The machine was running
+three review lanes and the corpus ingest at the time. Worth catching the name
+next time it appears rather than assuming it is the same one.
+
+**10.6 is the consumer and is still in review.** Its parser must match the landed
+shape, including that `occurredAt` may precede the window.
