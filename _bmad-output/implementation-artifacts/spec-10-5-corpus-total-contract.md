@@ -2,7 +2,7 @@
 title: 'Story 10.5 landed feed and thread contracts'
 type: 'bugfix'
 created: '2026-08-31'
-status: 'ready-for-dev'
+status: 'in-progress'
 review_loop_iteration: 0
 baseline_commit: '43c40c881327773a212a84dc37433d91e0e57272'
 context:
