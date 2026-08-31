@@ -3,6 +3,7 @@ title: 'Story 10.6: Threads Zoomable Timeline'
 type: 'feature'
 created: '2026-08-31'
 baseline_revision: '3211a7f96b86d7df496cefa451b2cbd431e6d8b4'
+baseline_commit: '1e3728ac3a307ac8bff92027c75631ade10ebd4f'
 status: 'in-progress'
 review_loop_iteration: 1
 followup_review_recommended: true
@@ -16,6 +17,7 @@ warnings: []
 deferred:
   - 'B-44 — the bands tier issues one request per thread; a corpus-wide bands level is an api change'
   - 'B-45 — timeline pins (`p`, up to three, in the URL)'
+  - 'B-51 — add a standing browser-layout harness for CSS geometry that jsdom cannot execute'
 ---
 
 <intent-contract>
@@ -85,6 +87,8 @@ scale so equal ratios take equal time.
 | Scenario | Input / State | Expected Output / Behavior | Error Handling |
 |---|---|---|---|
 | Opens | `GET /threads` lands | Bands tier fitted to the corpus span; every thread a band; list sorted by activity | — |
+| Anchored thread link | `/threads/:threadId?at=<RFC3339>` | selected thread opens at meetings tier with the served instant centred in the view | malformed `at` is refused by name, never treated as a bare link |
+| Bare thread link | `/threads/:threadId` | bands tier fitted to that thread's `firstMentionAt`–`lastMentionAt` span | no latest/fixed window is fabricated |
 | Cold load | list landed, bands not | Axis drawn, `Loading bands…` in the canvas area | — |
 | Empty bucket | `mentionCount: 0` | Band drawn at 0.08 alpha; not a gridcell, no label | — |
 | Drill a bucket | click or `Enter` | Enters that bucket's thread and fits its span → meetings tier | — |
@@ -105,6 +109,40 @@ scale so equal ratios take equal time.
 | Reduced motion | `prefers-reduced-motion` | Drawn view applied synchronously; tier swap and progress line do not animate | — |
 
 </intent-contract>
+
+## Tasks & Acceptance
+
+- [ ] **F18 — optional deep-link anchor.** Add one URL decision in
+  `web/src/features/threads/` that emits `/threads/:threadId?at=<RFC3339>` when
+  a moment timestamp is supplied and a bare path otherwise. Consume `at` in
+  `Threads.tsx`: a valid anchor centres a meetings-tier view at that instant;
+  a bare link fits the selected thread's complete first/last mention span at
+  the bands floor. Route changes without remounting reapply the corresponding
+  default. Pin both paths red-first in a new review test file. Story 10.5's
+  moment-card producer is not on `origin/main`; expose the URL decision for its
+  integration rather than importing or recreating that unlanded story here.
+- [ ] **Story 10.3 F2 compatibility.** Extend the live-shape contract test with
+  a moments response whose envelope window excludes the row's `occurredAt`.
+  It must parse and draw because mention-anchor membership selected the row and
+  `occurredAt` describes evidence/seek position. Remove any bounded-window
+  assertion found; do not clamp or discard the row.
+- [x] **F17 — accept the one-off browser measurement and file the harness.**
+  Keep the Chrome 151 probe result as the present evidence, explicitly state
+  that jsdom cannot execute the CSS layout, and file B-51. Do not build browser
+  tooling in Story 10.6.
+
+Acceptance:
+
+- Given a calling moment timestamp, when its thread URL is constructed and
+  opened, then the timestamp is preserved as `at`, the selected thread is
+  requested at `level=meetings`, and the anchor remains centred.
+- Given a bare thread deep link, when the thread list lands, then the view is
+  bands-tier and its fitted span is exactly that thread's served first/last
+  mention extent; it does not use corpus span, latest mention, or a fixed
+  duration.
+- Given Story 10.3 returns a moment whose mention anchor was in the requested
+  window but whose evidence `occurredAt` is outside it, when the client parses
+  the response, then the row is accepted unchanged.
 
 ## Code Map
 
@@ -166,6 +204,15 @@ All paths under `web/src/features/threads/`, all new.
   (6), `Threads.test.tsx` (20) — 61 in all.
 
 ## Change Log
+
+- **Owner rulings, review loop 2.** F18 is specified: optional RFC 3339 `at`
+  links centre the calling instant at meetings detail, while a bare deep link
+  fits the thread's own complete span at bands detail. F17 is accepted on the
+  builder's one-off Chrome 151 probe and the absence of executable layout in
+  jsdom; the missing standing browser harness is filed as B-51 rather than
+  built inside this footprint. Story 10.3 review F2 is adopted: mention anchors
+  select window membership, so fine-row `occurredAt` may lie outside the
+  requested window and must remain unchanged.
 
 - **Review remediation (`story/10-6-review`).** The adversarial review recorded
   18 findings before remediation, then fixed all 16 patchable findings

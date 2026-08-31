@@ -789,3 +789,22 @@ thread ids and sorts it, so pin membership is part of request identity the
 moment more than one id is passed (`timeline.ts` · `cacheKey`, tested). What is
 missing is the `p` handler, the URL parameter, and drawing more than one
 full-height band at the meetings and moments tiers.
+
+---
+
+### B-51 · Give browser-only layout contracts a standing test harness — M
+
+Story 10.6's central geometry is native CSS: `.mm-at` and `.mm-span` position
+items with `calc((t - from) / scale)`. jsdom does not perform layout, so the
+Vitest suite can prove the pure mapping and the custom-property writes but
+cannot execute the CSS result. The builder measured the exact production rules
+once in Chrome 151 with a throwaway probe and found/fixed real drift, but that
+measurement is not repeatable from the repository and the review lane could
+not rerun it when Chrome connectivity was unavailable.
+
+Choose and wire one real-browser test harness for repository UI contracts, then
+check the timeline's instant and span geometry across an ordinary view, a
+negative offset, a fractional scale, and an epoch re-anchor. The test must run
+the checked-in CSS in a browser rather than comparing `xOf` with itself. This is
+tooling work outside Story 10.6's frozen feature footprint; until it lands, the
+recorded Chrome 151 probe is the explicit one-off evidence, not a standing gate.
