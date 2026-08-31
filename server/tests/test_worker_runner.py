@@ -20,7 +20,7 @@ from PIL import Image
 from psycopg_pool import ConnectionPool
 
 from meetingminer.adapters.ocr import OcrError
-from meetingminer import mintdrop
+from meetingminer import logs, mintdrop, projections
 from meetingminer.config import AppConfig
 from meetingminer.domain.jobs import EVIDENCE_STAGES, STAGE_NAMES, VIDEO_ONLY_STAGES
 from meetingminer.pipeline import frameimage, media, runner
@@ -222,6 +222,106 @@ NO_REGION_CUE = {"change_threshold": 1000.0, "settled_change_threshold": 1000.0}
 
 
 # --- empty queue -----------------------------------------------------------
+
+
+def test_worker_tests_stub_the_document_projection_trigger_by_default(
+    app_config: AppConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A store-free worker test cannot silently write the documents index."""
+    calls: list[UUID] = []
+
+    def observe(
+        _conn: object,
+        _config: AppConfig,
+        meeting_id: UUID,
+        **_kwargs: object,
+    ) -> int:
+        calls.append(meeting_id)
+        return 0
+
+    monkeypatch.setattr(projections, "project_extraction_documents", observe)
+    meeting_id = UUID("018f3f2a-0000-7000-8000-0000000000d4")
+    runner._maybe_project_documents(
+        object(),
+        app_config,
+        meeting_id,
+        {"extract": "done"},
+        logs.bind(stage="extract"),
+        set(),
+    )
+
+    assert calls == []
+
+
+def test_document_projection_fires_once_on_normal_and_resumed_passes(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Path,
+    make_drop: DropFactory,
+    document_projection_trigger: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Both runner call sites fire, but never more than once in one pass."""
+    calls: list[UUID] = []
+
+    def observe(
+        _conn: object,
+        _config: AppConfig,
+        meeting_id: UUID,
+        **_kwargs: object,
+    ) -> int:
+        calls.append(meeting_id)
+        return 1
+
+    monkeypatch.setattr(projections, "project_extraction_documents", observe)
+    drop = make_drop(
+        metadata=valid_metadata("source-document-trigger"),
+        files=("transcript.txt",),
+    )
+    job_id = enqueue(pool, drop, "source-document-trigger")
+
+    assert runner.run_once(pool, app_config, content_root) is True
+    [meeting] = meetings(pool, job_id)
+    assert calls == [meeting["id"]]
+
+    # A reclaim enters only the `stage.resumed` side of the runner loop. The
+    # per-pass attempted set still permits exactly one retry in that new pass.
+    set_job_status(pool, job_id, "running")
+    with pool.connection() as conn:
+        assert runner.requeue_orphaned_jobs(conn) == [job_id]
+    assert runner.run_once(pool, app_config, content_root) is True
+    assert calls == [meeting["id"], meeting["id"]]
+
+
+def test_document_projection_failure_does_not_fail_the_job(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    content_root: Path,
+    make_drop: DropFactory,
+    document_projection_trigger: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A durable extraction remains a successful ingest during store outage."""
+    calls = 0
+
+    def unavailable(*_args: object, **_kwargs: object) -> int:
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("documents index unavailable")
+
+    monkeypatch.setattr(projections, "project_extraction_documents", unavailable)
+    drop = make_drop(
+        metadata=valid_metadata("source-document-trigger-failure"),
+        files=("transcript.txt",),
+    )
+    job_id = enqueue(pool, drop, "source-document-trigger-failure")
+
+    assert runner.run_once(pool, app_config, content_root) is True
+    assert calls == 1
+    assert job_row(pool, job_id) == ("done", None)
+    assert "projection.documents_failed" in capsys.readouterr().err
 
 
 def test_empty_queue_claims_nothing(
