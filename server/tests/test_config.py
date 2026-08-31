@@ -119,6 +119,11 @@ stores:
 acquisition:
   youtube:
     max_duration_minutes: 37
+  upload:
+    max_recording_bytes: 1048576
+    max_transcript_bytes: 65536
+    max_duration_minutes: 42
+    session_ttl_minutes: 90
 threads:
   link_rule: normalized-name-or-embedding-similarity
   embedding_similarity_threshold: 0.82
