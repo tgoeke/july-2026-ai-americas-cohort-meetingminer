@@ -756,19 +756,18 @@ def project_extraction_documents(
             meeting_title=title,
             source_id=source_id,
         )
-        # `ensure=False`: no vector is written here, so the width check that
-        # exists to force a rebuild after an embedder swap must not be able to
-        # withhold the documents. The documents index declares no embedder, so
-        # there is nothing for that check to be about.
-        with _open_stores(
-            config, dimension=config.settings.embedder.dimension, ensure=False
-        ) as stores:
-            ensure_document_search_schema(stores.client, config)
-            # Unconditional, including when `records` is empty: a rerun that
-            # produced fewer documents than the last one must not leave the
-            # extra ones standing.
-            search.delete_meeting_documents(stores.client, meeting_id)
-            written = search.project_documents(stores.client, records)
+        # This settle point owns only the keyword documents index. Opening the
+        # graph here would let an unrelated Neo4j outage withhold a healthy
+        # Meilisearch write, contrary to the reason this independent trigger
+        # exists. There is no vector-width preflight either: the index declares
+        # no embedder, so that check has nothing to protect.
+        client = meili_client(config)
+        ensure_document_search_schema(client, config)
+        # Unconditional, including when `records` is empty: a rerun that
+        # produced fewer documents than the last one must not leave the extra
+        # ones standing.
+        search.delete_meeting_documents(client, meeting_id)
+        written = search.project_documents(client, records)
     unretained = conn.execute(_UNRETAINED_DOCUMENTS, (meeting_id,)).fetchone()[0]
     emit(
         "projection.extraction_documents",
