@@ -31,16 +31,13 @@ from meetingminer.adapters.llm.port import (
     LlmReply,
     LlmUnavailableError,
 )
+from meetingminer.domain.model_providers import provider_for_model
 
 # One model call may legitimately think for a while over a long moment, but a
 # hung provider must not hang the stage forever. Generous rather than tight:
 # a timeout surfaces as LlmUnavailableError and engages the fallback.
 DEFAULT_TIMEOUT_SECONDS = 120.0
 
-# Providers whose base_url serves their common bare model ids.
-_ANTHROPIC = "anthropic"
-_OPENAI = "openai"
-_BARE_OPENAI_PREFIXES = ("gpt-4", "gpt-3.5", "chatgpt-", "o1", "o3", "o4")
 # The one provider that takes `num_ctx`; matched on the model-string prefix.
 _OLLAMA = "ollama"
 
@@ -62,17 +59,9 @@ def resolve_api_base(
     that provider — an unknown prefix is a routing question LiteLLM answers,
     not a config error this adapter invents.
     """
-    if "/" in model:
-        prefix = model.split("/", 1)[0]
-        provider = providers.get(prefix)
-        return provider.base_url if provider is not None else None
-    if model.startswith("claude-"):
-        provider = providers.get(_ANTHROPIC)
-        return provider.base_url if provider is not None else None
-    if model.startswith(_BARE_OPENAI_PREFIXES):
-        provider = providers.get(_OPENAI)
-        return provider.base_url if provider is not None else None
-    return None
+    provider_name = provider_for_model(model)
+    provider = providers.get(provider_name) if provider_name is not None else None
+    return provider.base_url if provider is not None else None
 
 
 class LiteLlmCompleter:

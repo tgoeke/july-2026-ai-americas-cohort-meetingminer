@@ -6,12 +6,12 @@ refusals the loader raises by name.
 
 Two of those refusals are the story's headline rules — a `default` outside its
 own catalog, and a catalog entry whose provider `providers:` does not declare.
-Two more fall out of making the second one honest, and apply to *authored*
-entries only: an entry whose tag carries no `<provider>/` prefix must name its
-provider, and a written provider may not contradict the prefix the tag already
-carries. Entries synthesized for a pre-catalog role retain derivable provider
-metadata but are held to none of those new provider refusals, which is the
-back-compatibility clause and is tested as such.
+Provider identity is never authored beside a binding. It is derived from the
+same dependency-neutral spelling rule the runtime adapter uses; known bare
+OpenAI and Anthropic spellings therefore agree at load and call time, while an
+ambiguous bare spelling is refused by name. Synthesized entries retain the
+authored-entry provider-declaration exemption only for backward-compatible
+prefixed tags whose provider is absent from ``providers:``.
 
 Nothing here calls a model; the catalog is declaration only until story 8.2
 resolves a selection.
@@ -25,6 +25,7 @@ from typing import Any
 import pytest
 import yaml
 
+from meetingminer.adapters.llm.litellm import resolve_api_base
 from meetingminer.config import ConfigError, load_config
 
 from repo_paths import REPO_ROOT
@@ -111,24 +112,16 @@ def test_legacy_model_naming_an_undeclared_provider_still_loads(
     assert chat.default == "moonshot/kimi-k2"
 
 
-def test_written_provider_contradicting_the_tag_prefix_is_refused(
+def test_authored_provider_cannot_override_runtime_routing(
     tmp_path: Path, no_env: Path
 ) -> None:
-    """A declared provider the call would never reach is wrong, not merely odd.
-
-    `openai` is declared, so the declared-provider check alone would pass this
-    entry — while `resolve_api_base` routes `moonshot/kimi-k2` by its own
-    prefix to a different endpoint entirely.
-    """
+    """The picker cannot claim Ollama while the call routes bare GPT to OpenAI."""
     path = write_with_chat_role(
         tmp_path,
         {
-            "model": "openai/gpt-5.2",
-            "catalog": [
-                {"binding": "openai/gpt-5.2"},
-                {"binding": "moonshot/kimi-k2", "provider": "openai"},
-            ],
-            "default": "openai/gpt-5.2",
+            "model": "gpt-4o",
+            "catalog": [{"binding": "gpt-4o", "provider": "ollama"}],
+            "default": "gpt-4o",
         },
     )
 
@@ -136,22 +129,57 @@ def test_written_provider_contradicting_the_tag_prefix_is_refused(
         load_config(path, no_env)
 
     message = str(excinfo.value)
-    assert "moonshot/kimi-k2" in message
-    assert "'openai'" in message
-    assert "'moonshot'" in message
+    assert "provider" in message
+    assert "extra" in message.lower()
 
 
-def test_legacy_bare_tag_synthesizes_an_entry_with_no_provider(
+def test_ambiguous_legacy_bare_tag_is_refused_by_name(
     tmp_path: Path, no_env: Path
 ) -> None:
-    """A file that loads today keeps loading: the file named no provider."""
+    """The owner amended compatibility: an unknowable route may not load."""
     path = write_with_chat_role(tmp_path, {"model": "some-model"})
+
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(path, no_env)
+
+    message = str(excinfo.value)
+    assert "some-model" in message
+    assert "provider" in message
+
+
+@pytest.mark.parametrize(
+    ("model", "provider"),
+    [("gpt-4o", "openai"), ("claude-sonnet-5", "anthropic")],
+)
+def test_known_bare_catalog_provider_matches_runtime_routing(
+    tmp_path: Path, no_env: Path, model: str, provider: str
+) -> None:
+    path = write_with_chat_role(
+        tmp_path,
+        {"model": model, "catalog": [{"binding": model}], "default": model},
+    )
+
+    settings = load_config(path, no_env).settings
+    entry = settings.llm.roles.chat.catalog[0]
+
+    assert entry.provider == provider
+    assert resolve_api_base(model, settings.providers) == settings.providers[provider].base_url
+
+
+@pytest.mark.parametrize(
+    ("model", "provider"),
+    [("gpt-4o", "openai"), ("claude-sonnet-5", "anthropic")],
+)
+def test_known_bare_legacy_model_synthesizes_the_runtime_provider(
+    tmp_path: Path, no_env: Path, model: str, provider: str
+) -> None:
+    path = write_with_chat_role(tmp_path, {"model": model})
 
     chat = load_config(path, no_env).settings.llm.roles.chat
 
-    assert [entry.binding for entry in chat.catalog] == ["some-model"]
-    assert chat.catalog[0].provider is None
-    assert chat.default == "some-model"
+    assert [entry.binding for entry in chat.catalog] == [model]
+    assert chat.catalog[0].provider == provider
+    assert chat.default == model
 
 
 def test_authored_catalog_keeps_file_order_and_its_own_default(
@@ -248,7 +276,7 @@ def test_entry_naming_an_undeclared_provider_is_refused(
             "model": "openai/gpt-5.2",
             "catalog": [
                 {"binding": "openai/gpt-5.2"},
-                {"binding": "moonshot/kimi-k2", "provider": "moonshot"},
+                {"binding": "moonshot/kimi-k2"},
             ],
             "default": "openai/gpt-5.2",
         },
@@ -318,7 +346,7 @@ def test_derived_provider_is_checked_against_the_declared_set(
         assert repr(declared) in message
 
 
-def test_authored_entry_without_a_prefix_must_name_its_provider(
+def test_authored_ambiguous_bare_entry_is_refused(
     tmp_path: Path, no_env: Path
 ) -> None:
     path = write_with_chat_role(
@@ -327,7 +355,7 @@ def test_authored_entry_without_a_prefix_must_name_its_provider(
             "model": "openai/gpt-5.2",
             "catalog": [
                 {"binding": "openai/gpt-5.2"},
-                {"binding": "claude-sonnet-5"},
+                {"binding": "some-model"},
             ],
             "default": "openai/gpt-5.2",
         },
@@ -338,5 +366,6 @@ def test_authored_entry_without_a_prefix_must_name_its_provider(
 
     message = str(excinfo.value)
     assert "chat" in message
-    assert "claude-sonnet-5" in message
+    assert "some-model" in message
     assert "provider" in message
+    assert "cannot determine" in message

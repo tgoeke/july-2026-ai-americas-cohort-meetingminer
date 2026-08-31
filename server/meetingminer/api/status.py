@@ -40,8 +40,8 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
-from meetingminer.adapters.llm.litellm import _BARE_OPENAI_PREFIXES
 from meetingminer.config import AppConfig
+from meetingminer.domain.model_providers import provider_for_model
 
 router = APIRouter()
 
@@ -128,15 +128,10 @@ class ProbeResult:
 _PROBE_CACHE: dict[tuple[str, str], tuple[float, ProbeResult]] = {}
 
 
-def provider_of(model: str) -> str | None:
-    """The provider a model tag resolves through — `litellm.py`'s routing rules."""
-    if "/" in model:
-        return model.split("/", 1)[0]
-    if model.startswith("claude-"):
-        return "anthropic"
-    if model.startswith(_BARE_OPENAI_PREFIXES):
-        return "openai"
-    return None
+# Public within this module for the existing status tests, but deliberately an
+# alias rather than a wrapper: config, call-time endpoint resolution, and this
+# display surface execute the same function object and therefore the same rule.
+provider_of = provider_for_model
 
 
 def _probe_provider(provider: str, base_url: str, api_key: str | None) -> ProbeResult:

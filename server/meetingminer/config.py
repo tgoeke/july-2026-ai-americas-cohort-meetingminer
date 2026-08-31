@@ -45,8 +45,11 @@ from pydantic import (
     PrivateAttr,
     StringConstraints,
     ValidationError,
+    computed_field,
     model_validator,
 )
+
+from meetingminer.domain.model_providers import provider_for_model
 
 DEFAULT_CONFIG_FILENAME = "config.yaml"
 DEFAULT_ENV_FILENAME = ".env"
@@ -213,31 +216,6 @@ class DiarizerConfig(_StrictModel):
     token_env: NonEmptyText = "HF_TOKEN"
 
 
-def _provider_prefix(binding: str) -> str | None:
-    """The provider a model tag names through its ``<provider>/`` prefix.
-
-    ``None`` when the tag carries no prefix. This is deliberately **narrower**
-    than the call-time routing rule and is not a restatement of it:
-    ``adapters/llm/litellm.py``'s ``resolve_api_base`` also routes the bare
-    spellings — ``claude-…`` through ``providers.anthropic``, ``gpt-4…`` and
-    its siblings through ``providers.openai`` — and ``api/status.py``'s
-    ``provider_of`` mirrors that. Neither is imported: this module must depend
-    on no adapter, and importing from ``api/`` would invert the dependency
-    direction. Copying their bare-spelling tables would write provider names
-    into this file and give the tree a third rule to keep in step, so instead
-    a *catalog entry* whose tag carries no prefix is asked to name its provider
-    outright. Declaring is not a burden here — it is the one place the file is
-    already saying which bindings it offers.
-
-    No provider name is written in this module: the declared set is whatever
-    ``providers:`` holds.
-    """
-    if "/" not in binding:
-        return None
-    prefix = binding.split("/", 1)[0].strip()
-    return prefix or None
-
-
 class CatalogEntry(_StrictModel):
     """One binding a user may choose for an LLM role (story 8.1, FR38, AD-10).
 
@@ -247,32 +225,44 @@ class CatalogEntry(_StrictModel):
     * ``binding`` is the model tag, in the same spelling ``model`` uses.
     * ``label`` is what a picker shows; omitted, it is the binding itself, so
       an entry is always displayable without a code-level default.
-    * ``provider`` is the key under ``providers:`` whose endpoint serves this
-      binding. On an entry the file *authored*, it is written or derived from
-      the tag's ``<provider>/`` prefix, and either way it is checked against
-      the declared set: deriving is not a licence, and a written provider that
-      contradicts the tag's own prefix is refused rather than trusted. It is
-      ``None`` only when no prefix can be derived. A one-entry catalog
-      synthesized for a role that declares nothing but ``model`` is marked
-      internally so the new declared-provider rule does not reject a legacy
-      file — see
+    * ``provider`` is computed from ``binding`` by the same dependency-neutral
+      rule the runtime adapter uses. It is output metadata, never accepted as
+      authored input, so a picker cannot display a provider the call will not
+      use. A one-entry catalog synthesized for a role that declares nothing
+      but ``model`` is marked internally so the declared-provider rule does
+      not reject a legacy prefixed file — see
       :meth:`LlmRoleBinding._catalog_from_model` for why that projection is
       deliberately not held to the same rule.
     """
 
     binding: NonEmptyText
     label: NonEmptyText | None = None
-    provider: NonEmptyText | None = None
     # Internal provenance for the compatibility projection. A synthesized
     # prefixed entry still carries its derivable provider, but is exempt from
     # rules introduced after the source file was written.
     _synthesized: bool = PrivateAttr(default=False)
 
     @model_validator(mode="after")
-    def _label_defaults_to_the_binding(self) -> "CatalogEntry":
+    def _binding_is_routable_and_labelled(self) -> "CatalogEntry":
+        if provider_for_model(self.binding) is None:
+            raise ValueError(
+                f"catalog entry {self.binding!r} has an ambiguous bare model"
+                " spelling: the shared routing rule cannot determine which"
+                " provider serves it; use a recognized bare spelling or write"
+                " the binding as `<provider>/<model>`"
+            )
         if self.label is None:
             self.label = self.binding
         return self
+
+    @computed_field
+    @property
+    def provider(self) -> str:
+        """Provider identity derived from the shared call-time routing rule."""
+        provider = provider_for_model(self.binding)
+        if provider is None:  # guarded by _binding_is_routable_and_labelled
+            raise AssertionError("validated catalog entry has no provider")
+        return provider
 
 
 class LlmRoleBinding(_StrictModel):
@@ -319,27 +309,27 @@ class LlmRoleBinding(_StrictModel):
     @model_validator(mode="before")
     @classmethod
     def _catalog_from_model(cls, data: object) -> object:
-        """Fill in what a pre-catalog file leaves unsaid, and derive providers.
+        """Fill in what a pre-catalog file leaves unsaid.
 
         This runs before field validation because it is the only place that can
         see whether the *file* declared a catalog. After synthesis an authored
         entry and a projected one are indistinguishable, and the two are
         governed by different rules.
 
-        An **authored** entry is new syntax, so it is held to the strict rule:
-        its provider is written or derived from the tag prefix, and either way
-        it is checked against ``providers:``.
+        An **authored** entry is new syntax, so its provider is derived by the
+        shared runtime rule and checked against ``providers:``. Supplying a
+        separate ``provider`` key is forbidden by :class:`CatalogEntry`.
 
-        A **synthesized** entry carries a derivable provider as catalog metadata,
-        but is marked internally and therefore skipped by that check. This is
-        the back-compatibility clause doing its job rather than an oversight: a
-        role that declares only
+        A **synthesized** entry carries its derived provider as catalog
+        metadata, but is marked internally and therefore skipped by that
+        declared-provider check. This preserves compatibility for a role that
+        declares only
         ``model: ollama/qwen3:30b`` loads today whether or not ``providers:``
-        declares ``ollama`` — an unmatched tag simply gets no ``api_base`` and
-        LiteLLM's own default (``resolve_api_base``). Deriving a provider for
-        that projected entry and then applying the authored-entry refusal would
-        make this story reject files that load today, which the story forbids.
-        ``config.yaml``'s own
+        declares ``ollama`` — an unmatched prefix simply gets no configured
+        ``api_base``. The owner ruling intentionally narrows compatibility for
+        an ambiguous *bare* spelling: because no layer can identify its
+        provider, it now refuses at load rather than projecting misleading
+        metadata. ``config.yaml``'s own
         embedder gate is the case that proves it: a config with
         ``providers.ollama`` removed must still get *past* ``load_config`` to
         reach the gate that names the missing endpoint.
@@ -355,55 +345,12 @@ class LlmRoleBinding(_StrictModel):
         patched = dict(data)
         entries = patched.get("catalog")
         if entries is None:
-            entry = CatalogEntry(binding=tag, label=tag, provider=_provider_prefix(tag))
+            entry = CatalogEntry(binding=tag, label=tag)
             entry._synthesized = True
             patched["catalog"] = [entry]
-        elif isinstance(entries, list):
-            patched["catalog"] = [cls._entry_with_provider(entry) for entry in entries]
         if patched.get("default") is None:
             patched["default"] = tag
         return patched
-
-    @classmethod
-    def _entry_with_provider(cls, entry: object) -> object:
-        """One authored entry: provider derived when omitted, checked when written."""
-        if not isinstance(entry, dict):
-            return entry
-        binding = entry.get("binding")
-        if not isinstance(binding, str) or not binding.strip():
-            # A malformed entry: CatalogEntry's own field validation names it.
-            return entry
-        tag = binding.strip()
-        prefix = _provider_prefix(tag)
-        written = entry.get("provider")
-        if written is not None:
-            # A written provider that disagrees with the tag's own prefix is
-            # the one way this declaration can be *wrong* rather than missing:
-            # the check below would pass against `providers:` while
-            # `resolve_api_base` routed the call by the prefix to a different
-            # endpoint entirely. Declared-ness would then be satisfied by a
-            # provider nothing ever calls.
-            if (
-                isinstance(written, str)
-                and prefix is not None
-                and written.strip() != prefix
-            ):
-                raise ValueError(
-                    f"catalog entry {tag!r} declares provider"
-                    f" {written.strip()!r}, but its own `<provider>/` prefix"
-                    f" routes it to {prefix!r}: the endpoint this entry"
-                    " promises is not the one the call would use — fix the tag"
-                    " or the `provider:` key so they name the same provider"
-                )
-            return entry
-        if prefix is None:
-            raise ValueError(
-                f"catalog entry {tag!r} names no provider and its model tag"
-                " carries no `<provider>/` prefix, so nothing says which"
-                " declared provider serves it: give the entry a `provider:`"
-                " key, or write the binding as `<provider>/<model>`"
-            )
-        return {**entry, "provider": prefix}
 
     @model_validator(mode="after")
     def _default_is_a_catalog_binding(self) -> "LlmRoleBinding":
@@ -1020,11 +967,7 @@ class Settings(_StrictModel):
             if not isinstance(binding, LlmRoleBinding):
                 continue
             for entry in binding.catalog:
-                if (
-                    entry._synthesized
-                    or entry.provider is None
-                    or entry.provider in self.providers
-                ):
+                if entry._synthesized or entry.provider in self.providers:
                     continue
                 names = ", ".join(repr(name) for name in declared)
                 raise ValueError(
