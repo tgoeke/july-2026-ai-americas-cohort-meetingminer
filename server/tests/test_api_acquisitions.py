@@ -149,7 +149,6 @@ class Env:
     """One test's isolated api: its own `.logs/` anchor and drops root."""
 
     config: AppConfig
-    home: Path
     root: Path
     drops: Path
 
@@ -213,7 +212,6 @@ def make_env(
         monkeypatch.setattr(api_main.app.state, "config", config)
         return Env(
             config=config,
-            home=home,
             root=acquisitions.acquisitions_root(config),
             drops=drops,
         )
@@ -303,10 +301,6 @@ def seed_job_and_meeting(pool: ConnectionPool, source_id: str) -> tuple[str, str
             (job_id, source_id),
         ).fetchone()[0]
     return str(job_id), str(meeting_id)
-
-
-def status_files(root: Path) -> list[Path]:
-    return sorted(root.glob("*.json")) if root.is_dir() else []
 
 
 # --- POST /acquisitions: the launch ----------------------------------------
