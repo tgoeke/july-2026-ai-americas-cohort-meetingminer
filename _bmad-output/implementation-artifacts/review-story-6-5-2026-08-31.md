@@ -120,6 +120,15 @@ Date: 2026-08-31
 - **Suggested direction** — When and only when the served probe kind is `auto`, put a concise pre-submit warning next to the probe answer that speaker labels are absent and segments will initially appear as `Unknown`; pin both its presence for auto captions and its absence for manual captions.
 - **Disposition** — fixed red-first. The auto-caption probe regression could not find any speaker-label guidance against the original screen; after remediation, an `auto` answer names the absent labels and initial `Unknown` segments, while the existing manual-caption path pins that no warning is invented.
 
+### F13 — The finished flow omits a supported Name speakers action
+
+- **Location** — `web/src/features/acquisitions/IngestingMeetingCard.tsx:213`
+- **Severity** — medium
+- **Finding** — A newly acquired auto-captioned meeting never offers `Name speakers`, even after its served `transcribe` stage reaches `done`. The builder's stated reason—that `MeetingListItem` has no speaker-attribution field—is true of that row but not of this flow as a whole: the parent still owns the probe's served `captions.kind`.
+- **Evidence** — The probe answer is retained in `AddMeeting`'s `ProbeState.answered`; `auto` is the source's explicit absence of speaker-attributed captions, not an inference from meeting content. The finished card already receives `stages[]`, whose `transcribe: done` value is the backing field named at `EXPERIENCE.md:316`. The adopted state and focus-order contracts require the action in this condition (`EXPERIENCE.md:144,212,374`), and `/meetings/:meetingId/speakers` is a registered route. No current prop carries the probe fact or the navigation callback to the card.
+- **Suggested direction** — For a newly created acquisition whose served probe kind was `auto`, carry that fact into the finished card and render `Name speakers` only after `transcribe` is `done` and a real meeting id exists; navigate to the existing speakers route. Do not infer the same for `result: exists`, where names may already have been assigned.
+- **Disposition** — confirmed; remediation in progress.
+
 ## Disposition
 
 Review in progress. No pass/fail verdict has been assigned.
