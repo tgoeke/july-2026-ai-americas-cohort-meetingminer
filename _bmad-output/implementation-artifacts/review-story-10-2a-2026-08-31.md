@@ -29,6 +29,14 @@ The review branch must be rebased onto the then-current `origin/main` before clo
 - **Evidence:** Two review reproductions were run red against the unfixed design. After splitting meeting 2's `Vendor Feed`, replacing that topic with `Vendor billing feed`, and deriving, `ThreadDerivation.unmatched_pins` contained `(meeting_2, "vendor feed")` and the replacement did not belong to the curated thread. After merging `Billing Portal` into `Vendor Feed`, replacing it with `Accounts payable portal`, and deriving, the replacement belonged to a newly minted UUID rather than the survivor. Both states are valid under migration 0014, which replaces topic rows wholesale and has no stable topic-lineage key.
 - **Suggested direction:** Amend the frozen contract with a durable replacement-topic lineage that is independent of both topic UUID and mutable display name (for example an extraction-owned stable subject identity with explicit reconciliation), then re-derive curation against that identity. Until that exists, the product must not promise survival across every re-extraction; unmatched split and orphaned merge corrections also need a user-visible degraded state rather than an operator-only log event. This is not safely fixable by guessing from gist, embeddings, or meeting membership in the review patch.
 
+### F3 — Open for remediation: a human-named split is labeled machine-derived
+
+- **Location:** `server/meetingminer/api/thread_curation.py` (`_THREAD_WITH_CURATION` and `split_thread`); `server/meetingminer/domain/thread_curation.py` (`CURATED_NAME_IS_CURATED_EXPR`)
+- **Severity:** Moderate
+- **Finding:** A split writes its human-supplied name into the newly minted `thread` row but creates no `thread_curation` row. Both response paths define `nameIsCurated` only as the presence of `thread_curation`, so the split response and subsequent list row say `false`; the UI prints `machine-derived` beside a thread and name created entirely by the user. This violates the explicit requirement that a reader can distinguish human and machine names.
+- **Evidence:** Strengthened `test_a_split_survives_a_rerun_without_the_derivation_reclaiming_its_thread` to assert the write response and list provenance. Against the unfixed branch it failed red at the first assertion: `split.json()["nameIsCurated"]` was `False`.
+- **Suggested direction:** Treat a `thread` whose immutable provenance is `link_rule = 'curated'` as human-named in both the curation response query and the shared list expression. Preserve the distinction after a later rename is cleared: the split's original name remains human-originated even without a rename override.
+
 ## Verification
 
 Pending.

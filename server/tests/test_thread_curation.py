@@ -432,6 +432,7 @@ def test_a_split_survives_a_rerun_without_the_derivation_reclaiming_its_thread(
     assert split.status_code == 201
     curated_id = UUID(split.json()["threadId"])
     curated_ordinal = split.json()["colorOrdinal"]
+    assert split.json()["nameIsCurated"] is True
     assert curated_ordinal != original_ordinal
 
     # Visible immediately: two bands, one topic each.
@@ -439,6 +440,7 @@ def test_a_split_survives_a_rerun_without_the_derivation_reclaiming_its_thread(
     assert rows[str(original)]["mentionCount"] == 1
     assert rows[str(curated_id)]["mentionCount"] == 1
     assert rows[str(curated_id)]["name"] == "Vendor feed (billing)"
+    assert rows[str(curated_id)]["nameIsCurated"] is True
 
     with pool.connection() as conn:
         report = derive(conn, app_config)
