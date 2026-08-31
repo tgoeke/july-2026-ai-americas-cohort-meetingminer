@@ -390,6 +390,27 @@ def refusal_for(error: BaseException) -> Refusal:
             detail=_one_line(str(error)),
             remediation=uploads.REMEDIATIONS[error.rule],
         )
+    if isinstance(error, uploads.UploadSessionNotFound):
+        rule = "upload-session-not-found"
+        return Refusal(
+            rule=rule,
+            detail=_one_line(str(error)),
+            remediation=uploads.REMEDIATIONS[rule],
+        )
+    if isinstance(error, uploads.UploadStateError):
+        rule = "upload-session-unreadable"
+        return Refusal(
+            rule=rule,
+            detail=_one_line(str(error)),
+            remediation=uploads.REMEDIATIONS[rule],
+        )
+    if isinstance(error, dialects.DialectError):
+        rule = "upload-dialect-conversion"
+        return Refusal(
+            rule=rule,
+            detail=_one_line(str(error)),
+            remediation=uploads.REMEDIATIONS[rule],
+        )
     rule = youtube.refusal_rule(error)
     return Refusal(
         rule=rule, detail=_one_line(str(error)), remediation=REMEDIATIONS[rule]
@@ -658,6 +679,31 @@ def live_record_for_source(root: Path, source_id: str) -> AcquisitionRecord | No
     return None
 
 
+def live_upload_sessions(root: Path) -> dict[str, AcquisitionRecord]:
+    """Live upload-session claims, keyed by session id.
+
+    Call holding :func:`claim_lock`. DELETE and the TTL sweep use this same
+    authority as launch, so none can erase bytes after the detached runner has
+    claimed them.
+    """
+    live: dict[str, AcquisitionRecord] = {}
+    if not root.is_dir():
+        return live
+    for path in sorted(root.glob(f"*{STATUS_SUFFIX}")):
+        try:
+            record = _read_record_file(path)
+        except AcquisitionError:
+            continue
+        if (
+            record.kind == KIND_UPLOAD
+            and record.upload_session_id is not None
+            and record.status in LIVE_STATUSES
+            and pid_is_live(record.pid)
+        ):
+            live[record.upload_session_id] = record
+    return live
+
+
 @contextmanager
 def claim_lock(root: Path) -> Iterator[None]:
     """Serialize the scan, the status write and the ``Popen`` of one launch.
@@ -704,6 +750,7 @@ def child_command(
     state_root: Path,
     *,
     upload_session_id: str | None = None,
+    sessions_root: Path | None = None,
 ) -> list[str]:
     """The detached runner's argv. One function so a test can replace the
     whole command rather than stub the process machinery around it.
@@ -723,6 +770,9 @@ def child_command(
     ]
     if upload_session_id is not None:
         argv += ["--upload-session", upload_session_id]
+        if sessions_root is None:
+            raise ValueError("upload child command requires sessions_root")
+        argv += ["--sessions-root", str(sessions_root)]
     else:
         argv += ["--url", url or ""]
     return argv + ["--state-root", str(state_root)]
@@ -836,13 +886,13 @@ def launch_upload(config: AppConfig, session_id: str) -> AcquisitionRecord:
     """
     root = acquisitions_root(config)
     sessions = uploads.sessions_root(config)
-    # Raises UploadSessionNotFound / UploadStateError, which the api turns into
-    # a 404 or a 500. Reading it here also means the child inherits a session
-    # that was complete at claim time.
-    uploads.read_session(sessions, session_id)
     source_ref = f"{UPLOAD_REF_PREFIX}{session_id}"
 
     with claim_lock(root):
+        # Re-read inside the ownership critical section. A DELETE or sweep uses
+        # this same lock, so the accepted child cannot inherit bytes that
+        # vanished between validation and claim.
+        uploads.read_session(sessions, session_id)
         live = live_record_for_source(root, source_ref)
         if live is not None:
             raise AcquisitionInProgress(live)
@@ -859,12 +909,24 @@ def launch_upload(config: AppConfig, session_id: str) -> AcquisitionRecord:
             kind=KIND_UPLOAD,
             upload_session_id=session_id,
         )
-        record = _start_child(
-            config,
-            root,
-            record,
-            child_command(acquisition_id, None, root, upload_session_id=session_id),
-        )
+        try:
+            record = _start_child(
+                config,
+                root,
+                record,
+                child_command(
+                    acquisition_id,
+                    None,
+                    root,
+                    upload_session_id=session_id,
+                    sessions_root=sessions,
+                ),
+            )
+        except AcquisitionStateError:
+            # The detached runner never acquired ownership. Compensate parent-
+            # side log/Popen failures immediately instead of waiting for TTL.
+            uploads.discard_session(sessions, session_id)
+            raise
     return record
 
 
@@ -996,12 +1058,32 @@ def upload_provenance(
     return extra
 
 
+def _complete_upload_record(
+    root: Path,
+    sessions_root: Path,
+    session_id: str,
+    record: AcquisitionRecord,
+) -> None:
+    """Publish a terminal record only after its claimed bytes are gone.
+
+    Launch, DELETE and sweep all use this claim lock. Keeping cleanup and the
+    terminal transition in one critical section closes the last ownership
+    window: another launch sees either a live record plus intact bytes, or a
+    terminal record plus no session, never terminal state beside consumable
+    bytes.
+    """
+    with claim_lock(root):
+        uploads.discard_session(sessions_root, session_id)
+        write_record(root, record)
+
+
 def run_upload_acquisition(
     config: AppConfig,
     acquisition_id: str,
     session_id: str,
     *,
     state_root: Path | None = None,
+    sessions_root: Path | None = None,
 ) -> AcquisitionRecord:
     """One upload acquisition, start to finish, writing every transition.
 
@@ -1028,14 +1110,19 @@ def run_upload_acquisition(
         write_record(root, record)
     print(f"acquiring  upload session {session_id}", flush=True)
 
-    sessions: Path | None = None
+    # Resolve the cleanup target before any other fallible setup. Production's
+    # detached argv supplies the already-trusted absolute root, which also lets
+    # main clean up when config loading itself fails.
+    sessions = (
+        sessions_root if sessions_root is not None else uploads.sessions_root(config)
+    )
+    completed = False
     try:
         try:
             # Resolved before the mint, as `mint-drop`'s own CLI does: an
             # unusable api url must not first cost a finalized drop.
             api_url = resolve_api_url(None)
             drops_root = resolve_drops_root(None, config)
-            sessions = uploads.sessions_root(config)
             session = uploads.read_session(sessions, session_id)
             with dialects.workspace() as workspace:
                 conversion = dialects.convert_supplied(
@@ -1066,7 +1153,8 @@ def run_upload_acquisition(
         ) as exc:
             print(f"refused    {exc}", file=sys.stderr, flush=True)
             record = record.advanced(status="failed", refusal=refusal_for(exc))
-            write_record(root, record)
+            _complete_upload_record(root, sessions, session_id, record)
+            completed = True
             return record
 
         print(f"{result.status:<10} {result.path}", flush=True)
@@ -1089,12 +1177,16 @@ def run_upload_acquisition(
                     ),
                 ),
             )
-            write_record(root, record)
+            _complete_upload_record(root, sessions, session_id, record)
+            completed = True
             return record
 
         print(
             f"intake     {intake} ({http_status}) jobId {job_id or '(none)'}", flush=True
         )
+        provenance = result.metadata.get("provenance")
+        if not isinstance(provenance, dict):
+            provenance = {}
         record = record.advanced(
             status="posted",
             # From here the record names the drop's own content-derived
@@ -1102,13 +1194,26 @@ def run_upload_acquisition(
             source_id=result.source_id,
             result=result.status,
             job_id=job_id,
-            tool=PROGRAM_UPLOAD_TOOL,
+            # For `exists`, these fields describe the immutable drop that won,
+            # not the session that happened to rediscover it.
+            tool=(
+                provenance.get("tool")
+                if isinstance(provenance.get("tool"), str)
+                else None
+            ),
+            tool_version=(
+                provenance.get("toolVersion")
+                if isinstance(provenance.get("toolVersion"), str)
+                else None
+            ),
         )
-        write_record(root, record)
+        _complete_upload_record(root, sessions, session_id, record)
+        completed = True
         return record
     finally:
-        if sessions is not None:
-            uploads.discard_session(sessions, session_id)
+        if not completed:
+            with claim_lock(root):
+                uploads.discard_session(sessions, session_id)
 
 
 # --- CLI ---------------------------------------------------------------------
@@ -1166,6 +1271,16 @@ def _parser() -> argparse.ArgumentParser:
             " structured failed record the api polls."
         ),
     )
+    parser.add_argument(
+        "--sessions-root",
+        type=Path,
+        metavar="ABSOLUTE_PATH",
+        help=(
+            "the parent-resolved upload staging root. Required with"
+            " --upload-session so a config-load refusal can still discard the"
+            " claimed session."
+        ),
+    )
     return parser
 
 
@@ -1179,6 +1294,16 @@ def main(argv: list[str] | None = None) -> int:
             flush=True,
         )
         return 1
+    if args.upload_session is not None and (
+        args.sessions_root is None or not args.sessions_root.is_absolute()
+    ):
+        print(
+            f"fatal: {PROGRAM} refused: upload mode requires an absolute"
+            " --sessions-root",
+            file=sys.stderr,
+            flush=True,
+        )
+        return 1
     try:
         config = _load_cli_config()
     except ConfigError as exc:
@@ -1187,7 +1312,15 @@ def main(argv: list[str] | None = None) -> int:
             record = read_record(state_root, args.acquisition_id).advanced(
                 status="failed", refusal=refusal_for(exc)
             )
-            write_record(state_root, record)
+            if args.upload_session is not None and args.sessions_root is not None:
+                _complete_upload_record(
+                    state_root,
+                    args.sessions_root,
+                    args.upload_session,
+                    record,
+                )
+            else:
+                write_record(state_root, record)
         except AcquisitionError as state_exc:
             print(
                 f"fatal: {PROGRAM} could not record that refusal: {state_exc}",
@@ -1202,6 +1335,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.acquisition_id,
                 args.upload_session,
                 state_root=state_root,
+                sessions_root=args.sessions_root,
             )
         else:
             record = run_acquisition(

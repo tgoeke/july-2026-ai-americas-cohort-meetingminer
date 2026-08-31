@@ -41,6 +41,7 @@ from meetingminer import acquisitions, uploads, youtube
 from meetingminer.api.problems import Problem, ProblemDetails
 from meetingminer.api.uploads import refusal_problem as upload_refusal_problem
 from meetingminer.config import AppConfig, ConfigError
+from meetingminer.transcripts import dialects
 
 router = APIRouter()
 
@@ -49,6 +50,7 @@ router = APIRouter()
 #: be the one place the api says "Error".
 _REFUSAL_TITLES = {
     400: "Bad Request",
+    409: "Conflict",
     422: "Unprocessable Content",
     503: "Service Unavailable",
 }
@@ -221,18 +223,24 @@ def start_acquisition(
 ) -> AcquisitionAccepted:
     config = _config(request)
     if body.url is not None and body.upload_session_id is not None:
+        rule = "acquisition-source-ambiguous"
         raise Problem(
             400,
             "acquisition-source-ambiguous",
             "name either url or uploadSessionId, not both — an acquisition has"
             " one source, and this server will not choose which one you meant",
+            rule=rule,
+            remediation=uploads.REMEDIATIONS[rule],
         )
     if body.url is None and body.upload_session_id is None:
+        rule = "acquisition-source-missing"
         raise Problem(
             400,
             "acquisition-source-missing",
             "name a source: url for a published video, or uploadSessionId for"
             " files already sent to POST /uploads",
+            rule=rule,
+            remediation=uploads.REMEDIATIONS[rule],
         )
     try:
         if body.upload_session_id is not None:
@@ -251,16 +259,21 @@ def start_acquisition(
     except uploads.UploadRefused as exc:
         raise upload_refusal_problem(exc) from exc
     except uploads.UploadStateError as exc:
-        raise Problem(500, "upload-state-unreadable", str(exc)) from exc
+        raise _refusal_problem(exc) from exc
+    except dialects.DialectError as exc:
+        raise _refusal_problem(exc) from exc
     except youtube.YoutubeError as exc:
         raise _refusal_problem(exc) from exc
     except acquisitions.AcquisitionInProgress as exc:
+        rule = "acquisition-in-progress"
         raise Problem(
             409,
             "acquisition-in-progress",
             f"acquisition {exc.record.acquisition_id} is already"
             f" {exc.record.status} for {exc.record.source_id}; poll it rather"
             " than starting a second one",
+            rule=rule,
+            remediation=uploads.REMEDIATIONS[rule],
             acquisitionId=exc.record.acquisition_id,
             sourceId=exc.record.source_id,
         ) from exc

@@ -22,6 +22,7 @@ Three properties are asserted over and over, because they are what the story
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import re
 import shutil
@@ -37,7 +38,7 @@ from fastapi.routing import APIRoute
 import meetingminer.api.main as api_main
 import meetingminer.api.uploads as api_uploads
 from meetingminer import acquisitions, mintdrop, uploads
-from meetingminer.config import AppConfig
+from meetingminer.config import AppConfig, ConfigError
 from meetingminer.domain.drops import (
     EVIDENCE_FILENAMES,
     METADATA_FILENAME,
@@ -292,6 +293,25 @@ def test_refusal_for_classifies_an_upload_refusal() -> None:
     assert classified.remediation == uploads.REMEDIATIONS["upload-duration-cap"]
 
 
+@pytest.mark.parametrize(
+    ("error", "rule"),
+    [
+        (uploads.UploadSessionNotFound("gone"), "upload-session-not-found"),
+        (uploads.UploadStateError("broken state"), "upload-session-unreadable"),
+        (
+            uploads.dialects.DialectError("bad zoom transcript"),
+            "upload-dialect-conversion",
+        ),
+    ],
+)
+def test_upload_runner_failures_stay_in_the_upload_vocabulary(
+    error: BaseException, rule: str
+) -> None:
+    classified = acquisitions.refusal_for(error)
+    assert classified.rule == rule
+    assert classified.remediation == uploads.REMEDIATIONS[rule]
+
+
 # --- routes -----------------------------------------------------------------
 
 
@@ -338,6 +358,7 @@ def test_transcript_only_session_is_first_class(client: Any, make_env: Callable[
     assert [f["canonical"] for f in body["files"]] == ["transcript.vtt"]
     assert body["files"][0]["originalFilename"] == "Migration Sync.vtt"
     assert body["files"][0]["byteSize"] == len(ZOOM_VTT)
+    assert body["files"][0]["sha256"] == hashlib.sha256(ZOOM_VTT).hexdigest()
 
     directories = env.session_dirs()
     assert [d.name for d in directories] == [body["uploadSessionId"]]
@@ -936,6 +957,136 @@ def start_acquisition(client: Any, session_id: str) -> Any:
     return client.post("/acquisitions", json={"uploadSessionId": session_id})
 
 
+def test_upload_child_command_names_the_real_session_and_cleanup_root(
+    tmp_path: Path,
+) -> None:
+    acquisition_id = str(uuid.uuid4())
+    session_id = str(uuid.uuid4())
+    state_root = (tmp_path / "state").resolve()
+    sessions_root = (tmp_path / "uploads").resolve()
+    assert acquisitions.child_command(
+        acquisition_id,
+        None,
+        state_root,
+        upload_session_id=session_id,
+        sessions_root=sessions_root,
+    ) == [
+        acquisitions.sys.executable,
+        "-m",
+        acquisitions.MODULE_NAME,
+        "--run",
+        "--acquisition-id",
+        acquisition_id,
+        "--upload-session",
+        session_id,
+        "--sessions-root",
+        str(sessions_root),
+        "--state-root",
+        str(state_root),
+    ]
+
+
+def test_cli_dispatches_upload_mode_to_the_upload_runner(
+    make_env: Callable[..., Env], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = make_env()
+    acquisition_id = str(uuid.uuid4())
+    session_id = str(uuid.uuid4())
+    seen: dict[str, Any] = {}
+    returned = acquisitions.AcquisitionRecord(
+        acquisition_id=acquisition_id,
+        source_id="sha256:done",
+        url=f"upload:{session_id}",
+        status="posted",
+        created_at=STARTED_AT,
+        updated_at=STARTED_AT,
+        kind=acquisitions.KIND_UPLOAD,
+        upload_session_id=session_id,
+    )
+
+    monkeypatch.setattr(acquisitions, "_load_cli_config", lambda: env.config)
+
+    def _run(*args: Any, **kwargs: Any) -> acquisitions.AcquisitionRecord:
+        seen["args"] = args
+        seen["kwargs"] = kwargs
+        return returned
+
+    monkeypatch.setattr(acquisitions, "run_upload_acquisition", _run)
+    monkeypatch.setattr(
+        acquisitions,
+        "run_acquisition",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("wrong runner")),
+    )
+    code = acquisitions.main(
+        [
+            "--run",
+            "--acquisition-id",
+            acquisition_id,
+            "--upload-session",
+            session_id,
+            "--sessions-root",
+            str(env.uploads_root.resolve()),
+            "--state-root",
+            str(env.acquisitions_root.resolve()),
+        ]
+    )
+    assert code == 0
+    assert seen["args"] == (env.config, acquisition_id, session_id)
+    assert seen["kwargs"] == {
+        "state_root": env.acquisitions_root.resolve(),
+        "sessions_root": env.uploads_root.resolve(),
+    }
+
+
+def test_cli_config_failure_records_refusal_and_discards_upload(
+    client: Any,
+    make_env: Callable[..., Env],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = make_env()
+    session_id = post_session(client, data=fields(), files=[vtt_part()]).json()[
+        "uploadSessionId"
+    ]
+    acquisition_id = str(uuid.uuid4())
+    stamp = "2026-08-31T12:00:00Z"
+    acquisitions.write_record(
+        env.acquisitions_root,
+        acquisitions.AcquisitionRecord(
+            acquisition_id=acquisition_id,
+            source_id=f"upload:{session_id}",
+            url=f"upload:{session_id}",
+            status="queued",
+            created_at=stamp,
+            updated_at=stamp,
+            kind=acquisitions.KIND_UPLOAD,
+            upload_session_id=session_id,
+        ),
+    )
+    monkeypatch.setattr(
+        acquisitions,
+        "_load_cli_config",
+        lambda: (_ for _ in ()).throw(ConfigError("broken config")),
+    )
+    code = acquisitions.main(
+        [
+            "--run",
+            "--acquisition-id",
+            acquisition_id,
+            "--upload-session",
+            session_id,
+            "--sessions-root",
+            str(env.uploads_root.resolve()),
+            "--state-root",
+            str(env.acquisitions_root.resolve()),
+        ]
+    )
+    assert code == 1
+    record = acquisitions.read_record(env.acquisitions_root, acquisition_id)
+    assert record.status == "failed"
+    assert record.refusal is not None and record.refusal.rule == "config"
+    assert env.session_dirs() == []
+
+
 def test_naming_both_sources_or_neither_is_refused(
     client: Any, make_env: Callable[..., Env], no_child: None
 ) -> None:
@@ -946,10 +1097,12 @@ def test_naming_both_sources_or_neither_is_refused(
     )
     assert both.status_code == 400
     assert both.json()["type"].endswith("acquisition-source-ambiguous")
+    assert refusal(both)[0] == "acquisition-source-ambiguous"
 
     neither = client.post("/acquisitions", json={})
     assert neither.status_code == 400
     assert neither.json()["type"].endswith("acquisition-source-missing")
+    assert refusal(neither)[0] == "acquisition-source-missing"
 
 
 def test_an_unknown_session_cannot_be_acquired(
@@ -985,13 +1138,53 @@ def test_launching_an_upload_acquisition_claims_the_session(
     # directory twice.
     again = start_acquisition(client, session_id)
     assert again.status_code == 409
+    assert refusal(again)[0] == "acquisition-in-progress"
+    deletion = client.delete(f"/uploads/{session_id}")
+    assert deletion.status_code == 409
+    assert refusal(deletion)[0] == "acquisition-in-progress"
     assert env.session_dirs()  # still staged; the runner has not run
+
+
+def test_live_upload_claims_are_protected_from_the_ttl_sweep(
+    client: Any, make_env: Callable[..., Env], sleeping_child: list[Any]
+) -> None:
+    env = make_env(session_ttl_minutes=1)
+    session_id = post_session(client, data=fields(), files=[vtt_part()]).json()[
+        "uploadSessionId"
+    ]
+    start_acquisition(client, session_id)
+    directory = env.uploads_root / session_id
+    payload = json.loads((directory / uploads.SESSION_FILENAME).read_text())
+    payload["expiresAt"] = "2020-01-01T00:00:00Z"
+    (directory / uploads.SESSION_FILENAME).write_text(json.dumps(payload))
+
+    fresh = post_session(client, data=fields(), files=[vtt_part()])
+    assert fresh.status_code == 201
+    assert directory.is_dir()
+
+
+def test_parent_process_start_failure_discards_the_claimed_session(
+    client: Any,
+    make_env: Callable[..., Env],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = make_env()
+    session_id = post_session(client, data=fields(), files=[vtt_part()]).json()[
+        "uploadSessionId"
+    ]
+    monkeypatch.setattr(
+        acquisitions.subprocess,
+        "Popen",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("exec failed")),
+    )
+    response = start_acquisition(client, session_id)
+    assert response.status_code == 500
+    assert env.session_dirs() == []
 
 
 def test_the_runner_mints_posts_and_removes_the_session(
     client: Any,
     make_env: Callable[..., Env],
-    sleeping_child: list[Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     env = make_env()
@@ -1071,6 +1264,38 @@ def test_a_failed_acquisition_still_removes_the_session(
     assert "drops root is full" in record.refusal.detail
     assert record.refusal.remediation.strip()
     assert env.drop_dirs() == []
+    assert env.session_dirs() == []
+
+
+def test_runner_setup_failure_before_dispatch_removes_the_session(
+    client: Any,
+    make_env: Callable[..., Env],
+    sleeping_child: list[Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = make_env()
+    session_id = post_session(client, data=fields(), files=[vtt_part()]).json()[
+        "uploadSessionId"
+    ]
+    accepted = start_acquisition(client, session_id).json()
+
+    monkeypatch.undo()
+    monkeypatch.setattr(api_main.app.state, "config", env.config)
+    monkeypatch.setattr(
+        acquisitions,
+        "resolve_api_url",
+        lambda _value: (_ for _ in ()).throw(ConfigError("api url is invalid")),
+    )
+    record = acquisitions.run_upload_acquisition(
+        env.config,
+        accepted["acquisitionId"],
+        session_id,
+        state_root=env.acquisitions_root,
+        sessions_root=env.uploads_root,
+    )
+    assert record.status == "failed"
+    assert record.refusal is not None
+    assert record.refusal.rule == "config"
     assert env.session_dirs() == []
 
 
@@ -1165,7 +1390,125 @@ def test_an_upload_and_a_hand_mint_produce_one_identity(
     metadata = read_metadata(minted.path)
     assert metadata["startedAt"] == STARTED_AT
     assert metadata["startedAtPrecision"] == "second"
+    assert uploaded.tool == metadata["provenance"]["tool"] == "mint-drop"
     assert env.session_dirs() == []
+
+
+@pytest.mark.parametrize(
+    ("part", "dialect"),
+    [
+        (txt_part(), None),
+        (vtt_part(), "plain"),
+        (vtt_part(), "teams-vtt"),
+        (vtt_part(), "zoom"),
+    ],
+    ids=["text", "plain-vtt", "teams-vtt", "zoom-vtt"],
+)
+def test_upload_first_pins_timestamp_identity_for_every_primary_and_dialect_shape(
+    client: Any,
+    make_env: Callable[..., Env],
+    sleeping_child: list[Any],
+    monkeypatch: pytest.MonkeyPatch,
+    part: tuple[str, tuple[str, bytes, str]],
+    dialect: str | None,
+) -> None:
+    env = make_env()
+    monkeypatch.setattr(uploads.shutil, "which", lambda _name: "/usr/bin/ffprobe")
+    created = post_session(
+        client,
+        data=fields(transcriptDialect=dialect),
+        files=[part],
+    )
+    assert created.status_code == 201, created.text
+    session_id = created.json()["uploadSessionId"]
+    accepted = start_acquisition(client, session_id).json()
+
+    real_mint = acquisitions.mint
+    seen_started_at: list[str | None] = []
+    monkeypatch.undo()
+    monkeypatch.setattr(api_main.app.state, "config", env.config)
+
+    def _mint(**kwargs: Any) -> Any:
+        seen_started_at.append(kwargs.get("started_at_argument"))
+        return real_mint(**kwargs)
+
+    monkeypatch.setattr(acquisitions, "mint", _mint)
+    monkeypatch.setattr(
+        acquisitions, "post_ingest", lambda *a, **k: ("created", 201, None)
+    )
+    record = acquisitions.run_upload_acquisition(
+        env.config,
+        accepted["acquisitionId"],
+        session_id,
+        state_root=env.acquisitions_root,
+        sessions_root=env.uploads_root,
+    )
+    assert record.status == "posted"
+    assert seen_started_at == [STARTED_AT]
+    metadata = read_metadata(env.drop_dirs()[0])
+    assert metadata["startedAt"] == STARTED_AT
+    assert metadata["startedAtPrecision"] == "second"
+
+
+@pytest.mark.slow(reason="builds and mints a real mp4 to pin recording-primary identity")
+def test_upload_first_pins_timestamp_identity_for_recording_primary(
+    client: Any,
+    make_env: Callable[..., Env],
+    monkeypatch: pytest.MonkeyPatch,
+    synthetic_recording: Path,
+) -> None:
+    env = make_env()
+    monkeypatch.undo()
+    monkeypatch.setattr(api_main.app.state, "config", env.config)
+    created = post_session(
+        client,
+        data=fields(transcriptDialect=None),
+        files=[mp4_part(synthetic_recording.read_bytes())],
+    )
+    assert created.status_code == 201, created.text
+    session_id = created.json()["uploadSessionId"]
+
+    # Seed the queued status the detached parent would have written, then drive
+    # the real upload runner without replacing subprocess globally (ffprobe
+    # itself uses subprocess while mint validates the recording).
+    acquisition_id = str(uuid.uuid4())
+    stamp = "2026-08-31T12:00:00Z"
+    acquisitions.write_record(
+        env.acquisitions_root,
+        acquisitions.AcquisitionRecord(
+            acquisition_id=acquisition_id,
+            source_id=f"upload:{session_id}",
+            url=f"upload:{session_id}",
+            status="queued",
+            created_at=stamp,
+            updated_at=stamp,
+            kind=acquisitions.KIND_UPLOAD,
+            upload_session_id=session_id,
+        ),
+    )
+    real_mint = acquisitions.mint
+    seen_started_at: list[str | None] = []
+
+    def _mint(**kwargs: Any) -> Any:
+        seen_started_at.append(kwargs.get("started_at_argument"))
+        return real_mint(**kwargs)
+
+    monkeypatch.setattr(acquisitions, "mint", _mint)
+    monkeypatch.setattr(
+        acquisitions, "post_ingest", lambda *a, **k: ("created", 201, None)
+    )
+    record = acquisitions.run_upload_acquisition(
+        env.config,
+        acquisition_id,
+        session_id,
+        state_root=env.acquisitions_root,
+        sessions_root=env.uploads_root,
+    )
+    assert record.status == "posted"
+    assert seen_started_at == [STARTED_AT]
+    metadata = read_metadata(env.drop_dirs()[0])
+    assert metadata["startedAt"] == STARTED_AT
+    assert metadata["startedAtPrecision"] == "second"
 
 
 def test_the_source_id_is_the_digest_of_the_bytes_that_enter_the_drop(

@@ -39,7 +39,7 @@ from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
-from meetingminer import uploads
+from meetingminer import acquisitions, uploads
 from meetingminer.api.problems import Problem, ProblemDetails
 from meetingminer.config import AppConfig
 
@@ -219,9 +219,9 @@ def _view(session: uploads.UploadSession) -> UploadSessionView:
     )
 
 
-def _root(request: Request) -> tuple[uploads.UploadLimits, Path]:
+def _root(request: Request) -> tuple[AppConfig, uploads.UploadLimits, Path]:
     config = _config(request)
-    return uploads.UploadLimits.from_config(config), uploads.sessions_root(config)
+    return config, uploads.UploadLimits.from_config(config), uploads.sessions_root(config)
 
 
 @router.post(
@@ -248,13 +248,20 @@ def _root(request: Request) -> tuple[uploads.UploadLimits, Path]:
 )
 async def create_upload_session(request: Request) -> UploadSessionView:
     try:
-        limits, root = _root(request)
+        config, limits, root = _root(request)
     except uploads.UploadRefused as exc:
         raise refusal_problem(exc) from exc
 
     # Cheap, bounded, and the only thing that reclaims an abandoned session's
     # bytes: story 6.4's spec recorded that nothing reaped staged state.
-    uploads.sweep_expired(root, limits, now=datetime.now(timezone.utc))
+    state_root = acquisitions.acquisitions_root(config)
+    with acquisitions.claim_lock(state_root):
+        uploads.sweep_expired(
+            root,
+            limits,
+            now=datetime.now(timezone.utc),
+            protected_session_ids=acquisitions.live_upload_sessions(state_root),
+        )
 
     declared = request.headers.get("content-length")
     try:
@@ -269,7 +276,9 @@ async def create_upload_session(request: Request) -> UploadSessionView:
             content_length=content_length,
             body=request.stream(),
             limits=limits,
-            now=datetime.now(timezone.utc),
+            # The TTL starts when a complete session is published, not before a
+            # slow request begins streaming.
+            now=lambda: datetime.now(timezone.utc),
         )
     except uploads.UploadRefused as exc:
         raise refusal_problem(exc) from exc
@@ -294,7 +303,7 @@ def get_upload_session(upload_session_id: UUID, request: Request) -> UploadSessi
     # directory name is typed, so no request can name a path. A malformed id is
     # a 422 from path validation and nothing is read.
     try:
-        _, root = _root(request)
+        _, _, root = _root(request)
         session = uploads.read_session(root, str(upload_session_id))
     except uploads.UploadSessionNotFound as exc:
         raise _not_found(upload_session_id) from exc
@@ -317,6 +326,7 @@ def get_upload_session(upload_session_id: UUID, request: Request) -> UploadSessi
     ),
     responses={
         404: _PROBLEM_RESPONSE,
+        409: _PROBLEM_RESPONSE,
         422: _PROBLEM_RESPONSE,
         500: _PROBLEM_RESPONSE,
         503: _PROBLEM_RESPONSE,
@@ -324,8 +334,25 @@ def get_upload_session(upload_session_id: UUID, request: Request) -> UploadSessi
 )
 def delete_upload_session(upload_session_id: UUID, request: Request) -> Response:
     try:
-        _, root = _root(request)
-        removed = uploads.discard_session(root, str(upload_session_id))
+        config, _, root = _root(request)
+        state_root = acquisitions.acquisitions_root(config)
+        with acquisitions.claim_lock(state_root):
+            live = acquisitions.live_upload_sessions(state_root).get(
+                str(upload_session_id)
+            )
+            if live is not None:
+                rule = "acquisition-in-progress"
+                raise Problem(
+                    uploads.PROBLEM_STATUS[rule],
+                    "acquisition-in-progress",
+                    f"acquisition {live.acquisition_id} is already"
+                    f" {live.status} for upload session {upload_session_id}",
+                    rule=rule,
+                    remediation=uploads.REMEDIATIONS[rule],
+                    acquisitionId=live.acquisition_id,
+                    sourceId=live.source_id,
+                )
+            removed = uploads.discard_session(root, str(upload_session_id))
     except uploads.UploadRefused as exc:
         raise refusal_problem(exc) from exc
     except uploads.UploadStateError as exc:
