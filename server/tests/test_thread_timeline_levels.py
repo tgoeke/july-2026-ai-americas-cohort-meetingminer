@@ -567,7 +567,7 @@ def test_the_sql_derivation_matches_the_python_one(
         meeting_id = seed_meeting(
             conn, "day-precision", precision="day", started_at=day_start
         )
-        topic_id, moment_id = add_topic(conn, meeting_id, "Daylong", start_ms=45_000)
+        topic_id, _moment_id = add_topic(conn, meeting_id, "Daylong", start_ms=45_000)
         thread_id = add_thread(conn, identity_key="daylong", topic_ids=[topic_id])
 
     expected = format_rfc3339(occurred_at(day_start, "day", 45_000))
