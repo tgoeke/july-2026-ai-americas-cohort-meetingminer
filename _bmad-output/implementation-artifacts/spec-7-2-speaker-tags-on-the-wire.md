@@ -2,7 +2,8 @@
 title: 'Story 7.2: Speaker Tags on the Wire'
 type: 'feature'
 created: '2026-08-30'
-status: 'ready-for-dev'
+baseline_revision: '8073a756589abeecf2981e0a5897ad7a2f0041f1'
+status: 'review'
 review_loop_iteration: 0
 followup_review_recommended: false
 context: []
@@ -137,6 +138,25 @@ path (story 7.3); no UI (story 7.4); no hand-edit of `api/main.py`, a registry, 
   quietly. No other in-flight branch touches that file (`git diff --name-only main...` over
   every `story/*` branch), and `branch_conflicts.py` is re-run before the final push.
 
+- 2026-08-30 (build, row order): the Design Notes name three ordering keys
+  (`talkTimeMs` DESC, `speakerLabel`, `participantId` NULLS LAST). Those three do
+  not totally order the result, because the grouping key has a fourth component:
+  two rows sharing a label with `participantId` NULL on both and differing only in
+  `speaker_resolution` would tie on all three and come back in planner order.
+  `ts.speaker_resolution` is appended as a final key, so the "fully deterministic"
+  constraint in Boundaries holds for every input the grouping key admits. The
+  three declared keys are unchanged and still decide every ordinary case.
+- 2026-08-30 (build, SQL): `MAX_SAMPLE_OFFSETS` is interpolated into the
+  `array_agg` slice bound at import time rather than bound as a parameter — an
+  array subscript is not a value position Postgres infers a parameter type for
+  the way a comparison is. The interpolated text is a module-level `int`;
+  `meeting_id` remains a bound parameter.
+- 2026-08-30 (build, client): regenerated from an in-process `app.openapi()` dump
+  with a `servers: [{url: 'http://localhost:8000'}]` entry injected (the 2.2
+  pattern), then `pnpm --dir web run client -i <dump>`. `client.gen.ts` came back
+  byte-identical; the diff is additive only — `listMeetingSpeakers`,
+  `MeetingSpeakersResponse`, `SpeakerTag` and the `ListMeetingSpeakers*` types.
+
 ## Review Triage Log
 
 ## Design Notes
@@ -167,3 +187,68 @@ path (story 7.3); no UI (story 7.4); no hand-edit of `api/main.py`, a registry, 
 - `make test-fast` — expected: green, lint and typecheck included.
 - `make test` — expected: green, once, before `review`.
 - `python3 _bmad/scripts/branch_conflicts.py --against story/7-2` — expected: clean.
+
+## Auto Run Result
+
+**Status:** review (per the wave contract this story terminates at review; it is
+not merged and not marked done by the builder).
+
+**Summary.** `GET /meetings/{meetingId}/speakers` aggregates a meeting's
+existing `transcript_segment` rows into one row per voice — talk time, segment
+count, and the `startMs` of the tag's three longest segments, never padded —
+with `participantId`/`displayName` carrying only what `align` already stored.
+No migration, no change to story 7.1's tag-producing side, no write path.
+Registration is the file (story 2.8): `api/main.py` is untouched.
+
+**Files changed.**
+- `server/meetingminer/api/speakers.py` — NEW, the whole feature.
+- `server/tests/test_api_speakers.py` — NEW, 16 tests, one per matrix row.
+- `server/tests/test_api_registry.py` — `"speakers"` added to
+  `BASELINE_ROUTER_ORDER` (footprint departure, recorded in the Change Log).
+- `web/src/client/{index,sdk,types}.gen.ts` — regenerated, additive only.
+- Sprint status (`7-2-speaker-tags-on-the-wire: review`) and sprint notes.
+
+**Verification (all run in this worktree against its private stack
+`meetingminer-7-2`).**
+- `uv run --project server pytest server/tests/test_api_speakers.py -q` — 16
+  passed, 1.28s.
+- `uv run --project server pytest server/tests/test_api_speakers.py
+  server/tests/test_api_registry.py server/tests/test_api_moments.py -q` — 62
+  passed.
+- `make test-fast` — 1848 passed, 2 skipped, 378 deselected, 55.64s; lint and
+  typecheck green inside the target. Both skips are pre-existing environment
+  skips named in the output (no `pyannote` in the default venv; the
+  network-gated yt-dlp test).
+- `make test` — exit 0: 2226 passed, 2 skipped in 608.86s, web build succeeded.
+- `python3 _bmad/scripts/branch_conflicts.py --against story/7-2` —
+  `main × story/7-2` clean; clean against `story/10-2`, `story/6-2a`,
+  `story/6-2a-review`, `story/8-1-review`. The one conflicting pair,
+  `story/7-2 × story/8-1`, is on `sprint-notes.md` and `docs/architecture.md`:
+  this branch never touches `docs/architecture.md` (`git diff --name-only
+  main...HEAD`), and `main × story/8-1` conflicts on the same two files
+  independently. `sprint-notes.md` is the append the wave rules say to expect
+  integrate to union.
+
+**Coverage was demonstrated, not asserted.** Each behavioral claim was proved by
+mutating the implementation, observing the named tests fail, and reverting:
+removing the route module (collection error, whole file); dropping the `[1:3]`
+slice (three-longest test red); reversing the sample ordering to shortest-first
+(3 red); reversing row order to quietest-first (2 red); falling `displayName`
+back to the raw label, i.e. a guessed identity (3 red, including the
+one-shape-two-sources criterion); removing the viewability gate (both 409 tests
+red); removing the existence check (404 test red). The registry departure was
+proved the same way: reverting the `BASELINE_ROUTER_ORDER` line fails
+`test_existing_routers_keep_the_baseline_registration_order`.
+
+**Residual risks.**
+- `talkTimeMs` is summed wall-clock segment duration, so overlapping segments
+  from two labels would double-count against a meeting's real length. No caller
+  divides by meeting length today; story 7.4's talk share sums the rows.
+- A participant merged away after the last `align` run is still named here until
+  the rerun — the deliberate AD-5 lag, chosen so `/speakers` and `/drilldown`
+  cannot disagree about one segment's `participantId`.
+- `moments._require_viewable` is imported across a module boundary rather than
+  extracted to a shared home, because extracting it would edit `moments.py`,
+  outside this story's footprint.
+- Not filed as backlog ids: no id was taken this run (highest used remains
+  B-37).

@@ -3153,3 +3153,29 @@ that module.
 construction and a real multi-video run is minutes of downloads. Recorded as a
 residual risk rather than quietly assumed away — the first real playlist run is
 the test that matters, and it has not happened.
+## Story 7.2 — Speaker Tags on the Wire, 2026-08-30
+
+`GET /meetings/{id}/speakers` is one read-only aggregation over the transcript
+segments story 7.1 already tags. No migration, no change to the tag-producing
+side: every column it reads existed before the branch.
+
+Two things a later lane should know.
+
+**One shape, two sources, is a test rather than a claim.** The diarized meeting
+and the name-carrying meeting are seeded from one timing table, so the
+"identical talk time and sample offsets" clause is asserted by comparing two
+live payloads, not by reading the two code paths and agreeing they look alike.
+
+**`projection_seed.seed_meeting` cannot express this story.** Its turns
+hard-code `end_ms = start_ms + 2000`, so every segment has the same duration
+and neither talk time nor longest-segment sampling is observable through it.
+The story seeds its own segments on top of `seed_meeting(turns=())`, which
+still supplies the job, stage rows, meeting and `transcript_source` the gate
+and the foreign keys need. A future story that needs varying durations should
+do the same rather than widening the shared helper mid-wave.
+
+**Footprint departure, recorded not widened:** `server/tests/test_api_registry.py`
+pins `BASELINE_ROUTER_ORDER` with `==`, so any new router module must be added
+to that list — demonstrated by reverting the line and watching
+`test_existing_routers_keep_the_baseline_registration_order` fail. No other
+in-flight branch touches that file.
