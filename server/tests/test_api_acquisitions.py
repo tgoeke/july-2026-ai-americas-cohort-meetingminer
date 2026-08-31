@@ -587,6 +587,27 @@ def test_a_path_that_is_not_a_uuid_never_becomes_a_filename(
     assert response.headers["content-type"].startswith(PROBLEM_MEDIA_TYPE)
 
 
+def test_a_status_file_may_not_lend_its_contents_to_another_id(
+    client: Any, env: Env
+) -> None:
+    """The only string that becomes a path here is the validated path
+    parameter. A file whose own `acquisitionId` disagrees with the id it was
+    found under is refused rather than served — and it certainly does not get
+    to name the log the tail is read from."""
+    record = env.record(status="failed")
+    path = acquisitions.status_path(env.root, record.acquisition_id)
+    body = json.loads(path.read_text(encoding="utf-8"))
+    body["acquisitionId"] = "../../etc/passwd"
+    path.write_text(json.dumps(body), encoding="utf-8")
+
+    response = client.get(f"/acquisitions/{record.acquisition_id}")
+    assert response.status_code == 500, response.text
+    assert response.headers["content-type"].startswith(PROBLEM_MEDIA_TYPE)
+    assert response.json()["type"] == (
+        "urn:meetingminer:problem:acquisition-state-unreadable"
+    )
+
+
 def test_a_posted_acquisition_resolves_its_meeting_id_from_postgres(
     client: Any,
     env: Env,

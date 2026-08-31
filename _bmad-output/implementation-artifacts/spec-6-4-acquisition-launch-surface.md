@@ -291,6 +291,13 @@ not start — recorded below as a named gap for integration).
   (2) `PROBLEM_STATUS` and `REMEDIATIONS` are literal dicts rather than
   comprehensions over `REFUSAL_RULES`, because a comprehension would give a
   rule added later a silent default and make the completeness test vacuous.
+- **2026-08-30, build.** Added beyond the matrix, and small enough to build
+  rather than defer: `read_record` refuses a status file whose own
+  `acquisitionId` disagrees with the id it was found under, and the status
+  route builds the log path from the validated `UUID` path parameter rather
+  than from the record. Without the first, file *content* — not a request —
+  could choose which log the tail is read from. It is the same rule the matrix
+  states for path segments, applied one level further in.
 - **2026-08-30, build.** Deliberately *not* built: nothing reaps a terminal
   status file, and there is no route to list, cancel or delete an
   acquisition. All four are in the spec's Never list. The growth cost of the

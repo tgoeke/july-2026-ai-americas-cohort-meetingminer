@@ -3756,3 +3756,9 @@ would not reserve it.
 proved by mutation instead: fourteen single-edit mutations across the three
 source files and the registry baseline, **all fourteen red**, none silently
 passing.
+
+**Rebased after the build** onto `origin/main` at `e5e0ff9` (the B-36 diarizer
+work, 17 commits, none touching this story's paths). One conflict —
+`sprint-notes.md`, both sides appending at EOF — resolved as a union;
+`sprint-status.yaml` merged key-wise through its driver. `make test-fast` and
+`make test` re-run green afterwards, and `main × story/6-4` is clean.

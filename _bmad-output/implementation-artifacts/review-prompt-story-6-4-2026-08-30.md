@@ -39,13 +39,13 @@ terminal but not filed does not exist.
 - Worktree: `/Users/devopsterus/current/cohort/meetingminer-wt/6-4`
   (never edit `/Users/devopsterus/current/cohort/meetingminer`)
 - Branch under review: `story/6-4` (pushed to `origin`)
-- Review range: `ea0c113e90883ebdb5cc150536b2f260dd6326fb..HEAD`
+- Review range: `e5e0ff9..HEAD` — three commits, all story 6.4:
+  `7a20f35` the spec, `c0f6fad` the implementation, `32aef24` the tracking and
+  this handoff. The branch was **rebased onto `origin/main` at `e5e0ff9`**
+  after the build, so the pre-rebase SHAs (`1c10ecd`, `a5adfb1`, `e53d21c`) are
+  gone; use the new ones.
 
-Every commit in the range belongs to story 6.4. `1c10ecd` is the spec commit
-the build started from; everything after it is this story's implementation and
-its tracking.
-
-`git log --oneline ea0c113..HEAD` gives the current list.
+`git log --oneline e5e0ff9..HEAD` gives the current list.
 
 ## Spec
 
@@ -185,6 +185,13 @@ judge of its own calls.
     stubbing it would stop testing the thing the story is about. Attack the
     portability and the reaping.
 
+11. **`read_record` refuses an id mismatch, and the status route builds the
+    log path from the validated parameter rather than from the record.** Two
+    guards for one hazard — a corrupt or hand-edited status file whose
+    `acquisitionId` names something else, which would otherwise choose the log
+    the tail is read from. Only the first is observable once both are in
+    place. Attack whether the second is dead weight.
+
 ## Verify these clauses directly, they are what the story is
 
 - **The request handler does no acquisition work.** `no_acquisition_work` is an
@@ -201,7 +208,11 @@ judge of its own calls.
   proves neither ran.
 - **`/acquisitions/probe` is not swallowed.** Asserted twice: as a declaration
   order inside the router, and as a live 200 on the discovery-registered app.
-- **No request can name a file.** Every path segment is a typed `UUID`.
+- **No request can name a file.** Every path segment is a typed `UUID`, and
+  the only string that reaches a filename in the status route is that
+  validated parameter. `read_record` additionally refuses a status file whose
+  own `acquisitionId` disagrees with the id it was found under, so file
+  *content* cannot become a path either.
 
 ## Verification baseline
 
@@ -222,28 +233,52 @@ not noise:
   isolated lane.
 - `python3 _bmad/scripts/branch_conflicts.py --against story/6-4` → clean
   against `main` and against `story/10-2-review`, `story/7-3`, `story/8-2`.
-  `story/10-2` conflicts on `sprint-notes.md` only — that branch already
-  conflicts with `main` on the same file, so it is pre-existing and integrate
-  unions it.
+  `story/10-2` and `story/10-2-review` conflict on `sprint-notes.md` only —
+  an EOF append against an EOF append, which integrate unions.
+
+**Manual smoke check of the real child.** `python -m
+meetingminer.acquisitions --run --acquisition-id <uuid> --url <watch url>` was
+run standalone against a throwaway `MM_CONFIG_PATH` / `MM_ENV_PATH` / drops
+root holding one already-minted YouTube drop, with `MM_API_URL` pointed at a
+closed port. It loaded its own config from disk, reached `exists` with no
+`yt-dlp` invocation, tried the one intake door, and wrote `status: failed` with
+`rule: unclassified` and a remediation carrying the exact `curl` re-POST for
+that drop, exiting 1. Nothing about the run needed FastAPI. Reproduce it if you
+want the runner exercised outside the test harness.
 
 **Red-first evidence.** The tests were written after the code, so their
-coverage was proved by mutation instead: fourteen single-edit mutations across
+coverage was proved by mutation instead: sixteen single-edit mutations across
 the three source files and the registry baseline — liveness removed, a
 remediation key renamed, a status entry deleted, the pre-`Popen` write removed,
 `refusal_for` dropped from the failure path, the re-POST command dropped from
 the intake remediation, the partial-line trim disabled, offline URL
 classification bypassed, `source` suppressed, the meeting query stubbed,
-`ensure_tools` dropped from `probe_only`, the ms conversion dropped, the blank-
-title fallback weakened, and the registry entry removed. **All fourteen turned
-a test red**; none passed silently. The harness is
-`scratchpad/mutate.py` (not committed — reproduce it or trust the list).
+`ensure_tools` dropped from `probe_only`, the ms conversion dropped, the
+blank-title fallback weakened, the registry entry removed, the `read_record`
+id guard disabled, and the log path taken from file content again.
+
+**Fifteen of the sixteen turned a test red.** The one that did not is the last:
+with the `read_record` guard in place, `record.acquisition_id` and the
+validated path parameter are provably equal, so building the log path from
+either is indistinguishable. That line is deliberate defence-in-depth, not
+covered behaviour — if you would rather have one guard than two, say so as a
+finding. The harness is a throwaway script, not committed; the list above is
+the record.
 
 ## History you need to tell a regression from a pre-existing condition
 
-- The branch was cut from `main` at `ea0c113` and has **not** been rebased.
-  Story 11-2 had already landed, so this worktree runs a private Docker stack.
-- `sprint-notes.md` conflicts with `story/10-2`. That branch already conflicts
-  with `main` on the same file. Pre-existing; integrate absorbs it.
+- The branch was cut from `main` at `ea0c113`, built there, then **rebased
+  onto `origin/main` at `e5e0ff9`** (17 commits, the B-36 diarizer work — none
+  of it touching this story's paths). The one rebase conflict was
+  `sprint-notes.md`, both sides appending at EOF, resolved as a union: main's
+  B-36 blocks first, this story's entry last. `sprint-status.yaml` merged
+  key-wise through its driver with no conflict. Everything was re-verified
+  after the rebase; the numbers below are post-rebase.
+- `sprint-notes.md` still conflicts with `story/10-2` and `story/10-2-review`,
+  which append at the same EOF. `story/10-2` already conflicts with `main` on
+  that file. Pre-existing and pre-declared by the wave rules ("no merge driver:
+  keep your entry short, expect integrate to union it"); it is not a defect of
+  this branch and there is no narrower form of an EOF append.
 - `make client` was **not** run — `web/` is outside the footprint and the
   command needs a running api, which this wave forbids starting. This is the
   epic's last acceptance clause and is deliberately unmet. It is deferred item

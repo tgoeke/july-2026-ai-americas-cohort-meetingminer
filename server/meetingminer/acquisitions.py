@@ -496,8 +496,22 @@ def _read_record_file(path: Path) -> AcquisitionRecord:
 
 
 def read_record(root: Path, acquisition_id: str) -> AcquisitionRecord:
-    """The record for one acquisition id, or :class:`AcquisitionNotFound`."""
-    return _read_record_file(status_path(root, acquisition_id))
+    """The record for one acquisition id, or :class:`AcquisitionNotFound`.
+
+    The file's own ``acquisitionId`` must equal the id it was found under. It
+    always does for a record this module wrote; refusing the mismatch keeps a
+    corrupted or hand-edited file from lending its contents — and its id, which
+    the log path is built from — to a caller that asked for a different
+    acquisition.
+    """
+    path = status_path(root, acquisition_id)
+    record = _read_record_file(path)
+    if record.acquisition_id != acquisition_id:
+        raise AcquisitionStateError(
+            f"acquisition state at {path} names {record.acquisition_id!r},"
+            f" not {acquisition_id!r}"
+        )
+    return record
 
 
 def log_tail(

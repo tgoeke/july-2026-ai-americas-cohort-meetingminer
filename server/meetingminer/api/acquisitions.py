@@ -310,7 +310,9 @@ def get_acquisition(acquisition_id: UUID, request: Request) -> AcquisitionStatus
         )
 
     return AcquisitionStatus(
-        acquisition_id=UUID(record.acquisition_id),
+        # The validated path parameter, never the id inside the file: the log
+        # path is built from it, and only a typed UUID may reach a filename.
+        acquisition_id=acquisition_id,
         source_id=record.source_id,
         url=record.url,
         status=record.status,
@@ -322,6 +324,6 @@ def get_acquisition(acquisition_id: UUID, request: Request) -> AcquisitionStatus
         source=source,
         refusal=refusal,
         log_tail=acquisitions.log_tail(
-            acquisitions.log_path(root, record.acquisition_id)
+            acquisitions.log_path(root, str(acquisition_id))
         ),
     )
