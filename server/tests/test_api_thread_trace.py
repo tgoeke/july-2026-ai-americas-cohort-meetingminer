@@ -19,6 +19,7 @@ the twin's cost for it.
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -66,6 +67,26 @@ def supersede(conn: Connection, moment_id: UUID) -> None:
         " WHERE id = %s",
         (moment_id,),
     )
+
+
+def add_screenshot(conn: Connection, meeting_id: UUID, moment_id: UUID) -> UUID:
+    """One captured still, using the same compact chain as the timeline tests."""
+    screen_id = conn.execute(
+        "INSERT INTO screen (identity_key, signature, view_type)"
+        " VALUES (%s, %s, 'slide') RETURNING id",
+        (f"screen:{meeting_id}", f"signature for {meeting_id}"),
+    ).fetchone()[0]
+    screenshot_id = conn.execute(
+        "INSERT INTO screenshot (meeting_id, screen_id, ordinal,"
+        " start_offset_ms, end_offset_ms, frame_count, path, view_type)"
+        " VALUES (%s, %s, 1, 0, 60000, 3, %s, 'slide') RETURNING id",
+        (meeting_id, screen_id, f"meetings/{meeting_id}/shot-0001.jpg"),
+    ).fetchone()[0]
+    conn.execute(
+        "UPDATE moment SET screenshot_id = %s WHERE id = %s",
+        (screenshot_id, moment_id),
+    )
+    return screenshot_id
 
 
 def spread_thread(
@@ -177,6 +198,29 @@ def test_the_offer_is_bounded_by_limit(
             spread_thread(conn, name=f"subject{index}", meetings=3, day_step=30)
 
     body = client.get("/threads/suggestions", params={"limit": 2}).json()
+    assert len(body["subjects"]) == 2
+
+
+def test_suggestion_band_includes_both_edges_without_widening(
+    client: TestClient, pool: ConnectionPool
+) -> None:
+    """The named band is inclusive even when the corpus cannot fill the offer."""
+    with pool.connection() as conn:
+        spread_thread(conn, name="lower edge", meetings=2, day_step=20)
+        spread_thread(conn, name="upper edge", meetings=3, day_step=20)
+        spread_thread(conn, name="outside edge", meetings=4, day_step=20)
+
+    body = client.get(
+        "/threads/suggestions",
+        params={"minMeetings": 2, "maxMeetings": 3, "minSpanDays": 0, "limit": 6},
+    ).json()
+
+    assert {subject["name"] for subject in body["subjects"]} == {
+        "lower edge",
+        "upper edge",
+    }
+    assert body["minMeetings"] == 2
+    assert body["maxMeetings"] == 3
     assert len(body["subjects"]) == 2
 
 
@@ -363,6 +407,46 @@ def test_a_stop_carries_the_facts_a_no_screen_reason_is_built_from(
     assert all(
         moment["screenshotId"] is None for stop in stops for moment in stop["moments"]
     )
+
+
+def test_a_stop_with_a_screen_carries_its_opaque_id_and_count(
+    client: TestClient, pool: ConnectionPool
+) -> None:
+    """B-58: the present-screen leg is as explicit as the absent one."""
+    with pool.connection() as conn:
+        meeting_id = seed_meeting(conn, "filmed", has_recording=True)
+        topic_id, moment_id = add_topic(conn, meeting_id, "subject")
+        screenshot_id = add_screenshot(conn, meeting_id, moment_id)
+        thread_id = add_thread(conn, identity_key="subject", topic_ids=[topic_id])
+
+    stop = client.get(
+        "/threads/trace", params={"threadId": str(thread_id)}
+    ).json()["stops"][0]
+
+    assert stop["screenCount"] == 1
+    assert stop["moments"][0]["screenshotId"] == str(screenshot_id)
+
+
+def test_day_precision_is_anchored_at_midnight_and_preserved(
+    client: TestClient, pool: ConnectionPool
+) -> None:
+    """B-59's reachable neighbour never invents the stored clock time."""
+    with pool.connection() as conn:
+        meeting_id = seed_meeting(
+            conn,
+            "date-only",
+            precision="day",
+            started_at=datetime(2026, 4, 1, 18, 45, tzinfo=timezone.utc),
+        )
+        topic_id, _ = add_topic(conn, meeting_id, "subject", start_ms=900_000)
+        thread_id = add_thread(conn, identity_key="subject", topic_ids=[topic_id])
+
+    stop = client.get(
+        "/threads/trace", params={"threadId": str(thread_id)}
+    ).json()["stops"][0]
+
+    assert stop["occurredAt"] == "2026-04-01T00:15:00Z"
+    assert stop["occurredAtPrecision"] == "day"
 
 
 def test_related_subjects_never_offer_the_one_already_open(
