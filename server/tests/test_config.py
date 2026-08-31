@@ -111,6 +111,11 @@ projections:
       filterable_attributes: [meetingId, corpus, state, kind]
       sortable_attributes: []
       ranking_rules: [words, typo, proximity, attribute, sort, exactness]
+    documents:
+      searchable_attributes: [text, title, kind]
+      filterable_attributes: [meetingId, corpus, kind, origin, reviewState]
+      sortable_attributes: []
+      ranking_rules: [words, typo, proximity, attribute, sort, exactness]
     synonyms: {sftp: [ftp], ftp: [sftp]}
 stores:
   postgres: {host: localhost, port: 5432, database: meetingminer, user: meetingminer}

@@ -31,6 +31,11 @@ DOCUMENT_FIELDS = {
     "kind", "origin", "dropRelativePath", "sha256", "byteSize", "layout",
     "itemCount", "artifactCount", "model", "promptVersion", "promptHash",
     "documentText", "createdAt", "updatedAt",
+    # Story 12.4: this endpoint serves documents regardless of approval, which
+    # is the same ungated reach AD-4's exception grants search — so it carries
+    # the same label, from the same constants, and a surface that renders a
+    # document cannot render it as if it were reviewed (AD-18).
+    "reviewState", "authorship", "reviewLabel", "citable",
 }
 
 # Markdown a renderer would be tempted to normalize: a table, trailing
@@ -341,3 +346,53 @@ def test_an_unsettled_meeting_is_a_409(client, test_pool) -> None:
     assert (
         response.json()["type"] == "urn:meetingminer:problem:meeting-not-viewable"
     )
+
+
+# --- the unreviewed label (story 12.4) ------------------------------------
+
+
+def test_every_served_document_says_it_is_unreviewed_machine_written(
+    client, test_pool
+) -> None:
+    """AD-18 on this surface, from the same constants the indexed record uses.
+
+    This endpoint has always served documents regardless of approval. Story
+    12.4 makes that reach explicit and general, and the price of the reach is
+    that every surface labels what it is showing. The search result and this
+    panel must not be able to say different things about the same document, so
+    both read one set of constants.
+    """
+    from meetingminer.projections.documents import (
+        AUTHORSHIP,
+        REVIEW_LABEL,
+        REVIEW_STATE,
+    )
+
+    seeded = _seed(test_pool, source_id="doc-labelled")
+    _document(test_pool, seeded.meeting_id)
+
+    [document] = client.get(
+        f"/meetings/{seeded.meeting_id}/extraction-documents"
+    ).json()["documents"]
+
+    assert document["reviewState"] == REVIEW_STATE
+    assert document["authorship"] == AUTHORSHIP
+    assert document["reviewLabel"] == REVIEW_LABEL
+    assert document["citable"] is False
+
+
+def test_the_served_document_carries_no_citation_field(client, test_pool) -> None:
+    """A document is never a citation target, on this surface too (AD-6).
+
+    The endpoint serves provenance and text; it names no moment, because there
+    is no moment a document anchors to. A `momentId` here would be a citation
+    path this story deliberately does not open.
+    """
+    seeded = _seed(test_pool, source_id="doc-uncitable")
+    _document(test_pool, seeded.meeting_id)
+
+    [document] = client.get(
+        f"/meetings/{seeded.meeting_id}/extraction-documents"
+    ).json()["documents"]
+
+    assert not {"momentId", "momentIds", "artifactId"} & set(document)
