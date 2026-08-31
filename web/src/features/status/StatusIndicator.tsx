@@ -3,6 +3,7 @@ import { API_BASE } from '@/lib/api'
 import { useOpenPath } from '@/routes/navigation'
 import {
   API_UNREACHABLE_REMEDIATION,
+  attributionLine,
   degradedRows,
   type StatusPoll,
 } from './status'
@@ -82,6 +83,14 @@ export function StatusIndicator() {
                 </li>
               ))}
             </ul>
+          )}
+          {poll.kind === 'loaded' && (
+            /* The indicator summarises; it must not summarise away whose
+               reading this is. A binding shown here describes the api
+               process, never the system (AD-10 as amended, AD-18). */
+            <p className="mt-2 text-xs text-muted-foreground">
+              {attributionLine(poll.status)}
+            </p>
           )}
           <button
             type="button"

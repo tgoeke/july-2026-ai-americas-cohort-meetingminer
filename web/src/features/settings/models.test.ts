@@ -59,16 +59,51 @@ function statusRow(
     state: 'ok',
     detail: '',
     remediation: null,
+    source: 'file-default',
+    defaultBinding: 'openai/gpt-5.2',
+    fileBinding: 'openai/gpt-5.2',
+    selected: null,
+    staleSelection: null,
+    staleReason: null,
+    observedBy: 'api',
+    servedBy: 'api',
+    attribution: 'Read by the api process.',
     ...overrides,
   }
 }
 
-function status(rows: Array<StatusResponse['llmRoles'][number]>): StatusResponse {
+/** One `GET /status.providers[]` row (story 8.2a): key validity per provider. */
+function providerRow(
+  overrides: Partial<StatusResponse['providers'][number]> = {},
+): StatusResponse['providers'][number] {
+  return {
+    provider: 'openai',
+    keyState: 'present',
+    detail: '',
+    remediation: null,
+    state: 'ok',
+    observedBy: 'api',
+    ...overrides,
+  }
+}
+
+function status(
+  rows: Array<StatusResponse['llmRoles'][number]>,
+  providers: Array<StatusResponse['providers'][number]> = [],
+): StatusResponse {
   return {
     generatedAt: '2026-08-31T09:00:00Z',
     overall: 'ok',
+    observedBy: {
+      process: 'api',
+      configPath: '/repo/config.yaml',
+      configLoadedAt: '2026-08-31T08:00:00Z',
+      catalogNote: '',
+      selectionNote: '',
+    },
     api: { id: 'api', label: 'api', state: 'ok', detail: '', remediation: null },
     stores: [],
+    providers,
     llmRoles: rows,
     worker: { state: 'running', jobs: {}, stageBacklog: {}, detail: '', remediation: null },
   }
@@ -173,6 +208,74 @@ describe('providerHealthIndex', () => {
     const index = providerHealthIndex(null)
     expect(index.size).toBe(0)
     expect(healthFor(index, 'openai')).toEqual({ word: 'unknown', remediation: null })
+  })
+
+  it('covers a provider no role binds, from `providers[]` (story 8.2a)', () => {
+    // The gap the role rows could never close: a configured provider nothing
+    // is currently bound to had no row at all, so the picker showed `unknown`
+    // for every option on it. `providers[]` answers the credential question
+    // for each configured provider whether or not a role names it.
+    const index = providerHealthIndex(
+      status(
+        [statusRow({ role: 'chat', provider: 'openai' })],
+        [
+          providerRow({
+            provider: 'anthropic',
+            keyState: 'missing',
+            state: 'degraded',
+            remediation: 'set ANTHROPIC_API_KEY in .env',
+          }),
+        ],
+      ),
+    )
+    expect(healthFor(index, 'anthropic')).toEqual({
+      word: 'missing',
+      remediation: 'set ANTHROPIC_API_KEY in .env',
+    })
+  })
+
+  it('lets a role’s own endpoint outrank the provider’s default endpoint', () => {
+    // Reachability is per endpoint. A provider answering at its configured
+    // base URL says nothing about a role that overrides it, so the role's own
+    // reading has to win — otherwise a healthy provider row would paint a
+    // dead override green, which is the wrong direction to be wrong in.
+    const index = providerHealthIndex(
+      status(
+        [
+          statusRow({
+            role: 'extraction',
+            provider: 'ollama',
+            keyState: 'not-required',
+            state: 'degraded',
+            remediation: 'check the extraction override at http://10.77.0.52:11434',
+          }),
+        ],
+        [providerRow({ provider: 'ollama', keyState: 'not-required', state: 'ok' })],
+      ),
+    )
+    expect(healthFor(index, 'ollama', 'extraction').word).toBe('unreachable')
+    // A role with no row of its own falls through to the provider's endpoint.
+    expect(healthFor(index, 'ollama', 'chat').word).toBe('ok')
+  })
+
+  it('keeps a credential verdict provider-wide even when an endpoint answers', () => {
+    const index = providerHealthIndex(
+      status(
+        [statusRow({ role: 'chat', provider: 'openai', keyState: 'present', state: 'ok' })],
+        [
+          providerRow({
+            provider: 'openai',
+            keyState: 'invalid',
+            state: 'degraded',
+            remediation: 'set a valid OPENAI_API_KEY in .env',
+          }),
+        ],
+      ),
+    )
+    expect(healthFor(index, 'openai', 'chat')).toEqual({
+      word: 'invalid',
+      remediation: 'set a valid OPENAI_API_KEY in .env',
+    })
   })
 })
 
