@@ -953,3 +953,73 @@ is not a builder's call.
 
 A cap, or a sweep of terminal records older than N days with the interval in
 `config.yaml` beside the other acquisition boundaries, closes it.
+
+---
+
+### B-59 · The generated TypeScript client does not know the trace operations — S
+
+Story 10.7 added `GET /threads/suggestions` and `GET /threads/trace`, and
+`web/src/features/threads/traceApi.ts` reads them through raw `fetch` with a
+hand-written strict parser. That is not a preference: `make client` regenerates
+`web/src/client/` from a **running** api's `/openapi.json`, and 10.7 could not
+start one — a corpus ingest was in flight against a paid extraction model, and
+the build was told not to call it.
+
+The cost is a second definition of the same wire contract. `traceApi.ts`'s
+interfaces and `api/threads.py`'s response models are pinned to each other only
+by the tests on both sides, so a field renamed on the server is a runtime
+refusal in the browser rather than a type error at build time.
+
+**Do:** with the api up and the ingest finished, run `make client`, then
+replace the hand-rolled request functions in `traceApi.ts` with
+`listThreadSuggestions` and `traceThread` from `@/client/sdk.gen`, keeping the
+strict parsers — they check things the generated types cannot, such as `mode`
+being one of exactly two values and `completenessNote` being present.
+
+**Done when:** `traceApi.ts` imports from `@/client/sdk.gen`, the generated
+types are the source of the payload shapes, and
+`web/src/features/threads/ThreadTrace.test.tsx` passes unchanged.
+
+### B-60 · No test covers a trace stop that actually carries screens — S
+
+`GET /threads/trace` serves `screenshotId` per quoted moment and `screenCount`
+per stop, and `TraceTimeline` draws a strip of stills at the card altitude and
+full thumbnails at the moment altitude. Every test of that path exercises the
+**absent** case only.
+
+The reason is seeding cost rather than oversight: `moment.screenshot_id`
+references `screenshot`, which requires a `screen` row (`RESTRICT`), so a
+server test that produces one stop with a still has to build the whole
+screens chain by hand. The absent case is the one AD-18 turns on and it is
+covered on both sides; the present case is covered by nothing.
+
+**Do:** add a screens-chain seeding helper next to `add_topic` in
+`server/tests/test_api_threads.py` and assert `screenCount` and `screenshotId`
+on a stop that has stills; on the web side, assert the card strip renders one
+`img` per moment that carries one.
+
+**Done when:** a trace over a meeting with captured screens asserts a non-zero
+`screenCount` on the server and a rendered strip in the browser tests.
+
+### B-61 · An undated meeting cannot arise, so the timeline's unplaceable lane is unbuilt — S
+
+Story 10.7's acceptance criteria require a meeting carrying no date to be placed
+at one end of the timeline and **named as unplaceable**, never interleaved.
+That case cannot occur in this schema: `meeting.started_at` is `NOT NULL`
+(migration 0002) and every read derives a stop's position from it, so there is
+no row a trace could receive without a date. Building a lane for it would have
+been dead code shaped like a safeguard.
+
+What does exist is the near neighbour, and 10.7 handles it: `started_at_precision
+= 'day'` means the time of day was never recorded. Such a stop is anchored at
+midnight — the only placement available — and labelled `date only`, so the view
+never prints a clock it invented (AD-18).
+
+**Do:** if a future ingest path admits a meeting whose date is unknown, make
+`started_at` nullable and add the unplaceable lane at that point, with the
+label the criteria name. Until then this is recorded so the gap is a decision
+rather than an omission.
+
+**Done when:** either the schema keeps `started_at` `NOT NULL` and this entry is
+closed as not-applicable, or a nullable date lands together with the lane and a
+test that an undated stop is never interleaved.
