@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ConfigResponse } from '@/client/types.gen'
+import type { ConfigResponse, RoleSelectionView } from '@/client/types.gen'
 import { SettingsPage } from './SettingsPage'
 import { changePath, labelize, matchSecretMarker } from './settings'
 
@@ -118,17 +118,45 @@ function configFixture(): ConfigResponse {
   }
 }
 
-function stubConfigFetch(payload: ConfigResponse) {
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+/**
+ * Routes the page's three reads. `GET /config` is this file's subject; the two
+ * the model picker makes (story 8.3) are answered with an empty catalog unless
+ * a test asks otherwise, so the assertions below stay about the declared
+ * stack. `ModelRoles.test.tsx` is where the picker itself is tested.
+ */
+function stubConfigFetch(payload: ConfigResponse, roles: Array<RoleSelectionView> = []) {
   vi.stubGlobal(
     'fetch',
-    vi.fn(() =>
-      Promise.resolve(
-        new Response(JSON.stringify(payload), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
-      ),
-    ),
+    vi.fn((input: unknown) => {
+      const url = input instanceof Request ? new URL(input.url).pathname : String(input)
+      if (url.endsWith('/settings/models')) return Promise.resolve(jsonResponse({ roles }))
+      if (url.endsWith('/status')) {
+        return Promise.resolve(
+          jsonResponse({
+            generatedAt: '2026-08-31T09:00:00Z',
+            overall: 'ok',
+            api: { id: 'api', label: 'api', state: 'ok', detail: '', remediation: null },
+            stores: [],
+            llmRoles: [],
+            worker: {
+              state: 'running',
+              jobs: {},
+              stageBacklog: {},
+              detail: '',
+              remediation: null,
+            },
+          }),
+        )
+      }
+      return Promise.resolve(jsonResponse(payload))
+    }),
   )
 }
 
@@ -183,9 +211,15 @@ describe('Settings', () => {
     expect(paths.length).toBe(7)
     // The projections section additionally names `make rebuild`.
     expect(screen.getByText(/additionally need `make rebuild`/)).toBeInTheDocument()
-    // The page-level read-only contract is stated.
-    expect(screen.getByText(/there is no edit control and never will be/)).toBeInTheDocument()
-    // No edit affordance of any kind: no inputs, no buttons.
+    // The page-level contract is stated, and it names its one exception:
+    // story 8.3's model selection is stored by the api, not a file edit.
+    expect(
+      screen.getByText(/Everything on this page is read-only except the model bound/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/no other edit control exists/)).toBeInTheDocument()
+    // Still no free-text edit of the declared stack, and the only controls on
+    // the page are the model options — this fixture's `GET /settings/models`
+    // stub serves no role, so there are none of those either.
     expect(screen.queryAllByRole('textbox')).toHaveLength(0)
     expect(screen.queryAllByRole('button')).toHaveLength(0)
     // It relates to /status instead of duplicating it.
@@ -193,6 +227,35 @@ describe('Settings', () => {
       'href',
       '/status',
     )
+  })
+
+  it('mounts the model picker with the roles the api offers for selection', async () => {
+    stubConfigFetch(configFixture(), [
+      {
+        role: 'chat',
+        catalog: [
+          { binding: 'openai/gpt-5.2', label: 'GPT-5.2', provider: 'openai' },
+          { binding: 'ollama/gpt-oss:120b', label: 'GPT-OSS 120B (local)', provider: 'ollama' },
+        ],
+        default: 'openai/gpt-5.2',
+        fileBinding: 'openai/gpt-5.2',
+        selected: null,
+        effectiveBinding: 'openai/gpt-5.2',
+        provider: 'openai',
+        source: 'file-default',
+        staleSelection: null,
+        staleReason: null,
+      },
+    ])
+    renderSettings()
+
+    expect(await screen.findByText('Model per role')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('listbox', { name: 'Model bound to the chat role' }),
+    ).toBeInTheDocument()
+    expect(screen.getAllByRole('option')).toHaveLength(2)
+    // The judge is file-only (story 8.2) and the api does not serve it here.
+    expect(document.body.textContent).not.toMatch(/judge/i)
   })
 
   it('exposes no secret-bearing key name or value — payload fixture and rendered page', async () => {
