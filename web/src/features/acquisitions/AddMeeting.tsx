@@ -70,6 +70,7 @@ export function AddMeeting({ onOpenMeeting }: AddMeetingProps = {}) {
   const [tab, setTab] = useState<TabId>('youtube')
   const [url, setUrl] = useState('')
   const [probeState, setProbeState] = useState<ProbeState>({ kind: 'idle' })
+  const [probeAttempt, setProbeAttempt] = useState(0)
   const [submitting, setSubmitting] = useState(false)
   const [submitFailure, setSubmitFailure] = useState<Failure | null>(null)
   const [acquisitionId, setAcquisitionId] = useState<string | null>(null)
@@ -86,6 +87,7 @@ export function AddMeeting({ onOpenMeeting }: AddMeetingProps = {}) {
   const probeOwner = useRef({ generation: 0, key: '' })
 
   const shape = classifyYoutubeUrl(url)
+  const probeKey = shape.kind === 'valid' ? shape.normalized : null
   const { status, failure: pollFailure, retry } = useAcquisitionStatus(acquisitionId)
 
   useEffect(() => {
@@ -96,16 +98,12 @@ export function AddMeeting({ onOpenMeeting }: AddMeetingProps = {}) {
   // cancels the pending timer and aborts an in-flight request, so exactly one
   // probe is ever outstanding for the URL currently in the field.
   useEffect(() => {
-    if (shape.kind !== 'valid') {
+    if (probeKey === null) {
       probeOwner.current = { generation: probeOwner.current.generation + 1, key: '' }
       setProbeState({ kind: 'idle' })
       return
     }
-    const key = shape.normalized
-    // Already answered for this exact video: re-probing on an unrelated
-    // re-render would spend a request to learn what is already on screen.
-    if (probeOwner.current.key === key && probeState.kind !== 'idle') return
-
+    const key = probeKey
     const controller = new AbortController()
     const generation = probeOwner.current.generation + 1
     probeOwner.current = { generation, key }
@@ -137,10 +135,9 @@ export function AddMeeting({ onOpenMeeting }: AddMeetingProps = {}) {
       controller.abort()
     }
     // Keyed on the *normalized* URL, not the raw text: two spellings of one
-    // video are one probe. `probeState.kind` is deliberately absent — it is
-    // read only by the already-answered guard above, and depending on it would
-    // restart this effect on every transition the effect itself causes.
-  }, [shape.kind, shape.kind === 'valid' ? shape.normalized : ''])
+    // video are one probe. The explicit attempt changes only when Retry asks
+    // this effect to issue the same normalized request again.
+  }, [probeAttempt, probeKey])
 
   const submit = useCallback(
     async (target: string) => {
@@ -324,7 +321,7 @@ export function AddMeeting({ onOpenMeeting }: AddMeetingProps = {}) {
                 // Re-run the probe for the same URL by clearing the owner key.
                 probeOwner.current = { generation: probeOwner.current.generation + 1, key: '' }
                 setProbeState({ kind: 'idle' })
-                setUrl((current) => current)
+                setProbeAttempt((value) => value + 1)
               }}
             />
           )}

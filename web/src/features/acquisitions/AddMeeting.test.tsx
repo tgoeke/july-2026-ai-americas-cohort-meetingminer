@@ -311,6 +311,21 @@ describe('Add-meeting, the pre-flight probe', () => {
     expect(screen.getByTestId('submit-acquisition')).toBeDisabled()
   })
 
+  it('retries the current probe after a transport failure', async () => {
+    sdk.probeAcquisition
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({ data: probeResult(), error: undefined })
+    render(<AddMeeting />)
+    await typeUrl(VIDEO_URL)
+
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    await settleProbe()
+
+    expect(sdk.probeAcquisition).toHaveBeenCalledTimes(2)
+    expect(screen.getByTestId('probe-answered')).toHaveTextContent('Retrieval bake-off review')
+    expect(screen.getByTestId('submit-acquisition')).toBeEnabled()
+  })
+
   it('discards a superseded probe: the answer for an edited-away URL never lands', async () => {
     const first = probeResult({ title: 'THE OLD ONE', sourceId: 'youtube:aaaaaaaaaaa' })
     let resolveFirst: ((value: unknown) => void) | undefined
