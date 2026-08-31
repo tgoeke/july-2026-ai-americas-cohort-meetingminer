@@ -151,7 +151,10 @@ export function useTimelineView(initial: View, epochMs: number): TimelineViewApi
       observerRef.current?.disconnect()
       observerRef.current = null
       nodeRef.current = node
-      if (node === null) return
+      if (node === null) {
+        setMeasured(false)
+        return
+      }
       paint(drawnRef.current)
       const measure = () => {
         const measured = node.clientWidth - TIMELINE_GUTTER_PX

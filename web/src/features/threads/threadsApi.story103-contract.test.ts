@@ -1,4 +1,7 @@
+import { createElement } from 'react'
+import { render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { TimelineCanvas } from './TimelineCanvas'
 import { fetchTimeline, listThreads, parseTimeline } from './threadsApi'
 
 const THREAD_ID = '018f8f4c-3a53-7c11-8f6c-1a2b3c4d5e6f'
@@ -118,6 +121,46 @@ describe('Story 10.3 wire contract', () => {
     })
 
     expect(moments.level === 'moments' && moments.moments[0]?.occurredAt).toBe(occurredAt)
+    if (moments.level !== 'moments') throw new Error('expected moments payload')
+    const view = {
+      from: Date.parse(envelope.windowFrom),
+      scale: (Date.parse(envelope.windowTo) - Date.parse(envelope.windowFrom)) / 1000,
+    }
+    render(
+      createElement(TimelineCanvas, {
+        tier: 'moments',
+        view,
+        width: 1000,
+        epochMs: 0,
+        rootRef: () => undefined,
+        threads: [
+          {
+            threadId: THREAD_ID,
+            name: envelope.name,
+            mentionCount: envelope.mentionCount,
+            meetingCount: envelope.meetingCount,
+            firstMentionAt: envelope.windowFrom,
+            lastMentionAt: envelope.windowTo,
+            colorOrdinal: envelope.colorOrdinal,
+          },
+        ],
+        focusedThreadId: THREAD_ID,
+        bands: null,
+        meetings: null,
+        moments: moments.moments,
+        pending: false,
+        onZoomAt: vi.fn(),
+        onPan: vi.fn(),
+        onPanPixels: vi.fn(),
+        onFitTo: vi.fn(),
+        onFitAll: vi.fn(),
+        onFocusThread: vi.fn(),
+        onOpenMoment: vi.fn(),
+      }),
+    )
+    expect(
+      screen.getByRole('gridcell', { name: /Evidence begins after the mention anchor/ }),
+    ).toHaveAttribute('data-t', String(Date.parse(occurredAt)))
   })
 
   it('refuses truncated or malformed responses instead of half-drawing them', () => {

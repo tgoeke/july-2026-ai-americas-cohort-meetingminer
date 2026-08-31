@@ -118,8 +118,9 @@ export function Threads() {
   }, [])
 
   useEffect(() => {
+    if (routeAnchorFailure !== null) return
     void loadThreads()
-  }, [loadThreads])
+  }, [loadThreads, routeAnchorFailure])
 
   // Route defaults are applied only after the served extents exist. The
   // location key makes navigation back to an already visited URL a fresh
@@ -308,24 +309,6 @@ export function Threads() {
 
   const displayedThreadId = drawn?.tier === 'bands' ? focusedThreadId : (drawn?.threadId ?? null)
 
-  if (listFailure !== null) {
-    return (
-      <main className="mx-auto w-full max-w-[1600px] p-8">
-        <h1 className="text-3xl font-semibold tracking-tight">Threads</h1>
-        <Refusal failure={listFailure} onRetry={() => void loadThreads()} />
-      </main>
-    )
-  }
-
-  if (threads === null) {
-    return (
-      <main className="mx-auto w-full max-w-[1600px] p-8">
-        <h1 className="text-3xl font-semibold tracking-tight">Threads</h1>
-        <p className="mt-4 text-sm text-muted-foreground">Loading threads…</p>
-      </main>
-    )
-  }
-
   if (routeAnchorFailure !== null) {
     return (
       <main className="mx-auto w-full max-w-[1600px] p-8">
@@ -340,6 +323,24 @@ export function Threads() {
             view.
           </p>
         </div>
+      </main>
+    )
+  }
+
+  if (listFailure !== null) {
+    return (
+      <main className="mx-auto w-full max-w-[1600px] p-8">
+        <h1 className="text-3xl font-semibold tracking-tight">Threads</h1>
+        <Refusal failure={listFailure} onRetry={() => void loadThreads()} />
+      </main>
+    )
+  }
+
+  if (threads === null) {
+    return (
+      <main className="mx-auto w-full max-w-[1600px] p-8">
+        <h1 className="text-3xl font-semibold tracking-tight">Threads</h1>
+        <p className="mt-4 text-sm text-muted-foreground">Loading threads…</p>
       </main>
     )
   }
