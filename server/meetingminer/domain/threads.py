@@ -144,6 +144,22 @@ def normalized_topic_name(name: str) -> str:
     return " ".join(spaced.split())
 
 
+def _assert_finite_vector(vector: Sequence[float], *, label: str) -> None:
+    """Refuse a provider vector that cannot participate in real cosine math."""
+    for index, value in enumerate(vector):
+        try:
+            finite = math.isfinite(value)
+        except TypeError as exc:
+            raise ThreadDerivationError(
+                f"{label} has a non-finite or non-numeric component at index"
+                f" {index}: {value!r}"
+            ) from exc
+        if not finite:
+            raise ThreadDerivationError(
+                f"{label} has a non-finite component at index {index}: {value!r}"
+            )
+
+
 def cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
     """Cosine of the angle between two vectors, clamped to [-1.0, 1.0].
 
@@ -161,8 +177,15 @@ def cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
             " the same model in one pass, so a width mismatch is a bug here,"
             " not a model response"
         )
+    _assert_finite_vector(left, label="left vector")
+    _assert_finite_vector(right, label="right vector")
     left_norm = math.sqrt(sum(value * value for value in left))
     right_norm = math.sqrt(sum(value * value for value in right))
+    if not math.isfinite(left_norm) or not math.isfinite(right_norm):
+        raise ThreadDerivationError(
+            "cannot compare vectors whose norm is non-finite — the embedder"
+            " returned components too large for cosine similarity"
+        )
     if left_norm == 0.0 or right_norm == 0.0:
         return 0.0
     dot = sum(a * b for a, b in zip(left, right))
@@ -190,7 +213,13 @@ def _normalized_vectors(
                 " by the same model in one pass, so a width mismatch is a bug"
                 " here, not a model response"
             )
+        _assert_finite_vector(vector, label=f"embedding for topic {topic.id}")
         norm = math.sqrt(sum(value * value for value in vector))
+        if not math.isfinite(norm):
+            raise ThreadDerivationError(
+                f"embedding for topic {topic.id} has a non-finite norm — its"
+                " components are too large for cosine similarity"
+            )
         normalized[topic.id] = (
             tuple(value / norm for value in vector)
             if norm != 0.0

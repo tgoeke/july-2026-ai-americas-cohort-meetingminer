@@ -134,6 +134,19 @@ def test_comparing_different_widths_is_a_named_refusal() -> None:
     assert "2-dimension" in str(excinfo.value) and "3-dimension" in str(excinfo.value)
 
 
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_a_non_finite_vector_component_is_a_named_refusal(bad: float) -> None:
+    with pytest.raises(ThreadDerivationError, match="non-finite"):
+        cosine_similarity((bad, 0.0), (1.0, 0.0))
+
+
+def test_the_partition_refuses_non_finite_embeddings_instead_of_linking_them() -> None:
+    topics = [topic(1, "Vendor feed"), topic(2, "Budget review", day=1)]
+    vectors = {IDS[1]: (float("nan"), 0.0), IDS[2]: (1.0, 0.0)}
+    with pytest.raises(ThreadDerivationError, match=str(IDS[1])):
+        cluster_topics(topics, vectors=vectors, threshold=0.82)
+
+
 # --- the two legs ----------------------------------------------------------
 
 
