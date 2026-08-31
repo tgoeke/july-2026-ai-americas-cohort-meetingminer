@@ -57,7 +57,8 @@ export function IngestingMeetingCard({
   const [row, setRow] = useState<MeetingListItem | null>(null)
   const [seedError, setSeedError] = useState<string | null>(null)
   const rowRef = useRef<MeetingListItem | null>(null)
-  const seedingRef = useRef(false)
+  const seedStateRef = useRef({ inFlight: false, pending: false })
+  const firstAliveRef = useRef(false)
   const unmountedRef = useRef(false)
 
   const commit = useCallback((next: MeetingListItem | null) => {
@@ -65,9 +66,7 @@ export function IngestingMeetingCard({
     setRow(next)
   }, [])
 
-  const seed = useCallback(async () => {
-    if (seedingRef.current) return
-    seedingRef.current = true
+  const fetchSeed = useCallback(async () => {
     try {
       const { data, error } = await listMeetings({})
       if (unmountedRef.current) return
@@ -84,10 +83,29 @@ export function IngestingMeetingCard({
     } catch (err) {
       if (unmountedRef.current) return
       setSeedError(transportFailure(err instanceof Error ? err.message : String(err)).message)
-    } finally {
-      seedingRef.current = false
     }
   }, [commit, jobId])
+
+  // At most one seed is in flight. A stream frame that arrives during it asks
+  // for one follow-up snapshot instead of disappearing into the race window.
+  const requestSeed = useCallback(() => {
+    const state = seedStateRef.current
+    if (state.inFlight) {
+      state.pending = true
+      return
+    }
+    void (async () => {
+      state.inFlight = true
+      try {
+        do {
+          state.pending = false
+          await fetchSeed()
+        } while (state.pending && !unmountedRef.current)
+      } finally {
+        state.inFlight = false
+      }
+    })()
+  }, [fetchSeed])
 
   const onEvent = useCallback(
     (event: JobEvent) => {
@@ -97,38 +115,46 @@ export function IngestingMeetingCard({
         // The event is for our job but no row is held yet — the seed has not
         // landed, or ran before the row existed. Re-seed rather than build a
         // half-row out of an event that carries no title, source or start.
-        void seed()
+        requestSeed()
         return
       }
       const next = applyEvent([current], event)
       if (next === null) {
-        void seed()
+        requestSeed()
         return
       }
       commit(next[0])
       // A finished job has just acquired its counts and poster; pick them up.
-      if (event.event === 'job.done') void seed()
+      if (event.event === 'job.done') requestSeed()
     },
-    [commit, jobId, seed],
+    [commit, jobId, requestSeed],
   )
 
   const onResync = useCallback(() => {
-    void seed()
-  }, [seed])
+    requestSeed()
+  }, [requestSeed])
 
   const onAlive = useCallback(() => {
-    if (rowRef.current === null) void seed()
-  }, [seed])
+    // The server's first frame follows a silent baseline. Seed on that frame
+    // even if the mount seed already produced a row, so the two snapshots
+    // bracket transitions that occurred between them. While no row exists,
+    // later heartbeats keep providing retry opportunities without a poll loop.
+    if (!firstAliveRef.current || rowRef.current === null) {
+      firstAliveRef.current = true
+      requestSeed()
+    }
+  }, [requestSeed])
 
   const connection = useJobEvents({ onEvent, onResync, onAlive })
 
   useEffect(() => {
     unmountedRef.current = false
-    void seed()
+    firstAliveRef.current = false
+    requestSeed()
     return () => {
       unmountedRef.current = true
     }
-  }, [seed])
+  }, [requestSeed])
 
   // Reported up so the stepper's `ingesting` bar and this card never disagree
   // about the same job.

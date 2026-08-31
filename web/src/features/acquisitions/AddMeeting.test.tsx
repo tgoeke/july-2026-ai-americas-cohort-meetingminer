@@ -34,13 +34,25 @@ vi.mock('@/client/sdk.gen', () => ({
  */
 const stream = vi.hoisted(() => ({
   onEvent: null as ((event: JobEvent) => void) | null,
+  onAlive: null as (() => void) | null,
+  onResync: null as (() => void) | null,
   subscriptions: 0,
   connection: { kind: 'live' as const },
 }))
 
 vi.mock('@/features/meetings/useJobEvents', () => ({
-  useJobEvents: ({ onEvent }: { onEvent: (event: JobEvent) => void }) => {
+  useJobEvents: ({
+    onEvent,
+    onAlive,
+    onResync,
+  }: {
+    onEvent: (event: JobEvent) => void
+    onAlive?: () => void
+    onResync: () => void
+  }) => {
     stream.onEvent = onEvent
+    stream.onAlive = onAlive ?? null
+    stream.onResync = onResync
     stream.subscriptions += 1
     return stream.connection
   },
@@ -112,6 +124,8 @@ beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   user = userEvent.setup()
   stream.onEvent = null
+  stream.onAlive = null
+  stream.onResync = null
   stream.subscriptions = 0
   sdk.probeAcquisition.mockReset()
   sdk.startAcquisition.mockReset()
@@ -540,6 +554,36 @@ describe('Add-meeting, progress', () => {
     expect(screen.getByTestId('stage-transcribe')).toHaveAttribute('data-status', 'done')
     expect(screen.getByText('6 moments')).toBeInTheDocument()
     expect(screen.getByTestId('step-ingesting')).toHaveAttribute('data-status', 'done')
+  })
+
+  it('re-seeds after the stream baseline races an in-flight stale seed', async () => {
+    let resolveFirst: ((value: unknown) => void) | undefined
+    sdk.listMeetings
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveFirst = resolve as (value: unknown) => void
+        }),
+      )
+      .mockResolvedValueOnce({
+        data: {
+          meetings: [meetingRow({ status: 'succeeded', viewable: true })],
+        },
+        error: undefined,
+      })
+    await launch(
+      acquisition({ status: 'posted', result: 'created', jobId: JOB, meetingId: MEETING }),
+    )
+    await waitFor(() => expect(sdk.listMeetings).toHaveBeenCalledTimes(1))
+
+    // The stream takes its silent baseline after the job transition and emits
+    // only its connected comment while the older seed is still in flight.
+    act(() => stream.onAlive?.())
+    await act(async () => {
+      resolveFirst?.({ data: { meetings: [meetingRow()] }, error: undefined })
+    })
+
+    await waitFor(() => expect(sdk.listMeetings).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.getByTestId('acquired-meeting')).toHaveAttribute('data-viewable', 'true'))
   })
 
   it('says the meeting row does not exist yet rather than inventing one', async () => {
