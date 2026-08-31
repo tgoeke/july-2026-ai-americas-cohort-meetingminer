@@ -32,6 +32,13 @@ from meetingminer.projections.publish_gate import (
     assert_publishable,
     is_publishable,
 )
+from meetingminer.projections.documents import (
+    AUTHORSHIP,
+    DOCUMENTS_INDEX,
+    FORBIDDEN_CITATION_KEYS,
+    REVIEW_LABEL,
+    REVIEW_STATE,
+)
 from meetingminer.projections.stores import (
     CHUNKS_INDEX,
     EMBEDDER_NAME,
@@ -56,6 +63,7 @@ from conftest import (
 from repo_paths import REPO_ROOT
 from projection_seed import DEEP_LINK, SeededTurn, seed_meeting
 from projection_seed import insert_artifact as seed_artifact
+from projection_seed import insert_extraction_document as seed_document
 
 pytestmark = pytest.mark.slow(reason="every test writes the Meilisearch test twin: 34 tests, 46.1s at e5510c7")
 
@@ -1002,3 +1010,237 @@ def test_project_published_artifacts_skips_unpublished_ids_without_writing(
             {"artifact_id": draft, "reason": "not found in state 'published'"},
         )
     ]
+
+
+# --- extraction documents: the ungated index (story 12.4) -----------------
+
+
+def test_every_extraction_document_is_indexed_without_passing_the_publish_gate(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    projection_stores: Any,
+    fake_embedder: FakeEmbedder,
+) -> None:
+    """AD-4's one deliberate exception, proved in the store it applies to.
+
+    No approval, no lifecycle, no gate — and the documents are there. Asserted
+    against Meilisearch rather than against the builder, because "indexed as
+    soon as it is stored" is a claim about a store.
+    """
+    _driver, client = projection_stores
+    with pool.connection() as conn:
+        seeded = seed_meeting(conn, source_id="search-documents")
+        summary = seed_document(conn, seeded.meeting_id, kind="arch-summary")
+        actions = seed_document(conn, seeded.meeting_id, kind="action-items")
+        conn.commit()
+    project(pool, app_config, seeded.meeting_id, fake_embedder)
+
+    indexed = documents_of(client, DOCUMENTS_INDEX, seeded.meeting_id)
+    assert {document["id"] for document in indexed} == {str(summary), str(actions)}
+
+
+def test_the_indexed_record_itself_carries_the_unreviewed_label(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    projection_stores: Any,
+    fake_embedder: FakeEmbedder,
+) -> None:
+    """AD-18, pinned in the record rather than only in a renderer.
+
+    The story is explicit that a test must hold this in the *indexed record*.
+    A label a UI adds is a label the next surface forgets; a label in the
+    record is one every surface reads off the thing it is describing.
+    """
+    _driver, client = projection_stores
+    with pool.connection() as conn:
+        seeded = seed_meeting(conn, source_id="search-documents-label")
+        seed_document(conn, seeded.meeting_id)
+        conn.commit()
+    project(pool, app_config, seeded.meeting_id, fake_embedder)
+
+    [indexed] = documents_of(client, DOCUMENTS_INDEX, seeded.meeting_id)
+    assert indexed["reviewState"] == REVIEW_STATE
+    assert indexed["authorship"] == AUTHORSHIP
+    assert indexed["reviewLabel"] == REVIEW_LABEL
+    assert indexed["citable"] is False
+
+
+def test_no_indexed_document_carries_a_field_a_citation_could_resolve(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    projection_stores: Any,
+    fake_embedder: FakeEmbedder,
+) -> None:
+    """AD-6 in the store: there is nothing in this index to cite.
+
+    A document is a claim *about* evidence, so citing it would establish that
+    the model said something rather than that the meeting did — the
+    circularity the publish gate exists to prevent. The store is asserted, not
+    just the builder, because the builder is not the only way a document could
+    reach an index.
+    """
+    _driver, client = projection_stores
+    with pool.connection() as conn:
+        seeded = seed_meeting(conn, source_id="search-documents-uncitable")
+        seed_document(conn, seeded.meeting_id)
+        conn.commit()
+    project(pool, app_config, seeded.meeting_id, fake_embedder)
+
+    for indexed in documents_of(client, DOCUMENTS_INDEX, seeded.meeting_id):
+        assert FORBIDDEN_CITATION_KEYS.isdisjoint(indexed)
+
+
+def test_a_zero_yield_document_is_indexed_with_its_zero_count(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    projection_stores: Any,
+    fake_embedder: FakeEmbedder,
+) -> None:
+    """The case the whole exception exists for.
+
+    A run that parsed to nothing produced no artifact to approve and therefore
+    nothing the gate would ever pass — and its text is exactly the text
+    somebody needs to read. It is indexed, and the zero travels with it.
+    """
+    _driver, client = projection_stores
+    with pool.connection() as conn:
+        seeded = seed_meeting(conn, source_id="search-documents-zero")
+        seed_document(
+            conn,
+            seeded.meeting_id,
+            text="# Summary\n\nNothing was decided, but here is the discussion.\n",
+            layout="none",
+            item_count=0,
+            artifact_count=0,
+        )
+        conn.commit()
+    project(pool, app_config, seeded.meeting_id, fake_embedder)
+
+    [indexed] = documents_of(client, DOCUMENTS_INDEX, seeded.meeting_id)
+    assert indexed["itemCount"] == 0
+    assert indexed["artifactCount"] == 0
+    assert "Nothing was decided" in indexed["text"]
+
+
+def test_a_run_that_predates_retention_is_not_indexed_as_an_empty_document(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    projection_stores: Any,
+    fake_embedder: FakeEmbedder,
+) -> None:
+    """"Nothing was kept" is not "nothing was written" (AD-18, migration 0019).
+
+    A pre-12.1 row has no text to index and is skipped; an empty document is a
+    real document that said nothing, and it is indexed. Collapsing the two
+    would send a reader to re-read a document that does not exist instead of
+    re-extracting the meeting.
+    """
+    _driver, client = projection_stores
+    with pool.connection() as conn:
+        seeded = seed_meeting(conn, source_id="search-documents-unretained")
+        seed_document(conn, seeded.meeting_id, kind="arch-summary", text=None)
+        empty = seed_document(conn, seeded.meeting_id, kind="action-items", text="")
+        conn.commit()
+    project(pool, app_config, seeded.meeting_id, fake_embedder)
+
+    indexed = documents_of(client, DOCUMENTS_INDEX, seeded.meeting_id)
+    assert {document["id"] for document in indexed} == {str(empty)}
+
+
+def test_a_re_extraction_replaces_its_record_rather_than_accumulating_one(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    projection_stores: Any,
+    fake_embedder: FakeEmbedder,
+) -> None:
+    """The consequence of keying on the `extraction_source` row (story 12.4).
+
+    `extraction_source` carries `UNIQUE (meeting_id, kind)` and a rerun upserts
+    that row, so the record's id is stable across reruns and the second
+    projection overwrites the first. An ordinal key would have accumulated one
+    stale document per run — the failure `chunking.py` refuses for chunks.
+    """
+    _driver, client = projection_stores
+    with pool.connection() as conn:
+        seeded = seed_meeting(conn, source_id="search-documents-rerun")
+        first = seed_document(conn, seeded.meeting_id, text="# First run\n")
+        conn.commit()
+    project(pool, app_config, seeded.meeting_id, fake_embedder)
+
+    with pool.connection() as conn:
+        second = seed_document(conn, seeded.meeting_id, text="# Second run\n")
+        conn.commit()
+    project(pool, app_config, seeded.meeting_id, fake_embedder)
+
+    assert first == second, "the rerun upserts the row rather than inserting one"
+    indexed = documents_of(client, DOCUMENTS_INDEX, seeded.meeting_id)
+    assert len(indexed) == 1
+    assert indexed[0]["text"] == "# Second run\n"
+
+
+def test_retiring_a_meeting_removes_its_extraction_documents(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    projection_stores: Any,
+    fake_embedder: FakeEmbedder,
+) -> None:
+    """The ungated index is still meeting-scoped, so the same delete reaches it."""
+    _driver, client = projection_stores
+    with pool.connection() as conn:
+        seeded = seed_meeting(conn, source_id="search-documents-retire")
+        seed_document(conn, seeded.meeting_id)
+        conn.commit()
+    project(pool, app_config, seeded.meeting_id, fake_embedder)
+    assert documents_of(client, DOCUMENTS_INDEX, seeded.meeting_id)
+
+    with pool.connection() as conn:
+        projections.unproject_meeting(conn, app_config, seeded.meeting_id)
+    assert documents_of(client, DOCUMENTS_INDEX, seeded.meeting_id) == []
+
+
+def test_the_documents_index_declares_no_embedder(
+    pool: ConnectionPool, app_config: AppConfig, projection_stores: Any
+) -> None:
+    """Keyword-only, like the artifacts index and for a sharper reason.
+
+    An embedder on this index would let a model-host outage withhold exactly
+    the documents AD-4's exception exists to keep reachable
+    (`retrieval-prior-art.md` §3 rule 4).
+    """
+    _driver, client = projection_stores
+    ensure_search_schema(client, app_config, dimension=app_config.settings.embedder.dimension)
+    assert declared_embedders(client, DOCUMENTS_INDEX) == {}
+
+
+def test_the_settle_point_indexes_documents_without_reprojecting_the_meeting(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    projection_stores: Any,
+    fake_embedder: FakeEmbedder,
+) -> None:
+    """"As soon as it is stored", which the structural pass alone cannot give.
+
+    Evidence projects at evidence-complete; `extract` runs *after* that and is
+    not an evidence stage, so its rows do not exist when the bundle is
+    projected. This is the entrypoint the runner calls when `extract` settles,
+    and it must reach the documents index and nothing else — the moments and
+    chunks written a moment ago are already correct.
+    """
+    _driver, client = projection_stores
+    with pool.connection() as conn:
+        seeded = seed_meeting(conn, source_id="search-documents-settle")
+        conn.commit()
+    project(pool, app_config, seeded.meeting_id, fake_embedder)
+    moments_before = documents_of(client, MOMENTS_INDEX, seeded.meeting_id)
+    assert documents_of(client, DOCUMENTS_INDEX, seeded.meeting_id) == []
+
+    with pool.connection() as conn:
+        seed_document(conn, seeded.meeting_id)
+        conn.commit()
+        written = projections.project_extraction_documents(
+            conn, app_config, seeded.meeting_id
+        )
+
+    assert written == 1
+    assert len(documents_of(client, DOCUMENTS_INDEX, seeded.meeting_id)) == 1
+    assert documents_of(client, MOMENTS_INDEX, seeded.meeting_id) == moments_before

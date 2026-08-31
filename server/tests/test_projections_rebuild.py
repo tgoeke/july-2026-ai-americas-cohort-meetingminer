@@ -40,6 +40,7 @@ from meetingminer.projections.stores import (
 from conftest import BrokenEmbedder, DownEmbedder, FakeEmbedder, truncate_evidence
 from projection_seed import STARTED_AT, seed_meeting
 from projection_seed import insert_artifact as seed_artifact
+from projection_seed import insert_extraction_document as seed_document
 
 pytestmark = pytest.mark.slow(reason="rebuild writes both test twins under the projection lock: 39 tests, 81.9s at e5510c7")
 
@@ -1666,3 +1667,93 @@ def test_embed_only_rebuild_skips_artifacts_but_preserves_their_documents(
     # keyword-only end to end, not merely unconfigured.
     embedded_texts = [text for call in fake_embedder.calls for text in call]
     assert all("never embedded" not in text for text in embedded_texts)
+
+
+# --- extraction documents (story 12.4) ------------------------------------
+
+
+def test_rebuild_reindexes_extraction_documents_from_the_postgres_row_alone(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    projection_stores: Any,
+    fake_embedder: FakeEmbedder,
+) -> None:
+    """The story's own requirement, and the reason 12.1 stored a column.
+
+    A full rebuild drops both stores and regenerates them from Postgres plus
+    `config.yaml` alone. Documents come back — from `extraction_source`, with
+    no evidence file opened and no drop consulted. Text living only in a drop
+    would have fallen out of search on exactly this pass, which is why AD-3's
+    anti-copy rule does not reach a document (AD-3 as amended 2026-08-31).
+    """
+    from meetingminer.projections.documents import DOCUMENTS_INDEX, REVIEW_STATE
+
+    _driver, client = projection_stores
+    with pool.connection() as conn:
+        seeded = seed_meeting(conn, source_id="rebuild-documents")
+        summary = seed_document(conn, seeded.meeting_id, kind="arch-summary")
+        actions = seed_document(conn, seeded.meeting_id, kind="action-items")
+        conn.commit()
+
+    report = _rebuild(pool, app_config, fake_embedder)
+    assert report.ok and report.dropped
+    [outcome] = report.outcomes
+    assert outcome.extraction_documents == 2
+
+    indexed = client.index(DOCUMENTS_INDEX).get_documents({"limit": 100})
+    bodies = {dict(document)["id"]: dict(document) for document in indexed.results}
+    assert set(bodies) == {str(summary), str(actions)}
+    # The label survives the round trip: an unlabelled document after a rebuild
+    # would be an AD-18 violation reintroduced by the recovery path itself.
+    for body in bodies.values():
+        assert body["reviewState"] == REVIEW_STATE
+        assert body["reviewLabel"]
+
+
+def test_the_projection_module_opens_no_file_to_index_a_document(
+    pool: ConnectionPool,
+    app_config: AppConfig,
+    projection_stores: Any,
+    fake_embedder: FakeEmbedder,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AD-4's filesystem property, unchanged by this story.
+
+    `projections/` opens no evidence file today and story 12.4 must not make it
+    one. Asserted by making `open` itself fail for the duration of the pass: if
+    any part of building or writing a document record reached the filesystem,
+    the rebuild would fail rather than pass.
+    """
+    import builtins
+    import meetingminer.projections.documents as documents_module
+    import meetingminer.projections.evidence as evidence_module
+    import meetingminer.projections.search as search_module
+
+    with pool.connection() as conn:
+        seeded = seed_meeting(conn, source_id="rebuild-documents-no-file")
+        seed_document(conn, seeded.meeting_id)
+        conn.commit()
+
+    # Scoped to the three modules that touch a document, rather than globally:
+    # Meilisearch's HTTP client legitimately opens sockets and certificate
+    # bundles, and a blanket ban would fail for a reason that is not this one.
+    for module in (documents_module, evidence_module, search_module):
+        monkeypatch.setattr(
+            module,
+            "open",
+            _forbidden_open,
+            raising=False,
+        )
+
+    report = _rebuild(pool, app_config, fake_embedder)
+    assert report.ok, report.failures
+    [outcome] = report.outcomes
+    assert outcome.extraction_documents == 1
+
+
+def _forbidden_open(*args: Any, **kwargs: Any) -> Any:
+    raise AssertionError(
+        "the projection module opened a file to index an extraction document —"
+        " it reads Postgres values only (AD-4), and text living only in a drop"
+        " would fall out of search on every rebuild"
+    )

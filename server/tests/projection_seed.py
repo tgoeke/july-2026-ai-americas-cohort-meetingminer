@@ -15,6 +15,7 @@ in their place (UX-DR11).
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Sequence
@@ -407,4 +408,61 @@ def insert_artifact(
         "INSERT INTO artifact (moment_id, meeting_id, kind, state, title, body)"
         " VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
         (moment_id, meeting_id, kind, state, title, body),
+    ).fetchone()[0]
+
+
+def insert_extraction_document(
+    conn: Connection,
+    meeting_id: UUID,
+    *,
+    kind: str = "arch-summary",
+    origin: str = "generated",
+    text: str | None = "# Architecture summary\n\nWe moved the feed to SFTP.\n",
+    layout: str = "table",
+    item_count: int = 3,
+    artifact_count: int = 3,
+    model: str | None = "test-model",
+    prompt_version: int | None = 3,
+    prompt_hash: str | None = "abcdef0123456789",
+) -> UUID:
+    """One `extraction_source` row with its retained text (stories 12.1, 12.4).
+
+    The single definition every suite seeds documents through. `byte_size` is
+    computed from the text rather than passed: migration 0019 constrains
+    `octet_length(document_text) = byte_size`, and a fixture that could pass a
+    mismatched pair would be testing a row the database refuses in production.
+
+    `text=None` seeds a pre-12.1 run — a row that describes a run whose
+    document was discarded. Distinct from `text=""`, which is a document that
+    was written and said nothing.
+    """
+    encoded = b"" if text is None else text.encode("utf-8")
+    return conn.execute(
+        "INSERT INTO extraction_source (meeting_id, kind, origin, sha256,"
+        " byte_size, layout, item_count, artifact_count, model, prompt_version,"
+        " prompt_hash, document_text)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        " ON CONFLICT (meeting_id, kind) DO UPDATE SET"
+        "   origin = EXCLUDED.origin, sha256 = EXCLUDED.sha256,"
+        "   byte_size = EXCLUDED.byte_size, layout = EXCLUDED.layout,"
+        "   item_count = EXCLUDED.item_count,"
+        "   artifact_count = EXCLUDED.artifact_count,"
+        "   model = EXCLUDED.model, prompt_version = EXCLUDED.prompt_version,"
+        "   prompt_hash = EXCLUDED.prompt_hash,"
+        "   document_text = EXCLUDED.document_text"
+        " RETURNING id",
+        (
+            meeting_id,
+            kind,
+            origin,
+            hashlib.sha256(encoded).hexdigest(),
+            len(encoded),
+            layout,
+            item_count,
+            artifact_count,
+            model,
+            prompt_version,
+            prompt_hash,
+            text,
+        ),
     ).fetchone()[0]
