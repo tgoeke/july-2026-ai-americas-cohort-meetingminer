@@ -152,7 +152,9 @@ CURATED_NAME_JOIN = (
     " LEFT JOIN thread_curation tc ON tc.thread_id = th.id"
 )
 CURATED_NAME_EXPR = "COALESCE(tc.name, th.name)"
-CURATED_NAME_IS_CURATED_EXPR = "(tc.thread_id IS NOT NULL)"
+CURATED_NAME_IS_CURATED_EXPR = (
+    "(tc.thread_id IS NOT NULL OR th.link_rule = 'curated')"
+)
 
 
 @dataclass(frozen=True)

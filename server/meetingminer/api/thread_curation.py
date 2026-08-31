@@ -62,6 +62,7 @@ from meetingminer import logs
 from meetingminer.api.problems import Problem, ProblemDetails
 from meetingminer.domain.thread_curation import (
     CURATED_LINK_RULE,
+    CURATED_NAME_IS_CURATED_EXPR,
     EFFECTIVE_MEMBERSHIP,
     ThreadCurationError,
     curated_split_identity_key,
@@ -91,7 +92,8 @@ SPLIT_TOPIC_LIMIT = 500
 # are the whole of what curation adds to a thread's identity: the human name
 # if there is one, and the survivor if this thread has been merged away.
 _THREAD_WITH_CURATION = (
-    "SELECT th.id, COALESCE(tc.name, th.name), th.name, tc.thread_id IS NOT NULL,"
+    "SELECT th.id, COALESCE(tc.name, th.name), th.name,"
+    f" {CURATED_NAME_IS_CURATED_EXPR},"
     " th.color_ordinal, al.merged_into_id, th.identity_key"
     " FROM thread th"
     " LEFT JOIN thread_curation tc ON tc.thread_id = th.id"
