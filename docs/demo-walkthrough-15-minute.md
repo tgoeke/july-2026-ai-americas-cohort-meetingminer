@@ -48,19 +48,23 @@ question the first provokes.
 > that is not rare, and you must be ready to name it. The three below passed
 > twice each, and every citation carried a screenshot.
 
-**Primary question — verified twice, stable, use this one:**
+**No question is guaranteed.** Measured over repeated runs on 2026-08-31: the
+DBE question passed **3 of 4**, heated sidewalks **3 of 4**. The gate refuses
+roughly half of all reasonable questions and the odds shift run to run. Load
+two, and be ready to explain a refusal.
+
+**Primary question — best answer in the corpus, 3 of 4 runs:**
 
 ```
 What is the DBE participation goal and how is it tracked?
 ```
 
-Returns a specific, quotable answer with **one citation carrying a
-screenshot**: the goal is 15%, they were running around 22% as of October, and
-tracking was "on pause". Numbers, a caveat, and a named pause — the kind of
-answer a person actually wanted. It also sets up Arc 2, because DBE is a thread
-running through **8 meetings** across 1,360 days.
+Returns real numbers with **one citation carrying a screenshot**: the goal is
+15%, they were running around 22% as of October, and tracking was "on pause".
+It also sets up Arc 2, because DBE is a thread running through **8 meetings**
+across 1,360 days.
 
-**Second question — verified twice, two citations, both with screenshots:**
+**Second question — 3 of 4 runs, two or three citations, all with screenshots:**
 
 ```
 What was said about heated sidewalks?
@@ -68,18 +72,13 @@ What was said about heated sidewalks?
 
 Returns a real exchange: someone asks whether heated sidewalks are going in at
 the larger stations because ice is treacherous, and someone else answers that
-they did consider it and did something on Central. Good because it shows a
-conversation rather than a summary.
+they did consider it and did something on Central. A conversation rather than a
+summary. Run this if the DBE question refuses.
 
-**Third, if you want range — verified, but the answer varies:**
-
-```
-What is the outlook for reopening the Cedar Lake Trail?
-```
-
-Sometimes three citations across three meetings spanning 2022 to 2025;
-sometimes one. It always passes, but do not promise the three-citation version
-from the stage.
+**Do not ask** *"What is the outlook for reopening the Cedar Lake Trail?"* — it
+passes the gate almost every time, but the answer is a hedge (*"the moments
+provided do not give a single definitive outlook date"*). Technically cited,
+reads like a failure. Save Cedar Lake for Arc 2, where the timeline carries it.
 
 **Questions that trigger the citation gate**, to show deliberately — each was
 refused on a real run:
