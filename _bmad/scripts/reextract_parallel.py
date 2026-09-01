@@ -22,7 +22,7 @@ Each meeting commits independently: a failure rolls back that meeting alone and
 is reported at the end, so a partial run is a known partial rather than an
 unknown one.
 
-    uv run --project server python _bmad/scripts/reextract_parallel.py [--workers N] [--limit N]
+    uv run --project server python _bmad/scripts/reextract_parallel.py\n        [--workers N] [--limit N] [--meeting UUID ...]
 """
 
 from __future__ import annotations
@@ -51,8 +51,16 @@ def _say(message: str) -> None:
         print(message, flush=True)
 
 
-def _meetings(conn: psycopg.Connection, limit: int | None) -> list[tuple[UUID, UUID, str, str]]:
-    """Every meeting whose job holds a readable drop, newest first."""
+def _meetings(
+    conn: psycopg.Connection, limit: int | None, only: tuple[UUID, ...] = ()
+) -> list[tuple[UUID, UUID, str, str]]:
+    """Every meeting whose job holds a readable drop, newest first.
+
+    ``only`` narrows the run to named meetings — the case that arises when an
+    earlier pass left a few meetings without retained text and re-running the
+    other 56 would be paid work for nothing. A named meeting that has no
+    readable drop is reported by the caller rather than silently skipped.
+    """
     # `drop_relative_path`, not `drop_path`: story 2.1a anchored every stored
     # drop path to MM_DROPS_ROOT, and `drop_path` has been null on all 59 jobs
     # since. Resolved against the root by the caller.
@@ -60,11 +68,16 @@ def _meetings(conn: psycopg.Connection, limit: int | None) -> list[tuple[UUID, U
         "SELECT m.id, j.id, j.drop_relative_path, m.title"
         " FROM meeting m JOIN job j ON j.id = m.job_id"
         " WHERE j.drop_relative_path IS NOT NULL"
-        " ORDER BY m.started_at DESC"
     )
+    params: list[object] = []
+    if only:
+        sql += " AND m.id = ANY(%s)"
+        params.append(list(only))
+    sql += " ORDER BY m.started_at DESC"
     if limit is not None:
         sql += f" LIMIT {int(limit)}"
-    return [(r[0], r[1], r[2], r[3] or "(untitled)") for r in conn.execute(sql).fetchall()]
+    rows = conn.execute(sql, params).fetchall() if params else conn.execute(sql).fetchall()
+    return [(r[0], r[1], r[2], r[3] or "(untitled)") for r in rows]
 
 
 def _one(config, content_root: Path, drops_root: Path, row) -> tuple[str, str, str]:
@@ -100,8 +113,21 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="reextract-parallel")
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument(
+        "--meeting",
+        action="append",
+        default=[],
+        metavar="UUID",
+        help="re-extract only this meeting; repeatable. Every call is paid, so"
+        " scoping is the difference between three meetings and fifty-nine.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
+
+    try:
+        only = tuple(UUID(value) for value in args.meeting)
+    except ValueError as exc:
+        parser.error(f"--meeting takes a UUID: {exc}")
 
     config = load_config()
     binding = config.settings.llm.roles.extraction
@@ -110,7 +136,19 @@ def main(argv: list[str] | None = None) -> int:
 
     with psycopg.connect(db.conninfo(config), connect_timeout=10) as conn:
         db.check_migrations_current(conn)
-        rows = _meetings(conn, args.limit)
+        rows = _meetings(conn, args.limit, only)
+
+    # A named meeting that matched nothing is a typo or a meeting with no
+    # readable drop. Refuse rather than quietly re-extracting a shorter list.
+    if only:
+        missing = set(only) - {row[0] for row in rows}
+        if missing:
+            print(
+                "error: no meeting with a readable drop for "
+                + ", ".join(str(value) for value in sorted(missing)),
+                file=sys.stderr,
+            )
+            return 2
 
     print(f"model      : {binding.model}  (fallback {binding.fallback})")
     print(f"meetings   : {len(rows)}")
