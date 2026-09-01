@@ -1,35 +1,14 @@
 # MeetingMiner — 15-minute capstone walkthrough
 
-Companion to `docs/MeetingMiner-15-minute-capstone.pptx` (14 slides). The deck
+Companion to `docs/MeetingMiner-15-minute-capstone.pptx` (12 slides). The deck
 carries the argument; this carries the live minutes and the exact strings to
 type. Every query, URL and number below was run against the live corpus on
-2026-08-31 and is recorded here as verified rather than intended.
+2026-08-31, after re-deriving threads and rebuilding both stores, and is
+recorded here as verified rather than intended.
 
 ---
 
 ## Before you present
-
-### Credits — resolved, and worth understanding
-
-Credits ran out mid-afternoon on 2026-08-31 and `POST /chat` returned **503
-`chat-model-unavailable`**. $17.49 was added and Ask works again.
-
-**Two numbers on the OpenAI dashboard mean different things**, and confusing
-them cost time here. *Usage against a budget limit* — "$50.77 / $100.00" — is
-what you have spent this period against a ceiling you set. The *API credit
-balance* is the pot the API actually draws from. Only the second one stops
-calls, and its error is specific: `credit_balance_exhausted`, HTTP 429.
-
-**If Ask returns 503 on the day**, check the credit balance, not the usage
-figure. To confirm it is billing and not the app, call OpenAI directly — the
-app's own error repeats the provider's message verbatim, so a direct call
-settles it in seconds.
-
-**What a credit outage does and does not break.** Ask dies, because `chat`
-deliberately has no fallback (owner decision, 2026-08-21) so the failure is
-loud. Everything else survives: extraction falls back to a local model, and
-search, threads, moments, replay, screenshots and the documents panel use no
-paid model at all.
 
 ### Checklist
 
@@ -47,89 +26,113 @@ paid model at all.
 
 | | Slides | Minutes |
 |---|---|---|
-| Argument | 1–8 | 0:00–7:30 |
-| **Live demo** | **9** | **7:30–12:30** |
-| Close and Q&A | 10–11 | 12:30–15:00 |
-| Appendix, only if asked | 12–14 | — |
+| Argument | 1–6 | 0:00–7:30 |
+| **Live demo** | **7** | **7:30–12:30** |
+| Close and Q&A | 8–9 | 12:30–15:00 |
+| Appendix, only if asked | 10–12 | — |
 
-Slides 12–14 are your strongest material under questioning — the measured
+Slides 10–12 are your strongest material under questioning — the measured
 retrieval numbers especially. Do not spend the main fifteen on them.
 
 ---
 
-## The live demo (slide 9) — five minutes
+## The live demo (slide 7) — five minutes
 
-Slide 9 plans two arcs. Run them in this order; the second answers the
+Slide 7 plans two arcs. Run them in this order; the second answers the
 question the first provokes.
 
 ### Arc 1 · Ask → evidence → replay (2:30)
 
-> The deck's scripted question — *"What did the vendor say about API and SFTP
-> support?"* — belongs to the earlier prototype corpus and finds **nothing**
-> here. Use one of these instead. Both are grounded in this corpus.
+> Everything in this section was re-run on 2026-08-31 after the thread rebuild.
+> **About half of all reasonable questions are refused by the citation gate** —
+> that is not rare, and you must be ready to name it. The three below passed
+> twice each, and every citation carried a screenshot.
 
-**Primary question — verified, and the one to use:**
+**Primary question — verified twice, stable, use this one:**
 
 ```
 What is the DBE participation goal and how is it tracked?
 ```
 
-It returns a specific, quotable answer with **two citations, both carrying
-screenshots**: the goal is 15%, they were running around 22% as of October, and
-credit counting was "on pause". Numbers, a caveat, and a named pause — the kind
-of answer a person actually wanted. It also sets up Arc 2, because DBE is a
-thread running through **8 meetings**.
+Returns a specific, quotable answer with **one citation carrying a
+screenshot**: the goal is 15%, they were running around 22% as of October, and
+tracking was "on pause". Numbers, a caveat, and a named pause — the kind of
+answer a person actually wanted. It also sets up Arc 2, because DBE is a thread
+running through **8 meetings** across 1,360 days.
 
-**Backup, if you want a second:**
-
-```
-What are the risks to the 2027 revenue service start date?
-```
-
-Returns a cited answer that is honest in the negative — the moments do not state
-specific risks beyond not being ready to pinpoint the date. Say that out loud:
-the system declines to manufacture risks nobody named.
-
-**Two questions that trigger the citation gate**, which you may show
-deliberately or must be ready to explain if you hit one:
+**Second question — verified twice, two citations, both with screenshots:**
 
 ```
 What was said about heated sidewalks?
-What did they say about the Cedar Lake Trail reopening?
 ```
 
-Both are **refused**, not answered: *"every sentence must carry at least one
-moment marker; this one carries none."* That is slide 7's promise executing —
-the draft failed validation and no answer was streamed. It reads as an error
-because it is one, and it is the strongest possible evidence that the citation
-boundary is code rather than a prompt. If it happens live, name it and move on.
+Returns a real exchange: someone asks whether heated sidewalks are going in at
+the larger stations because ice is treacherous, and someone else answers that
+they did consider it and did something on Central. Good because it shows a
+conversation rather than a summary.
 
-**Why Ask is thinner than the rest of the demo.** Retrieval runs over transcript
-passages. The crisp material — the decision tables, the risks with timestamps —
-lives in the extraction documents, and **those are not indexed** (1 of 1,001
-artifacts, and no documents index at all). Story 12-4 is built and reviewed but
-unlanded; landing it would put those documents into retrieval and make Ask
-markedly better. Worth doing before the recording if there is time.
+**Third, if you want range — verified, but the answer varies:**
+
+```
+What is the outlook for reopening the Cedar Lake Trail?
+```
+
+Sometimes three citations across three meetings spanning 2022 to 2025;
+sometimes one. It always passes, but do not promise the three-citation version
+from the stage.
+
+**Questions that trigger the citation gate**, to show deliberately — each was
+refused on a real run:
+
+```
+What are the risks to the 2027 revenue service start date?
+What has been reported about tunnel construction progress?
+What did they say about ridership trends?
+```
+
+The API returns **422 `no-citable-answer`**: *"every sentence must carry at
+least one moment marker; this one carries none."* The model wrote a good
+answer, one sentence lacked a marker, and the whole thing was rejected. That is
+slide 5's promise executing. It reads as an error because it is one, and it is
+the strongest possible evidence that the citation boundary is code rather than
+a prompt. Say: *"it wrote an answer, one sentence had no evidence behind it, so
+you get nothing."*
+
+**Extraction documents are now indexed.** Story 12-4 landed: 224 documents are
+in the search index and reachable from search and chat, labelled as unreviewed
+machine output. Artifacts are still gated on publishing — 1 of 1,001 — so the
+decision tables reach you as documents, not as artifacts.
 
 **Beats:**
 
 1. Type the question in the Ask box. Say: *"one question, across fifty-nine
    meetings."*
 2. The answer streams with citations attached. Say: *"every claim carries a
-   moment — speaker, meeting, timecode."*
+   moment — the meeting, and the exact second."*
 3. Click the citation. The moment opens with its screenshot.
 4. Press **Replay**. The recording seeks to that second. Let it play three
    seconds with audio.
 
-That is the promise from slide 4, closed in under a minute.
+That is the promise from slide 1, closed in under a minute.
 
 ### Arc 2 · Corpus → threads → meeting (2:30)
 
 1. **Threads.** Click **Threads**. The view is empty by design — a box and the
    subjects the corpus suggests. Say: *"a thread is a question you ask, not a
    list you browse."*
-2. Choose **Trail reopening outlook (Cedar Lake Trail segments)** — 11 meetings
-   across 1,542 days. Or type `trail closures` and pick from the candidates.
+2. Choose **Trail reopening outlook (Cedar Lake Trail segments)** — **12 meetings
+   across 1,548 days**, March 2022 to June 2026. Or type `trail` and pick from
+   the candidates.
+
+   Other verified subjects: Communications/outreach metrics (18 meetings), DBE
+   participation (8), Suburban Transit ridership trend (9), Tunnel construction
+   progress (7), Hopkins Rail Support Facility (6), Train testing safety
+   awareness (6).
+
+   **Avoid the widest threads — they are meeting procedure, not content:**
+   "Presentation logistics (screen share)" (47 meetings), "Meeting opening &
+   apologies" (22), "Meeting close: announcements". If the suggestions are
+   ordered by breadth these sit at the top and they are terrible material.
 3. The timeline draws left to right across every meeting where it surfaced.
    **Scroll to zoom.** Say: *"the zoom is semantic — a meeting is a bar up
    here, a card lower down, its own moments at the bottom. Labels stay
@@ -154,11 +157,11 @@ Do not wait for a full ingest on stage.
 |---|---|
 | Corpus | 59 meetings · 49.8 hours · 5,292 moments · 3,107 screens |
 | Artifacts | ~1,000 line items, 224 retained markdown documents across 56 meetings |
-| Threads | 1,392 derived; 114 span 2+ meetings, 44 span 3+, widest 25 |
-| Search | 7,000 chunks indexed, hybrid BM25 + vector |
-| Retrieval (slide 13) | paraphrase: embeddings 60.0% vs BM25 42.5%; exact wording: BM25 37.2% vs embeddings 32.8% |
+| Threads | 1,473 derived; 130 span 2+ meetings, 48 span 3+, widest 47 |
+| Search | 7,000 chunks · 5,292 moments · 224 documents indexed; hybrid BM25 + vector |
+| Retrieval (slide 11) | paraphrase: embeddings 60.0% vs BM25 42.5%; exact wording: BM25 37.2% vs embeddings 32.8% |
 
-Slide 13 is the honest one: embeddings lost on 0 of 9 exact-wording tasks and
+Slide 11 is the honest one: embeddings lost on 0 of 9 exact-wording tasks and
 won 5 of 9 on paraphrase. That is why retrieval is hybrid rather than
 fashionable.
 
@@ -169,17 +172,50 @@ fashionable.
 - **Six artifact-kind counters read zero** on a moment (Decisions, Stories,
   Requirements, Bug fixes, Change requests). The pipeline produces two kinds;
   those five have no producer. Avoid that panel, or name it as unfinished.
-- **Speakers are `Unknown` on 29 of 31 meetings.** YouTube auto-captions carry
-  no speaker labels, and a supplied transcript means diarization never runs.
-  The two Green Line meetings have named speakers because they were re-ingested
-  from the recording alone.
-- **Artifacts are not searchable.** Indexing is gated on publishing, which is a
-  category error already identified and filed — publishing means export to an
-  external system, not visibility. Search finds the transcript, not the
-  document.
+- **Only 4 of 59 meetings have named speakers.** YouTube auto-captions carry no
+  speaker labels, and a supplied transcript means diarization never runs.
+  Everywhere else the speaker reads `Unknown` or `SPEAKER_03`. The two Green
+  Line Corridor Management Committee meetings are named because they were
+  re-ingested from the recording alone — **demo from those two** and citations
+  look right.
+- **About half of all reasonable questions are refused** by the citation gate
+  (422 `no-citable-answer`). The model writes a good answer, one sentence lacks
+  a moment marker, and the whole answer is rejected. This is the design working,
+  but it is frequent enough that you should show it deliberately rather than be
+  caught by it.
+- **Artifacts are still not searchable** — 1 of 1,001 indexed, because indexing
+  is gated on publishing and publishing means export, not visibility. Extraction
+  documents *are* now indexed (224 of them, story 12-4), so the decision tables
+  reach you as documents rather than as artifacts.
 - **Three meetings failed re-extraction** on a malformed model reply. The stage
   refused the document rather than storing a half-parsed one.
 
 Each of these is a boundary you chose to leave visible rather than paper over.
-Slide 10 invites the question; answering it plainly is stronger than hoping it
+Slide 8 invites the question; answering it plainly is stronger than hoping it
 is not asked.
+
+---
+
+## Verified search terms
+
+Exact-phrase hits, run on 2026-08-31 after the rebuild (moments / documents):
+
+| term | moments | documents |
+|---|---|---|
+| `tunnel` | 107 | 24 |
+| `Kenilworth` | 57 | 9 |
+| `functional classification` | 52 | 8 |
+| `travel demand management` | 48 | 5 |
+| `ridership` | 45 | 29 |
+| `revenue service` | 40 | 22 |
+| `inflow and infiltration` | 36 | 0 |
+| `Cedar Lake Trail` | 24 | 8 |
+| `landscaping` | 12 | 8 |
+| `punch list` | 6 | 3 |
+
+**Do not type these — all return zero moments:** `station art`, `noise wall`,
+`participation goal`, `trail reopening`.
+
+`Kenilworth`, `revenue service`, `Cedar Lake Trail`, `landscaping` and
+`punch list` hit the meetings that have named speakers, so their results look
+best on screen.
